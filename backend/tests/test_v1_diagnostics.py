@@ -108,6 +108,18 @@ def test_diagnostics_reports_each_hardware_vendor(client: TestClient, factory, m
     assert (body["active"], body["tonemap"], body["probe_ok"]) == (active, tonemap, True)
 
 
+def test_output_codec_diagnostics_only_reports_proven_formats_and_redacts_probe_failures(client: TestClient, factory, monkeypatch: pytest.MonkeyPatch) -> None:
+    status = HwStatus(active="nvenc", probe_ok=True, encode_codecs=("h264", "hevc"), encode_errors={"av1": f"cannot open {settings.data_dir}/private-device token={SECRETS[1]}"})
+    monkeypatch.setattr(hwaccel, "status", lambda *_: status)
+    login(client)
+    response = client.get("/api/admin/diagnostics")
+    assert response.status_code == 200, response.text
+    body = response.json()["playback"]
+    assert body["encode_codecs"] == ["h264", "hevc"]
+    assert "[redacted]" in body["encode_errors"]["av1"]
+    assert SECRETS[1] not in response.text and str(settings.data_dir) not in response.text
+
+
 def test_log_records_are_redacted(caplog: pytest.LogCaptureFixture) -> None:
     logger = logging.getLogger("lumina.test")
     with caplog.at_level(logging.INFO, logger="lumina.test"):

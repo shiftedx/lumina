@@ -43,9 +43,12 @@ def test_nvenc_probe_and_cuda_tonemap_keep_selected_gpu(monkeypatch) -> None:
     monkeypatch.setattr(hwaccel, "_run", run)
     monkeypatch.setattr(hwaccel.settings, "hwaccel_gpu_index", 2)
     status = hwaccel.detect("ffmpeg", "nvenc")
-    assert status == hwaccel.HwStatus(active="nvenc", probe_ok=True, tonemap="cuda", software_tonemap="software")
-    encode, tone = commands[1:]
-    assert "cuda=cu:2" in encode and encode[encode.index("-gpu") + 1] == "2"
+    assert status == hwaccel.HwStatus(active="nvenc", probe_ok=True, tonemap="cuda", software_tonemap="software", encode_codecs=("h264", "hevc", "av1"))
+    encodes = [command for command in commands if "-c:v" in command]
+    assert {command[command.index("-c:v") + 1] for command in encodes} >= {"h264_nvenc", "hevc_nvenc", "av1_nvenc"}
+    for encode in encodes:
+        assert "cuda=cu:2" in encode and encode[encode.index("-gpu") + 1] == "2"
+    tone = next(command for command in commands if "-vf" in command and "tonemap_cuda" in command[command.index("-vf") + 1])
     tone_graph = tone[tone.index("-vf") + 1]
     assert "tonemap_cuda=tonemap=bt2390" in tone_graph and "format=nv12" in tone_graph
     assert "cuda=cu:2" in tone and tone[tone.index("-gpu") + 1] == "2"
@@ -59,10 +62,15 @@ def test_native_modes_and_invalid_mode_are_safe(monkeypatch) -> None:
         return (True, FILTERS) if "-filters" in args else (True, "")
 
     monkeypatch.setattr(hwaccel, "_run", run)
-    assert hwaccel.detect("ffmpeg", "videotoolbox").active == "videotoolbox"
-    assert "h264_videotoolbox" in commands[-1] and "-allow_sw" in commands[-1]
-    assert hwaccel.detect("ffmpeg", "amf").active == "amf"
-    assert "h264_amf" in commands[-1]
+    videotoolbox = hwaccel.detect("ffmpeg", "videotoolbox")
+    assert videotoolbox.active == "videotoolbox" and videotoolbox.encode_codecs == ("h264", "hevc")
+    vt_encodes = [command for command in commands if "-c:v" in command]
+    assert {command[command.index("-c:v") + 1] for command in vt_encodes} == {"h264_videotoolbox", "hevc_videotoolbox"}
+    assert all("-allow_sw" in command for command in vt_encodes)
+    commands.clear()
+    amf = hwaccel.detect("ffmpeg", "amf")
+    assert amf.active == "amf" and amf.encode_codecs == ("h264", "hevc", "av1")
+    assert {command[command.index("-c:v") + 1] for command in commands if "-c:v" in command} == {"h264_amf", "hevc_amf", "av1_amf"}
     invalid = hwaccel.detect("ffmpeg", "misconfigured")
     assert invalid.active == "none" and invalid.probe_error == "unsupported_hwaccel_mode: misconfigured"
 

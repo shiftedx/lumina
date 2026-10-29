@@ -130,7 +130,7 @@ def test_transcoding_fields_direct_and_hls() -> None:
     direct = transcoding_fields(SimpleNamespace(mode="direct", height=None, reasons=()), item_id=item, play_session_id=psid, api_key="tok", audio_index=None, subtitle_index=None)
     assert direct == {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
     hls = transcoding_fields(
-        SimpleNamespace(mode="transcode", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported")),
+        SimpleNamespace(mode="transcode", video="encode", video_codec="h264", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported")),
         item_id=item, play_session_id=psid, api_key="t/k", audio_index=1, subtitle_index=None,
     )
     assert hls == {
@@ -139,7 +139,7 @@ def test_transcoding_fields_direct_and_hls() -> None:
         "SupportsTranscoding": True,
         "TranscodingSubProtocol": "hls",
         "TranscodingContainer": "mp4",
-        "TranscodingUrl": f"/videos/{item}/master.m3u8?MediaSourceId={item}&PlaySessionId={psid}&AudioStreamIndex=1"
+        "TranscodingUrl": f"/videos/{item}/master.m3u8?MediaSourceId={item}&PlaySessionId={psid}&VideoCodec=h264&AudioStreamIndex=1"
         "&MaxHeight=720&TranscodeReasons=AudioCodecNotSupported,ContainerNotSupported&ApiKey=t%2Fk",
     }
     # Jellyfin keeps StartTimeTicks out of HLS URLs: the timeline is the whole file and the client seeks.
@@ -176,7 +176,11 @@ def test_playback_info_runs_the_decision_per_media_source(vault: Vault) -> None:
 
 
 FAKE_FFMPEG = """#!/bin/sh
+for arg; do
+  [ "$arg" = "-filters" ] && exit 0
+done
 for last; do :; done
+[ "$last" = "-" ] && exit 1
 dir=$(dirname "$last")
 printf 'init' > "$dir/init.mp4"
 printf 'seg0' > "$dir/seg0.m4s"

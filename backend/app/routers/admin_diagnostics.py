@@ -124,7 +124,8 @@ def playback_diagnostics(db: Session, known_paths: list[str]) -> TranscodeDiagno
     """Hardware mode and probe, tone-mapping, live sessions and recent ffmpeg errors."""
     record = YtDlpService(db).get_app_settings()
     mode = record.hwaccel or "auto"  # a fresh, uncommitted AppSettings leaves column defaults unset
-    status = hwaccel.status(media_tool(db, "ffmpeg"), mode)
+    ffmpeg = media_tool(db, "ffmpeg")
+    status = hwaccel.status(ffmpeg, mode)
     hardware = status.active != "none" and not hwaccel.disabled
     return TranscodeDiagnostics(
         hwaccel=mode,
@@ -132,6 +133,8 @@ def playback_diagnostics(db: Session, known_paths: list[str]) -> TranscodeDiagno
         probe_ok=status.probe_ok,
         probe_error=_clean(status.probe_error, known_paths) or None,
         tonemap=status.tonemap if hardware else status.software_tonemap,
+        encode_codecs=list(hwaccel.output_codecs(ffmpeg, mode)),
+        encode_errors={codec: _clean(error, known_paths) for codec, error in status.encode_errors.items()},
         hardware_disabled=hwaccel.disabled,
         software_fallbacks=hwaccel.fallbacks,
         cache_cap_bytes=(record.transcode_cache_gb or 10) * 1024**3,

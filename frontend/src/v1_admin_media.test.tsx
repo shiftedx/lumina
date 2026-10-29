@@ -140,13 +140,15 @@ describe('Media server and Playback & transcoding sections', () => {
   it('saves NVIDIA acceleration and shows its hardware diagnostics', async () => {
     setup('transcoding');
     api.updateMediaServerSettings.mockResolvedValue({ ...settings, hwaccel: 'nvenc' });
-    api.runTranscodeDiagnostics.mockResolvedValue({ hwaccel: 'nvenc', active: 'nvenc', probe_ok: true, tonemap: 'cuda', hardware_disabled: false, software_fallbacks: 0, sessions: {}, throttled: 0, cache_bytes: 0, cache_cap_bytes: 10 * 1024 ** 3, speeds: {}, recent_errors: [] });
+    api.runTranscodeDiagnostics.mockResolvedValue({ hwaccel: 'nvenc', active: 'nvenc', probe_ok: true, tonemap: 'cuda', encode_codecs: ['h264', 'hevc'], encode_errors: { av1: 'AV1 encoder is unavailable on this device' }, hardware_disabled: false, software_fallbacks: 0, sessions: {}, throttled: 0, cache_bytes: 0, cache_cap_bytes: 10 * 1024 ** 3, speeds: {}, recent_errors: [] });
     chooseSelect(await screen.findByRole('combobox', { name: 'Hardware acceleration' }), 'NVIDIA NVENC');
     await userEvent.click(screen.getByRole('button', { name: 'Save playback and transcoding settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ hwaccel: 'nvenc' }));
     await userEvent.click(screen.getByRole('button', { name: 'Run diagnostics' }));
     const facts = await screen.findByRole('list', { name: 'Diagnostics' });
     expect(facts.textContent).toContain('NVIDIA NVENC');
+    expect(facts.textContent).toContain('H.264, HEVC');
+    expect(facts.textContent).toContain('AV1 encoder is unavailable on this device');
     expect(facts.textContent).toContain('cuda');
     expect(facts.textContent).toContain('Passed');
   });

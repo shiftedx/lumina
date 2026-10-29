@@ -123,9 +123,10 @@ COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=frontend-build /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
 COPY docker/entrypoint.sh /usr/local/bin/lumina-entrypoint.sh
+COPY scripts/qualify_gpu_transcoding.py /usr/local/bin/lumina-qualify-transcoding
 COPY LICENSE CREDITS.md RELEASE_NOTES.md /usr/local/share/doc/lumina/
 
-RUN chmod +x /usr/local/bin/lumina-entrypoint.sh \
+RUN chmod +x /usr/local/bin/lumina-entrypoint.sh /usr/local/bin/lumina-qualify-transcoding \
     && mkdir -p /app/backend/.data \
     && pip install --require-hashes -r /app/backend/requirements.runtime.lock \
     && python -m pip uninstall --yes pip \

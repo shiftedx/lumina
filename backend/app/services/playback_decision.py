@@ -19,7 +19,8 @@ BASE_LAYER = {"DOVIWithHDR10": "HDR10", "DOVIWithEL": "HDR10", "DOVIWithHDR10Plu
 IMAGE_SUBTITLE_CODECS = frozenset({"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"})
 HLS_VIDEO_COPY = frozenset({"h264", "hevc", "av1", "vp9"})  # carried as-is in fMP4 HLS
 HLS_AUDIO_COPY = frozenset({"aac", "mp3", "ac3", "eac3", "flac", "opus"})
-RUNGS = {1080: 8_000_000, 720: 4_000_000, 480: 1_500_000}  # output height -> -maxrate (bps)
+RUNGS = {1080: 8_000_000, 720: 4_000_000, 480: 1_500_000}  # H.264 output height -> -maxrate (bps)
+MODERN_RUNGS = {2160: 20_000_000, **RUNGS}  # HEVC/AV1; only explicitly negotiated HLS clients see 4K
 MAX_ENCODE_HEIGHT = 1080  # H.264 output tops out here; 4K sources play direct or at 1080
 # ffprobe format_name tokens -> the container names clients advertise.
 CONTAINER_ALIASES = {
@@ -56,6 +57,7 @@ class ClientCaps:
     selects_audio: bool = False  # can pick a non-default audio track of a direct-played file
     channel_limits: Mapping[str, int] = field(default_factory=dict)  # per-codec AudioChannels limits
     audio_bit_depth_limits: Mapping[str, int] = field(default_factory=dict)  # codec or "*"; missing probe depth fails a limit
+    transcode_video: tuple[str, ...] = ("h264",)  # explicit fMP4 HLS encoder codecs, never inferred from direct play
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ class Limits:
     dv5_reshape: bool = False  # OpenCL/CUDA tone-mapping can reshape Dolby Vision profile 5
     require_known_bitrate: bool = False  # a protected remote direct play must not assume an unknown source fits
     force_audio_encode: bool = False  # a constrained HLS rendition reserves a known AAC budget
+    encode_codecs: tuple[str, ...] = ("h264",)  # codecs proven by this server's current probe
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class Decision:
     bitrate: int | None = None  # -maxrate when video is encoded
     audio_channels: int | None = None  # when audio is encoded
     tonemap: bool = False
+    video_codec: str = "h264"  # encoded output; copied video retains its probed source codec
     reasons: tuple[str, ...] = field(default=())
 
     @property
@@ -118,6 +122,25 @@ def _height_for_bitrate(cap: int | None) -> int | None:
     if not cap:
         return None
     return max((height for height, rate in RUNGS.items() if rate <= cap), default=min(RUNGS))
+
+
+def _encoded_video_codec(client: ClientCaps, limits: Limits) -> str | None:
+    """The best explicit fMP4 HLS codec shared by client and server.
+
+    Direct-play claims and wildcard device profiles are intentionally absent:
+    they say nothing about a browser/client accepting a newly encoded modern
+    rendition.
+    """
+    available = set(client.transcode_video) & set(limits.encode_codecs)
+    for codec in ("av1", "hevc", "h264"):
+        if codec not in available:
+            continue
+        cap = client.video.get(codec) or client.video.get("*")
+        # Every encoder output is SDR 8-bit today. A device profile's decoder
+        # limits still apply to an HLS codec it explicitly asks us to create.
+        if cap is None or (cap.max_bit_depth >= 8 and "SDR" in cap.ranges):
+            return codec
+    return None
 
 
 def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits(), audio_index: int | None = None, subtitle_index: int | None = None) -> Decision:
@@ -179,16 +202,33 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     copy_audio = audio is not None and not codec_reasons and audio.get("codec") in HLS_AUDIO_COPY
     height = bitrate = channels = None
     tonemap = False
+    output_codec = "h264"
+    modern_output = False
     if video is not None and not copy_video:
         if rng == "DOVI" and video.get("dv_profile") == 5 and not limits.dv5_reshape:
             return Decision("unavailable", reasons=("dolby_vision_p5",))
-        output_cap = (client.video.get("h264") or client.video.get("*") or VideoCap()).max_height  # the encode is always H.264
-        output_cap = max(output_cap, 144) if output_cap else None  # a garbage profile never asks for a 2-pixel picture
-        height = min(h for h in (video.get("height") or MAX_ENCODE_HEIGHT, MAX_ENCODE_HEIGHT, limits.max_height, output_cap, _height_for_bitrate(bitrate_cap)) if h)
+        output_codec = _encoded_video_codec(client, limits)
+        if output_codec is None:
+            return Decision("unavailable", reasons=tuple(reasons + ["VideoCodecNotSupported"]))
+        modern_output = output_codec in {"hevc", "av1"}
+        output = client.video.get(output_codec) or client.video.get("*") or VideoCap()
+        output_cap = output.max_height
+        max_height = 2160 if modern_output else MAX_ENCODE_HEIGHT
+        rungs = MODERN_RUNGS if modern_output else RUNGS
+        bitrate_height = max((height for height, rate in rungs.items() if not bitrate_cap or rate <= bitrate_cap), default=min(rungs))
+        source_height, source_width = video.get("height") or max_height, video.get("width") or 0
+        width_height = (output.max_width * source_height // source_width) if output.max_width and source_width else None
+        height = min(h for h in (source_height, max_height, limits.max_height, output_cap, width_height, bitrate_height) if h)
         height -= height % 2
-        rung = min((r for r in RUNGS if r >= height), default=MAX_ENCODE_HEIGHT)
-        bitrate = min(RUNGS[rung], bitrate_cap) if bitrate_cap else RUNGS[rung]
+        if height < 2:
+            return Decision("unavailable", reasons=tuple(reasons + ["VideoResolutionNotSupported"]))
+        rung = min((r for r in rungs if r >= height), default=max_height)
+        bitrate = min(rungs[rung], bitrate_cap) if bitrate_cap else rungs[rung]
         tonemap = rng not in ("SDR", "DOVIWithSDR")
+    if modern_output and audio is not None and audio.get("codec") != "aac":
+        # Modern output is admitted only through an explicit fMP4 HLS/AAC
+        # profile. Direct-play support for Opus/AC3 must not leak into it.
+        copy_audio = False
     if audio is not None and not copy_audio:
         channels = min(audio.get("channels") or 2, client.encode_channels)
     both_copied = (video is None or copy_video) and (audio is None or copy_audio)
@@ -196,7 +236,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
         "remux" if both_copied else "transcode",
         video=None if video is None else "copy" if copy_video else "encode",
         audio=None if audio is None else "copy" if copy_audio else "encode",
-        burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap,
+        burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap, video_codec=output_codec,
         reasons=tuple(reasons), **indexes,
     )
 
@@ -216,6 +256,7 @@ BROWSER_DEFAULT = ClientCaps(
     ),
     video={"h264": VideoCap(), "vp8": VideoCap(), "vp9": VideoCap(max_bit_depth=10), "av1": VideoCap(max_bit_depth=10)},
     audio=frozenset({"aac", "mp3", "opus", "vorbis", "flac", "pcm_s16le", "pcm_f32le"}),
+    transcode_video=("h264",),
 )
 
 
@@ -223,6 +264,8 @@ def caps_from_browser_profiles(profiles: Iterable[str]) -> ClientCaps:
     """BROWSER_DEFAULT plus what this browser reported (frontend browserSupportedPlaybackProfiles)."""
     names = {str(p).strip().lower() for p in profiles}
     video, audio = dict(BROWSER_DEFAULT.video), set()
+    if "av1-failed" in names:
+        video.pop("av1", None)
     if "mp4-hevc10-aac" in names:
         video["hevc"] = VideoCap(max_bit_depth=10)
     elif "mp4-hevc-aac" in names:
@@ -230,10 +273,19 @@ def caps_from_browser_profiles(profiles: Iterable[str]) -> ClientCaps:
     audio |= {codec for name, codec in (("mp4-ac3", "ac3"), ("mp4-eac3", "eac3")) if name in names}
     if "hdr" in names:
         video = {c: replace(cap, ranges=frozenset({"SDR", "HDR10", "HLG"})) if c in {"hevc", "vp9", "av1"} else cap for c, cap in video.items()}
-    if video == BROWSER_DEFAULT.video and not audio:
+    transcode = ["h264"]
+    if "hls-hevc-aac" in names:
+        transcode.append("hevc")
+    if "hls-av1-aac" in names and "av1-failed" not in names:
+        transcode.append("av1")
+    if video == BROWSER_DEFAULT.video and not audio and transcode == ["h264"]:
         return BROWSER_DEFAULT
-    mp4 = DirectProfile(_MP4, _MP4_VIDEO | ({"hevc"} if "hevc" in video else set()), _MP4_AUDIO | audio)
-    return replace(BROWSER_DEFAULT, direct=(mp4, *BROWSER_DEFAULT.direct[1:]), video=video, audio=BROWSER_DEFAULT.audio | audio)
+    direct = list(BROWSER_DEFAULT.direct)
+    browser_video = _MP4_VIDEO - ({"av1"} if "av1-failed" in names else set())
+    direct[0] = DirectProfile(_MP4, browser_video | ({"hevc"} if "hevc" in video else set()), _MP4_AUDIO | audio)
+    if "av1-failed" in names:
+        direct[1] = DirectProfile(frozenset({"webm"}), frozenset({"vp8", "vp9"}), frozenset({"opus", "vorbis"}))
+    return replace(BROWSER_DEFAULT, direct=tuple(direct), video=video, audio=BROWSER_DEFAULT.audio | audio, transcode_video=tuple(transcode))
 
 
 def _tokens(value: Any) -> frozenset[str]:
@@ -273,10 +325,28 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         direct.append(DirectProfile(_tokens(entry.get("Container")) or ANY, vids, auds))
         video_codecs |= vids
         audio |= auds
+    transcode_video: set[str] = set()
+    has_hls_video_profile = False
     for entry in _dicts(profile.get("TranscodingProfiles")):
-        if entry.get("Type") == "Video" and str(entry.get("Protocol") or "").lower() == "hls":
-            video_codecs |= _tokens(entry.get("VideoCodec"))
-            audio |= _tokens(entry.get("AudioCodec"))
+        if entry.get("Type") != "Video" or str(entry.get("Protocol") or "").lower() != "hls":
+            continue
+        has_hls_video_profile = True
+        # Lumina emits fragmented MP4 HLS with AAC. A profile for TS/WebM or
+        # another audio codec is not an authorization to use this rendition.
+        containers, vids, auds = _tokens(entry.get("Container")), _tokens(entry.get("VideoCodec")), _tokens(entry.get("AudioCodec"))
+        video_codecs |= vids
+        audio |= auds
+        # H.264 is the longstanding HLS compatibility contract. Older Jellyfin
+        # clients commonly advertise AC3 or TS here even though their actual HLS
+        # fallback works with our AAC fMP4 rendition. Modern output is stricter:
+        # it needs an explicit fMP4/AAC profile, never a direct-play claim.
+        if "h264" in vids or "*" in vids:
+            transcode_video.add("h264")
+        if not containers & {"mp4", "fmp4", "m4v"} or "aac" not in auds:
+            continue
+        transcode_video |= vids & {"hevc", "av1"}
+        if "*" in vids:
+            transcode_video.add("h264")  # broad historical profiles retain only the established baseline
     caps: dict[str, dict[str, Any]] = {codec: {"max_bit_depth": 16, "ranges": ALL_RANGES} for codec in video_codecs}
     max_channels, max_bitrate = 8, _number(profile.get("MaxStreamingBitrate"))
     channel_limits: dict[str, int] = {}
@@ -318,4 +388,8 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         selects_audio=True,
         channel_limits=channel_limits,
         audio_bit_depth_limits=audio_bit_depth_limits,
+        # Device profiles predating TranscodingProfiles still rely on Lumina's
+        # established H.264 fallback. A present HLS profile, by contrast, is an
+        # explicit restriction: never manufacture a codec it did not advertise.
+        transcode_video=(tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video) or ("h264",)) if not has_hls_video_profile else tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video),
     )

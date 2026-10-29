@@ -1,6 +1,6 @@
 import { type ComponentProps, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { apiBaseUrl, ApiRequestError, getLocalPlaybackOptions, libraryMediaUrl, markHevcFailed, startLocalPlaybackSession, stopDirectPlayback, stopLocalPlaybackSession } from './api';
+import { apiBaseUrl, ApiRequestError, getLocalPlaybackOptions, libraryMediaUrl, markAv1Failed, markHevcFailed, startLocalPlaybackSession, stopDirectPlayback, stopLocalPlaybackSession } from './api';
 import { accessStopCode, reportAccessStop } from './features/access/accessEvents';
 import { LuminaPlayer, type LuminaPlayerSource, type LuminaPlayerTrack } from './LuminaPlayer';
 import { releaseBackground } from './backgroundGate';
@@ -37,7 +37,7 @@ const isMissingSourceProbe = (error: unknown) => error instanceof ApiRequestErro
 const ENCODE_MAX_HEIGHT = 1080; // mirrors playback_decision.MAX_ENCODE_HEIGHT
 const codecLabel = (codec: string) => (codec === 'h264' ? 'H.264' : codec.toUpperCase());
 // only MSE-less browsers (iPhone) use native HLS, which cannot seek past the converted part.
-const nativeHls = () => typeof window !== 'undefined' && !('MediaSource' in window) && document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== '';
+const nativeHls = () => typeof window !== 'undefined' && typeof globalThis.MediaSource?.isTypeSupported !== 'function' && document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== '';
 const START_BUFFER_SECONDS = 12; // A short first buffer, restored after the first frame
 const NORMAL_BUFFER_SECONDS = 30; // hls.js's default maxBufferLength
 // HEVC that has data but no frame by then is a browser that claimed it and cannot decode it (Firefox on Windows).
@@ -83,7 +83,8 @@ export function loudnessGain(options: LocalPlaybackOptions | null, enabled: bool
 
 /** The next Quality rung below what plays now, or null at the bottom. */
 export function lowerQuality(options: LocalPlaybackOptions | null, current: number | null | undefined): number | null {
-  const playing = current ?? Math.min(options?.facts?.height ?? 0, ENCODE_MAX_HEIGHT);
+  const ceiling = options?.video_codec === 'hevc' || options?.video_codec === 'av1' ? 2160 : ENCODE_MAX_HEIGHT;
+  const playing = current ?? Math.min(options?.facts?.height ?? 0, ceiling);
   return (options?.quality_heights ?? []).find((height) => height < playing) ?? null;
 }
 
@@ -92,7 +93,8 @@ export function playbackFactsLabel(options: LocalPlaybackOptions | null): string
   if (!facts) return null;
   const size = facts.height ? `${facts.height}p` : null;
   const codecs = [facts.video_codec, facts.audio_codec].filter((codec): codec is string => Boolean(codec)).map(codecLabel).join(' / ');
-  const via = options.mode === 'remux' ? 'Remuxed' : options.mode === 'transcode' ? 'Transcoded' : 'Original';
+  const converted = options.video_codec && options.video_codec !== facts.video_codec ? `Transcoded to ${codecLabel(options.video_codec)}` : 'Transcoded';
+  const via = options.mode === 'remux' ? 'Remuxed' : options.mode === 'transcode' ? converted : 'Original';
   const bandwidth = options.reason?.includes('ContainerBitrateExceedsLimit') ? 'Bitrate limit' : null;
   return [size, codecs, via, bandwidth].filter(Boolean).join(' · ');
 }
@@ -148,19 +150,20 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   }
   const converts = needsSession(decisionOptions, request);
   const duration = decisionOptions?.facts?.duration;
-  // Bumped by the HEVC fallback to ask for a new decision now that this browser no longer offers HEVC.
+  // Bumped when this browser's claimed codec support fails during actual playback.
   const [decisionAttempt, setDecisionAttempt] = useState(0);
-  const fellBackRef = useRef(false); // at most one automatic fallback per player
+  const failedCodecsRef = useRef(new Set<string>()); // at most one automatic retry for each modern codec
   const copiesVideo = session ? (session.kind ? session.kind === 'remux' || session.kind === 'audio' : session.mode === 'remux') : decisionOptions?.mode === 'direct' && !converts;
-  const hevcVideo = kind === 'video' && decisionOptions?.facts?.video_codec === 'hevc' && copiesVideo;
+  const outputCodec = session?.video_codec ?? (copiesVideo ? decisionOptions?.facts?.video_codec : decisionOptions?.video_codec);
+  const recoverableCodec = kind === 'video' && (outputCodec === 'hevc' || outputCodec === 'av1') ? outputCodec : null;
   const arrivingRef = useRef(false);
-  // HEVC the browser claimed but cannot play: remember it, drop HEVC from the profiles and ask again at the
-  // same position, so the server encodes H.264 instead. False when this is not that case (show the failure).
+  // Remember a codec that did not decode, then negotiate again at the same position.
   const fallBackRef = useRef<() => boolean>(() => false);
   fallBackRef.current = () => {
-    if (!hevcVideo || fellBackRef.current) return false;
-    fellBackRef.current = true;
-    markHevcFailed();
+    if (!recoverableCodec || failedCodecsRef.current.has(recoverableCodec)) return false;
+    failedCodecsRef.current.add(recoverableCodec);
+    if (recoverableCodec === 'hevc') markHevcFailed();
+    else markAv1Failed();
     const media = mediaRef.current;
     const at = session ? Math.max(media?.currentTime ?? 0, askedRef.current) : media?.currentTime || directFrom;
     restartedRef.current = true;
@@ -389,10 +392,10 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     });
   }, [source.id, directFrom]);
 
-  // Data arriving but no frame within HEVC_FIRST_FRAME_MS: the browser cannot decode this HEVC after all.
+  // Data arriving without a decoded frame can disprove an advertised modern codec.
   useEffect(() => {
     const media = mediaRef.current;
-    if (!media || !hevcVideo) return undefined;
+    if (!media || !recoverableCodec) return undefined;
     arrivingRef.current = false;
     const onData = () => { arrivingRef.current = true; }; // readyState 1 = metadata, 2 = a frame decoded
     media.addEventListener('progress', onData);
@@ -401,7 +404,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     }, HEVC_FIRST_FRAME_MS);
     const stopFirstFrame = onFirstFrame(media, () => clearTimeout(timer));
     return () => { clearTimeout(timer); stopFirstFrame(); media.removeEventListener('progress', onData); };
-  }, [hevcVideo, source.id, session]);
+  }, [recoverableCodec, source.id, session]);
 
   const label = playbackFactsLabel(decisionOptions);
   const compactLabel = decisionOptions?.facts?.height ? `${decisionOptions.facts.height}p` : label?.split(' · ').at(-1);

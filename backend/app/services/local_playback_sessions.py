@@ -25,7 +25,8 @@ from urllib.parse import quote
 
 from app.config import settings
 from app.services import subtitle_tracks
-from app.services.hwaccel import ENCODERS, device_args, hwaccel
+from app.services import rockchip
+from app.services.hwaccel import ENCODERS, device_args, encoder_args, hwaccel
 from app.services.media_probe import LOCAL_INPUT_ARGS
 from app.services.playback_decision import Decision
 
@@ -104,14 +105,14 @@ class PlaybackSession:
 
 
 def describe_decision(decision: Decision, facts: dict[str, Any]) -> dict[str, Any]:
-    """Source codec to output codec for the admin Activity page (encodes are always H.264/AAC)."""
+    """Source codec to negotiated H.264/HEVC/AV1 output for the admin Activity page."""
     streams = {s.get("index"): s for s in facts.get("streams") or []}
     video, audio = streams.get(decision.video_index), streams.get(decision.audio_index)
     out: dict[str, Any] = {}
     if decision.video:
         source = video.get("codec") if video else None
         out["video"] = {
-            "from": source, "to": "h264" if decision.video == "encode" else source,
+            "from": source, "to": output_codec(decision) if decision.video == "encode" else source,
             "height": decision.height if decision.video == "encode" else (video or {}).get("height"), "tonemap": decision.tonemap,
         }
     if decision.audio:
@@ -131,6 +132,19 @@ def session_root() -> Path:
 HW_DECODE = frozenset({"h264", "hevc", "av1", "vp9", "mpeg2video", "vc1"})
 SOFTWARE_TONEMAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 OPENCL_TONEMAP = "tonemap_opencl=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=nv12"
+
+
+def output_codec(decision: Decision) -> str:
+    """The planner negotiates this codec; legacy decisions remain H.264."""
+    codec = getattr(decision, "video_codec", "h264")
+    if codec not in {"h264", "hevc", "av1"}:
+        raise ConversionError("This requested video codec is not available on this server.")
+    return codec
+
+
+def _encoder_args(hw: str, codec: str) -> list[str]:
+    """Keep the public H.264 encoder table mutable for existing fault-injection tests."""
+    return ENCODERS[hw] if codec == "h264" else encoder_args(hw, codec)
 
 
 def _can_hw_decode(codec: str | None, pix_fmt: str | None, hw: str, tonemap: str) -> bool:
@@ -167,12 +181,16 @@ def _video_graph(decision: Decision, codec: str | None, pix_fmt: str | None, hw:
             # VideoToolbox returns CPU frames when no output format is forced, so
             # the shared scale/subtitle graph stays portable.
             pre = ["-hwaccel", "videotoolbox"]
+        elif hw == "rkmpp":
+            pre = device_args(hw)
         # VideoToolbox and AMF hardware frames cannot reliably pass through the
         # common subtitle/filter graph; retain their hardware encoders with CPU frames.
         if tm == "software":
             chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP, "format=nv12"]
             if hw in {"qsv", "vaapi", "nvenc"}:
                 chain.append("hwupload=extra_hw_frames=64")
+            elif hw == "rkmpp" and decision.burn_subtitle is None:
+                chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP, rockchip.encode_filter()]
         elif hw == "nvenc":
             fmt = "p010" if tm == "cuda" else "nv12"
             chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
@@ -181,6 +199,8 @@ def _video_graph(decision: Decision, codec: str | None, pix_fmt: str | None, hw:
                 chain.append("tonemap_cuda=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=nv12:apply_dovi=1")
         elif hw in {"videotoolbox", "amf"}:
             chain = [f"scale=-2:{height}", "format=nv12"]
+        elif hw == "rkmpp":
+            chain = [f"scale=-2:{height}"] if decision.burn_subtitle is not None else [f"scale=-2:{height}", rockchip.encode_filter()]
         else:
             fmt = "p010" if tm in {"opencl", "vpp_qsv"} else "nv12"
             chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
@@ -196,6 +216,8 @@ def _video_graph(decision: Decision, codec: str | None, pix_fmt: str | None, hw:
             download, upload = ["hwdownload", "format=nv12"], ["hwupload=extra_hw_frames=64"]
         elif hw in {"qsv", "vaapi"}:
             download, upload = ["hwdownload", "format=nv12"], ["hwupload=extra_hw_frames=64"]
+        elif hw == "rkmpp" and decision.burn_subtitle is not None:
+            upload = rockchip.encode_filter().split(",")
     head = f"[0:{decision.video_index}]{','.join(chain)}"
     if decision.burn_subtitle is None:
         return pre, f"{head}[v]"
@@ -208,7 +230,7 @@ def _video_graph(decision: Decision, codec: str | None, pix_fmt: str | None, hw:
 
 
 def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: Path, decision: Decision, *, hw: str = "none", tonemap: str = "none", start: float = 0, audio_gain_db: float | None = None, run: HlsRun | None = None, hw_decode: bool = True) -> list[str]:
-    """One command for any decision: copy what the client plays, encode the rest to H.264/AAC.
+    """One command for any decision: copy what the client plays, encode H.264/HEVC/AV1 plus AAC.
 
     A non-zero ``start`` input-seeks there (keyframe-accurate for copied video) and keeps source
     timestamps, so the player can seek anywhere without waiting.
@@ -229,13 +251,15 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     length = ["-t", f"{run.length:.6f}"] if run and run.length else []
     video = next((s for s in facts.get("streams") or [] if s.get("index") == decision.video_index), {})
     codec = video.get("codec")
+    output = output_codec(decision)
     pre: list[str] = []
     out: list[str] = []
     if decision.video == "encode":
         pre, video_graph = _video_graph(decision, codec, video.get("pix_fmt"), hw, tonemap, hw_decode=hw_decode)
         bitrate = decision.bitrate or 8_000_000
         out += [
-            "-filter_complex", video_graph, "-map", "[v]", *ENCODERS[hw],
+            "-filter_complex", video_graph, "-map", "[v]", *_encoder_args(hw, output),
+            *(["-tag:v", "hvc1"] if output == "hevc" else ["-tag:v", "av01"] if output == "av1" else []),
             *(["-b:v", str(bitrate)] if hw != "none" else []), "-maxrate", str(bitrate), "-bufsize", str(bitrate * 2),
             # Web encodes: keyframes at 0, 1, 2, 3, 4, 8, 12 … s, where the 1 s first segments and the 4 s ones after them are
             # cut. A seekable (Jellyfin) run keeps the fixed 0, 1, 5, 9 … grid its up-front playlist promises (jellyfin_hls).
@@ -243,7 +267,7 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
                                   else f"expr:gte(t,if(lt(n_forced,{SHORT_SEGMENTS}),n_forced,{SEGMENT_SECONDS}*(n_forced-{SHORT_SEGMENTS - 1})))"),
         ]
     elif decision.video == "copy":
-        out += ["-map", f"0:{decision.video_index}", "-c:v", "copy", *(["-tag:v", "hvc1"] if codec == "hevc" else [])]
+        out += ["-map", f"0:{decision.video_index}", "-c:v", "copy", *(["-tag:v", "hvc1"] if codec == "hevc" else ["-tag:v", "av01"] if codec == "av1" else [])]
     if decision.audio == "copy":
         out += ["-map", f"0:{decision.audio_index}", "-c:a", "copy"]
     elif decision.audio == "encode":
@@ -386,10 +410,13 @@ class LocalPlaybackSessions:
         if duration:  # a seek to the very end still gets a last segment to play
             start = min(start, max(0.0, duration - SEGMENT_SECONDS))
         encode = decision.video == "encode"
-        hw, tonemap = hwaccel.choice(ffmpeg, hwaccel_mode) if encode else ("none", "none")
+        codec = output_codec(decision)
+        hw, tonemap = hwaccel.choice(ffmpeg, hwaccel_mode, codec) if encode else ("none", "none")
+        if encode and hw == "none" and codec != "h264" and not hwaccel.software_codec_supported(ffmpeg, codec):
+            raise ConversionError(f"This server cannot encode {codec.upper()} video.")
         if decision.tonemap and tonemap == "none":
             raise ConversionError("This HDR file cannot be tone-mapped on this server.")
-        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, plan is not None, hw, tonemap)
+        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, codec, plan is not None, hw, tonemap)
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
             source=source, facts=facts, decision=decision, start=start, audio_gain_db=audio_gain_db, key=key,
@@ -448,6 +475,8 @@ class LocalPlaybackSessions:
             software_tonemap = hwaccel.software_tonemap(ffmpeg, hwaccel_mode)
             if decision.tonemap and software_tonemap == "none":
                 raise ConversionError("This HDR file cannot be tone-mapped on this server.") from None
+            if codec != "h264" and not hwaccel.software_codec_supported(ffmpeg, codec):
+                raise ConversionError(f"This server cannot encode {codec.upper()} video.") from None
             with self._lock:  # one software retry: the hardware path died before its first playlist
                 if any(s.user_id == user_id and s.device == device for s in self._sessions.values()):
                     raise SupersededError("A newer playback request replaced this one.") from None

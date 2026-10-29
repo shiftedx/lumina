@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import threading
 import time
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from app.services import hwaccel as hw_module
 from app.services import local_playback_sessions as lps
-from app.services.hwaccel import HwAccel, HwStatus, detect
+from app.services.hwaccel import HwAccel, HwStatus, detect, encoder_args
 from app.services.media_probe import LOCAL_INPUT_ARGS
 from app.services.playback_decision import BROWSER_DEFAULT, Decision, decide
 
@@ -71,6 +73,73 @@ def test_qsv_without_opencl_uses_vpp_qsv_and_off_never_probes_hardware(monkeypat
     assert detect(None, "auto").probe_error == "ffmpeg_unavailable"
 
 
+def test_modern_codecs_are_advertised_only_after_their_exact_encoder_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hw_module.platform, "system", lambda: "Linux")
+
+    def run(args: list[str]) -> tuple[bool, str]:
+        if "-filters" in args:
+            return True, FILTERS
+        joined = " ".join(args)
+        return ("h264_qsv" in joined or "hevc_qsv" in joined), "no av1 qsv" if "av1_qsv" in joined else ""
+
+    monkeypatch.setattr(hw_module, "_run", run)
+    status = detect("ffmpeg", "qsv")
+    assert status.encode_codecs == ("h264", "hevc")
+    assert set(status.encode_errors) == {"av1"}
+    accel = HwAccel()
+    monkeypatch.setattr(accel, "status", lambda ffmpeg, mode: status)
+    assert accel.output_codecs("ffmpeg", "qsv") == ("h264", "hevc")
+    assert accel.choice("ffmpeg", "qsv", "hevc") == ("qsv", status.tonemap)
+    assert accel.choice("ffmpeg", "qsv", "av1") == ("none", status.software_tonemap)
+
+
+def test_windows_qsv_uses_the_selected_d3d11_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hw_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(hw_module.settings, "hwaccel_gpu_index", 2)
+    assert hw_module.device_args("qsv") == ["-init_hw_device", "qsv=qs:hw,child_device=2,child_device_type=d3d11va", "-filter_hw_device", "qs"]
+
+
+def test_rkmpp_probe_advertises_only_h264_and_hevc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hw_module, "_run", lambda args: (True, FILTERS) if "-filters" in args else (False, "not reached"))
+    monkeypatch.setattr(hw_module.rockchip, "probe", lambda ffmpeg, codec: (codec != "av1", "no av1"))
+    status = detect("ffmpeg", "rkmpp")
+    assert status.active == "rkmpp" and status.encode_codecs == ("h264", "hevc")
+    assert status.encode_errors == {"av1": "unsupported_encoder"}
+
+
+@pytest.mark.parametrize(("hw", "codec", "encoder", "tag"), [("qsv", "hevc", "hevc_qsv", "hvc1"), ("qsv", "av1", "av1_qsv", "av01"), ("rkmpp", "hevc", "hevc_rkmpp", "hvc1")])
+def test_modern_encoder_arguments_and_fmp4_tags(hw: str, codec: str, encoder: str, tag: str) -> None:
+    decision = Decision("transcode", video="encode", audio="encode", video_index=0, audio_index=1, height=720, bitrate=4_000_000, video_codec=codec)
+    cmd = lps.ffmpeg_command("ffmpeg", Path("/m/input.mkv"), HDR, OUT, decision, hw=hw)
+    assert cmd[cmd.index("-c:v") + 1] == encoder
+    assert cmd[cmd.index("-tag:v") + 1] == tag
+    if codec == "av1":
+        assert "-forced_idr" not in encoder_args("qsv", "av1")
+
+
+@pytest.mark.parametrize(("codec", "encoder"), [("hevc", "libx265"), ("av1", "libsvtav1")])
+def test_installed_software_modern_encoder_writes_its_negotiated_fmp4_codec(tmp_path: Path, codec: str, encoder: str) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None or encoder not in subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, check=False).stdout:
+        return  # Optional host encoder: real proof where it exists, not a skipped contract.
+    assert HwAccel().software_codec_supported(ffmpeg, codec)
+    source, output = tmp_path / "source.mp4", tmp_path / "hls"
+    output.mkdir()
+    subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=2", "-t", "5", "-c:v", "libx264", str(source)], check=True)
+    facts = {"streams": [{"index": 0, "type": "video", "codec": "h264", "width": 64, "height": 64, "pix_fmt": "yuv420p"}]}
+    decision = Decision("transcode", video="encode", video_index=0, height=64, bitrate=1_500_000, video_codec=codec)
+    subprocess.run(lps.ffmpeg_command(ffmpeg, source, facts, output, decision), check=True, timeout=60)
+    ffprobe = str(Path(ffmpeg).with_name("ffprobe"))
+    segments = sorted(output.glob("seg*.m4s"))
+    assert len(segments) > 1
+    probe = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-show_entries", "stream=codec_name", "-of", "default=nw=1:nk=1", f"concat:{output / 'init.mp4'}|{segments[0]}"], capture_output=True, text=True, check=True)
+    assert probe.stdout.strip() == codec
+    for segment in segments:
+        frames = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-show_entries", "frame=key_frame", "-select_streams", "v:0", "-of", "default=nw=1:nk=1", f"concat:{output / 'init.mp4'}|{segment}"], capture_output=True, text=True, check=True)
+        assert frames.stdout.splitlines()[0] == "1"
+    subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-protocol_whitelist", "file,crypto,data", "-i", str(output / "index.m3u8"), "-f", "null", "-"], check=True, timeout=60)
+
+
 def test_status_is_cached_per_setting_and_reprobed_on_demand(monkeypatch: pytest.MonkeyPatch) -> None:
     probes: list[str] = []
     monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: probes.append(mode) or HwStatus(active="qsv", probe_ok=True, tonemap="opencl"))
@@ -130,6 +199,7 @@ def graph(cmd: list[str]) -> str:
     ("nvenc", "cuda", ["h264_nvenc", "cuda=cu:0", "-hwaccel cuda", "scale_cuda=w=-2:h=1080:format=p010", "tonemap_cuda=tonemap=bt2390", "t=bt709:m=bt709:p=bt709"], ["libx264", "scale_vaapi"]),
     ("videotoolbox", "none", ["h264_videotoolbox", "-hwaccel videotoolbox", "-allow_sw 0", "-g 10000", "scale=-2:1080,format=nv12"], ["libx264", "-init_hw_device"]),
     ("amf", "none", ["h264_amf", "-quality speed", "scale=-2:1080,format=nv12"], ["libx264", "-init_hw_device", "-hwaccel"]),
+    ("rkmpp", "none", ["h264_rkmpp", "rkmpp=rk", "hwupload=derive_device=rkmpp"], ["libx264", "-hwaccel"]),
 ])
 @pytest.mark.parametrize("burn", [False, True])
 def test_tokens_per_hw_tonemap_and_burn(hw: str, tonemap: str, present: list[str], absent: list[str], burn: bool) -> None:

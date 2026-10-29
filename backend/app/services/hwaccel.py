@@ -11,9 +11,10 @@ import platform
 import re
 import subprocess
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.config import settings
+from app.services import rockchip
 
 PROBE_TIMEOUT_SECONDS = 15
 MAX_CONSECUTIVE_FAILURES = 3
@@ -31,9 +32,33 @@ ENCODERS = {
     # plan after the initial low-latency segments; forced keyframes still cut it.
     "videotoolbox": ["-c:v", "h264_videotoolbox", "-allow_sw", "0", "-realtime", "1", "-g", "10000"],
     "amf": ["-c:v", "h264_amf", "-quality", "speed", "-forced_idr", "1", "-pa_scene_change_detection_enable", "0", "-pa_adaptive_mini_gop", "0", "-g", "10000"],
+    "rkmpp": rockchip.encoder_args("h264"),
+}
+CODECS = ("h264", "hevc", "av1")
+# ``ENCODERS`` remains the H.264 compatibility surface used by existing callers;
+# new sessions ask ``encoder_args`` for the negotiated output codec.
+_CODEC_ENCODERS = {
+    "h264": ENCODERS,
+    "hevc": {
+        "none": ["-c:v", "libx265", "-preset", "ultrafast", "-crf", "28", "-forced-idr", "1", "-x265-params", "pools=1:frame-threads=1:scenecut=0"],
+        "qsv": ["-c:v", "hevc_qsv", "-preset", "veryfast", "-global_quality", "23", "-look_ahead", "0", "-adaptive_i", "0", "-adaptive_b", "0", "-forced_idr", "1", "-g", "10000"],
+        "vaapi": ["-c:v", "hevc_vaapi", "-rc_mode", "VBR", "-g", "10000"],
+        "nvenc": ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-rc-lookahead", "0", "-no-scenecut", "1", "-forced-idr", "1", "-g", "10000"],
+        "videotoolbox": ["-c:v", "hevc_videotoolbox", "-allow_sw", "0", "-realtime", "1", "-g", "10000"],
+        "amf": ["-c:v", "hevc_amf", "-quality", "speed", "-forced_idr", "1", "-pa_scene_change_detection_enable", "0", "-pa_adaptive_mini_gop", "0", "-g", "10000"],
+        "rkmpp": rockchip.encoder_args("hevc"),
+    },
+    "av1": {
+        "none": ["-c:v", "libsvtav1", "-preset", "13", "-crf", "38", "-svtav1-params", "lp=1:scd=0"],
+        "qsv": ["-c:v", "av1_qsv", "-preset", "veryfast", "-global_quality", "23", "-look_ahead", "0", "-g", "10000"],
+        "vaapi": ["-c:v", "av1_vaapi", "-rc_mode", "VBR", "-g", "10000"],
+        "nvenc": ["-c:v", "av1_nvenc", "-preset", "p4", "-tune", "hq", "-rc-lookahead", "0", "-no-scenecut", "1", "-g", "10000"],
+        "amf": ["-c:v", "av1_amf", "-quality", "speed", "-g", "10000"],
+    },
 }
 HARDWARE_MODES = frozenset(ENCODERS) - {"none"}
 _RATE = ["-b:v", "8000000", "-maxrate", "8000000", "-bufsize", "16000000"]
+_SOFTWARE_RATE = _RATE[2:]  # CRF encoders retain their quality mode; sessions omit -b:v too.
 
 
 @dataclass(frozen=True)
@@ -43,29 +68,50 @@ class HwStatus:
     probe_error: str | None = None
     tonemap: str = "none"  # TonemapMethod for hardware sessions
     software_tonemap: str = "none"  # TonemapMethod for software sessions
+    encode_codecs: tuple[str, ...] = ("h264",)
+    encode_errors: dict[str, str] = field(default_factory=dict, compare=False)
+
+
+def encoder_args(hw: str, codec: str) -> list[str]:
+    """Encoder arguments for a codec proven before it is advertised to clients."""
+    try:
+        return _CODEC_ENCODERS[codec][hw]
+    except KeyError as exc:
+        raise ValueError(f"unsupported encoder: {hw}/{codec}") from exc
 
 
 def device_args(hw: str) -> list[str]:
     """Initialize the device used by a session or probe before its input."""
     if hw == "qsv":
+        if platform.system() == "Windows":
+            # FFmpeg's QSV device selects a DirectX adapter through its D3D11VA
+            # child; keep this index aligned with the configured GPU selection.
+            return ["-init_hw_device", f"qsv=qs:hw,child_device={settings.hwaccel_gpu_index},child_device_type=d3d11va", "-filter_hw_device", "qs"]
         return ["-init_hw_device", f"vaapi=va:{settings.hwaccel_device}", "-init_hw_device", "qsv=qs@va", "-filter_hw_device", "qs"]
     if hw == "vaapi":
         return ["-init_hw_device", f"vaapi=va:{settings.hwaccel_device}", "-filter_hw_device", "va"]
     if hw == "nvenc":
         return ["-init_hw_device", f"cuda=cu:{settings.hwaccel_gpu_index}", "-filter_hw_device", "cu"]
+    if hw == "rkmpp":
+        return rockchip.device_args()
     return []
 
 
-def _encode_test(hw: str) -> list[str]:
+def _encode_test(hw: str, codec: str = "h264") -> list[str]:
     graph = {
         "qsv": "format=nv12,hwupload=extra_hw_frames=64,scale_qsv=w=-1:h=144:format=nv12",
         "vaapi": "format=nv12,hwupload=extra_hw_frames=64,scale_vaapi=w=-2:h=144:format=nv12",
         "nvenc": "format=nv12,hwupload=extra_hw_frames=64,scale_cuda=w=-2:h=144:format=nv12",
         "videotoolbox": "scale=-2:144,format=nv12",
         "amf": "scale=-2:144,format=nv12",
+        "rkmpp": rockchip.encode_filter(),
     }[hw]
     gpu = ["-gpu", str(settings.hwaccel_gpu_index)] if hw == "nvenc" else []
-    return [*device_args(hw), *_ONE_FRAME, "-vf", graph, *ENCODERS[hw], *gpu, *_RATE]
+    return [*device_args(hw), *_ONE_FRAME, "-vf", graph, *encoder_args(hw, codec), *gpu, *_RATE]
+
+
+def _software_encode_test(codec: str) -> list[str]:
+    return [*_ONE_FRAME, "-vf", "scale=-2:144,format=yuv420p", *encoder_args("none", codec), "-threads", "1", *_SOFTWARE_RATE]
 
 
 def _tone_test(hw: str, tone_map: str) -> list[str]:
@@ -83,7 +129,7 @@ def _tone_test(hw: str, tone_map: str) -> list[str]:
     else:
         raise ValueError(f"unsupported tone map: {tone_map}")
     gpu = ["-gpu", str(settings.hwaccel_gpu_index)] if hw == "nvenc" else []
-    return [*pre, *source, "-vf", graph, *ENCODERS[hw], *gpu, *_RATE]
+    return [*pre, *source, "-vf", graph, *encoder_args(hw, "h264"), *gpu, *_RATE]
 
 
 def _run(args: list[str]) -> tuple[bool, str]:
@@ -113,7 +159,7 @@ def _candidates(mode: str) -> tuple[str, ...]:
         return ("videotoolbox",)
     if system == "Windows":
         return ("qsv", "nvenc", "amf")
-    return ("qsv", "nvenc", "vaapi")
+    return ("qsv", "nvenc", "vaapi", "rkmpp")
 
 
 def _tonemap(ffmpeg: str, hw: str, filters: str, software: str) -> str:
@@ -143,11 +189,21 @@ def detect(ffmpeg: str | None, mode: str) -> HwStatus:
         return HwStatus(probe_error=f"unsupported_hwaccel_mode: {mode}"[:200], tonemap=software, software_tonemap=software)
     errors: list[str] = []
     for hw in candidates:
-        ok, output = _run([ffmpeg, "-hide_banner", "-v", "error", *_encode_test(hw), "-f", "null", "-"])
+        ok, output = rockchip.probe(ffmpeg, "h264") if hw == "rkmpp" else _run([ffmpeg, "-hide_banner", "-v", "error", *_encode_test(hw, "h264"), "-f", "null", "-"])
         if not ok:
             errors.append(f"{hw}: {_last_line(output)}"[:200])
             continue
-        return HwStatus(active=hw, probe_ok=True, tonemap=_tonemap(ffmpeg, hw, filters, software), software_tonemap=software)
+        codecs, codec_errors = ["h264"], {}
+        for codec in ("hevc", "av1"):
+            if hw not in _CODEC_ENCODERS[codec]:
+                codec_errors[codec] = "unsupported_encoder"
+                continue
+            modern_ok, modern_output = rockchip.probe(ffmpeg, codec) if hw == "rkmpp" else _run([ffmpeg, "-hide_banner", "-v", "error", *_encode_test(hw, codec), "-f", "null", "-"])
+            if modern_ok:
+                codecs.append(codec)
+            else:
+                codec_errors[codec] = _last_line(modern_output)[:200]
+        return HwStatus(active=hw, probe_ok=True, tonemap=_tonemap(ffmpeg, hw, filters, software), software_tonemap=software, encode_codecs=tuple(codecs), encode_errors=codec_errors)
     return HwStatus(probe_error="; ".join(errors), tonemap=software, software_tonemap=software)
 
 
@@ -155,6 +211,7 @@ class HwAccel:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._cache: dict[tuple[str | None, str], HwStatus] = {}
+        self._software_cache: dict[tuple[str | None, str], bool] = {}
         self.failures = 0
         self.fallbacks = 0
         self.disabled = False
@@ -175,12 +232,27 @@ class HwAccel:
         with self._lock:
             return self._cache.get((ffmpeg, mode))
 
-    def choice(self, ffmpeg: str | None, mode: str) -> tuple[str, str]:
-        """(hw, tonemap) for a new video encode."""
+    def output_codecs(self, ffmpeg: str | None, mode: str) -> tuple[str, ...]:
+        """Codecs a client may negotiate: modern formats require a passing hardware probe."""
         status = self.status(ffmpeg, mode)
-        if self.disabled or status.active == "none":
+        return ("h264",) if self.disabled or status.active == "none" else status.encode_codecs
+
+    def choice(self, ffmpeg: str | None, mode: str, codec: str = "h264") -> tuple[str, str]:
+        """(hw, tonemap) for the exact negotiated output codec."""
+        status = self.status(ffmpeg, mode)
+        if self.disabled or status.active == "none" or codec not in status.encode_codecs:
             return "none", status.software_tonemap
         return status.active, status.tonemap
+
+    def software_codec_supported(self, ffmpeg: str | None, codec: str) -> bool:
+        """Verify a modern CPU fallback before using it after a GPU session fails."""
+        if codec == "h264":
+            return True
+        with self._lock:
+            key = (ffmpeg, codec)
+            if key not in self._software_cache:
+                self._software_cache[key] = bool(ffmpeg) and _run([ffmpeg, "-hide_banner", "-v", "error", *_software_encode_test(codec), "-f", "null", "-"])[0]
+            return self._software_cache[key]
 
     def software_tonemap(self, ffmpeg: str | None, mode: str) -> str:
         return self.status(ffmpeg, mode).software_tonemap
@@ -200,6 +272,7 @@ class HwAccel:
         """Forget cached probes (admin diagnostics). A disabled fallback stays until restart."""
         with self._lock:
             self._cache.clear()
+            self._software_cache.clear()
 
 
 hwaccel = HwAccel()

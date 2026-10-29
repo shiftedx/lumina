@@ -1,10 +1,12 @@
 """One pure, table-tested playback decision for browsers and Jellyfin clients."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.services.playback_decision import (
-    BROWSER_DEFAULT, Limits, caps_from_browser_profiles, caps_from_device_profile, decide,
+    BROWSER_DEFAULT, Limits, VideoCap, caps_from_browser_profiles, caps_from_device_profile, decide,
 )
 
 
@@ -235,3 +237,56 @@ def test_browser_profiles_only_add_to_the_default() -> None:
     with_ac3 = caps_from_browser_profiles(["mp4-ac3"])
     assert decide(with_ac3, facts(MP4, v(), a("ac3", 6))).mode == "direct"
     assert decide(BROWSER_DEFAULT, facts(MP4, v(), a("ac3", 6))).mode == "transcode"
+
+
+def test_modern_output_requires_explicit_hls_profile_and_a_proven_encoder() -> None:
+    source = facts(MKV, v("mpeg4", height=2160, width=3840), a())
+    explicit = replace(BROWSER_DEFAULT, transcode_video=("h264", "hevc", "av1"))
+
+    av1 = decide(explicit, source, Limits(encode_codecs=("h264", "hevc", "av1")))
+    assert (av1.video_codec, av1.height, av1.bitrate) == ("av1", 2160, 20_000_000)
+
+    hevc = decide(explicit, source, Limits(encode_codecs=("h264", "hevc")))
+    assert (hevc.video_codec, hevc.height) == ("hevc", 2160)
+
+    baseline = decide(BROWSER_DEFAULT, source, Limits(encode_codecs=("h264", "hevc", "av1")))
+    assert (baseline.video_codec, baseline.height) == ("h264", 1080)
+
+
+def test_negotiated_output_obeys_the_selected_codec_decoder_limits() -> None:
+    source = facts(MKV, v("mpeg4", height=2160, width=3840), a())
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc", "av1"),
+        video={
+            **BROWSER_DEFAULT.video,
+            "av1": VideoCap(max_bit_depth=10, ranges=frozenset({"HDR10"})),
+            "hevc": VideoCap(max_width=1920, max_bit_depth=8, ranges=frozenset({"SDR"})),
+        },
+    )
+
+    decision = decide(caps, source, Limits(encode_codecs=("h264", "hevc", "av1")))
+
+    assert (decision.video_codec, decision.height) == ("hevc", 1080)
+
+
+@pytest.mark.parametrize("codec", ["hevc", "av1"])
+def test_modern_hls_output_reencodes_non_aac_audio(codec: str) -> None:
+    modern = replace(BROWSER_DEFAULT, transcode_video=("h264", codec))
+    decision = decide(modern, facts(MKV, v("mpeg4"), a("opus", 6)), Limits(encode_codecs=("h264", codec)))
+
+    assert (decision.video, decision.video_codec, decision.audio, decision.audio_channels) == ("encode", codec, "encode", 2)
+
+
+def test_device_profiles_authorize_modern_output_only_for_fmp4_aac_hls() -> None:
+    profile = {
+        "TranscodingProfiles": [
+            {"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264,hevc,av1", "AudioCodec": "aac"},
+            {"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264,hevc,av1", "AudioCodec": "aac"},
+        ],
+    }
+    assert caps_from_device_profile(profile).transcode_video == ("h264", "hevc", "av1")
+    ts_only = {"TranscodingProfiles": [profile["TranscodingProfiles"][0]]}
+    assert caps_from_device_profile(ts_only).transcode_video == ("h264",)
+    explicit_hevc = {"TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "hevc", "AudioCodec": "aac"}]}
+    assert caps_from_device_profile(explicit_hevc).transcode_video == ("hevc",)

@@ -1169,9 +1169,10 @@ export type LocalPlaybackOptions = {
   quality_heights?: number[];
   loudness_gain_db?: number | null;
   free_video_slots?: number;
+  video_codec?: string | null;
 };
 
-export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transcode'; playback_url: string; start: number; kind?: 'remux' | 'audio' | 'video_sw' | 'video_hw' };
+export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transcode'; playback_url: string; start: number; kind?: 'remux' | 'audio' | 'video_sw' | 'video_hw'; video_codec?: string | null };
 
 // ---------------------------------------------------------------------------
 // Media vault (frozen 2026-09-25). Mirrors backend/app/media_schemas.py
@@ -1188,8 +1189,8 @@ export type TitleSort = 'name' | 'created' | 'year' | 'rating';
 export type PersonType = 'Actor' | 'Director' | 'Writer' | 'Creator' | 'GuestStar' | 'Producer' | 'Composer';
 export type ConnectedAppKind = 'jellyfin' | 'agent' | 'app_password';
 export type ConnectedAppScope = 'read' | 'write';
-export type HwaccelMode = 'auto' | 'off' | 'qsv' | 'vaapi' | 'nvenc' | 'videotoolbox' | 'amf';
-export type HwaccelActive = 'qsv' | 'vaapi' | 'nvenc' | 'videotoolbox' | 'amf' | 'none';
+export type HwaccelMode = 'auto' | 'off' | 'qsv' | 'vaapi' | 'nvenc' | 'videotoolbox' | 'amf' | 'rkmpp';
+export type HwaccelActive = 'qsv' | 'vaapi' | 'nvenc' | 'videotoolbox' | 'amf' | 'rkmpp' | 'none';
 export type TonemapMethod = 'opencl' | 'vpp_qsv' | 'cuda' | 'software' | 'none';
 export type SubtitleOrigin = 'embedded' | 'sidecar' | 'caption' | 'generated' | 'synced' | 'translated';
 export type SubtitleFormat = 'text' | 'image';
@@ -1768,6 +1769,8 @@ export interface TranscodeDiagnostics {
   probe_ok: boolean;
   probe_error?: string | null;
   tonemap: TonemapMethod;
+  encode_codecs?: Array<'h264' | 'hevc' | 'av1'>;
+  encode_errors?: Record<string, string>;
   hardware_disabled: boolean;
   software_fallbacks: number;
   sessions: Record<string, number>;

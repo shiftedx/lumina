@@ -81,7 +81,7 @@ def playback_request(body: Mapping[str, Any] | None, query: Mapping[str, str]) -
 
 def transcoding_fields(
     decision: Any, *, item_id: str, play_session_id: str, api_key: str,
-    audio_index: int | None, subtitle_index: int | None,
+    audio_index: int | None, subtitle_index: int | None, video_codec: str | None = None,
 ) -> dict[str, Any]:
     """MediaSourceInfo fields for one decision. ``item_id`` is the Jellyfin hex of the version item."""
     if decision.mode == "direct":
@@ -89,7 +89,10 @@ def transcoding_fields(
         return {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
     if decision.mode == "unavailable":  # the decision's reasons aren't Jellyfin TranscodeReasons; offer nothing new
         return {"SupportsTranscoding": False}
+    codec = video_codec or (getattr(decision, "video_codec", "h264") if getattr(decision, "video", None) == "encode" else None)
     params: dict[str, Any] = {"MediaSourceId": item_id, "PlaySessionId": play_session_id}
+    if codec:
+        params["VideoCodec"] = codec
     if audio_index is not None:
         params["AudioStreamIndex"] = audio_index
     if subtitle_index is not None:
@@ -121,6 +124,7 @@ class PendingTranscode:
     subtitle_index: int | None  # an embedded stream index (burned in when it is an image codec), else None
     max_bitrate: int | None
     start_seconds: float
+    encode_codecs: tuple[str, ...] = ("h264",)
 
 
 class _PendingTranscodes:
@@ -222,31 +226,34 @@ def annotate_media_sources(
             source["DefaultSubtitleStreamIndex"] = request.subtitle_index
         # External subtitles (sidecars, transcripts) index from sidecar_base up and are always delivered as sidecars.
         subtitle = selected_subtitle if selected_subtitle is not None and selected_subtitle < jf.sidecar_base(facts) else None
-        limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate)
-        decision = decide(caps, facts, limits, audio, subtitle)
-        if decision.mode in ("remux", "transcode") and hls_caps is not caps:
-            caps = hls_caps
-            decision = decide(hls_caps, facts, limits, audio, subtitle)
+        source_caps = caps
+        limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate, caps=source_caps)
+        decision = decide(source_caps, facts, limits, audio, subtitle)
+        if decision.mode in ("remux", "transcode") and hls_caps is not source_caps:
+            source_caps = hls_caps
+            limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate, caps=source_caps)
+            decision = decide(source_caps, facts, limits, audio, subtitle)
         if http_request is not None and playback_resources.enabled(db):
             # This must run after the Roku/HLS fallback so PlaybackInfo advertises
             # the same constrained rendition that master-playlist admission starts.
             decision = playback_resources.preview(
-                db, user, http_request, item.id, device, facts, caps,
+                db, user, http_request, item.id, device, facts, source_caps,
                 max_height=limits.max_height, max_bitrate=limits.max_bitrate,
-                dv5_reshape=limits.dv5_reshape,
+                dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs,
                 audio_index=audio, subtitle_index=subtitle,
                 logical_id=(play_session_id, "direct"),
             ).decision
         source.update(transcoding_fields(
             decision, item_id=jellyfin_id(item.id), play_session_id=play_session_id, api_key=api_key,
             audio_index=audio, subtitle_index=subtitle,
+            video_codec=(decision.video_codec if decision.video == "encode" else next((stream.get("codec") for stream in streams if stream.get("index") == decision.video_index), None)),
         ))
         if decision.mode in ("remux", "transcode"):
             if decision.video == "copy" and (ffprobe := media_tool(db, "ffprobe")):  # the master playlist needs the cut points
                 with contextlib.suppress(FileNotFoundError, ValueError):
                     keyframes(ffprobe, library.resolve_media_path(item), decision.video_index)
             pending_transcodes.put(play_session_id, PendingTranscode(
-                user.id, device, item.id, hls_caps, audio, subtitle, request.max_bitrate, start_seconds,
+                user.id, device, item.id, source_caps, audio, subtitle, request.max_bitrate, start_seconds, limits.encode_codecs,
             ))
 
 

@@ -139,6 +139,7 @@ def test_gpu_overrides_keep_vendor_access_out_of_the_base_container() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
     vaapi = yaml.safe_load((ROOT / "docker-compose.vaapi.yml").read_text())["services"]["lumina"]
     nvidia = yaml.safe_load((ROOT / "docker-compose.nvidia.yml").read_text())["services"]["lumina"]
+    rockchip = yaml.safe_load((ROOT / "docker-compose.rockchip.yml").read_text())["services"]["lumina"]
     assert "libva2 mesa-va-drivers" in dockerfile
     assert vaapi["devices"] == ["/dev/dri:/dev/dri"]
     assert vaapi["environment"]["LUMINA_HWACCEL_DEVICE"].endswith("/dev/dri/renderD128}")
@@ -148,6 +149,9 @@ def test_gpu_overrides_keep_vendor_access_out_of_the_base_container() -> None:
         "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility",
         "LUMINA_HWACCEL_GPU_INDEX": "${LUMINA_HWACCEL_GPU_INDEX:-0}",
     }
+    assert rockchip["devices"] == ["/dev/dri:/dev/dri", "/dev/dma_heap:/dev/dma_heap", "/dev/mpp_service:/dev/mpp_service", "/dev/rga:/dev/rga"]
+    assert set(rockchip["environment"]) == {"LUMINA_RENDER_GID", "LUMINA_VIDEO_GID"}
+    assert "privileged" not in (ROOT / "docker-compose.rockchip.yml").read_text()
 
 
 def test_rollback_image_is_retained_without_starting_health_checks(tmp_path: Path) -> None:
@@ -180,8 +184,13 @@ def _run_entrypoint(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[s
     return subprocess.run(["sh", str(ROOT / "docker" / "entrypoint.sh")], env=environ, capture_output=True, text=True, check=False)
 
 
-@pytest.mark.parametrize(("env", "groups"), [({}, "--clear-groups"), ({"LUMINA_RENDER_GID": ""}, "--clear-groups"), ({"LUMINA_RENDER_GID": "109"}, "--groups=109")])
-def test_entrypoint_drops_to_the_runtime_account_with_only_the_render_group(tmp_path: Path, env: dict, groups: str) -> None:
+@pytest.mark.parametrize(("env", "groups"), [
+    ({}, "--clear-groups"), ({"LUMINA_RENDER_GID": ""}, "--clear-groups"),
+    ({"LUMINA_RENDER_GID": "109"}, "--groups=109"), ({"LUMINA_VIDEO_GID": "44"}, "--groups=44"),
+    ({"LUMINA_RENDER_GID": "109", "LUMINA_VIDEO_GID": "44"}, "--groups=109,44"),
+    ({"LUMINA_RENDER_GID": "109", "LUMINA_VIDEO_GID": "109"}, "--groups=109"),
+])
+def test_entrypoint_drops_to_the_runtime_account_with_only_the_explicit_gpu_groups(tmp_path: Path, env: dict, groups: str) -> None:
     result = _run_entrypoint(tmp_path, **env)
     assert result.returncode == 0, result.stderr
     assert result.stdout.split()[:3] == ["--reuid=1000", "--regid=1000", groups]
@@ -191,6 +200,12 @@ def test_entrypoint_drops_to_the_runtime_account_with_only_the_render_group(tmp_
 def test_entrypoint_refuses_a_bad_render_group(tmp_path: Path, render_gid: str) -> None:
     result = _run_entrypoint(tmp_path, LUMINA_RENDER_GID=render_gid)
     assert result.returncode == 1 and "LUMINA_RENDER_GID" in result.stderr and result.stdout == ""
+
+
+@pytest.mark.parametrize("video_gid", ["0", "video", "44;id", "-1", "01"])
+def test_entrypoint_refuses_a_bad_video_group(tmp_path: Path, video_gid: str) -> None:
+    result = _run_entrypoint(tmp_path, LUMINA_VIDEO_GID=video_gid)
+    assert result.returncode == 1 and "LUMINA_VIDEO_GID" in result.stderr and result.stdout == ""
 
 
 def test_model_runtimes_are_built_portable_from_pinned_sources() -> None:

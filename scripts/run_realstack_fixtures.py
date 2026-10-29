@@ -25,6 +25,7 @@ SEEK_LAVFI = ["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=90", 
 WEBM = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-b:v", "200k", "-c:a", "libopus"]
 H264 = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac"]
 HEVC = ["-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-tag:v", "hvc1", "-c:a", "aac", "-x265-params", "log-level=error"]
+MPEG4 = ["-c:v", "mpeg4", "-q:v", "4", "-c:a", "aac"]
 
 
 def ffmpeg(*args: str | Path) -> None:
@@ -44,6 +45,7 @@ def build_media(media: Path) -> None:
     movie(media, "Realstack Direct", 2024, ".webm", WEBM)
     movie(media, "Realstack Remux", 2023, ".mkv", H264)
     movie(media, "Realstack Transcode", 2022, ".mp4", HEVC)
+    movie(media, "Realstack Legacy", 2018, ".avi", MPEG4)
     movie(media, "Realstack Reco Anchor", 2021, ".webm", WEBM,
           plot="A marine rescue crew navigates ocean storms to save stranded sailors and repair a damaged ship.")
     movie(media, "Realstack Reco Match", 2020, ".webm", WEBM,

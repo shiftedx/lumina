@@ -134,6 +134,10 @@ HLS Info panel, normal dismissal and a visually inspected recovered frame.
 The iPad test explicitly disables animations in the `LUMINA_UI_TESTING` build
 to avoid repeated XCTest animation-idle stalls; shipping builds exclude this
 switch, and the iPhone runs retain normal animations.
+The final iPhone recovery and surface-gesture journeys each passed one case
+with zero failures, skips or expected failures. The latter retains the real
+pause/resume clock, physical hide/reveal and paused-seek checks; surface taps
+use the center region rather than XCTest's unspecified full-screen hit point.
 The routing fixture suite passed 27 cases, and the
 separate backend-virtualenv proof-server HTTP contract passed one case. These
 are local simulator and loopback results only; they do not qualify physical

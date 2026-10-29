@@ -221,6 +221,8 @@ final class NativeTVNavigationArtworkAndVideoCategoriesTests: NativeProofJourney
 }
 @MainActor
 final class NativeTVHomeNavigationPreservesSelectionTests: NativeProofJourney {
+    func testHomeArtworkAndCachedDetailReturns() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: false) }
+    func testNextUpArtworkAndCachedPlayback() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: true) }
     func testTVHomeNavigationPreservesSelection() async throws { try await journeyTVHomeNavigationPreservesSelection() }
 }
 @MainActor
@@ -3262,6 +3264,67 @@ class NativeProofJourney: XCTestCase {
     }
 
 #if os(tvOS)
+    func journeyTVHomeArtworkAndCachedReturns(nextUp: Bool) async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID,
+                                   seconds: nextUp ? 0 : 12, completed: nextUp)
+        try launchAndResetSession()
+        try await performanceQuietPhase("login_form")
+        try signIn(using: fixture)
+        let targetID = nextUp ? fixture.secondEpisodeID : fixture.episodeID
+        let resume = element("\(nextUp ? "nextUpItem" : "resumeItem")-\(targetID)")
+        for _ in 0..<10 where !resume.exists { XCUIRemote.shared.press(.down) }
+        try waitForExistence(resume, timeout: 25, named: "Continue Watching episode")
+        XCTAssertTrue(focus(resume, timeout: 25), "Continue Watching must accept remote focus.")
+        let artwork = resume.descendants(matching: .any).matching(identifier: "tvArtwork-\(targetID)").firstMatch
+        try waitForExistence(artwork, timeout: 10, named: "Continue Watching poster source")
+        let source = try XCTUnwrap(artwork.value as? String)
+        XCTAssertTrue(source.hasSuffix("/Images/Primary"))
+        XCTAssertNotEqual(source, "/Items/\(targetID)/Images/Primary",
+                          "A portrait episode tile must load series/catalog poster artwork, not its landscape still.")
+        try attachFrame(named: nextUp ? "TV Next Up uses series poster artwork" : "TV Continue Watching uses series poster artwork")
+        for cycle in 0..<(nextUp ? 1 : 3) {
+            let phase = cycle == 0 ? "tv_cold_show_detail" : "tv_warm_show_detail_\(cycle)"
+            let started = ContinuousClock.now
+            emitPerformanceMarker(phase: phase, event: "begin", started: started)
+            try activate(resume)
+            try waitForExistence(element("videoCollectionScreen"), timeout: 25, named: "show from Continue Watching")
+            try waitForExistence(element("collectionSeasonSelector"), timeout: 20, named: "cached show seasons")
+            XCTAssertTrue(waitUntil(timeout: 15) { self.element("playButton").isEnabled })
+            emitPerformanceMarker(phase: phase, event: "ready", started: started)
+            try await Task.sleep(for: .seconds(4))
+            emitPerformanceMarker(phase: phase, event: "end", started: started)
+            if cycle == 1 { try attachFrame(named: "TV warm detail return keeps episodes and playback ready") }
+            XCUIRemote.shared.press(.menu)
+            try waitForExistence(element("homeScreen"), timeout: 20, named: "Home after cached show Back")
+        }
+        let next = resume
+        XCTAssertTrue(focus(next, timeout: 25), "The shelf must remain focusable after detail returns.")
+        let navigationStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "tv_shelf_remote_navigation", event: "begin", started: navigationStarted)
+        emitPerformanceMarker(phase: "tv_shelf_remote_navigation", event: "ready", started: navigationStarted)
+        for _ in 0..<8 { XCUIRemote.shared.press(.right); XCUIRemote.shared.press(.left) }
+        emitPerformanceMarker(phase: "tv_shelf_remote_navigation", event: "end", started: navigationStarted)
+        XCTAssertTrue(focus(next, timeout: 20))
+        XCUIRemote.shared.press(.select)
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "Next Up show")
+        let play = element("playButton")
+        XCTAssertTrue(focus(play, timeout: 20))
+        XCUIRemote.shared.press(.select)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "Next Up playback after cached navigation")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
+        try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback")
+        try closePlayer()
+        completed = true
+    }
+
     func journeyTVHomeNavigationPreservesSelection() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -9965,12 +10028,12 @@ private struct ProofAPI {
 
     // Each platform journey starts from the same disposable fixture state,
     // including a nonzero resume point. Only the public server API is used.
-    func seedProgress(identity: APIIdentity, itemID: String, seconds: Int) async throws {
+    func seedProgress(identity: APIIdentity, itemID: String, seconds: Int, completed: Bool = false) async throws {
         var clear = URLRequest(url: origin.appendingPathComponent("Users/\(identity.userID)/Items/\(itemID)/UserData"))
         clear.httpMethod = "POST"
         clear.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
         clear.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        clear.httpBody = try JSONSerialization.data(withJSONObject: ["Played": false])
+        clear.httpBody = try JSONSerialization.data(withJSONObject: ["Played": completed])
         _ = try await send(clear)
         guard seconds > 0 else { return }
         var progress = URLRequest(url: origin.appendingPathComponent("Sessions/Playing/Progress"))

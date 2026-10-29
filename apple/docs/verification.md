@@ -92,6 +92,55 @@ The simulator does not establish HDR10 or Dolby Vision output, HDMI Match Conten
 
 The tests cover generated SDR H.264/AAC sources. HEVC/HDR, additional audio codecs, subtitle delivery, large libraries, oldest supported OS releases and iPad multitasking need separate qualification. The 2026-10-18 Duo audit above adds display-transition and selected accessibility-setting coverage; spoken VoiceOver, RTL and Reduce Transparency remain untested.
 
+## Local HDR fMP4 HLS decode/seek qualification, 2026-10-29
+
+This is a finite host-only AVFoundation delivery check, not a display-output
+claim. On the local arm64 macOS 27.0.1 host,
+`AVPlayer.eligibleForHDRPlayback` was `false` even though VideoToolbox reported
+H.264, HEVC and AV1 hardware decoder availability. That negative HDR-display
+gate remains authoritative for native HDR advertisement on this host.
+
+The packet generated four bounded 10-bit sources using the production
+`hwaccel._hdr_source` helper: HEVC and AV1, each in HDR10 (PQ) and HLG. It
+looped each source through the HDR probe's production software encoder and
+CICP/fMP4 HLS arguments, with one-second independent segments and AAC audio.
+Production `_verify_hdr_source` and `_verify_hdr_hls` verified the
+source and every output fragment before playback: codec, 10-bit 4:2:0 pixel
+format, limited range, BT.2020 primaries/matrix, PQ or HLG transfer, and the
+MDCV/CLL static metadata. The existing frame/seek harness was then compiled
+and pointed at a loopback-only server:
+
+```sh
+swiftc -swift-version 6 -O -parse-as-library apple/scripts/benchmark_video_playback.swift \
+  -framework AVFoundation -framework CoreVideo -framework Foundation \
+  -o /tmp/lumina-video-probe
+/tmp/lumina-video-probe http://127.0.0.1:<port>/<variant>/index.m3u8
+```
+
+All four media playlists passed actual `AVPlayerItemVideoOutput` delivery,
+one-second time advance and a decoded-frame seek past six seconds. First-frame
+times were 217 ms (HEVC HDR10), 183 ms (HEVC HLG), 182 ms (AV1 HDR10), and
+185 ms (AV1 HLG); seek-plus-200-ms times were 316, 312, 321 and 319 ms,
+respectively. These measurements include the probe's BGRA frame readback and
+are not renderer performance claims.
+
+The same fixtures also exercised the current server master shape: one variant,
+`BANDWIDTH` and `EXT-X-INDEPENDENT-SEGMENTS`, without HDR rendition
+attributes. HLG HEVC and AV1 delivered frames, time advance and seek; HDR10
+HEVC and AV1 failed before frame delivery (`CoreMedia -12927`). Adding only
+`VIDEO-RANGE` made every variant fail URL parsing. A fully described test
+master (average bandwidth, bandwidth, video range, codec string, resolution,
+frame rate and no captions) retained HLG delivery but the PQ variants failed
+with AVFoundation `-11868` / CoreMedia `-17223`, consistent with this host's
+negative HDR-display eligibility. [Apple's HLS authoring
+rules](https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices/)
+require a complete HDR rendition description. The server now derives codec
+configuration, resolution, frame rate and video range from the emitted first
+fragment and caches them for the master. Masters emitted by this code passed
+the same HLG frame/advance/seek checks for HEVC and AV1; PQ retained the expected
+negative result on this host. HDR display output still needs qualification on
+an HDR-eligible device; fragment decoding on this SDR host does not certify it.
+
 Latest passing result bundles were retained locally outside the source tree under `/tmp/lumina-native-proof-validation`, with validation logs in `/tmp/lumina-native-*.log`; these are temporary evidence, not release artifacts. Reproduce the native checks using [the fixture-server instructions](../scripts/README.md).
 
 

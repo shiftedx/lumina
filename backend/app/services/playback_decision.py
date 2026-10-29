@@ -25,7 +25,7 @@ MAX_ENCODE_HEIGHT = 1080  # H.264 output tops out here; 4K sources play direct o
 # ffprobe format_name tokens -> the container names clients advertise.
 CONTAINER_ALIASES = {
     "matroska": {"mkv", "matroska"}, "mov": {"mov", "mp4", "m4v", "m4a"}, "mp4": {"mp4", "m4v", "mov", "m4a"},
-    "mpegts": {"ts", "mpegts", "m2ts"}, "asf": {"asf", "wmv", "wma"}, "mpeg": {"mpeg", "mpg"}, "ogg": {"ogg", "oga"},
+    "mpegts": {"ts", "mpegts", "m2ts", "mts"}, "asf": {"asf", "wmv", "wma"}, "mpeg": {"mpeg", "mpg"}, "ogg": {"ogg", "oga"},
 }
 IMAGE_SUBTITLE_FORMATS = frozenset({"pgssub", "pgs", "dvdsub", "dvbsub", "vobsub", "sub"})
 
@@ -60,6 +60,7 @@ class ClientCaps:
     transcode_video: tuple[str, ...] = ("h264",)  # explicit fMP4 HLS encoder codecs, never inferred from direct play
     # Explicit HDR HLS output support. SDR remains governed by transcode_video.
     transcode_ranges: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    hls_video_copy: frozenset[str] = HLS_VIDEO_COPY  # Direct AV1 support need not include AV1 fMP4 HLS.
 
 
 @dataclass(frozen=True)
@@ -250,7 +251,9 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     if not reasons:
         reasons.append("ContainerNotSupported")
 
-    copy_video = video is not None and not video_reasons and video.get("codec") in HLS_VIDEO_COPY
+    copy_video = video is not None and not video_reasons and video.get("codec") in HLS_VIDEO_COPY & client.hls_video_copy
+    if video is not None and not video_reasons and video.get("codec") in HLS_VIDEO_COPY - client.hls_video_copy:
+        reasons.append("VideoCodecNotSupported")
     copy_audio = audio is not None and not codec_reasons and audio.get("codec") in HLS_AUDIO_COPY
     height = bitrate = channels = None
     tonemap = False
@@ -395,6 +398,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
     transcode_video: set[str] = set()
     fmp4_hls_video: set[str] = set()
     has_hls_video_profile = False
+    hls_video_copy = set(HLS_VIDEO_COPY - {"av1"})
     for entry in _dicts(profile.get("TranscodingProfiles")):
         if entry.get("Type") != "Video" or str(entry.get("Protocol") or "").lower() != "hls":
             continue
@@ -402,6 +406,8 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         # Lumina emits fragmented MP4 HLS with AAC. A profile for TS/WebM or
         # another audio codec is not an authorization to use this rendition.
         containers, vids, auds = _tokens(entry.get("Container")), _tokens(entry.get("VideoCodec")), _tokens(entry.get("AudioCodec"))
+        if containers & {"mp4", "fmp4", "m4v"} and "av1" in vids:
+            hls_video_copy.add("av1")
         video_codecs |= vids
         audio |= auds
         # H.264 is the longstanding HLS compatibility contract. Older Jellyfin
@@ -475,4 +481,5 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         # explicit restriction: never manufacture a codec it did not advertise.
         transcode_video=final_transcode_video,
         transcode_ranges=transcode_ranges,
+        hls_video_copy=frozenset(hls_video_copy),
     )

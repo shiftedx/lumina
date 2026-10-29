@@ -95,6 +95,7 @@ ARTWORK_METRICS_PATH_ENV = "LUMINA_NATIVE_ARTWORK_METRICS_PATH"
 MAX_ARTWORK_METRICS_BYTES = 1 * 1024 * 1024
 PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
+VIDEO_FORMAT_FAILURE_ENV = "LUMINA_NATIVE_VIDEO_FORMAT_FAILURE"
 REQUEST_MOVIE_KEY = "movie:603"
 REQUEST_MOVIE_TITLE = "The Matrix"
 REQUEST_SHOW_KEY = "show:1399"
@@ -556,6 +557,109 @@ def install_audio_format_failure(app: Any) -> None:
             from starlette.responses import Response
             return Response(bytes([0xA5]) * 32_768, media_type="audio/mp4")
         return await call_next(request)
+
+
+def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[], None]:
+    """Reject only the first playback's direct MP4 bytes and record its compatible retry."""
+    from starlette.responses import JSONResponse, Response
+
+    lock = threading.Lock()
+    active = faulted = False
+    direct_source_id: str | None = None
+    initial: dict[str, Any] | None = None
+    compatible: list[dict[str, Any]] = []
+    normalized_item_id = item_id.replace("-", "").lower()
+    payload = b"not-a-real-mp4\n" * 32_768
+
+    def target_item(path: list[str]) -> bool:
+        return len(path) == 4 and path[1].lower() == "items" and path[3].lower() == "playbackinfo" and path[2].replace("-", "").lower() == normalized_item_id
+
+    def option_values(body: dict[str, Any]) -> dict[str, Any]:
+        return {key: body.get(key) for key in ("StartTimeTicks", "MaxStreamingBitrate", "AudioStreamIndex", "SubtitleStreamIndex")}
+
+    def compatibility_profile(body: dict[str, Any]) -> bool:
+        profile = body.get("DeviceProfile")
+        if body.get("EnableDirectPlay") is not False or not isinstance(profile, dict):
+            return False
+        direct = profile.get("DirectPlayProfiles")
+        hls = profile.get("TranscodingProfiles")
+        codecs = profile.get("CodecProfiles")
+        if not isinstance(direct, list) or not isinstance(hls, list) or not isinstance(codecs, list):
+            return False
+        direct_video = [entry for entry in direct if isinstance(entry, dict) and entry.get("Type") == "Video"]
+        hls_video = [entry for entry in hls if isinstance(entry, dict) and entry.get("Type") == "Video" and str(entry.get("Protocol")).lower() == "hls"]
+        h264 = next((entry for entry in codecs if isinstance(entry, dict) and entry.get("Type") == "Video" and entry.get("Codec") == "h264"), None)
+        conditions = h264.get("Conditions") if isinstance(h264, dict) else None
+        return (
+            bool(direct_video) and bool(hls_video)
+            and all(entry.get("VideoCodec") == "h264" for entry in [*direct_video, *hls_video])
+            and isinstance(conditions, list)
+            and {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR"} in conditions
+            and [entry.get("Codec") for entry in codecs if isinstance(entry, dict) and entry.get("Type") == "Video"] == ["h264"]
+        )
+
+    def snapshot() -> dict[str, Any]:
+        with lock:
+            retry = compatible[-1] if compatible else None
+            initial_options = option_values(initial) if initial else None
+            retry_options = option_values(retry) if retry else None
+            return {
+                "faultedDirectStream": faulted,
+                "compatibilityRequests": len(compatible),
+                "compatibilityProfile": bool(retry and compatibility_profile(retry)),
+                "sameMediaSource": bool(retry and direct_source_id and retry.get("MediaSourceId") == direct_source_id),
+                "preservedOptions": bool(
+                    initial_options and retry_options
+                    and retry_options["StartTimeTicks"] >= initial_options["StartTimeTicks"]
+                    and all(retry_options[key] == initial_options[key] for key in ("MaxStreamingBitrate", "AudioStreamIndex", "SubtitleStreamIndex"))
+                ),
+            }
+
+    def activate() -> None:
+        nonlocal active
+        with lock:
+            active = True
+
+    @app.middleware("http")
+    async def initial_video_format_failure(request, call_next):  # noqa: ANN001, ANN202
+        nonlocal direct_source_id, faulted, initial
+        path = request.url.path.split("/")
+        if request.method == "GET" and request.url.path == "/Lumina/Proof/initial-video-format-recovery":
+            return JSONResponse(snapshot())
+        with lock:
+            enabled = active
+        if not enabled:
+            return await call_next(request)
+        if request.method == "POST" and target_item(path):
+            try:
+                body = json.loads(await request.body())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                body = None
+            if isinstance(body, dict):
+                with lock:
+                    if body.get("EnableDirectPlay") is False:
+                        compatible.append(body)
+                    elif initial is None:
+                        initial = body
+            return await call_next(request)
+        if request.method == "GET" and len(path) >= 4 and path[1].lower() == "videos" and path[2].replace("-", "").lower() == normalized_item_id and path[3].lower().startswith("stream"):
+            with lock:
+                direct_source_id = request.query_params.get("MediaSourceId")
+                faulted = True
+            requested = request.headers.get("range")
+            if requested and requested.startswith("bytes="):
+                start_text, _, end_text = requested[6:].partition("-")
+                start = int(start_text or 0)
+                end = min(int(end_text) if end_text else len(payload) - 1, len(payload) - 1)
+                if start <= end:
+                    return Response(payload[start:end + 1], status_code=206, media_type="video/mp4", headers={
+                        "Accept-Ranges": "bytes", "Content-Range": f"bytes {start}-{end}/{len(payload)}",
+                    })
+            return Response(payload, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
+        return await call_next(request)
+
+    app.add_api_route("/Lumina/Proof/initial-video-format-recovery", snapshot, methods=["GET"], include_in_schema=False)
+    return activate
 
 
 def install_audio_restore_failure(app: Any, track_id: str) -> Callable[[], None]:
@@ -1474,6 +1578,9 @@ def main() -> None:
         install_playback_info_delay(app, playback_info_delay)
         if os.environ.get("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE") == "1":
             install_audio_format_failure(app)
+        activate_video_format_failure = None
+        if os.environ.get(VIDEO_FORMAT_FAILURE_ENV) == "1":
+            activate_video_format_failure = install_initial_video_format_failure(app, provisioned["directItemID"])
         activate_restore_failure = None
         if os.environ.get("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE") == "1":
             activate_restore_failure = install_audio_restore_failure(app, provisioned["audioTrackID"])
@@ -1496,6 +1603,8 @@ def main() -> None:
 
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
+        if activate_video_format_failure is not None:
+            activate_video_format_failure()
         if activate_restore_failure is not None:
             activate_restore_failure()
         if performance_request_log is not None:

@@ -408,6 +408,8 @@ public struct PlaybackRequest: Identifiable, Sendable {
     public let startPositionSeconds: Double
     public let mediaSourceID: String
     public let isTranscoding: Bool
+    /// True only for the one-shot H.264/SDR compatibility retry.
+    public let usesCompatibleVideo: Bool
     public let methodLabel: String
     public let usesClientDemux: Bool
     /// The selected source's server-reported bitrate, when it is a sane positive value.
@@ -428,6 +430,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
 
     public init(id: String, item: MediaItem, url: URL, startPositionSeconds: Double, mediaSourceID: String,
                 isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false,
+                usesCompatibleVideo: Bool = false,
                 bitRate: Int? = nil, sourceContainer: String? = nil,
                 mediaStreams: [PlaybackStream] = [], audioStreamIndex: Int? = nil,
                 subtitleStreamIndex: Int? = nil, chapters: [PlaybackChapter] = [],
@@ -438,6 +441,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.startPositionSeconds = startPositionSeconds
         self.mediaSourceID = mediaSourceID
         self.isTranscoding = isTranscoding
+        self.usesCompatibleVideo = usesCompatibleVideo
         self.methodLabel = methodLabel
         self.usesClientDemux = usesClientDemux
         self.bitRate = bitRate
@@ -447,6 +451,13 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.subtitleStreamIndex = subtitleStreamIndex
         self.chapters = chapters
         self.resolvedQuality = resolvedQuality
+    }
+
+    /// The startup owner uses this once, before any playback progress is sent.
+    /// It deliberately excludes transport/authentication errors and a request
+    /// that already used the H.264/SDR compatibility profile.
+    public func canRetryCompatibleVideo(after error: Error) -> Bool {
+        !item.isAudio && !usesCompatibleVideo && NativeVideoCapabilities.isFormatFailure(error)
     }
 }
 

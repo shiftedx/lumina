@@ -121,6 +121,9 @@ TVOS_NO_TRUEHD = caps_from_device_profile({
     "CodecProfiles": [{"Type": "VideoAudio", "Conditions": [{"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "6"}]}],
     "SubtitleProfiles": [{"Format": "srt", "Method": "External"}],
 })
+AVCHD = caps_from_device_profile({
+    "DirectPlayProfiles": [{"Type": "Video", "Container": "mts", "VideoCodec": "h264", "AudioCodec": "aac"}],
+})
 # Final review #2/#5: an h264 height cap limits only what Lumina encodes, never a copied hevc stream.
 H264_720 = caps_from_device_profile({
     "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264,hevc", "AudioCodec": "aac"}],
@@ -133,7 +136,7 @@ H264_720 = caps_from_device_profile({
         ]},
     ],
 })
-# Native AVKit client contract; serialization is also checked by LuminaCoreTests.
+# Legacy native AVKit profile, retained for clients predating capability-specific negotiation.
 NATIVE_AVKIT = caps_from_device_profile({
     "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"},
                            {"Type": "Video", "Container": "mkv", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,flac"}],
@@ -165,6 +168,7 @@ ROWS = [
     ("native_hevc12_encodes", NATIVE_AVKIT, facts(MP4, v("hevc", pix_fmt="yuv420p12le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
     ("infuse_mkv_h264_aac_direct", INFUSE, facts(MKV, v(), a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("infuse_hevc10_hdr10_truehd_direct", INFUSE, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
+    ("avchd_mts_direct", AVCHD, facts("mpegts", v(), a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("truehd_is_an_audio_only_encode", TVOS_NO_TRUEHD, facts(MKV, v(), a("truehd", 8)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioCodecNotSupported",))),
     ("srt_selected_stays_direct", INFUSE, facts(MKV, v(), a(), s()), Limits(), None, 2, ("direct", "copy", "copy", None, None, None, ())),
     ("pgs_without_embed_support_burns_in", TVOS_NO_TRUEHD, facts(MKV, v(), a(), s("hdmv_pgs_subtitle")), Limits(), None, 2, ("transcode", "encode", "copy", 2, 1080, 8_000_000, ("SubtitleCodecNotSupported",))),
@@ -431,6 +435,61 @@ def test_modern_hls_output_reencodes_non_aac_audio(codec: str) -> None:
     decision = decide(modern, facts(MKV, v("mpeg4"), a("opus", 6)), Limits(encode_codecs=("h264", codec)))
 
     assert (decision.video, decision.video_codec, decision.audio, decision.audio_channels) == ("encode", codec, "encode", 2)
+
+
+@pytest.mark.parametrize("av1_hls", [False, True])
+@pytest.mark.parametrize("container, audio_codec", [(MP4, "aac"), (MKV, "aac"), (MP4, "dts")])
+def test_native_av1_direct_support_does_not_authorize_hls_stream_copy(av1_hls: bool, container: str, audio_codec: str) -> None:
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,mov,m4v", "VideoCodec": "h264,hevc,av1", "AudioCodec": "aac"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264,hevc,av1" if av1_hls else "h264,hevc", "AudioCodec": "aac"}],
+        "CodecProfiles": [
+            {"Type": "Video", "Codec": codec, "Conditions": [
+                {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+                {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR|HDR10|HLG"},
+            ]} for codec in ("hevc", "av1")
+        ],
+    }
+    source_video = {**v("av1", 2160, 3840, "yuv420p10le", "smpte2084"),
+                    "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv"}
+    caps = caps_from_device_profile(profile)
+    decision = decide(caps, facts(container, source_video, a(audio_codec)),
+                      Limits(encode_codecs=("h264", "hevc", "av1"), encode_ranges={"hevc": frozenset({"HDR10"})}))
+
+    if container == MP4 and audio_codec == "aac":
+        assert decision.mode == "direct" and decision.video == "copy"
+    elif av1_hls:
+        assert decision.video == "copy" and decision.audio == ("copy" if audio_codec == "aac" else "encode")
+    else:
+        assert (decision.video, decision.video_codec, decision.video_range, decision.tonemap) == ("encode", "hevc", "HDR10", False)
+        assert "VideoCodecNotSupported" in decision.reasons
+
+
+@pytest.mark.parametrize("source_codec", ["hevc", "av1"])
+@pytest.mark.parametrize("audio_codec", ["aac", "flac", "dts"])
+def test_native_compatibility_request_never_reuses_a_modern_hdr_rendition(source_codec: str, audio_codec: str) -> None:
+    caps = caps_from_device_profile({
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,mkv", "VideoCodec": "h264", "AudioCodec": "aac"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
+        "CodecProfiles": [
+            {"Type": "Video", "Codec": "h264", "Conditions": [
+                {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"},
+                {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR"},
+            ]},
+            {"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+                {"Property": "AudioChannels", "Condition": "LessThanEqual", "Value": "2"},
+            ]},
+        ],
+    })
+    source_video = {**v(source_codec, 2160, 3840, "yuv420p10le", "smpte2084"),
+                    "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv"}
+    decision = decide(caps, facts(MP4, source_video, a(audio_codec, 2 if audio_codec == "aac" else 8)), Limits(
+        encode_codecs=("h264", "hevc", "av1"),
+        encode_ranges={"hevc": frozenset({"HDR10"}), "av1": frozenset({"HDR10"})},
+    ))
+
+    assert (decision.video, decision.video_codec, decision.video_range, decision.tonemap) == ("encode", "h264", "SDR", True)
+    assert (decision.audio, decision.audio_channels) == (("copy", None) if audio_codec == "aac" else ("encode", 2))
 
 
 def test_device_profiles_authorize_modern_output_only_for_fmp4_aac_hls() -> None:

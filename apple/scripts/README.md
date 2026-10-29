@@ -127,6 +127,35 @@ regression. The helper refuses a signed application archive.
 
 Video playback probes accept `LUMINA_VIDEO_WAIT_MODE=event` to exercise native screen readiness, or `poll` to compare the former 100 ms loop. `LUMINA_VIDEO_STEADY_SECONDS=12` adds sustained frame/advance validation, process CPU and pause CPU measurements before the existing seek check. Use identical inputs/frame settings for comparisons; this host probe's BGRA sampling is measurement overhead, not the app's AVKit rendering path.
 
+For a finite local qualification of a new native HLS variant, give
+`benchmark_video_playback.swift` the exact loopback HLS entry point served to
+the client rather than a media file. The fixture needs audio, independently
+seekable fMP4 segments and at least seven seconds of media: the probe requires
+a decoded frame and one second of advancing playback, then seeks to six
+seconds and requires another decoded frame. For example, compile the
+checked-in probe and point it at a temporary loopback server:
+
+```sh
+swiftc -swift-version 6 -O -parse-as-library apple/scripts/benchmark_video_playback.swift \
+  -framework AVFoundation -framework CoreVideo -framework Foundation \
+  -o /tmp/lumina-video-probe
+/tmp/lumina-video-probe http://127.0.0.1:<port>/<master>.m3u8
+```
+
+This establishes local AVPlayer frame delivery, advancing time and seek for
+that exact host, OS, manifest and codec profile. It does not certify hardware
+decode, HDR display output, HDMI output, every AV1/HDR profile, or any other
+device. `VTIsHardwareDecodeSupported` and
+`AVURLAsset.isPlayableExtendedMIMEType` are useful candidate gates, but the
+former only reports decoder availability and the latter validates a specified
+asset/container combination, not an HLS master. Keep direct MP4 and HLS
+qualification separate. For HDR, test the actual server master as well as its
+media playlist: Apple requires `VIDEO-RANGE`, `CODECS`, average bandwidth and
+frame rate for HDR variants, while a display-ineligible host can still decode
+the fragments without proving HDR output. Apple documents AV1 HLS as fMP4 and
+requires hardware support; still retain an H.264 fallback and record actual
+playback failures.
+
 `mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` creates a temporary synthetic owner-scoped offline library and reports 21-sample median CPU/wall cost for reading its metadata list. It checks purge handling and owner hiding afterward, removes its files on exit, and makes no network requests. File decoding, initial reconciliation and cold-storage costs are outside this metric.
 
 For sustained MKV comparisons, build the same `VideoBenchmark` harness against the baseline and candidate Core configurations, keeping separate binaries, then run:

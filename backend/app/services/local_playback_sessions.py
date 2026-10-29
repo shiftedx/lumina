@@ -7,6 +7,7 @@ from __future__ import annotations
 import bisect
 import contextlib
 import functools
+import json
 import logging
 import os
 import re
@@ -27,7 +28,7 @@ from app.config import settings
 from app.services import subtitle_tracks
 from app.services import rockchip
 from app.services.hwaccel import ENCODERS, _hdr_graph, device_args, encoder_args, hwaccel
-from app.services.media_probe import LOCAL_INPUT_ARGS
+from app.services.media_probe import LOCAL_INPUT_ARGS, ProbeError, _run_bounded_process
 from app.services.playback_decision import Decision, video_range as source_video_range
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ SEGMENT_SECONDS = 4
 FIRST_SEGMENT_SECONDS = 1  # An encode cuts 1 s segments for its first SHORT_SEGMENTS, then 4 s ones
 SHORT_SEGMENTS = 4
 MANIFEST_POLL_SECONDS = 0.025
+MASTER_PROBE_TIMEOUT_SECONDS = 2
 # hls.js first re-polls a growing playlist ~2 target durations after loading it, and plays only what that first one
 # listed until then. So a session answers once this many segments are listed (or the playlist ended): an encode's three
 # 1 s segments outlast its 2 s re-poll, and copied video, cut at source keyframes (often ~10 s apart), copies far
@@ -419,11 +421,179 @@ def with_api_key(playlist: str, api_key: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _extradata_bytes(value: object) -> bytes | None:
+    """Decode ffprobe's ``-show_data`` hexdump without accepting a made-up codec string."""
+    if not isinstance(value, str):
+        return None
+    chunks: list[str] = []
+    for line in value.splitlines():
+        match = re.fullmatch(r"\s*[0-9a-fA-F]+:\s*(.*)", line)
+        if match is None:
+            continue
+        # ffprobe separates the ASCII column with two spaces. Parsing only the
+        # left column prevents printable text such as ``beef`` becoming bytes.
+        data = re.split(r"\s{2,}", match[1], maxsplit=1)[0].strip()
+        words = data.split()
+        if not words or any(not re.fullmatch(r"[0-9a-fA-F]{2}(?:[0-9a-fA-F]{2})?", word) for word in words):
+            return None
+        chunks.extend(words)
+    try:
+        decoded = bytes.fromhex("".join(chunks)) if chunks else None
+        return decoded if decoded is not None and len(decoded) <= 4096 else None
+    except ValueError:
+        return None
+
+
+def _reverse_bits(value: int, bits: int) -> int:
+    return int(f"{value:0{bits}b}"[::-1], 2)
+
+
+def _video_codec_string(stream: dict[str, object]) -> str | None:
+    """RFC 6381 codec strings derived only from the emitted ISO-BMFF configuration record."""
+    codec, tag, extra = stream.get("codec_name"), stream.get("codec_tag_string"), _extradata_bytes(stream.get("extradata"))
+    if not isinstance(codec, str) or not isinstance(tag, str) or extra is None:
+        return None
+    if codec == "h264" and tag in {"avc1", "avc3"} and len(extra) >= 4 and extra[0] == 1:
+        return f"{tag}.{extra[1]:02X}{extra[2]:02X}{extra[3]:02X}"
+    if codec == "hevc" and tag in {"hvc1", "hev1"} and len(extra) >= 23 and extra[0] == 1:
+        profile_space = (extra[1] >> 6) & 0x03
+        profile = extra[1] & 0x1F
+        compatibility = _reverse_bits(int.from_bytes(extra[2:6], "big"), 32)
+        if not profile:
+            return None
+        constraints = ".".join(f"{byte:02X}" for byte in extra[6:12].rstrip(b"\0"))
+        prefix = ("", "A", "B", "C")[profile_space]
+        suffix = f".{constraints}" if constraints else ""
+        return f"{tag}.{prefix}{profile}.{compatibility:X}.{'H' if extra[1] & 0x20 else 'L'}{extra[12]}{suffix}"
+    if codec == "av1" and tag == "av01" and len(extra) >= 3 and extra[0] & 0x80 and (extra[0] & 0x7F) == 1:
+        profile, level = extra[1] >> 5, extra[1] & 0x1F
+        depth = 12 if extra[2] & 0x20 else 10 if extra[2] & 0x40 else 8
+        return f"av01.{profile}.{level:02d}{'H' if extra[2] & 0x80 else 'M'}.{depth:02d}"
+    return None
+
+
+def _audio_codec_string(stream: dict[str, object]) -> str | None:
+    extra = _extradata_bytes(stream.get("extradata"))
+    codec, tag = stream.get("codec_name"), stream.get("codec_tag_string")
+    if codec == "aac" and tag == "mp4a" and extra is not None and len(extra) >= 2:
+        object_type = extra[0] >> 3
+        if object_type == 31:
+            object_type = 32 + ((extra[0] & 0x07) << 3) + (extra[1] >> 5)
+        return f"mp4a.40.{object_type}" if 0 < object_type <= 63 else None
+    known = {("ac3", "ac-3"): "ac-3", ("eac3", "ec-3"): "ec-3", ("flac", "fLaC"): "fLaC", ("opus", "Opus"): "opus"}
+    return known.get((codec, tag))
+
+
+def _master_attributes(ffprobe: str, directory: Path, init: str, segment: str) -> dict[str, str] | None:
+    """Read one completed fMP4 fragment once at startup; unknown facts retain the legacy master."""
+    try:
+        result = _run_bounded_process([
+            ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-read_intervals", "%+#64", "-show_entries",
+            "stream=codec_type,codec_name,codec_tag_string,extradata,width,height,avg_frame_rate,color_transfer,color_primaries,color_space,color_range,pix_fmt:frame=media_type,color_transfer,color_primaries,color_space,color_range,pix_fmt",
+            "-show_streams", "-show_frames", "-show_data", "-of", "json", f"concat:{directory / init}|{directory / segment}",
+        ], timeout=MASTER_PROBE_TIMEOUT_SECONDS)
+        if result.returncode != 0:
+            return None
+        payload = json.loads(result.stdout)
+    except (ProbeError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    streams, frames = payload.get("streams"), payload.get("frames")
+    if not isinstance(streams, list) or not isinstance(frames, list):
+        return None
+    video = next((stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "video"), None)
+    if not isinstance(video, dict):
+        return None
+    frame = next((item for item in frames if isinstance(item, dict) and item.get("media_type") == "video"), None)
+    if isinstance(frame, dict):
+        video = {**video, **{key: value for key in ("color_transfer", "color_primaries", "color_space", "color_range", "pix_fmt") if (value := frame.get(key)) is not None}}
+    codec = _video_codec_string(video)
+    width, height = video.get("width"), video.get("height")
+    rate = video.get("avg_frame_rate")
+    if not codec or not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0 or not isinstance(rate, str):
+        return None
+    try:
+        numerator, denominator = (int(part) for part in rate.split("/", 1))
+        frame_rate = numerator / denominator
+    except (ValueError, ZeroDivisionError):
+        return None
+    if not 0 < frame_rate <= 240:
+        return None
+    transfer = video.get("color_transfer")
+    video_range = "PQ" if transfer == "smpte2084" else "HLG" if transfer == "arib-std-b67" else None
+    if video_range is None and (
+        video.get("pix_fmt") in {"yuv420p", "nv12"}
+        or (transfer == "bt709" and video.get("pix_fmt") in {"yuv420p10le", "p010le"})
+    ):
+        video_range = "SDR"
+    if video_range is None:
+        return None
+    if video_range != "SDR" and not (
+        video.get("color_primaries") == "bt2020" and video.get("color_space") == "bt2020nc"
+        and video.get("color_range") == "tv" and video.get("pix_fmt") in {"yuv420p10le", "p010le"}
+    ):
+        return None
+    audio = next((stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "audio"), None)
+    codecs = [codec]
+    if audio is not None:
+        if not isinstance(audio, dict) or not (audio_codec := _audio_codec_string(audio)):
+            return None
+        codecs.append(audio_codec)
+    return {"codecs": ",".join(codecs), "resolution": f"{width}x{height}", "frame_rate": f"{frame_rate:.3f}", "video_range": video_range}
+
+
+_MASTER_RESOLUTION = re.compile(r"[1-9]\d{0,4}x[1-9]\d{0,4}")
+_MASTER_FRAME_RATE = re.compile(r"(?:0|[1-9]\d{0,2})\.\d{3}")
+
+
+def _verified_master_attributes(value: object) -> dict[str, str] | None:
+    """Only locally derived RFC-shaped tokens are allowed into an HLS manifest."""
+    if not isinstance(value, dict):
+        return None
+    attrs = {key: value.get(key) for key in ("codecs", "resolution", "frame_rate", "video_range")}
+    if not all(isinstance(item, str) for item in attrs.values()):
+        return None
+    codecs, resolution, frame_rate, video_range = attrs["codecs"], attrs["resolution"], attrs["frame_rate"], attrs["video_range"]
+    video, *audio = codecs.split(",")
+    video_ok = bool(re.fullmatch(r"avc[13]\.[0-9A-F]{6}|(?:hvc1|hev1)\.(?:[ABC])?(?:[1-9]|[12]\d|3[01])\.[0-9A-F]{1,8}\.[LH][1-9]\d{0,2}(?:\.[0-9A-F]{2}){0,6}|av01\.[0-7]\.(?:0\d|[12]\d|3[01])[MH]\.(?:08|10|12)", video))
+    audio_ok = not audio or (len(audio) == 1 and bool(re.fullmatch(r"mp4a\.40\.(?:[1-9]|[1-5]\d|6[0-3])|ac-3|ec-3|fLaC|opus", audio[0])))
+    if not video_ok or not audio_ok or not _MASTER_RESOLUTION.fullmatch(resolution) or not _MASTER_FRAME_RATE.fullmatch(frame_rate):
+        return None
+    width, height = (int(part) for part in resolution.split("x"))
+    if width > 16384 or height > 16384 or not 0 < float(frame_rate) <= 240 or video_range not in {"SDR", "PQ", "HLG"}:
+        return None
+    return {"codecs": codecs, "resolution": resolution, "frame_rate": frame_rate, "video_range": video_range}
+
+
+def _cache_master_attributes(session: PlaybackSession, ffprobe: str | None) -> None:
+    if not ffprobe or "master" in session.info:
+        return
+    # The variant is already complete enough to serve. A verifier failure is not
+    # a conversion failure and must never hold startup hostage.
+    segment = f"seg{session.run.index}.m4s" if session.run else "seg0.m4s"
+    init = session.run.init if session.run else "init.mp4"
+    if (session.directory / init).is_file() and (session.directory / segment).is_file():
+        if attributes := _master_attributes(ffprobe, session.directory, init, segment):
+            video = session.info.get("video")
+            requested = video.get("range") if isinstance(video, dict) else None
+            expected = {"SDR": "SDR", "HDR10": "PQ", "HLG": "HLG"}.get(requested)
+            if attributes["video_range"] == expected:
+                session.info["master"] = attributes
+
+
 def master_playlist(session: PlaybackSession, variant_uri: str, audio_uri: str | None = None) -> str:
     """A one-rendition master playlist for Jellyfin clients; the variant is the session's index.m3u8."""
     audio = f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio_uri}"\n' if audio_uri else ""
     group = ',AUDIO="audio"' if audio_uri else ""
-    return f"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n{audio}#EXT-X-STREAM-INF:BANDWIDTH={session.bandwidth}{group}\n{variant_uri}\n"
+    attrs = _verified_master_attributes(session.info.get("master"))
+    if attrs is None:
+        return f"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n{audio}#EXT-X-STREAM-INF:BANDWIDTH={session.bandwidth}{group}\n{variant_uri}\n"
+    return (
+        f"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n{audio}"
+        f'#EXT-X-STREAM-INF:BANDWIDTH={session.bandwidth},CODECS="{attrs["codecs"]}",RESOLUTION={attrs["resolution"]},'
+        f'FRAME-RATE={attrs["frame_rate"]},VIDEO-RANGE={attrs["video_range"]}{group}\n{variant_uri}\n'
+    )
 
 
 class LocalPlaybackSessions:
@@ -465,6 +635,12 @@ class LocalPlaybackSessions:
             encode and hw == "rkmpp" and video_range == "SDR" and not decision.tonemap and decision.burn_subtitle is None
             and _sdr_8bit_420(video.get("pix_fmt")) and hwaccel.zero_copy_supported(ffmpeg, video.get("codec"), codec, ffprobe)
         )
+        # Keep the established H.264/SDR startup path subprocess-free. Modern
+        # video and every HDR output need the emitted fMP4 facts before their
+        # master can safely describe a rendition.
+        master_probe = ffprobe if (
+            video_range != "SDR" or codec in {"hevc", "av1"} or (decision.video == "copy" and video.get("codec") in {"hevc", "av1"})
+        ) else None
         key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, codec, video_range, plan is not None, hw, tonemap, hdr_hw_decode, zero_copy)
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
@@ -496,6 +672,7 @@ class LocalPlaybackSessions:
             self._dispose(old)
         try:
             session = self._await_manifest(session)
+            _cache_master_attributes(session, master_probe)
             if decision.video == "copy" and start and ffprobe:
                 session.media_start = _first_pts(ffprobe, session.directory, start)
         except ConversionError:
@@ -522,6 +699,7 @@ class LocalPlaybackSessions:
                     session = spawn(hw=hw, tonemap=tonemap, hw_decode=False, hdr_hw_decode=False, zero_copy=False)
                 try:
                     session = self._await_manifest(session)
+                    _cache_master_attributes(session, master_probe)
                 except ConversionError:
                     pass
                 else:
@@ -541,7 +719,9 @@ class LocalPlaybackSessions:
                 if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
                     raise SessionCapError(BUSY) from None
                 session = spawn(hw="none", tonemap=software_tonemap, hw_decode=False, hdr_hw_decode=False, zero_copy=False)
-            return self._await_manifest(session)
+            session = self._await_manifest(session)
+            _cache_master_attributes(session, master_probe)
+            return session
         if hw != "none":
             hwaccel.record_success()
         return session

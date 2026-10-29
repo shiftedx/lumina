@@ -24,7 +24,7 @@ export const HOME_CATALOGUE: Readonly<Record<HomeShelfId, { name: string; shape:
   next_up: { name: 'Next up', shape: 'still' },
   watchlist: { name: 'Your watchlist', shape: 'still' },
   new_in_library: { name: 'New in your library', shape: 'poster' },
-  because_you_watched: { name: 'Because you watched…', shape: 'poster' },
+  because_you_watched: { name: 'More for you', shape: 'poster' },
   recommended: { name: 'Recommended for you', shape: 'poster' },
   picked_for_you: { name: 'Picked for you', shape: 'still' },
   collections: { name: 'Your smart collections', shape: 'poster' },

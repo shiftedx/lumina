@@ -174,7 +174,7 @@ describe('HomeHero carousel', () => {
     await flush();
     expect(slide().getAttribute('aria-label')).toBe('2 of 3');
     expect(screen.getByText('Recommended for you')).toBeTruthy();
-    expect(screen.getByText('Because you watched Harbor Lights')).toBeTruthy();
+    expect(screen.queryByText('Because you watched Harbor Lights')).toBeNull();
     // A member's change is announced politely; the automatic advance is not.
     expect(document.querySelector('.h-hero-stage')?.getAttribute('aria-live')).toBe('polite');
   });

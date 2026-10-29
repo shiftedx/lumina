@@ -64,7 +64,7 @@ export async function loadShelf(id: FetchedShelfId, visit: HomeVisit, userId: st
       return (await visit.titleRows()).rows
         .filter((row) => row.kind === 'because_you_watched' && row.items.length)
         .slice(0, BECAUSE_ROWS)
-        .map((row): ShelfRow => ({ key: `${id}:${row.id}`, heading: row.title, shape: 'poster', titles: row.items.slice(0, SHELF_LIMIT) }));
+        .map((row): ShelfRow => ({ key: `${id}:${row.id}`, heading: 'More for you', shape: 'poster', titles: row.items.slice(0, SHELF_LIMIT) }));
     case 'collections': {
       // Only the member's own smart collections, the first four; one that fails to load is left out.
       const smart = (await listHouseholdCollections()).filter((collection) => collection.rules && collection.owner_user_id === userId).slice(0, SMART_ROWS);

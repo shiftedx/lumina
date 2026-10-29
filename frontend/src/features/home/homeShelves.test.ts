@@ -39,7 +39,7 @@ describe('normalizeHomeShelves', () => {
       'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music', 'continue_listening',
     ]);
     expect(Object.keys(HOME_CATALOGUE).sort()).toEqual([...HOME_SHELF_IDS].sort());
-    expect(HOME_CATALOGUE.because_you_watched).toEqual({ name: 'Because you watched…', shape: 'poster' });
+    expect(HOME_CATALOGUE.because_you_watched).toEqual({ name: 'More for you', shape: 'poster' });
     expect(HOME_CATALOGUE.recent_music).toEqual({ name: 'Recently added music', shape: 'square' });
     expect(HOME_CATALOGUE.live).toEqual({ name: 'Live now', shape: 'still' });
   });

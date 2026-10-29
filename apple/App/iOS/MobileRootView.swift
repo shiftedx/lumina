@@ -1450,7 +1450,7 @@ private struct HomeLibraryView: View {
             if feed.hasLoaded {
                 ForEach(rows.filter { $0.shelfID == id }) { row in
                     if !row.items.isEmpty {
-                    MediaRail(title: row.title, items: row.items, store: store,
+                    MediaRail(title: row.displayTitle, items: row.items, store: store,
                               identifierPrefix: id == .continueWatching ? "resumeItem" : id == .nextUp ? "nextUpItem" : id == .newInLibrary ? "recentItem" : "homeRow-\(row.id)",
                               wide: row.shape == .still && id != .continueWatching && id != .nextUp,
                               feed: feed, onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
@@ -1636,7 +1636,7 @@ private struct HomeExternalRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(row.title).font(.title3.weight(.bold)).padding(.top, 10)
+            Text(row.displayTitle).font(.title3.weight(.bold)).padding(.top, 10)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 10) {
                     ForEach(row.externalItems ?? []) { item in
@@ -3829,20 +3829,12 @@ private struct MediaRail: View {
                                 loadFraming: { await store.artworkFraming(for: $0) }
                             )
                             .frame(width: cardWidth(for: item), alignment: .leading)
-                            .overlay(alignment: .bottomLeading) {
-                                if let reason = item.luminaReco?.reason {
-                                    Text(reason).font(.caption2).lineLimit(2).padding(6)
-                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                                        .accessibilityHidden(true)
-                                }
-                            }
                         }
                         .contentShape([.interaction, .accessibility], Rectangle())
                         .buttonStyle(.plain)
                         .accessibilityElement(children: .ignore)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(mediaAccessibilityLabel(for: item, presentation: captionPresentation))
-                        .accessibilityHint(item.luminaReco?.reason ?? "")
                         .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                         }
                     }

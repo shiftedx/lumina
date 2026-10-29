@@ -97,7 +97,7 @@ type PickedShelfProps = {
   onOpenRemote: (item: YouTubeSearchResult) => void;
 };
 
-/** Picked for you: a still per pick with the server's reason and the menu under it. */
+/** Picked for you: a still per pick with feedback in its art menu. */
 function PickedShelf({ recommendations, recommendationError, recommendationsLoading, onRetry, onPersonalize, onOpenRemote }: PickedShelfProps) {
   // A hidden pick keeps its slot as its Undo row; a gone one leaves the list.
   const items = useRecoFilter(recommendations?.items ?? [], remoteTarget, true).slice(0, SHELF_LIMIT);

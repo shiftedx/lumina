@@ -44,12 +44,13 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('RecoCard with a provider', () => {
-  it('keeps the reason out of the card and in the menu, as a quiet header', () => {
+  it('keeps explanations out of cards and feedback menus', () => {
     setup();
     expect(document.querySelector('.reco-reason')).toBeNull();
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Harbor walk' }));
-    expect(screen.getByRole('group', { name: 'Because you finished Harbor walk at dawn' })).toBeTruthy();
+    expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('replaces the card with "Hidden. Undo" after Not interested, saving the item with its list', async () => {

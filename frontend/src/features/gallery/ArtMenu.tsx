@@ -2,7 +2,7 @@
  * The one hover menu on cover art: a ⋯ that fades in on the art's corner (hover or keyboard focus within the card) and
  * opens the shared Menu. What it offers follows the subject and the member: a library title (play, watched, favorite,
  * watchlist, edit details, change artwork), a web video (play, queue, save to the vault, open channel), a saved video,
- * and, inside a recommendation card, the reason as a quiet header with Not interested and the rest. The card's host
+ * and, inside a recommendation card, Not interested and the rest. The card's host
  * (PosterCard, AlbumCard, StillFrame, RemoteStillCard) renders it beside its button, never inside it.
  */
 import { useCanDownload } from '../access/access';
@@ -86,11 +86,10 @@ export function ArtMenu({ subject, extra = [], label }: { subject: ArtSubject; /
     : [];
   const entries = block(play, extra, own, reco);
   if (!entries.length) return null;
-  const items: MenuEntry[] = art?.reco ? [{ kind: 'group', label: art.reco.reason }, ...entries] : entries;
   const name = label ?? subjectName(subject);
   return (
     <span className="g-art-menu" ref={observe}>
-      <Menu align="start" items={items} trigger={(props) => <button {...props} aria-label={`More options for ${name}`} className="g-art-menu-button" type="button"><MoreHorizontal aria-hidden="true" /></button>} />
+      <Menu align="start" items={entries} trigger={(props) => <button {...props} aria-label={`More options for ${name}`} className="g-art-menu-button" type="button"><MoreHorizontal aria-hidden="true" /></button>} />
     </span>
   );
 }

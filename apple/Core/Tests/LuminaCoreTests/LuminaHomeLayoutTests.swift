@@ -15,7 +15,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HomeLayoutProtocol.self]
         let rows = HomeShelfID.allCases.map { id -> [String: Any] in
-            ["id": id.rawValue, "shelf_id": id.rawValue, "title": id.title, "shape": "still", "items": [],
+            ["id": id.rawValue, "shelf_id": id.rawValue, "title": id == .becauseYouWatched ? "Because you watched Example" : id.title, "shape": "still", "items": [],
              "external_items": [["id": "source", "title": "Example video", "subtitle": "Example channel",
                                  "url": "https://www.youtube.com/watch?v=example", "artwork_url": "https://i.ytimg.com/vi/example/default.jpg"]]]
         }
@@ -33,6 +33,9 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertNil(feed.errorMessage)
         XCTAssertTrue(feed.hasLoaded)
         XCTAssertEqual(feed.rows.map(\.shelfID), HomeShelfID.allCases)
+        let recommendations = try XCTUnwrap(feed.rows.first { $0.shelfID == .becauseYouWatched })
+        XCTAssertEqual(recommendations.displayTitle, "More for you")
+        XCTAssertEqual(recommendations.title, "Because you watched Example")
         XCTAssertTrue(feed.rows.allSatisfy(\.hasItems))
         XCTAssertEqual(feed.rows.first?.externalItems?.first?.sourceURL?.host, "www.youtube.com")
     }

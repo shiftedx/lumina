@@ -162,6 +162,13 @@ def title_metadata_fields(title: MediaTitle) -> dict[str, Any]:
         out["Tags"] = tags
     if _count(meta.get("critic_rating")) and 0 <= meta["critic_rating"] <= 100:
         out["CriticRating"] = meta["critic_rating"]
+    # Lumina extensions preserve source identity; CriticRating remains the legacy generic score.
+    for key, name, maximum in (("imdb_rating", "LuminaIMDbRating", 10),
+                               ("rotten_tomatoes_rating", "LuminaRottenTomatoesRating", 100),
+                               ("metacritic_rating", "LuminaMetacriticRating", 100)):
+        value = meta.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= maximum:
+            out[name] = value
     if isinstance(meta.get("custom_rating"), str) and meta["custom_rating"]:
         out["CustomRating"] = meta["custom_rating"]
     if isinstance(meta.get("air_days"), list) and (days := [d for d in meta["air_days"] if isinstance(d, str)]):

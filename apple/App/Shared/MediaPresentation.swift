@@ -317,13 +317,7 @@ struct MediaBillboard<Actions: View>: View {
                     .foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                     .accessibilityIdentifier("featuredEpisodeSubtitle")
             }
-            if let rating = item.criticRatingPercentage {
-                Text("Critics \(rating)%")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .accessibilityLabel("Critic rating: \(rating) percent")
-                    .accessibilityIdentifier("heroCriticRating-\(item.id)")
-            }
+            MediaRatings(item: item)
             if showsMetadata {
                 MediaMetadata(item: item, onArtwork: true)
             }
@@ -1187,5 +1181,82 @@ struct AlbumArtworkBackground: ViewModifier {
                       !Task.isCancelled else { return }
                 palette = AlbumArtworkColor(image: image)
             }
+    }
+}
+
+/// Source-specific scores share the server/web identities, including unrated and legacy titles.
+private struct MediaRatings: View {
+    let item: MediaItem
+    #if os(tvOS)
+    @ScaledMetric(relativeTo: .caption) private var markHeight = 30
+    #else
+    @ScaledMetric(relativeTo: .caption) private var markHeight = 16
+    #endif
+
+    private var hasNamedRatings: Bool {
+        item.validIMDbRating != nil || item.validRottenTomatoesRating != nil || item.validMetacriticRating != nil
+    }
+
+    var body: some View {
+        if hasNamedRatings {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { scores }
+                VStack(alignment: .leading, spacing: 8) { scores }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+        } else if let rating = item.criticRatingPercentage {
+            Text("Critics \(rating)%")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .accessibilityLabel("Critic rating: \(rating) percent")
+                .accessibilityIdentifier("heroCriticRating-\(item.id)")
+        }
+    }
+
+    @ViewBuilder private var scores: some View {
+        if let score = item.validIMDbRating {
+            HStack(spacing: 5) {
+                mark("RatingIMDb", wide: true)
+                Text("\(score.formatted(.number.precision(.fractionLength(0...1)))) / 10")
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("IMDb: \(score.formatted()) out of 10")
+            .accessibilityIdentifier("heroIMDbRating-\(item.id)")
+        }
+        if let score = item.validRottenTomatoesRating {
+            let displayScore = (score * 10).rounded(.down) / 10
+            let fresh = score >= 60
+            HStack(spacing: 5) {
+                mark(fresh ? "RatingRottenTomatoesFresh" : "RatingRottenTomatoesRotten")
+                Text("\(displayScore.formatted(.number.precision(.fractionLength(0...1))))%")
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Rotten Tomatoes: \(score.formatted()) percent, \(fresh ? "Fresh" : "Rotten")")
+            .accessibilityIdentifier("heroRottenTomatoesRating-\(item.id)")
+        }
+        if let score = item.validMetacriticRating {
+            let displayScore = (score * 10).rounded(.down) / 10
+            let sentiment = score >= 61 ? "Favorable" : score >= 40 ? "Mixed" : "Unfavorable"
+            // Metacritic's movie/TV bands and source colors match the web rating badges.
+            let color = score >= 61 ? Color(red: 0.4, green: 0.8, blue: 0.2)
+                : score >= 40 ? Color(red: 1, green: 0.8, blue: 0.2) : Color(red: 1, green: 0, blue: 0)
+            HStack(spacing: 5) {
+                mark("RatingMetacritic")
+                Text(displayScore.formatted(.number.precision(.fractionLength(0...1))))
+                    .foregroundStyle(.black).padding(.horizontal, 4).padding(.vertical, 2)
+                    .background(color, in: .rect(cornerRadius: 3))
+                Text("/ 100")
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Metacritic: \(score.formatted()) out of 100, \(sentiment)")
+            .accessibilityIdentifier("heroMetacriticRating-\(item.id)")
+        }
+    }
+
+    private func mark(_ name: String, wide: Bool = false) -> some View {
+        Image(name).resizable().scaledToFit()
+            .frame(width: markHeight * (wide ? 2 : 1), height: markHeight)
+            .accessibilityHidden(true)
     }
 }

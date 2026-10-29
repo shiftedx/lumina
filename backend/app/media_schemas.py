@@ -720,6 +720,10 @@ class TranscodeDiagnostics(BaseModel):
     encode_errors: dict[str, str] = Field(default_factory=dict)
     hdr_encode_ranges: dict[str, list[Literal["HDR10", "HLG"]]] = Field(default_factory=dict)
     hdr_encode_errors: dict[str, str] = Field(default_factory=dict)
+    # Cached, exact input decoder -> output encoder HDR pipeline proofs. The
+    # diagnostic action intentionally does not populate these combinations.
+    hdr_decode_pairs: list[str] = Field(default_factory=list)
+    hdr_decode_errors: dict[str, str] = Field(default_factory=dict)
     zero_copy_pairs: list[str] = Field(default_factory=list)
     zero_copy_errors: dict[str, str] = Field(default_factory=dict)
     hardware_disabled: bool = False  # 3 consecutive hardware failures: software until restart

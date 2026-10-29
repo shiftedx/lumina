@@ -4,9 +4,11 @@
 Run it as Lumina's runtime user on the target Linux host or in the Lumina
 container.  It never opens media files, credentials, network URLs, or a running
 Lumina server: the short input is generated with FFmpeg's ``testsrc2`` and
-``sine`` sources.  A passing result proves this particular driver, device
-access path, FFmpeg build, encoder and codec can create independently decodable
-HLS segments.  It is not throughput or HDR qualification.
+``sine`` sources. A passing default result proves this particular driver,
+device access path, FFmpeg build, encoder and codec can create independently
+decodable HLS segments. With ``--hdr-range``, it additionally runs Lumina's
+one exact source-decoder/P010/output-metadata preservation proof. Neither mode
+certifies every source profile, client, quality level or target throughput.
 """
 from __future__ import annotations
 
@@ -25,7 +27,8 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 if (REPOSITORY / "backend" / "app").is_dir():
     sys.path.insert(0, str(REPOSITORY / "backend"))
 
-from app.services import rockchip
+from app.config import settings
+from app.services import hwaccel, rockchip
 
 
 ENCODERS: Final[dict[str, dict[str, list[str]]]] = {
@@ -49,6 +52,47 @@ ENCODERS: Final[dict[str, dict[str, list[str]]]] = {
         "hevc": ["-c:v", "hevc_rkmpp", "-rc_mode", "CBR", "-g", "10000"],
     },
 }
+
+_TEN_BIT_420 = "yuv420p10le"
+
+
+def _hdr_pair_key(input_codec: str, output_codec: str, hdr_range: str) -> str:
+    """Format the public diagnostics key returned by the production probe."""
+    return f"{input_codec}10->{output_codec}/{hdr_range}"
+
+
+def _qualify_hdr_decode(
+    ffmpeg: str,
+    ffprobe: str,
+    mode: str,
+    input_codec: str,
+    output_codec: str,
+    hdr_range: str,
+) -> dict[str, object]:
+    """Run Lumina's real HDR decode/preserve proof once for this exact pair.
+
+    This deliberately does not recreate an FFmpeg graph in this operator
+    wrapper. The server and qualifier must exercise the same hardware decode,
+    P010 filter and fMP4 metadata verifier.
+    """
+    accelerator = hwaccel.HwAccel()
+    passed = accelerator.hdr_decode_supported(
+        ffmpeg, mode, input_codec, _TEN_BIT_420, output_codec, hdr_range, ffprobe,
+    )
+    status = accelerator.status(ffmpeg, mode)
+    pair = _hdr_pair_key(input_codec, output_codec, hdr_range)
+    if passed:
+        detail = "production hardware-decode/P010/fMP4 metadata proof passed"
+        if pair not in status.hdr_decode_pairs:
+            detail += " (diagnostics cache was invalidated after the proof)"
+    else:
+        detail = status.hdr_decode_errors.get(pair) or status.probe_error or "production HDR decode proof did not execute"
+    return {
+        "ok": passed,
+        "detail": detail,
+        "input": {"codec": input_codec, "pix_fmt": _TEN_BIT_420},
+        "output": {"codec": output_codec, "range": hdr_range},
+    }
 
 
 def device_args(mode: str, device: str, gpu_index: int) -> list[str]:
@@ -153,6 +197,8 @@ def qualify(
     gpu_index: int,
     *,
     zero_copy_inputs: list[str] | None = None,
+    hdr_range: str | None = None,
+    hdr_input_codec: str | None = None,
 ) -> dict[str, object]:
     results: dict[str, dict[str, object]] = {}
     with tempfile.TemporaryDirectory(prefix="lumina-gpu-qualification-") as temp:
@@ -186,6 +232,14 @@ def qualify(
                 ok, detail = rockchip.probe_zero_copy(ffmpeg, input_codec, output_codec, ffprobe)
                 pairs[f"{input_codec}->{output_codec}"] = {"ok": ok, "detail": detail}
         report["zero_copy_pairs"] = pairs
+    if hdr_range and hdr_input_codec:
+        # This is intentionally a single exact pair, rather than an implicit
+        # codec/range cross-product that could make a diagnostic unexpectedly
+        # expensive on a household server.
+        output_codec = codecs[0]
+        report["hdr_decode"] = _qualify_hdr_decode(
+            ffmpeg, ffprobe, mode, hdr_input_codec, output_codec, hdr_range,
+        )
     return report
 
 
@@ -195,32 +249,55 @@ def main() -> int:
     parser.add_argument("--codec", action="append", choices=("h264", "hevc", "av1"), default=[], help="Output codec to qualify; repeat for each required codec (default: h264).")
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
     parser.add_argument("--ffprobe", default=shutil.which("ffprobe") or "ffprobe")
-    parser.add_argument("--device", default="/dev/dri/renderD128", help="DRM render node for QSV/VA-API.")
-    parser.add_argument("--gpu-index", type=int, default=0, help="Visible CUDA GPU index for NVENC.")
+    parser.add_argument("--device", default=str(settings.hwaccel_device), help="Configured DRM render node for QSV/VA-API.")
+    parser.add_argument("--gpu-index", type=int, default=settings.hwaccel_gpu_index, help="Configured visible CUDA GPU index for NVENC.")
     parser.add_argument(
         "--zero-copy", action="store_true",
         help="For RKMPP only: additionally prove each explicit SDR decoder/RGA/encoder pair.",
     )
     parser.add_argument(
         "--input-codec", action="append", choices=sorted(rockchip.ZERO_COPY_INPUT_CODECS), default=[],
-        help="RKMPP source codec for --zero-copy; repeat for every expected SDR input codec.",
+        help="Source codec: repeat for RKMPP --zero-copy, or provide exactly one 10-bit 4:2:0 codec with --hdr-range.",
+    )
+    parser.add_argument(
+        "--hdr-range", choices=("HDR10", "HLG"),
+        help="Run Lumina's one exact hardware-decode → P010 → fMP4 metadata-preservation proof.",
     )
     args = parser.parse_args()
     if args.gpu_index < 0:
         parser.error("--gpu-index must be non-negative")
     if args.zero_copy and args.mode != "rkmpp":
         parser.error("--zero-copy is only available for --mode rkmpp")
+    if args.zero_copy and args.hdr_range:
+        parser.error("--zero-copy and --hdr-range cannot be combined")
     if args.zero_copy and not args.input_codec:
         parser.error("--zero-copy requires at least one --input-codec")
-    if args.input_codec and not args.zero_copy:
-        parser.error("--input-codec requires --zero-copy")
+    if args.hdr_range:
+        if args.mode == "rkmpp":
+            parser.error("--hdr-range is unavailable for RKMPP")
+        if len(args.input_codec) != 1:
+            parser.error("--hdr-range requires exactly one --input-codec")
+        if args.input_codec[0] not in {"hevc", "av1", "vp9"}:
+            parser.error("--hdr-range supports 10-bit 4:2:0 HEVC, AV1, or VP9 input; H.264 High 10 is not qualified")
+        if len(args.codec) != 1 or args.codec[0] not in {"hevc", "av1"}:
+            parser.error("--hdr-range requires exactly one --codec: hevc or av1")
+        if args.mode in {"qsv", "vaapi"} and args.device != str(settings.hwaccel_device):
+            parser.error("--hdr-range uses the configured production device; --device must match LUMINA_HWACCEL_DEVICE")
+        if args.mode == "nvenc" and args.gpu_index != settings.hwaccel_gpu_index:
+            parser.error("--hdr-range uses the configured production GPU; --gpu-index must match LUMINA_HWACCEL_GPU_INDEX")
+    elif args.input_codec and not args.zero_copy:
+        parser.error("--input-codec requires --zero-copy or --hdr-range")
     report = qualify(
         args.ffmpeg, args.ffprobe, args.mode, args.codec or ["h264"], args.device, args.gpu_index,
-        zero_copy_inputs=args.input_codec or None,
+        zero_copy_inputs=args.input_codec if args.zero_copy else None,
+        hdr_range=args.hdr_range,
+        hdr_input_codec=args.input_codec[0] if args.hdr_range else None,
     )
     print(json.dumps(report, sort_keys=True))
     outcomes = list(report["codecs"].values())
     outcomes.extend((report.get("zero_copy_pairs") or {}).values())
+    if report.get("hdr_decode"):
+        outcomes.append(report["hdr_decode"])
     return 0 if all(result["ok"] for result in outcomes) else 1
 
 

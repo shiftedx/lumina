@@ -355,7 +355,18 @@ def _hdr_source_stream(ffprobe: str, source: Path, timeout: float) -> tuple[dict
         if not isinstance(raw_stream, Mapping) or not isinstance(frame, Mapping):
             return None, "ffprobe returned malformed generated HDR source"
         stream = dict(raw_stream)
-        stream["side_data_list"] = frame.get("side_data_list")
+        # FFmpeg 8.1 reports some decoded HDR facts (notably CICP) only on
+        # the first frame, while older builds report them on the stream.  The
+        # probe is verifying that same decoded frame, so merge its facts over
+        # the header without discarding any stream-side static metadata.
+        for key in ("color_space", "color_transfer", "color_primaries", "color_range", "pix_fmt"):
+            if frame.get(key):
+                stream[key] = frame[key]
+        frame_side_data = frame.get("side_data_list")
+        if isinstance(frame_side_data, list):
+            existing = stream.get("side_data_list")
+            known = existing if isinstance(existing, list) else []
+            stream["side_data_list"] = known + [entry for entry in frame_side_data if isinstance(entry, dict) and entry not in known]
     except (IndexError, TypeError, json.JSONDecodeError):
         return None, "ffprobe returned no generated HDR source"
     return stream, ""

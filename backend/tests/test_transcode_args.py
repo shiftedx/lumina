@@ -272,6 +272,29 @@ def test_static_hdr_metadata_requires_every_mastering_coordinate_and_light_level
     assert not hw_module._has_static_hdr_metadata(stream, expected, expected_codec="av1", output_codec="hevc")
 
 
+def test_hdr_source_verifier_merges_frame_only_cicp_and_static_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FFmpeg 8.1 puts decoded HDR facts on frames while older builds use streams."""
+    mastering = {key: f"{value.numerator}/{value.denominator}" for key, value in hw_module._HDR_MASTERING.items()}
+    frame_only = {
+        "streams": [{
+            "codec_name": "hevc",
+            # This existing stream metadata must survive the frame merge.
+            "side_data_list": [{"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400}],
+        }],
+        "frames": [{
+            "pix_fmt": "yuv420p10le", "color_primaries": "bt2020", "color_transfer": "smpte2084",
+            "color_space": "bt2020nc", "color_range": "tv",
+            "side_data_list": [{"side_data_type": "Mastering display metadata", **mastering}],
+        }],
+    }
+    missing_both = {"streams": [{"codec_name": "hevc"}], "frames": [{"pix_fmt": "yuv420p10le"}]}
+    outputs = iter((json.dumps(frame_only), json.dumps(missing_both)))
+    monkeypatch.setattr(hw_module, "_run", lambda *args, **kwargs: (True, next(outputs)))
+
+    assert hw_module._verify_hdr_source("ffprobe", Path("/tmp/hdr.mp4"), "hevc", "HDR10") == (True, "")
+    assert hw_module._verify_hdr_source("ffprobe", Path("/tmp/hdr.mp4"), "hevc", "HDR10") == (False, "generated HDR source metadata did not match")
+
+
 def test_rkmpp_zero_copy_is_pair_proven_and_cached_for_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: HwStatus(active="rkmpp", probe_ok=True, encode_codecs=("h264", "hevc")))
     calls: list[tuple[str, str]] = []

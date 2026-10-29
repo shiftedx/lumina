@@ -90,9 +90,23 @@ Archives and signed IPAs remain in ignored `apple/Distribution/0.1.0-1/` and `ap
 
 The simulator does not establish HDR10 or Dolby Vision output, HDMI Match Content behavior, frame-rate switching, surround sound, Atmos, remote-network reliability, or App Store readiness. Use the [physical device checklist](device-validation.md) to record those results. The proof does not claim Infuse format parity.
 
-The tests cover generated SDR H.264/AAC sources. HEVC/HDR, additional audio codecs, subtitle delivery, large libraries, oldest supported OS releases and iPad multitasking need separate qualification. The 2026-10-18 Duo audit above adds display-transition and selected accessibility-setting coverage; spoken VoiceOver, RTL and Reduce Transparency remain untested.
+The earlier workflow checks cover generated SDR H.264/AAC sources; the dated local codec checks below add HEVC/AV1 fragment delivery evidence. HDR display output, additional audio codecs, subtitle delivery, large libraries, oldest supported OS releases and iPad multitasking need separate qualification. The 2026-10-18 Duo audit above adds display-transition and selected accessibility-setting coverage; spoken VoiceOver, RTL and Reduce Transparency remain untested.
 
 ## Local HDR fMP4 HLS decode/seek qualification, 2026-10-29
+
+Native PlaybackInfo now takes a fresh VideoToolbox/AVFoundation capability
+snapshot for MP4 and fMP4 HLS, with HDR gated by the current output route.
+Eligible AV1 Matroska uses server HLS remuxing; Prism's native MKV path remains limited
+to qualified H.264/HEVC. An initial format failure permits one explicit
+H.264/SDR, stereo-AAC request retaining the source, quality, selected tracks
+and resume position. Network, authorization and cancellation failures retain
+their normal error behavior.
+
+The repository gate passed: 5,742 backend tests (20 expected skips), 2,754
+frontend tests and 656 browser cases. The subsequent AV1/AAC eligibility
+correction passed the extended playback-decision suite (103 tests). Both iOS
+and tvOS generic simulator application builds succeeded. These checks do not
+replace the device-output qualification below.
 
 This is a finite host-only AVFoundation delivery check, not a display-output
 claim. On the local arm64 macOS 27.0.1 host,

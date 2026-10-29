@@ -589,12 +589,16 @@ def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[],
         direct_video = [entry for entry in direct if isinstance(entry, dict) and entry.get("Type") == "Video"]
         hls_video = [entry for entry in hls if isinstance(entry, dict) and entry.get("Type") == "Video" and str(entry.get("Protocol")).lower() == "hls"]
         h264 = next((entry for entry in codecs if isinstance(entry, dict) and entry.get("Type") == "Video" and entry.get("Codec") == "h264"), None)
+        aac = next((entry for entry in codecs if isinstance(entry, dict) and entry.get("Type") == "VideoAudio" and entry.get("Codec") == "aac"), None)
         conditions = h264.get("Conditions") if isinstance(h264, dict) else None
+        audio_conditions = aac.get("Conditions") if isinstance(aac, dict) else None
         return (
             bool(direct_video) and bool(hls_video)
             and all(entry.get("VideoCodec") == "h264" for entry in [*direct_video, *hls_video])
+            and all(entry.get("AudioCodec") == "aac" for entry in [*direct_video, *hls_video])
             and isinstance(conditions, list)
             and {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR"} in conditions
+            and audio_conditions == [{"Property": "AudioChannels", "Condition": "LessThanEqual", "Value": "2"}]
             and [entry.get("Codec") for entry in codecs if isinstance(entry, dict) and entry.get("Type") == "Video"] == ["h264"]
         )
 

@@ -5,6 +5,7 @@
 - Show IMDb user ratings, Rotten Tomatoes critic percentages, and Metacritic scores on title heroes with readable source logos and score-aware badges. Import named NFO ratings or optionally enrich TMDB-matched titles with an OMDb key; preserve household edits and source precedence.
 - Stabilize the watch-page accessibility fixture while retaining touch-target and keyboard-focus checks.
 - Keep native library metadata edits permission-aware, with shared lock/revert behavior and hidden-title protection.
+- Keep recommendation feedback available while removing explanatory captions and menu headers across web and native apps.
 - Bound request deadlines, remote metadata reads, and media-probe output; retain guarded streaming and provider credential isolation.
 - Enforce shared book/photo upload admission and encoding-independent XML declaration rejection.
 - Run one-operation photo and native book parsers behind a Linux filesystem/libseccomp boundary; preserve codec threads, deadlines and cancellation cleanup.

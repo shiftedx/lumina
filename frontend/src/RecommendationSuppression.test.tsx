@@ -81,14 +81,15 @@ function renderRecommendedHome(overrides: Partial<Parameters<typeof HomeSurface>
 describe('Picked for you recommendation controls', () => {
   const trigger = (name: string) => screen.getByRole('button', { name: `More options for ${name}` });
 
-  it('is headed Picked for you and keeps each pick\'s reason in its menu, not under its card', async () => {
+  it('is headed Picked for you without explanations and keeps feedback available', async () => {
     const { container } = renderRecommendedHome();
     // Home stays hidden until the hero decision lands (CLS), so wait for the visible region.
     expect(await screen.findByRole('region', { name: 'Picked for you' })).toBeTruthy();
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     expect(container.querySelector('.reco-reason')).toBeNull();
     await userEvent.click(trigger('Video a'));
-    expect(screen.getByRole('group', { name: 'Because you finished Harbor walk at dawn' })).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Because you finished Harbor walk at dawn' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('hides a pick on Not interested: saves it with its list, then shows Hidden. Undo in its place', async () => {

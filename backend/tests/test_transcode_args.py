@@ -5,6 +5,7 @@ import threading
 import time
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,67 @@ def test_modern_codecs_are_advertised_only_after_their_exact_encoder_probe(monke
     assert accel.choice("ffmpeg", "qsv", "av1") == ("none", status.software_tonemap)
 
 
+def test_hdr_ranges_are_exact_demand_probes_and_choice_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, str]] = []
+    verified = {"ffprobe": True, "ffprobe-a": True, "ffprobe-b": False}
+    status = HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc", "av1"))
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: status)
+    monkeypatch.setattr(
+        hw_module, "_hdr_encode_test",
+        lambda ffmpeg, ffprobe, hw, codec, video_range: calls.append((hw, codec, video_range)) or (codec == "hevc" and verified[ffprobe], "unsupported"),
+    )
+    accel = HwAccel()
+    assert accel.output_ranges("ffmpeg", "qsv", "ffprobe", video_range="HDR10") == {"hevc": frozenset({"HDR10"})}
+    assert set(calls) == {("qsv", "hevc", "HDR10"), ("qsv", "av1", "HDR10")}
+    assert accel.choice("ffmpeg", "qsv", "hevc", "HDR10", "ffprobe") == ("qsv", "none")
+    assert accel.choice("ffmpeg", "qsv", "av1", "HDR10", "ffprobe") == ("none", "none")
+    # Reusing the exact query is cached; an unsupported range never launches a probe.
+    accel.output_ranges("ffmpeg", "qsv", "ffprobe", video_range="HDR10")
+    assert len(calls) == 2
+    assert accel.output_ranges("ffmpeg", "qsv", "ffprobe", video_range="DOVI") == {}
+    cached = accel.peek("ffmpeg", "qsv")
+    assert cached is not None and cached.hdr_encode_ranges == {"hevc": ("HDR10",)}
+    assert cached.hdr_encode_errors == {"av1/HDR10": "unsupported"}
+    assert accel.output_ranges("ffmpeg", "qsv", "ffprobe-b", video_range="HDR10") == {}
+    assert accel.output_ranges("ffmpeg", "qsv", None, video_range="HDR10") == {}
+    accel.disabled = True
+    assert accel.output_ranges("ffmpeg", "qsv", "ffprobe-a", video_range="HDR10") == {}
+
+
+def test_hdr_probe_stops_before_launching_an_encode_after_its_total_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    ticks = iter((0.0, 0.0, hw_module.HDR_PROBE_TIMEOUT_SECONDS + 0.1))
+    calls: list[list[str]] = []
+    monkeypatch.setattr(hw_module.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(hw_module, "_hdr_source", lambda ffmpeg, source, video_range, timeout: (True, ""))
+    monkeypatch.setattr(hw_module, "_run", lambda args, **kwargs: calls.append(args) or (True, ""))
+    assert hw_module._hdr_encode_test("ffmpeg", "ffprobe", "none", "hevc", "HDR10") == (False, "HDR probe deadline exceeded")
+    assert calls == []
+
+
+def test_static_hdr_metadata_requires_every_mastering_coordinate_and_light_level() -> None:
+    mastering = {key: f"{value.numerator}/{value.denominator}" for key, value in hw_module._HDR_MASTERING.items()}
+    stream = {"side_data_list": [
+        {"side_data_type": "Mastering display metadata", **mastering},
+        {"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400},
+    ]}
+    assert hw_module._has_static_hdr_metadata(stream)
+    stream["side_data_list"][0]["red_x"] = "1/2"  # type: ignore[index]
+    assert not hw_module._has_static_hdr_metadata(stream)
+
+
+def test_rkmpp_zero_copy_is_pair_proven_and_cached_for_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: HwStatus(active="rkmpp", probe_ok=True, encode_codecs=("h264", "hevc")))
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(hw_module.rockchip, "probe_zero_copy", lambda ffmpeg, source, output, ffprobe: calls.append((source, output)) or (True, "ok"))
+    accel = HwAccel()
+    assert accel.status("ffmpeg", "rkmpp").active == "rkmpp"
+    assert accel.zero_copy_supported("ffmpeg", "hevc", "h264", "ffprobe")
+    assert accel.zero_copy_supported("ffmpeg", "hevc", "h264", "ffprobe")
+    assert calls == [("hevc", "h264")]
+    status = accel.peek("ffmpeg", "rkmpp")
+    assert status is not None and status.zero_copy_pairs == ("hevc->h264",) and not status.zero_copy_errors
+
+
 def test_windows_qsv_uses_the_selected_d3d11_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hw_module.platform, "system", lambda: "Windows")
     monkeypatch.setattr(hw_module.settings, "hwaccel_gpu_index", 2)
@@ -117,6 +179,24 @@ def test_modern_encoder_arguments_and_fmp4_tags(hw: str, codec: str, encoder: st
         assert "-forced_idr" not in encoder_args("qsv", "av1")
 
 
+def test_hdr_command_keeps_p010_bt2020_and_svt_hdr_metadata() -> None:
+    facts = {"streams": [{"index": 0, "type": "video", "codec": "hevc", "pix_fmt": "yuv420p10le"}]}
+    av1 = Decision("transcode", video="encode", video_index=0, height=144, bitrate=800_000, video_codec="av1", video_range="HLG")
+    command = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, av1)
+    joined = " ".join(command)
+    assert "scale=-2:144,format=yuv420p10le" in joined
+    assert "lp=1:scd=0:enable-hdr=1" in joined
+    assert "-color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc -color_range tv" in joined
+    vt = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc", video_range="HDR10"), hw="videotoolbox")
+    assert "scale=-2:144,format=p010le" in " ".join(vt)
+    qsv = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc"), hw="qsv")
+    assert "-hwaccel" not in qsv and "format=p010,hwupload=extra_hw_frames=64" in graph(qsv)
+    with pytest.raises(lps.ConversionError, match="H.264 HDR"):
+        lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="h264", video_range="HDR10"))
+    with pytest.raises(lps.ConversionError, match="burned subtitles"):
+        lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, burn_subtitle=2))
+
+
 @pytest.mark.parametrize(("codec", "encoder"), [("hevc", "libx265"), ("av1", "libsvtav1")])
 def test_installed_software_modern_encoder_writes_its_negotiated_fmp4_codec(tmp_path: Path, codec: str, encoder: str) -> None:
     ffmpeg = shutil.which("ffmpeg")
@@ -138,6 +218,37 @@ def test_installed_software_modern_encoder_writes_its_negotiated_fmp4_codec(tmp_
         frames = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-show_entries", "frame=key_frame", "-select_streams", "v:0", "-of", "default=nw=1:nk=1", f"concat:{output / 'init.mp4'}|{segment}"], capture_output=True, text=True, check=True)
         assert frames.stdout.splitlines()[0] == "1"
     subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-protocol_whitelist", "file,crypto,data", "-i", str(output / "index.m3u8"), "-f", "null", "-"], check=True, timeout=60)
+
+
+def test_installed_hdr_encoders_preserve_cicp_static_metadata_and_seek(tmp_path: Path) -> None:
+    """The production command reads a local MP4 and every generated fragment is HDR-complete."""
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if ffmpeg is None or ffprobe is None:
+        return
+    encoders = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, check=False).stdout
+    variants = [("none", "hevc", "HDR10", "libx265"), ("none", "av1", "HLG", "libsvtav1")]
+    if "hevc_videotoolbox" in encoders:
+        variants.append(("videotoolbox", "hevc", "HDR10", "hevc_videotoolbox"))
+    for hw, codec, video_range, required in variants:
+        if required not in encoders:
+            continue
+        source = tmp_path / f"{codec}-{video_range}.mp4"
+        generated, error = hw_module._hdr_source(ffmpeg, source, video_range)
+        if not generated:  # Optional host encoder/source capability; the runtime fails closed too.
+            continue
+        facts = {"streams": [{
+            "index": 0, "type": "video", "codec": "hevc", "width": 384, "height": 216,
+            "pix_fmt": "yuv420p10le", "color_primaries": "bt2020", "color_transfer": "smpte2084" if video_range == "HDR10" else "arib-std-b67",
+            "color_space": "bt2020nc", "color_range": "tv",
+        }]}
+        decision = Decision("transcode", video="encode", video_index=0, height=144, bitrate=800_000, video_codec=codec, video_range=video_range)
+        for start, label in ((0, "start"), (1, "seek")):
+            output = tmp_path / f"{hw}-{codec}-{video_range}-{label}"
+            output.mkdir()
+            subprocess.run(lps.ffmpeg_command(ffmpeg, source, facts, output, decision, hw=hw, start=start), check=True, timeout=60)
+            verified, verify_error = hw_module._verify_hdr_hls(ffprobe, output, codec, video_range)
+            assert verified, verify_error
 
 
 def test_status_is_cached_per_setting_and_reprobed_on_demand(monkeypatch: pytest.MonkeyPatch) -> None:

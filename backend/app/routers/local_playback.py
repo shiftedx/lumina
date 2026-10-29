@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -22,7 +22,7 @@ from app.services.local_playback_sessions import ConversionError, PlaybackSessio
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
 from app.services.media_response import MediaFileResponse, pinned_media_file_response
-from app.services.playback_decision import MODERN_RUNGS, RUNGS, ClientCaps, Limits, caps_from_browser_profiles, decide
+from app.services.playback_decision import MODERN_RUNGS, RUNGS, ClientCaps, Limits, caps_from_browser_profiles, decide, hdr_preservation_range, video_range
 from app.services.playback_resources import Admission, playback_resources
 from app.services.playback_log import log_playback
 from app.services.probe_warming import probe_warming
@@ -54,6 +54,7 @@ class LocalPlaybackResponse(BaseModel):
     loudness_gain_db: float | None = None  # applied client-side by audioGraph.ts; None = not analysed
     free_video_slots: int = 0  # max_playback_sessions - video_encodes(), never negative
     video_codec: str | None = None  # actual output codec (source codec for copied video)
+    video_range: str | None = None  # actual output range (source range for copied video)
 
 
 class PlaybackSessionResponse(BaseModel):
@@ -63,6 +64,7 @@ class PlaybackSessionResponse(BaseModel):
     start: float = 0
     kind: Literal["remux", "audio", "video_sw", "video_hw"] = "remux"  # labels time to first frame
     video_codec: str | None = None  # actual output codec (source codec for copied video)
+    video_range: str | None = None  # actual output range (source range for copied video)
 
 
 def browser_caps(profiles: str | None) -> ClientCaps:
@@ -101,15 +103,19 @@ def playback_limits(
     heights = [h for h in (playback_ceiling(db, user_id), max_height) if h]
     dv5 = any(s.get("dv_profile") == 5 for s in facts.get("streams") or [])
     wants_modern = caps is not None and bool({"hevc", "av1"} & set(caps.transcode_video))
+    hdr_range = hdr_preservation_range(caps, facts) if caps is not None else None
+    encode_ranges: Mapping[str, frozenset[str]] = {}
     if dv5 or wants_modern:  # baseline H.264-only/direct clients never wait for a capability probe
         record = db.get(AppSettings, 1)
         ffmpeg, mode = media_tool(db, "ffmpeg"), record.hwaccel if record else "auto"
         encode_codecs = hwaccel.output_codecs(ffmpeg, mode) if wants_modern else ("h264",)
+        if hdr_range is not None:
+            encode_ranges = hwaccel.output_ranges(ffmpeg, mode, media_tool(db, "ffprobe"), video_range=hdr_range)
         if dv5:
             dv5 = hwaccel.choice(ffmpeg, mode)[1] in {"opencl", "cuda"}
     else:
         encode_codecs = ("h264",)
-    return Limits(max_height=min(heights) if heights else None, max_bitrate=max_bitrate, dv5_reshape=dv5, encode_codecs=encode_codecs)
+    return Limits(max_height=min(heights) if heights else None, max_bitrate=max_bitrate, dv5_reshape=dv5, encode_codecs=encode_codecs, encode_ranges=encode_ranges)
 
 
 def actual_video_codec(decision: Any, facts: dict[str, Any]) -> str | None:
@@ -117,6 +123,13 @@ def actual_video_codec(decision: Any, facts: dict[str, Any]) -> str | None:
         return decision.video_codec
     video = next((stream for stream in facts.get("streams") or [] if stream.get("index") == decision.video_index), None)
     return video.get("codec") if video else None
+
+
+def actual_video_range(decision: Any, facts: dict[str, Any]) -> str | None:
+    if decision.video == "encode":
+        return decision.video_range
+    video = next((stream for stream in facts.get("streams") or [] if stream.get("index") == decision.video_index), None)
+    return video_range(video) if video else None
 
 
 def advisory_bandwidth_budget(db: Session, user_id: str, max_height: int | None, bandwidth_bps: int | None) -> int | None:
@@ -163,7 +176,7 @@ def get_local_playback(item_id: str, request: Request, profiles: str | None = Qu
         decision = playback_resources.preview(
             db, current_user, request, item.id, device, facts, caps,
             max_height=limits.max_height, max_bitrate=limits.max_bitrate,
-            dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs,
+            dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs, encode_ranges=limits.encode_ranges,
             logical_id=(f"web:{item.id}", "direct"),
         ).decision
     return LocalPlaybackResponse(
@@ -171,7 +184,7 @@ def get_local_playback(item_id: str, request: Request, profiles: str | None = Qu
         audio_tracks=audio_tracks(facts), quality_heights=quality_heights(facts, limits.max_height, modern=bool({"hevc", "av1"} & set(caps.transcode_video) & set(limits.encode_codecs))),
         loudness_gain_db=loudness_gain_db(facts.get("loudness")),
         free_video_slots=max(0, session_cap(db.get(AppSettings, 1)) - sessions.video_encodes()),
-        video_codec=actual_video_codec(decision, facts),
+        video_codec=actual_video_codec(decision, facts), video_range=actual_video_range(decision, facts),
     )
 
 
@@ -179,6 +192,7 @@ def open_session(
     db: Session, user: User, item: LibraryItem, *, caps: ClientCaps, request: PlaybackSessionRequest | None = None, start: float = 0,
     device: str = "web", play_session_id: str | None = None, max_bitrate: int | None = None, bandwidth_bps: int | None = None, audio_gain_db: float | None = None,
     seekable: bool = False, http_request: Request | None = None, encode_codecs: tuple[str, ...] | None = None,
+    encode_ranges: Mapping[str, frozenset[str]] | None = None,
 ) -> PlaybackSession:
     """Start or reuse the conversion of one visible item (web route and Jellyfin master.m3u8). Closes ``db`` before waiting.
 
@@ -203,7 +217,7 @@ def open_session(
         limits = Limits(
             max_height=limits.max_height, max_bitrate=limits.max_bitrate, dv5_reshape=limits.dv5_reshape,
             require_known_bitrate=limits.require_known_bitrate, force_audio_encode=limits.force_audio_encode,
-            encode_codecs=encode_codecs,
+            encode_codecs=encode_codecs, encode_ranges=encode_ranges if encode_ranges is not None else limits.encode_ranges,
         )
     decision = decide(caps, facts, limits, request.audio_index, subtitle_index)
     admission: Admission | None = None
@@ -211,7 +225,7 @@ def open_session(
         admission = playback_resources.admit(
             db, user, http_request, item.id, device, play_session_id or f"web:{item.id}", facts, caps,
             max_height=limits.max_height, max_bitrate=limits.max_bitrate,
-            dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs,
+            dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs, encode_ranges=limits.encode_ranges,
             audio_index=request.audio_index, subtitle_index=subtitle_index,
         )
         decision = admission.decision
@@ -240,7 +254,7 @@ def open_session(
             user_id=user_id, item_id=item_id, ffmpeg=ffmpeg, source=source, facts=facts, decision=decision, cap=cap,
             start=0 if seekable else start, plan=plan, resume=start if plan else 0,
             device=device, play_session_id=play_session_id, hwaccel_mode=hwaccel_mode, min_free_bytes=min_free,
-            cache_cap_bytes=cache_cap, audio_gain_db=audio_gain_db, ffprobe=ffprobe, resource_admission=admission,
+            cache_cap_bytes=cache_cap, audio_gain_db=audio_gain_db, ffprobe=ffprobe if seekable or decision.video == "encode" else None, resource_admission=admission,
         )
     except SupersededError as exc:  # the member's newer request owns the device slot; this caller already moved on
         playback_resources.restore(admission)
@@ -265,7 +279,8 @@ def start_playback_session(
     item = visible_item_or_404(db, item_id, current_user)
     device = _playback_device(db, request)
     session = open_session(db, current_user, item, caps=browser_caps(profiles), request=payload, start=start, device=device, bandwidth_bps=bandwidth_bps, http_request=request)
-    return PlaybackSessionResponse(session_id=session.id, mode=session.mode, playback_url=f"/api/playback-sessions/{session.id}/index.m3u8", start=session.media_start, kind=session.kind, video_codec=(session.info.get("video") or {}).get("to"))
+    video = session.info.get("video") or {}
+    return PlaybackSessionResponse(session_id=session.id, mode=session.mode, playback_url=f"/api/playback-sessions/{session.id}/index.m3u8", start=session.media_start, kind=session.kind, video_codec=video.get("to"), video_range=video.get("range"))
 
 
 def get_playback_session_file(session_id: str, name: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> MediaFileResponse:

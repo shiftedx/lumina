@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
+import sys
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,3 +45,49 @@ def test_modern_qualifier_uses_fmp4_tags_and_checks_init_plus_every_fragment(tmp
     assert [path.read_bytes() for path in joined] == [b"initfirst", b"initsecond"]
     checked = [Path(args[-1] if args[0] == "ffprobe" else args[args.index("-i") + 1]) for args in seen]
     assert set(checked) == set(joined)
+
+
+def test_rockchip_zero_copy_qualifier_reports_each_explicit_input_output_pair(monkeypatch) -> None:
+    monkeypatch.setattr(qualifier, "_run", lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, "", ""))
+    monkeypatch.setattr(qualifier, "_check_hls", lambda *_args: (True, "HLS passed"))
+    pairs: list[tuple[str, str, str | None]] = []
+
+    def zero_copy(ffmpeg: str, input_codec: str, output_codec: str, ffprobe: str | None = None) -> tuple[bool, str]:
+        pairs.append((input_codec, output_codec, ffprobe))
+        return True, f"{input_codec}->{output_codec} passed"
+
+    monkeypatch.setattr(qualifier.rockchip, "probe_zero_copy", zero_copy)
+    report = qualifier.qualify(
+        "ffmpeg", "configured-ffprobe", "rkmpp", ["h264", "hevc"], "/dev/dri/renderD128", 0,
+        zero_copy_inputs=["h264", "av1"],
+    )
+    assert report["zero_copy_pairs"] == {
+        "h264->h264": {"ok": True, "detail": "h264->h264 passed"},
+        "h264->hevc": {"ok": True, "detail": "h264->hevc passed"},
+        "av1->h264": {"ok": True, "detail": "av1->h264 passed"},
+        "av1->hevc": {"ok": True, "detail": "av1->hevc passed"},
+    }
+    assert pairs == [
+        ("h264", "h264", "configured-ffprobe"),
+        ("h264", "hevc", "configured-ffprobe"),
+        ("av1", "h264", "configured-ffprobe"),
+        ("av1", "hevc", "configured-ffprobe"),
+    ]
+
+
+def test_zero_copy_cli_requires_rockchip_and_an_explicit_input_codec(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["qualifier", "--mode", "rkmpp", "--zero-copy"])
+    with pytest.raises(SystemExit, match="2"):
+        qualifier.main()
+
+
+def test_qualifier_standalone_help_bootstraps_the_checkout_backend() -> None:
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "qualify_gpu_transcoding.py"), "--help"],
+        cwd=ROOT, env=environment, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--zero-copy" in result.stdout
+    assert "--input-codec {av1,h264,hevc,vp9}" in result.stdout

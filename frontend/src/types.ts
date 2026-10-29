@@ -1170,9 +1170,10 @@ export type LocalPlaybackOptions = {
   loudness_gain_db?: number | null;
   free_video_slots?: number;
   video_codec?: string | null;
+  video_range?: string | null;
 };
 
-export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transcode'; playback_url: string; start: number; kind?: 'remux' | 'audio' | 'video_sw' | 'video_hw'; video_codec?: string | null };
+export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transcode'; playback_url: string; start: number; kind?: 'remux' | 'audio' | 'video_sw' | 'video_hw'; video_codec?: string | null; video_range?: string | null };
 
 // ---------------------------------------------------------------------------
 // Media vault (frozen 2026-09-25). Mirrors backend/app/media_schemas.py
@@ -1776,6 +1777,10 @@ export interface TranscodeDiagnostics {
   tonemap: TonemapMethod;
   encode_codecs?: Array<'h264' | 'hevc' | 'av1'>;
   encode_errors?: Record<string, string>;
+  hdr_encode_ranges?: Record<string, Array<'HDR10' | 'HLG'>>;
+  hdr_encode_errors?: Record<string, string>;
+  zero_copy_pairs?: string[];
+  zero_copy_errors?: Record<string, string>;
   hardware_disabled: boolean;
   software_fallbacks: number;
   sessions: Record<string, number>;

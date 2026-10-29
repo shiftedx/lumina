@@ -19,6 +19,14 @@ import sys
 import tempfile
 from typing import Final
 
+# The packaged image already sets PYTHONPATH=/app/backend.  A checkout needs
+# the same bounded backend path when this public diagnostic is run directly.
+REPOSITORY = Path(__file__).resolve().parents[1]
+if (REPOSITORY / "backend" / "app").is_dir():
+    sys.path.insert(0, str(REPOSITORY / "backend"))
+
+from app.services import rockchip
+
 
 ENCODERS: Final[dict[str, dict[str, list[str]]]] = {
     "qsv": {
@@ -136,7 +144,16 @@ def _check_hls(ffmpeg: str, ffprobe: str, directory: Path, codec: str) -> tuple[
     return True, f"{len(parts)} HLS segments encode as {codec}, begin on keyframes, and decode"
 
 
-def qualify(ffmpeg: str, ffprobe: str, mode: str, codecs: list[str], device: str, gpu_index: int) -> dict[str, object]:
+def qualify(
+    ffmpeg: str,
+    ffprobe: str,
+    mode: str,
+    codecs: list[str],
+    device: str,
+    gpu_index: int,
+    *,
+    zero_copy_inputs: list[str] | None = None,
+) -> dict[str, object]:
     results: dict[str, dict[str, object]] = {}
     with tempfile.TemporaryDirectory(prefix="lumina-gpu-qualification-") as temp:
         root = Path(temp)
@@ -156,7 +173,20 @@ def qualify(ffmpeg: str, ffprobe: str, mode: str, codecs: list[str], device: str
                 continue
             ok, detail = _check_hls(ffmpeg, ffprobe, destination, codec)
             results[codec] = {"ok": ok, "detail": detail}
-    return {"mode": mode, "device": device if mode in {"qsv", "vaapi"} else None, "gpu_index": gpu_index if mode == "nvenc" else None, "codecs": results}
+    report: dict[str, object] = {
+        "mode": mode,
+        "device": device if mode in {"qsv", "vaapi"} else None,
+        "gpu_index": gpu_index if mode == "nvenc" else None,
+        "codecs": results,
+    }
+    if zero_copy_inputs:
+        pairs: dict[str, dict[str, object]] = {}
+        for input_codec in zero_copy_inputs:
+            for output_codec in codecs:
+                ok, detail = rockchip.probe_zero_copy(ffmpeg, input_codec, output_codec, ffprobe)
+                pairs[f"{input_codec}->{output_codec}"] = {"ok": ok, "detail": detail}
+        report["zero_copy_pairs"] = pairs
+    return report
 
 
 def main() -> int:
@@ -167,12 +197,31 @@ def main() -> int:
     parser.add_argument("--ffprobe", default=shutil.which("ffprobe") or "ffprobe")
     parser.add_argument("--device", default="/dev/dri/renderD128", help="DRM render node for QSV/VA-API.")
     parser.add_argument("--gpu-index", type=int, default=0, help="Visible CUDA GPU index for NVENC.")
+    parser.add_argument(
+        "--zero-copy", action="store_true",
+        help="For RKMPP only: additionally prove each explicit SDR decoder/RGA/encoder pair.",
+    )
+    parser.add_argument(
+        "--input-codec", action="append", choices=sorted(rockchip.ZERO_COPY_INPUT_CODECS), default=[],
+        help="RKMPP source codec for --zero-copy; repeat for every expected SDR input codec.",
+    )
     args = parser.parse_args()
     if args.gpu_index < 0:
         parser.error("--gpu-index must be non-negative")
-    report = qualify(args.ffmpeg, args.ffprobe, args.mode, args.codec or ["h264"], args.device, args.gpu_index)
+    if args.zero_copy and args.mode != "rkmpp":
+        parser.error("--zero-copy is only available for --mode rkmpp")
+    if args.zero_copy and not args.input_codec:
+        parser.error("--zero-copy requires at least one --input-codec")
+    if args.input_codec and not args.zero_copy:
+        parser.error("--input-codec requires --zero-copy")
+    report = qualify(
+        args.ffmpeg, args.ffprobe, args.mode, args.codec or ["h264"], args.device, args.gpu_index,
+        zero_copy_inputs=args.input_codec or None,
+    )
     print(json.dumps(report, sort_keys=True))
-    return 0 if all(result["ok"] for result in report["codecs"].values()) else 1
+    outcomes = list(report["codecs"].values())
+    outcomes.extend((report.get("zero_copy_pairs") or {}).values())
+    return 0 if all(result["ok"] for result in outcomes) else 1
 
 
 if __name__ == "__main__":

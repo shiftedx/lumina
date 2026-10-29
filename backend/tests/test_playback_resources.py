@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
 
-from app.services.playback_decision import BROWSER_DEFAULT, Limits, decide
+from app.services.playback_decision import BROWSER_DEFAULT, Limits, VideoCap, decide
 from app.services.playback_resources import IDLE_SECONDS, PlaybackResources
 from app.services.resource_policy import HouseholdResources, ResourceAllowances
 from tests.test_jellyfin_dto_compat import HEADERS, HEX, MOVIE_4K, jf
@@ -70,6 +71,52 @@ def test_dolby_vision_reshape_capability_survives_protected_preview_and_admissio
     assert admission.decision.mode == "transcode" and admission.decision.tonemap
     assert admission.allocation_bps == 8_000_000
     assert admission.decision.bitrate < admission.allocation_bps
+
+
+def test_hdr_output_range_survives_protected_preview_and_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    resources = _protected(monkeypatch, _policy())
+    source = _facts()
+    source["streams"][0].update(
+        codec="hevc", pix_fmt="yuv420p10le", color_transfer="smpte2084", color_space="bt2020nc",
+        color_primaries="bt2020", color_range="tv",
+    )
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+    user, request = SimpleNamespace(id="member"), SimpleNamespace()
+    kwargs = {"encode_codecs": ("h264", "hevc"), "encode_ranges": {"hevc": frozenset({"HDR10"})}}
+
+    preview = resources.preview(None, user, request, "movie", "tv", source, caps, **kwargs)
+    admission = resources.admit(None, user, request, "movie", "tv", "hls", source, caps, **kwargs)
+
+    assert preview.decision == admission.decision
+    assert (admission.decision.video_codec, admission.decision.video_range, admission.decision.tonemap) == ("hevc", "HDR10", False)
+
+
+def test_hdr_output_range_survives_the_unprotected_preview_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.playback_resources as module
+
+    resources = PlaybackResources()
+    monkeypatch.setattr(module, "household", lambda _db: HouseholdResources())
+    source = _facts()
+    source["streams"][0].update(
+        codec="hevc", pix_fmt="yuv420p10le", color_transfer="smpte2084", color_space="bt2020nc",
+        color_primaries="bt2020", color_range="tv",
+    )
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+
+    admission = resources.preview(None, SimpleNamespace(id="member"), SimpleNamespace(), "movie", "tv", source, caps,
+                                  encode_codecs=("h264", "hevc"), encode_ranges={"hevc": frozenset({"HDR10"})})
+
+    assert (admission.decision.video_range, admission.decision.tonemap) == ("HDR10", False)
 
 
 def test_preview_of_an_existing_logical_playback_keeps_its_full_allocation(monkeypatch: pytest.MonkeyPatch) -> None:

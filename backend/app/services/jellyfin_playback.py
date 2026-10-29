@@ -11,7 +11,7 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 from urllib.parse import urlencode
 
@@ -125,6 +125,7 @@ class PendingTranscode:
     max_bitrate: int | None
     start_seconds: float
     encode_codecs: tuple[str, ...] = ("h264",)
+    encode_ranges: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 class _PendingTranscodes:
@@ -239,7 +240,7 @@ def annotate_media_sources(
             decision = playback_resources.preview(
                 db, user, http_request, item.id, device, facts, source_caps,
                 max_height=limits.max_height, max_bitrate=limits.max_bitrate,
-                dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs,
+                dv5_reshape=limits.dv5_reshape, encode_codecs=limits.encode_codecs, encode_ranges=limits.encode_ranges,
                 audio_index=audio, subtitle_index=subtitle,
                 logical_id=(play_session_id, "direct"),
             ).decision
@@ -253,7 +254,7 @@ def annotate_media_sources(
                 with contextlib.suppress(FileNotFoundError, ValueError):
                     keyframes(ffprobe, library.resolve_media_path(item), decision.video_index)
             pending_transcodes.put(play_session_id, PendingTranscode(
-                user.id, device, item.id, source_caps, audio, subtitle, request.max_bitrate, start_seconds, limits.encode_codecs,
+                user.id, device, item.id, source_caps, audio, subtitle, request.max_bitrate, start_seconds, limits.encode_codecs, limits.encode_ranges,
             ))
 
 

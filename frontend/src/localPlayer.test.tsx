@@ -18,6 +18,17 @@ const tracks = [{ id: 's:0', label: 'English', src: '/api/library/i1/subtitle-tr
 afterEach(() => { vi.resetAllMocks(); resetHlsCalls(); });
 
 describe('LocalLibraryPlayer tracks and probe', () => {
+  it.each(['HDR10', 'SDR'])('reports the session\'s actual %s range after a negotiated conversion', async (range) => {
+    api.getLocalPlaybackOptions.mockResolvedValue({ ...direct, mode: 'transcode', video_codec: 'hevc', video_range: 'HDR10' });
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 'hdr', mode: 'transcode', playback_url: '/api/playback-sessions/hdr/index.m3u8', start: 0, kind: 'video_hw', video_codec: 'hevc', video_range: range });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    render(<LocalLibraryPlayer itemId="i1" kind="video" poster={null} title="Film" />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const player = screen.getByRole('region', { name: 'Film player' });
+    expect(player.textContent).toContain('Transcoded to HEVC');
+    expect(player.textContent?.includes(' · HDR10')).toBe(range === 'HDR10');
+  });
+
   it('offers a lower rendition than the actual automatic stream after repeated stalls', async () => {
     prefetch.initialPlaybackBandwidthBps.mockReturnValue(2_000_000);
     api.getLocalPlaybackOptions.mockResolvedValue({ ...direct, mode: 'transcode', reason: 'ContainerBitrateExceedsLimit', quality_heights: [720, 480, 360] });

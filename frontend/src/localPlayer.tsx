@@ -95,8 +95,9 @@ export function playbackFactsLabel(options: LocalPlaybackOptions | null): string
   const codecs = [facts.video_codec, facts.audio_codec].filter((codec): codec is string => Boolean(codec)).map(codecLabel).join(' / ');
   const converted = options.video_codec && options.video_codec !== facts.video_codec ? `Transcoded to ${codecLabel(options.video_codec)}` : 'Transcoded';
   const via = options.mode === 'remux' ? 'Remuxed' : options.mode === 'transcode' ? converted : 'Original';
+  const range = options.video_range === 'HDR10' || options.video_range === 'HLG' ? options.video_range : null;
   const bandwidth = options.reason?.includes('ContainerBitrateExceedsLimit') ? 'Bitrate limit' : null;
-  return [size, codecs, via, bandwidth].filter(Boolean).join(' · ');
+  return [size, codecs, via, range, bandwidth].filter(Boolean).join(' · ');
 }
 
 /** Plays a Library item through the path its probed codecs and the member's choices actually need. */
@@ -406,7 +407,11 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     return () => { clearTimeout(timer); stopFirstFrame(); media.removeEventListener('progress', onData); };
   }, [recoverableCodec, source.id, session]);
 
-  const label = playbackFactsLabel(decisionOptions);
+  const label = playbackFactsLabel(decisionOptions && session ? {
+    ...decisionOptions, mode: session.mode,
+    video_codec: session.video_codec ?? decisionOptions.video_codec,
+    video_range: session.video_range ?? decisionOptions.video_range,
+  } : decisionOptions);
   const compactLabel = decisionOptions?.facts?.height ? `${decisionOptions.facts.height}p` : label?.split(' · ').at(-1);
   const quality = label ? (
     <span className="quality-control quality-control-facts" data-playback-mode={decisionOptions?.mode} title={label}>

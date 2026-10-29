@@ -135,6 +135,10 @@ def playback_diagnostics(db: Session, known_paths: list[str]) -> TranscodeDiagno
         tonemap=status.tonemap if hardware else status.software_tonemap,
         encode_codecs=list(hwaccel.output_codecs(ffmpeg, mode)),
         encode_errors={codec: _clean(error, known_paths) for codec, error in status.encode_errors.items()},
+        hdr_encode_ranges={codec: list(ranges) for codec, ranges in status.hdr_encode_ranges.items()} if hardware else {},
+        hdr_encode_errors={key: _clean(error, known_paths) for key, error in status.hdr_encode_errors.items()},
+        zero_copy_pairs=list(status.zero_copy_pairs) if hardware else [],
+        zero_copy_errors={key: _clean(error, known_paths) for key, error in status.zero_copy_errors.items()},
         hardware_disabled=hwaccel.disabled,
         software_fallbacks=hwaccel.fallbacks,
         cache_cap_bytes=(record.transcode_cache_gb or 10) * 1024**3,
@@ -234,4 +238,13 @@ def register(app: FastAPI, events: EventBus, sweeps: Callable[[], dict[str, Any]
     @app.post(f"{admin_media_server.URL}/transcode-diagnostics", response_model=TranscodeDiagnostics, dependencies=[Depends(get_admin_user)])
     def run_transcode_diagnostics(db: Session = Depends(get_db, scope="function")) -> TranscodeDiagnostics:
         hwaccel.reprobe()  # e.g. after fixing /dev/dri permissions; a disabled fallback stays off until restart
+        record = YtDlpService(db).get_app_settings()
+        mode = record.hwaccel or "auto"
+        ffmpeg, ffprobe = media_tool(db, "ffmpeg"), media_tool(db, "ffprobe")
+        hwaccel.output_ranges(ffmpeg, mode, ffprobe=ffprobe)
+        status = hwaccel.status(ffmpeg, mode)
+        if status.active == "rkmpp" and not hwaccel.disabled:
+            for source in ("h264", "hevc", "vp9", "av1"):
+                for codec in status.encode_codecs:
+                    hwaccel.zero_copy_supported(ffmpeg, source, codec, ffprobe=ffprobe)
         return playback_diagnostics(db, _known_paths(db))

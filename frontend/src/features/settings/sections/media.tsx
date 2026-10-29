@@ -305,6 +305,10 @@ function HardwareStatus() {
           <li><span>HDR to SDR</span><strong><StatusText tone={diagnostics.tonemap === 'none' ? 'attention' : 'ok'}>{diagnostics.tonemap === 'none' ? 'Unavailable' : diagnostics.tonemap}</StatusText></strong></li>
           {diagnostics.encode_codecs ? <li><span>Encoding formats</span><strong>{diagnostics.encode_codecs.map((codec) => codec === 'h264' ? 'H.264' : codec.toUpperCase()).join(', ') || 'Unavailable'}</strong></li> : null}
           {Object.entries(diagnostics.encode_errors ?? {}).map(([codec, message]) => <li key={`encoder-${codec}`}><span>{codec.toUpperCase()} check</span><strong>{message}</strong></li>)}
+          {diagnostics.hdr_encode_ranges ? <li><span>HDR preservation</span><strong>{Object.entries(diagnostics.hdr_encode_ranges).map(([codec, ranges]) => `${codec.toUpperCase()}: ${ranges.join(', ')}`).join('; ') || 'None verified'}</strong></li> : null}
+          {Object.entries(diagnostics.hdr_encode_errors ?? {}).map(([key, message]) => <li key={`hdr-${key}`}><span>{key} HDR check</span><strong>{message}</strong></li>)}
+          {(diagnostics.hwaccel === 'rkmpp' || diagnostics.active === 'rkmpp') && diagnostics.zero_copy_pairs ? <li><span>Rockchip zero-copy</span><strong>{diagnostics.zero_copy_pairs.join(', ') || 'None verified'}</strong></li> : null}
+          {Object.entries(diagnostics.zero_copy_errors ?? {}).map(([key, message]) => <li key={`zero-copy-${key}`}><span>{key} zero-copy check</span><strong>{message}</strong></li>)}
           <li><span>Conversions now</span><strong>{Object.values(diagnostics.sessions).reduce((sum, count) => sum + count, 0)}</strong></li>
           <li><span>Software fallbacks</span><strong>{diagnostics.software_fallbacks}</strong></li>
           <li><span>Cache</span><strong>{formatBytes(diagnostics.cache_bytes)} of {formatBytes(diagnostics.cache_cap_bytes)}</strong></li>

@@ -281,6 +281,73 @@ describe('production API boundary', () => {
     expect(profiles).not.toContain('hls-hevc-aac');
   });
 
+  it('offers an exact HDR HLS range only after a recognized, successful 10-bit media-source query', async () => {
+    vi.resetModules();
+    const isolated = await import('./api');
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably');
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const decodingInfo = vi.fn(async ({ video }: MediaDecodingConfiguration) => {
+      const transfer = video?.transferFunction;
+      const gamut = video?.colorGamut;
+      const metadata = video?.hdrMetadataType;
+      return {
+        supported: Boolean(video?.contentType.includes('hvc1') && (!transfer || transfer === 'pq' && gamut === 'rec2020' && metadata === 'smpteSt2086')),
+        smooth: true, powerEfficient: true, keySystemAccess: null,
+      };
+    });
+    vi.stubGlobal('navigator', { mediaCapabilities: { decodingInfo } });
+    expect(isolated.browserSupportedPlaybackProfiles()).not.toContain('hls-hevc-hdr10-aac');
+    await Promise.resolve();
+    const profiles = isolated.browserSupportedPlaybackProfiles();
+    expect(profiles).toContain('hls-hevc-hdr10-aac');
+    expect(profiles).not.toContain('hls-hevc-hlg-aac');
+    expect(profiles).not.toContain('hls-av1-hdr10-aac');
+    vi.stubGlobal('MediaSource', { isTypeSupported: (mime: string) => !mime.includes('hvc1.2') });
+    expect(isolated.browserSupportedPlaybackProfiles()).not.toContain('hls-hevc-hdr10-aac');
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true });
+    isolated.markHevcFailed();
+    try { expect(isolated.browserSupportedPlaybackProfiles()).not.toContain('hls-hevc-hdr10-aac'); }
+    finally { localStorage.clear(); }
+  });
+
+  it('does not mistake an HDR display or ignored capability fields for HDR output support', async () => {
+    vi.resetModules();
+    const isolated = await import('./api');
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably');
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    vi.stubGlobal('navigator', { mediaCapabilities: { decodingInfo: async () => ({ supported: true, smooth: true }) } });
+    isolated.browserSupportedPlaybackProfiles();
+    await Promise.resolve();
+    const profiles = isolated.browserSupportedPlaybackProfiles();
+    expect(profiles).toContain('hdr');
+    expect(profiles.some((profile) => /hls-.*-(hdr10|hlg)-aac/.test(profile))).toBe(false);
+    expect(profiles).toContain('hls-hevc-aac');
+  });
+
+  it('queries native HLS HDR through the file path and withholds it on an SDR display', async () => {
+    vi.resetModules();
+    const isolated = await import('./api');
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably');
+    vi.stubGlobal('MediaSource', undefined);
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const hdrTypes: string[] = [];
+    vi.stubGlobal('navigator', { mediaCapabilities: { decodingInfo: async ({ type, video }: MediaDecodingConfiguration) => {
+      if (video?.transferFunction) hdrTypes.push(type);
+      void video?.colorGamut;
+      void video?.hdrMetadataType;
+      return { supported: type === 'file', smooth: true };
+    } } });
+    isolated.browserSupportedPlaybackProfiles();
+    await Promise.resolve();
+    expect(isolated.browserSupportedPlaybackProfiles()).toEqual(expect.arrayContaining(['hls-hevc-hdr10-aac', 'hls-hevc-hlg-aac']));
+    expect(hdrTypes).toEqual(['file', 'file']);
+    expect(isolated.browserSupportedPlaybackProfiles()).not.toContain('hls-av1-hdr10-aac');
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    expect(isolated.browserSupportedPlaybackProfiles().some((profile) => /hls-.*-(hdr10|hlg)-aac/.test(profile))).toBe(false);
+  });
+
   it('preserves structured acquisition failure categories for callers', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       detail: {

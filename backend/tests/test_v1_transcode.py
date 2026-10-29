@@ -7,6 +7,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,6 +83,25 @@ def test_transcode_real_browser_av(household: None, tmp_path: Path) -> None:
     assert 5 < float(probed["format"]["duration"]) < 7
     # Keyframes at 0, 1, 2, 3, 4 s: four 1 s segments, then independent 4 s ones.
     assert len(list(Path(_finished(body["session_id"])).glob("seg*.m4s"))) == 5
+
+
+def test_web_video_encode_passes_ffprobe_for_rockchip_zero_copy_but_remux_does_not(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    encoded = _download("alice", make_media(settings.library_root / "alice" / "old.avi", vcodec="mpeg4", acodec="ac3"))
+    copied = _download("alice", make_media(settings.library_root / "alice" / "clip.mkv"))
+    calls: list[dict] = []
+
+    def start(**kwargs):  # noqa: ANN001, ANN202
+        calls.append(kwargs)
+        return SimpleNamespace(id=f"session-{len(calls)}", mode=kwargs["decision"].mode, media_start=0.0, kind="video_hw",
+                               info={"video": {"to": kwargs["decision"].video_codec, "range": kwargs["decision"].video_range}}, resource_admission=None)
+
+    monkeypatch.setattr(local_playback.sessions, "start", start)
+    with _client("alice") as client:
+        assert client.post(f"/api/library/{encoded}/playback-sessions").status_code == 201
+        assert client.post(f"/api/library/{copied}/playback-sessions").status_code == 201
+
+    assert calls[0]["decision"].video == "encode" and calls[0]["ffprobe"]
+    assert calls[1]["decision"].video == "copy" and calls[1]["ffprobe"] is None
 
 
 def test_concurrent_and_cancel_bounds(household: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

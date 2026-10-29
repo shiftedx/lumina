@@ -31,11 +31,13 @@ let tickScale = 10_000_000.0
                     nextIndex = 0
                 }
             }
+            metadata.configure(session: session)
             music.configure(session: session)
             offline.configure(session: session)
         }
     }
     public let music = LuminaMusicLibrary()
+    public let metadata = LuminaMetadataEditor()
     public let offline: LuminaOfflineLibrary
     /// Reachability includes both the OS network path and failed server requests.
     public private(set) var connectivityStatus: LuminaConnectivity.Status = .unknown
@@ -1096,7 +1098,8 @@ let tickScale = 10_000_000.0
                                    startPositionSeconds: startPositionSeconds ?? (item.isAudio ? 0 : offline.resumeSeconds(for: item.id)),
                                    mediaSourceID: item.id, isTranscoding: false,
                                    methodLabel: item.isAudio ? "Downloaded audio" : "Downloaded video",
-                                   usesClientDemux: !item.isAudio && local.pathExtension.lowercased() == "mkv")
+                                   usesClientDemux: !item.isAudio && local.pathExtension.lowercased() == "mkv",
+                                   sourceContainer: local.pathExtension.isEmpty ? nil : local.pathExtension)
         }
         guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)

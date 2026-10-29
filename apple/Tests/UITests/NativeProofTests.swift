@@ -76,7 +76,25 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 
 #if os(iOS)
 @MainActor
+final class NativeLibraryMetadataTests: NativeProofJourney {
+    func testPosterEditAndDetailFixMatchUseAuthorizedServerWorkflows() async throws {
+        try await journeyLibraryMetadata()
+    }
+}
+
+@MainActor
+final class NativePlaybackInfoTests: NativeProofJourney {
+    func testInfoShowsLivePlaybackMetricsAndReturnsToVideo() async throws {
+        try await journeyPlaybackInfo()
+    }
+}
+
+@MainActor
 final class NativeVideoGestureTests: NativeProofJourney {
+    func testVerticalSwipesAdjustDeviceControlsWithoutPlayerVolumeSlider() async throws {
+        try await journeyVideoDeviceControls()
+    }
+
     func testSurfaceGesturesSeekAndKeepPausedPlaybackPaused() async throws {
         try await journeyVideoSurfaceGestures()
     }
@@ -1462,6 +1480,185 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Portrait playback settings remain usable in the system sheet")
         try activate(done)
+        try closePlayer()
+    }
+
+    func journeyLibraryMetadata() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        let correctedTitle = "Corrected synthetic title \(UUID().uuidString.prefix(4))"
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        try activate(application!.buttons["Library"])
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library posters")
+        let poster = try revealLibraryItem(id: fixture.directItemID, named: "metadata poster")
+        try attachFrame(named: "Library before poster context menu")
+        poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.1)
+        try activate(element("editMetadataAction"))
+        let form = element("metadataEditorForm")
+        try waitForExistence(form, timeout: 8, named: "metadata editor")
+        let title = element("metadataField-name")
+        try replaceMetadataText(title, with: correctedTitle)
+        try activate(element("metadataKeyboardDone"))
+        let yearField = element("metadataField-year")
+        try revealDetailElement(yearField, in: form, named: "Year field", requiresHittable: true)
+        try replaceMetadataText(yearField, with: "2023")
+        try activate(element("metadataKeyboardDone"))
+        try attachFrame(named: "Native metadata editor from poster long press")
+        try activate(element("metadataEditorSave"))
+        XCTAssertTrue(disappears(form, timeout: 10), "Saving valid metadata must return to the library.")
+        let doc = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let fields = try XCTUnwrap(doc["fields"] as? [String: [String: Any]])
+        XCTAssertEqual(fields["name"]?["value"] as? String, correctedTitle)
+        XCTAssertEqual(fields["year"]?["value"] as? Int, 2023)
+        XCTAssertTrue(waitUntil(timeout: 12) { poster.exists && poster.label.contains(correctedTitle) },
+                      "The saved title must replace the old poster label without restarting the app.")
+        poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("detailScreen"), timeout: 12, named: "updated title detail")
+        try attachFrame(named: "Updated title detail overflow entry")
+        let menus = application!.descendants(matching: .any).matching(identifier: "titleActionsMenu").allElementsBoundByIndex
+        let menu = try XCTUnwrap(menus.first(where: { hasVisibleFrame($0) }))
+        menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try activate(element("fixMatchAction"))
+        try waitForExistence(element("metadataMatchQuery"), timeout: 10, named: "Fix match search")
+        try replaceMetadataText(element("metadataMatchQuery"), with: try XCTUnwrap(fixture.requestMovieTitle))
+        try activate(element("metadataKeyboardDone"))
+        try replaceMetadataText(element("metadataMatchYear"), with: "1999")
+        try activate(element("metadataKeyboardDone"))
+        try activate(element("metadataMatchSearch"))
+        let candidate = element("metadataMatch-603")
+        try revealDetailElement(candidate, in: form, named: "correct provider match", requiresHittable: true)
+        try attachFrame(named: "Native Fix match search results")
+        try activate(candidate)
+        try activate(element("metadataMatchConfirm"))
+        XCTAssertTrue(disappears(form, timeout: 10), "Confirming the provider must finish the matching workflow.")
+        let matched = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let matchedFields = try XCTUnwrap(matched["fields"] as? [String: [String: Any]])
+        XCTAssertEqual((matchedFields["provider_ids"]?["value"] as? [String: String])?["Tmdb"], "603")
+        XCTAssertEqual(matchedFields["name"]?["value"] as? String, correctedTitle,
+                       "Fix match must preserve user-authored edits.")
+    }
+
+    private func replaceMetadataText(_ field: XCUIElement, with text: String) throws {
+        let visible = try waitForHittable(field, timeout: 10, named: "metadata field")
+        visible.tap()
+        visible.typeKey("a", modifierFlags: .command)
+        visible.typeText(text)
+    }
+
+
+    func journeyPlaybackInfo() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 12)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        let play = element("featuredPlayButton")
+        try waitForExistence(play, timeout: 20, named: "Home hero Play")
+        XCTAssertTrue(hasVisibleFrame(play))
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "video player")
+        try tapVideoTransportAfterChromeHides(named: "pause before inspecting playback info")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        try activate(element("videoInfoButton"))
+        let panel = element("videoSettingsPanel")
+        let stats = element("videoPlaybackStats")
+        try waitForExistence(stats, timeout: 10, named: "stats for nerds")
+        func samples() -> Int {
+            Int((stats.value as? String ?? "").replacingOccurrences(of: "samples=", with: "")) ?? 0
+        }
+        XCTAssertTrue(waitUntil(timeout: 8) { samples() >= 2 }, "Info must refresh live metrics while visible.")
+        XCTAssertTrue(accessibilityText(element("playbackStat-resolution")).contains("×"))
+        XCTAssertTrue(accessibilityText(element("playbackStat-videoCodec")).contains("H.264"),
+                      "Video format must come from the playing track.")
+        try attachFrame(named: "Playback info live video metrics")
+        for id in ["hdr", "fps", "currentFPS", "delivery", "recentDownload", "throughput", "transferred", "buffer", "stalls", "dropped", "audioCodec", "audioFormat", "sourceContainer"] {
+            let row = element("playbackStat-\(id)")
+            try revealDetailElement(row, in: panel, named: "playback metric \(id)", requiresHittable: false)
+            XCTAssertTrue(row.exists)
+        }
+        XCTAssertTrue(accessibilityText(element("playbackStat-audioCodec")).contains("AAC"))
+        XCTAssertTrue(accessibilityText(element("playbackStat-audioFormat")).contains("kHz"))
+        XCTAssertFalse(accessibilityText(element("playbackStat-sourceContainer")).contains("Not reported"),
+                       "PlaybackInfo must retain the selected source container even when Home's card omits it.")
+        XCTAssertFalse(element("playbackDiagnosticsRecording").exists, "Opening Info must not start a recording.")
+        try attachFrame(named: "Playback info source and live performance metrics")
+        try activate(element("videoSettingsDoneButton"))
+        XCTAssertTrue(disappears(stats, timeout: 5))
+        // Capture the visible Info target before resuming so auto-hide cannot race
+        // the second tap. Opening Info must leave active playback running.
+        let info = element("videoInfoButton")
+        let target = try XCTUnwrap(visibleApplicationWindow).coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: info.frame.midX, dy: info.frame.midY))
+        try activate(element("videoPlayPauseButton"))
+        target.tap()
+        try waitForExistence(stats, timeout: 8, named: "live playback info")
+        let time = element("playbackTime")
+        let before = try waitForPlaybackValue(time, timeout: 8) { _ in true }
+        _ = try waitForPlaybackValue(time, timeout: 8) { $0 >= before + 2 }
+        XCTAssertTrue(waitUntil(timeout: 5) { self.accessibilityText(self.element("playbackStat-state")).contains("Playing") })
+        try activate(element("videoSettingsTab-video"))
+        XCTAssertTrue(disappears(stats, timeout: 5), "Leaving Info must remove its live sampler.")
+        try activate(element("videoSettingsDoneButton"))
+        try tapVideoTransportAfterChromeHides(named: "pause after Info")
+        try closePlayer()
+    }
+
+    func journeyVideoDeviceControls() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try loadFixture()
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        let play = element("featuredPlayButton")
+        try waitForExistence(play, timeout: 20, named: "Home hero Play")
+        XCTAssertTrue(hasVisibleFrame(play))
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "video player")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let surface = element("videoControlsSurface")
+        XCTAssertTrue(waitUntil(timeout: 15) { surface.frame.width > surface.frame.height })
+        try tapVideoTransportAfterChromeHides(named: "pause for device control checks")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        let diagnostics = element("videoGestureDiagnostics")
+        func level(_ key: String) -> Double {
+            let value = diagnostics.value as? String ?? ""
+            return value.split(separator: " ").first { $0.hasPrefix(key + "=") }
+                .flatMap { Double($0.dropFirst(key.count + 1)) } ?? -1
+        }
+        let initial = level("brightness")
+        XCTAssertGreaterThanOrEqual(initial, 0, "The video must attach to its display's brightness control.")
+        // Start in the middle of the surface, clear of transport and timeline controls.
+        let upward = initial < 0.7
+        let startY = upward ? 0.6 : 0.35
+        let endY = upward ? 0.35 : 0.6
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: startY))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: endY)))
+        XCTAssertTrue(waitUntil(timeout: 3) { abs(level("brightnessRequested") - initial) > 0.1 && level("brightnessRequested") >= 0 },
+                      "A left-side swipe must keep sending brightness changes to UIScreen beyond its first event. \(diagnostics.value ?? "absent")")
+        XCTAssertTrue((diagnostics.value as? String ?? "").contains("last=endAdjustment(LuminaCore.VideoGestureAdjustment.brightness)"),
+                      "The brightness swipe must finish without being cancelled by its own writes.")
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.35))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.6)))
+        XCTAssertTrue((diagnostics.value as? String ?? "").contains("last=endAdjustment(LuminaCore.VideoGestureAdjustment.volume)"),
+                      "The volume swipe must reach its adjustment handler.")
+        XCTAssertEqual(level("playerVolume"), 1, accuracy: 0.001,
+                       "Volume swipes must leave AVPlayer at unity and adjust the device output instead.")
+        try waitForHittable(element("closePlayerButton"), timeout: 5, named: "visible video controls")
+        XCTAssertFalse(element("videoSystemVolume").exists)
+        XCTAssertFalse(element("videoCastVolume").exists)
+        try attachFrame(named: "Video controls use device volume and brightness")
         try closePlayer()
     }
 
@@ -9062,6 +9259,15 @@ private enum APIRequestSeasons: Decodable {
 private struct ProofAPI {
     let origin: URL
     let session: URLSession
+
+    @MainActor func metadataDocument(identity: APIIdentity, id: String) async throws -> [String: Any] {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Metadata/titles").appendingPathComponent(id))
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        guard let doc = try JSONSerialization.jsonObject(with: await send(request)) as? [String: Any] else {
+            throw ProofAPIError.malformedResponse
+        }
+        return doc
+    }
 
     @MainActor func nativeInvitations(identity: APIIdentity) async throws -> [[String: Any]] {
         var request = URLRequest(url: origin.appendingPathComponent("Lumina/Settings/admin/invites"))

@@ -313,7 +313,7 @@ struct PlaybackScreen: View {
                     .accessibilityElement()
                     .accessibilityLabel("Gesture diagnostics")
                     .accessibilityIdentifier("videoGestureDiagnostics")
-                    .accessibilityValue("player=\(ObjectIdentifier(playback.player).hashValue) rateEvents=\(playback.videoRateChangeCount) phase=\(String(describing: scenePhase)) appState=\(UIApplication.shared.applicationState.rawValue) gestureEnabled=\(scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream) didBecome=\(uiTestingDidBecomeActiveOutcome) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) next=\(playback.uiTestingNextEpisodeDiagnostics) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
+                    .accessibilityValue("player=\(ObjectIdentifier(playback.player).hashValue) rateEvents=\(playback.videoRateChangeCount) phase=\(String(describing: scenePhase)) appState=\(UIApplication.shared.applicationState.rawValue) gestureEnabled=\(scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream) didBecome=\(uiTestingDidBecomeActiveOutcome) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) next=\(playback.uiTestingNextEpisodeDiagnostics) brightness=\(videoGestures.screen.map { Double($0.brightness) } ?? -1) brightnessRequested=\(videoGestures.lastBrightnessRequest ?? -1) playerVolume=\(playback.player.volume) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
                 Color.clear.frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityLabel("System Picture in Picture")
@@ -513,9 +513,6 @@ struct PlaybackScreen: View {
         }
         .onChange(of: videoGestureSettingsFingerprint) { _, _ in
             cancelVideoGestures(releaseBrightness: !store.playbackPreferences.videoGesturesEnabled || !store.playbackPreferences.brightnessSwipeEnabled)
-        }
-        .onChange(of: videoGestures.externalBrightnessRevision) { _, _ in
-            cancelVideoGestures(releaseBrightness: false)
         }
         .onChange(of: videoGestures.interacting) { _, active in
             if active { videoChromeHideTask?.cancel() }
@@ -1804,10 +1801,13 @@ struct PlaybackScreen: View {
                     videoPictureInPictureButton
                         .frame(width: 44, height: 44)
                     Spacer(minLength: 0)
-                    if videoGestureContainerSize.width > videoGestureContainerSize.height {
-                        videoOutputVolume
-                            .frame(width: 120, height: 44)
+                    Button("Playback info", glyph: .info, size: 24) {
+                        presentVideoSettings()
+                        videoSettingsDetent = .large
                     }
+                    .labelStyle(.iconOnly)
+                    .accessibilityIdentifier("videoInfoButton")
+                    .frame(width: 44, height: 44)
                     videoMuteControl
                 }
                 .buttonStyle(.plain)
@@ -1873,21 +1873,6 @@ struct PlaybackScreen: View {
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.white.opacity(0.72))
-        }
-    }
-
-    private var videoOutputVolume: some View {
-        HStack(spacing: 8) {
-            if playback.isCasting {
-                Slider(value: Binding(get: { playback.videoOutputVolume },
-                                      set: { playback.setVideoOutputVolume($0) }), in: 0...1)
-                    .accessibilityLabel("Chromecast volume")
-                    .accessibilityIdentifier("videoCastVolume")
-                    .disabled(playback.isVideoOutputUnavailable)
-                    .tint(.white)
-            } else {
-                VideoOverlaySystemVolumeView()
-            }
         }
     }
 
@@ -2301,24 +2286,11 @@ final class PlaybackModel {
         false
         #endif
     }
-    var videoOutputVolume: Double {
-        #if os(iOS)
-        if let castOwner, isCasting { return castOwner.volume }
-        #endif
-        return Double(player.volume)
-    }
     var videoOutputMuted: Bool {
         #if os(iOS)
         if let castOwner, isCasting { return castOwner.isMuted }
         #endif
         return player.isMuted
-    }
-    func setVideoOutputVolume(_ volume: Double) {
-        guard volume.isFinite else { return }
-        #if os(iOS)
-        if let castOwner, isCasting { castOwner.setVolume(volume); return }
-        #endif
-        player.volume = Float(min(1, max(0, volume)))
     }
     func setVideoOutputMuted(_ muted: Bool) {
         #if os(iOS)
@@ -2541,6 +2513,7 @@ final class PlaybackModel {
     }
     #endif
     private var videoSource = NativeVideoSource()
+    var videoSourceBytesRead: Int64? { videoSource.sourceBytesRead }
     private(set) var isSwitchingVideoStream = false
     private(set) var videoStreamError: String?
     private(set) var sourceAudioIsAutomatic = true
@@ -4661,7 +4634,7 @@ private struct VideoPlaybackSettings: View {
     private var categoryHeader: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
-                Text("Playback settings").font(.headline)
+                Text(tab == .info ? "Playback info" : "Playback settings").font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 16)
                 if let onDone {
@@ -4714,11 +4687,13 @@ private struct VideoPlaybackSettings: View {
                 Text(methodLabel)
                     .accessibilityIdentifier("videoPlaybackMethod")
             }
+            #if os(iOS)
+            PlaybackInfoView(playback: playback, audioGroup: tracks.audioGroup)
+            PlaybackDiagnosticsControls(playback: playback)
+            #else
             if let container = item.container, !container.isEmpty {
                 LabeledContent("Container", value: container.uppercased())
             }
-            #if os(iOS)
-            PlaybackDiagnosticsControls(playback: playback)
             #endif
             if let error = playback.videoActionsError {
                 Text(error).font(.callout)
@@ -4797,17 +4772,10 @@ private struct VideoPlaybackSettings: View {
             #endif
         case .audio:
             #if os(iOS)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Player volume").font(.headline)
-                Slider(value: Binding(get: { Double(playback.player.volume) }, set: { level in
-                    playback.player.volume = Float(level)
-                    if level > 0 { playback.player.isMuted = false }
-                }), in: 0...1)
-                .accessibilityLabel("Player volume")
-                .disabled(playback.player.isExternalPlaybackActive)
-                Text("System volume").font(.headline)
-                VideoSystemVolumeView().frame(minHeight: 44)
-            }
+            Text(playback.isCasting
+                 ? "Swipe vertically on the right half of the video to adjust Chromecast volume."
+                 : "Use the device volume buttons or swipe vertically on the right half of the video to adjust volume.")
+                .font(.caption).foregroundStyle(.secondary)
             #endif
                 audioButtons
         case .subtitles:
@@ -5760,21 +5728,6 @@ private struct NativeAirPlayRoutePicker: UIViewRepresentable {
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) { }
 }
 
-/// AVPlayer does not own the device's output volume. This keeps the overlay's volume
-/// control in sync with the system while leaving route selection to `VideoRoutePicker`.
-private struct VideoOverlaySystemVolumeView: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
-        let volume = MPVolumeView()
-        volume.showsRouteButton = false
-        volume.showsVolumeSlider = true
-        volume.tintColor = .white
-        volume.accessibilityLabel = "System volume"
-        volume.accessibilityIdentifier = "videoSystemVolume"
-        return volume
-    }
-
-    func updateUIView(_ uiView: MPVolumeView, context: Context) { }
-}
 #endif
 
 @MainActor

@@ -20,15 +20,31 @@ final class VideoGesturePresentation {
     var feedback: Feedback?
     var previewTime: Double?
     var interacting = false
-    private(set) var externalBrightnessRevision = 0
     private(set) var screen: UIScreen?
     @ObservationIgnored private weak var attachedScreen: UIScreen?
     private let owner = UUID()
+    // Keep the native volume control installed while video is presented. Gestures
+    // drive its UISlider; hardware buttons update that same system-owned value.
+    @ObservationIgnored private let systemVolumeView: MPVolumeView = {
+        let view = MPVolumeView(frame: CGRect(x: -200, y: -100, width: 120, height: 44))
+        view.showsRouteButton = false
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        return view
+    }()
+    private var systemVolumeSlider: UISlider? {
+        systemVolumeView.subviews.compactMap { $0 as? UISlider }.first
+    }
+    private func volumeLevel(_ playback: PlaybackModel) -> Double {
+        playback.isCasting ? (playback.castOwner?.volume ?? 0)
+            : Double(systemVolumeSlider?.value ?? AVAudioSession.sharedInstance().outputVolume)
+    }
     private var rateToken: UUID?
     var hasTemporarySpeedHold: Bool { rateToken != nil }
     #if LUMINA_UI_TESTING
     private(set) var actionCount = 0
     private(set) var lastAction = "none"
+    private(set) var lastBrightnessRequest: Double?
     #endif
     private var adjustmentLevel: Double?
     private var lastAdjustmentY = 0.0
@@ -41,6 +57,10 @@ final class VideoGesturePresentation {
     private var dismissal: Task<Void, Never>?
 
     func attach(window: UIWindow?) {
+        if systemVolumeView.superview !== window {
+            systemVolumeView.removeFromSuperview()
+            window?.addSubview(systemVolumeView)
+        }
         let next = window?.windowScene?.screen
         guard attachedScreen !== next else { return }
         attachedScreen = next
@@ -68,11 +88,11 @@ final class VideoGesturePresentation {
 
     func setBrightness(_ value: Double) {
         guard let screen else { return }
-        _ = VideoScreenBrightness.shared.apply(value, screen: screen, owner: owner, revoked: { [weak self] in
-            self?.adjustmentLevel = nil
-            self?.externalBrightnessRevision += 1
-        })
-        showBrightness()
+        guard let applied = VideoScreenBrightness.shared.apply(value, screen: screen, owner: owner) else { return }
+        #if LUMINA_UI_TESTING
+        lastBrightnessRequest = applied
+        #endif
+        showBrightness(level: applied)
         endFeedback()
     }
 
@@ -94,16 +114,11 @@ final class VideoGesturePresentation {
             lastAdjustmentY = 0
             lastAdjustmentUpdate = 0
             if kind == .volume {
-                adjustmentLevel = playback.player.isExternalPlaybackActive && !playback.isCasting ? nil : playback.videoOutputVolume
+                adjustmentLevel = playback.player.isExternalPlaybackActive && !playback.isCasting ? nil : volumeLevel(playback)
                 showVolume(playback)
             } else {
                 adjustmentLevel = screen.map { Double($0.brightness) }
-                if let screen, let adjustmentLevel {
-                    _ = VideoScreenBrightness.shared.apply(adjustmentLevel, screen: screen, owner: owner, revoked: { [weak self] in
-                        self?.adjustmentLevel = nil
-                        self?.externalBrightnessRevision += 1
-                    })
-                }
+                if let screen { VideoScreenBrightness.shared.begin(screen: screen, owner: owner) }
                 showBrightness()
             }
         case .updateAdjustment(let kind, let delta, let size):
@@ -111,21 +126,27 @@ final class VideoGesturePresentation {
             let now = ProcessInfo.processInfo.systemUptime
             guard now - lastAdjustmentUpdate >= 1.0 / 60 else { return }
             let movement = delta.y - lastAdjustmentY
-            let applied = min(1, max(0, level - movement / (0.6 * size.height)))
+            let currentLevel = kind == .volume && !playback.isCasting ? volumeLevel(playback) : level
+            let applied = min(1, max(0, currentLevel - movement / (0.6 * size.height)))
             lastAdjustmentY = delta.y
             lastAdjustmentUpdate = now
             if kind == .volume {
                 if movement < 0 { playback.setVideoOutputMuted(false) }
-                playback.setVideoOutputVolume(applied)
+                if playback.isCasting {
+                    playback.castOwner?.setVolume(applied)
+                } else if let slider = systemVolumeSlider {
+                    slider.setValue(Float(applied), animated: false)
+                    slider.sendActions(for: .valueChanged)
+                }
                 adjustmentLevel = applied
                 showVolume(playback)
             } else if let screen {
-                if VideoScreenBrightness.shared.apply(applied, screen: screen, owner: owner, revoked: { [weak self] in
-                    self?.adjustmentLevel = nil
-                    self?.externalBrightnessRevision += 1
-                }) {
-                    adjustmentLevel = Double(screen.brightness)
-                    showBrightness()
+                if let applied = VideoScreenBrightness.shared.apply(applied, screen: screen, owner: owner) {
+                    adjustmentLevel = applied
+                    #if LUMINA_UI_TESTING
+                    lastBrightnessRequest = applied
+                    #endif
+                    showBrightness(level: applied)
                 }
             }
         case .endAdjustment, .cancelAdjustment:
@@ -213,15 +234,15 @@ final class VideoGesturePresentation {
         if playback.player.isExternalPlaybackActive && !playback.isCasting {
             show(Feedback(title: "Adjust volume on the connected device", glyph: .volumeHigh, side: .trailing))
         } else {
-            let level = playback.videoOutputVolume
-            show(Feedback(title: playback.isCasting ? "Chromecast volume" : "Player volume", detail: playback.videoOutputMuted ? "Muted" : "\(Int((level * 100).rounded()))%", level: level,
+            let level = volumeLevel(playback)
+            show(Feedback(title: playback.isCasting ? "Chromecast volume" : "Device volume", detail: playback.videoOutputMuted ? "Muted" : "\(Int((level * 100).rounded()))%", level: level,
                           glyph: playback.videoOutputMuted || level == 0 ? .volumeOff : .volumeHigh, side: .trailing))
         }
     }
 
-    private func showBrightness() {
+    private func showBrightness(level requested: Double? = nil) {
         if let screen {
-            let level = Double(screen.brightness)
+            let level = requested ?? Double(screen.brightness)
             show(Feedback(title: "Brightness", detail: "\(Int((level * 100).rounded()))%", level: level, symbol: "sun.max", side: .leading))
         } else { show(Feedback(title: "Adjust brightness on the display", symbol: "sun.max", side: .leading)) }
     }
@@ -265,36 +286,27 @@ final class VideoGesturePresentation {
 private final class VideoScreenBrightness {
     static let shared = VideoScreenBrightness()
     private struct Entry {
-        let screen: UIScreen
         var ownership = VideoBrightnessOwnership()
-        var revoked: (() -> Void)?
     }
     private var entries: [ObjectIdentifier: Entry] = [:]
-    private var observer: NSObjectProtocol?
 
-    private init() {
-        observer = NotificationCenter.default.addObserver(forName: UIScreen.brightnessDidChangeNotification, object: nil, queue: .main) { [weak self] notification in
-            guard let screen = notification.object as? UIScreen else { return }
-            MainActor.assumeIsolated {
-                self?.observe(screen)
-            }
-        }
+    func begin(screen: UIScreen, owner: UUID) {
+        let id = ObjectIdentifier(screen)
+        var entry = entries[id] ?? Entry()
+        let observed = Double(screen.brightness)
+        _ = entry.ownership.apply(observed, owner: owner, observed: observed)
+        entries[id] = entry
     }
 
-    func apply(_ value: Double, screen: UIScreen, owner: UUID, revoked: @escaping () -> Void) -> Bool {
+    func apply(_ value: Double, screen: UIScreen, owner: UUID) -> Double? {
         let id = ObjectIdentifier(screen)
-        var entry = entries[id] ?? Entry(screen: screen)
-        if entry.ownership.observe(Double(screen.brightness)) != nil {
-            entries.removeValue(forKey: id)
-            entry.revoked?()
-            return false
-        }
-        if entry.ownership.owner != nil, entry.ownership.owner != owner { entry.revoked?() }
-        guard let level = entry.ownership.apply(value, owner: owner, observed: Double(screen.brightness)) else { return false }
-        entry.revoked = revoked
+        if entries[id] == nil { begin(screen: screen, owner: owner) }
+        guard var entry = entries[id], let level = entry.ownership.update(value, owner: owner) else { return nil }
         entries[id] = entry
+        // UIScreen readback/notifications can lag our write. Only reconcile with
+        // the physical display at gesture boundaries, never between swipe events.
         screen.brightness = CGFloat(level)
-        return true
+        return level
     }
 
     func release(screen: UIScreen, owner: UUID) {
@@ -303,15 +315,6 @@ private final class VideoScreenBrightness {
         let restore = entry.ownership.release(owner: owner, observed: Double(screen.brightness))
         entries.removeValue(forKey: id)
         if let restore { screen.brightness = CGFloat(restore) }
-    }
-
-    private func observe(_ screen: UIScreen) {
-        let id = ObjectIdentifier(screen)
-        guard var entry = entries[id] else { return }
-        if entry.ownership.observe(Double(screen.brightness)) != nil {
-            entries.removeValue(forKey: id)
-            entry.revoked?()
-        }
     }
 }
 
@@ -363,13 +366,4 @@ struct VideoGestureFeedbackView: View {
         .accessibilityIdentifier("videoGestureFeedback")
         .allowsHitTesting(false)
     }
-}
-
-struct VideoSystemVolumeView: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView()
-        view.accessibilityLabel = "System volume"
-        return view
-    }
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }

@@ -51,12 +51,16 @@ struct MobileRootView: View {
         .environment(videoSession)
         .environment(audioSession)
         .environment(userSettings)
+        .modifier(NativeMetadataPresentation(store: store))
         .preferredColorScheme(effectiveAppearance == "system" ? nil : effectiveAppearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop(); videoSession.dismiss() }
         }
         .onChange(of: store.isOffline) { _, _ in audioSession.connectivityDidChange() }
         .task { store.startConnectivityMonitoring() }
+        .task(id: MobileHomeSessionScope(store.session)) {
+            if !store.isOffline { await store.metadata.reloadPermissions() }
+        }
         .task(id: MobileHomeSessionScope(store.session)) {
             userSettings.configure(session: store.session)
             if store.session != nil {
@@ -73,6 +77,7 @@ struct MobileRootView: View {
                 audioSession.resumeAfterActivation()
                 Task {
                     await store.refreshConnectivity()
+                    if !store.isOffline { await store.metadata.reloadPermissions() }
                     await audioSession.refreshSharedQueue()
                     if store.session != nil, !store.isOffline {
                         await userSettings.load()
@@ -1848,7 +1853,6 @@ private struct PortraitNavigationHeader<Categories: View>: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 44)
-        .background(.ultraThinMaterial, in: .capsule)
         .padding(.leading, layoutDirection == .leftToRight ? 20 : 96)
         .padding(.trailing, layoutDirection == .leftToRight ? 96 : 20)
         .padding(.top, 16)
@@ -2670,12 +2674,24 @@ struct VideoCollectionView: View {
         .background(LuminaTheme.paper)
         .modifier(VideoDetailChrome())
         .accessibilityIdentifier("videoCollectionScreen")
-        .standardPhonePushedChrome(store: store, foreground: .white, background: LuminaTheme.theater)
+        .standardPhonePushedChrome(store: store, foreground: .white, background: LuminaTheme.theater) {
+            collectionActionsMenu
+        }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { collectionActionsMenu } }
         .scrollClipDisabled()
-        .task(id: item.id) { await load() }
+        .task(id: item.id + "-\(store.metadata.revision)") { await load() }
         .refreshable { await load() }
         .nativePlayback(request: $playbackRequest, store: store) {
             Task { await load() }
+        }
+    }
+
+    @ViewBuilder private var collectionActionsMenu: some View {
+        if store.metadata.canEdit, store.metadata.supports(detailItem ?? item) {
+            Menu { NativeMetadataActions(item: detailItem ?? item) } label: {
+                Label("More actions", glyph: .moreHorizontal)
+            }
+            .accessibilityIdentifier("titleActionsMenu")
         }
     }
 
@@ -2843,6 +2859,7 @@ struct VideoCollectionView: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu { NativeMetadataActions(item: episode) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
         .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
@@ -3447,6 +3464,7 @@ private struct MusicGrid: View {
                 .disabled(startingTrack || audioSession.busy)
         } else {
             NavigationLink(value: item) { card(item) }
+                .contextMenu { NativeMetadataActions(item: item) }
         }
     }
 
@@ -3762,6 +3780,7 @@ private struct VideoPosterWall: View {
                 Task { await store.loadMore() }
             }
         }
+        .contextMenu { NativeMetadataActions(item: item) }
     }
 
     private func columnCount(for width: CGFloat) -> Int {
@@ -3869,6 +3888,7 @@ private struct MediaRail: View {
                 if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
             })
             .contextMenu {
+                NativeMetadataActions(item: item)
                 if item.luminaReco != nil {
                     Button("Not interested") {
                         Task {
@@ -4194,7 +4214,7 @@ struct TitleDetailView: View {
                 }
             }
         }
-        .task(id: item.id) { await refreshItem() }
+        .task(id: item.id + "-\(store.metadata.revision)") { await refreshItem() }
         .nativePlayback(request: $playbackRequest, store: store) {
             Task {
                 await store.refresh()
@@ -4221,6 +4241,7 @@ struct TitleDetailView: View {
 
     private var titleActionsMenu: some View {
         Menu {
+            NativeMetadataActions(item: currentItem)
             favoriteButton
             Button {
                 updateState(played: currentItem.userData?.played != true)

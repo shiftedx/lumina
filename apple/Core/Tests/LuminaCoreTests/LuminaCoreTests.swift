@@ -1472,7 +1472,7 @@ final class LuminaCoreTests: XCTestCase {
             switch request.url!.path {
             case "/Items/movie-1/PlaybackInfo":
                 return response(request, json: ["PlaySessionId": "session-1", "MediaSources": [[
-                    "Id": "source-1", "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "Id": "source-1", "Container": "mkv", "SupportsDirectPlay": false, "SupportsTranscoding": true,
                     "TranscodingUrl": "/Videos/source-1/master.m3u8?ApiKey=test-token",
                 ]]])
             case "/Sessions/Playing/Progress":
@@ -1488,6 +1488,7 @@ final class LuminaCoreTests: XCTestCase {
 
         XCTAssertEqual(request.url.host, "127.0.0.1")
         XCTAssertTrue(request.isTranscoding)
+        XCTAssertEqual(request.sourceContainer, "mkv", "Source MKV must stay distinct from HLS delivery.")
         let playbackBody = try body(requests.all[0])
         XCTAssertEqual(playbackBody["EnableDirectPlay"] as? Bool, false)
         XCTAssertNil(playbackBody["MaxStreamingBitrate"], "Automatic quality must preserve the uncapped request contract.")
@@ -1954,8 +1955,9 @@ final class LuminaCoreTests: XCTestCase {
         let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
         let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
             "PlaySessionId": "version", "MediaSources": [
-                ["Id": "source-one", "SupportsDirectPlay": true, "SupportsTranscoding": false],
-                ["Id": "source-two", "SupportsDirectPlay": true, "SupportsTranscoding": false, "Bitrate": 2_000_000],
+                ["Id": "source-one", "Container": "mp4", "SupportsDirectPlay": true, "SupportsTranscoding": false],
+                ["Id": "source-two", "Container": "mkv", "SupportsDirectPlay": true, "SupportsTranscoding": false, "Bitrate": 2_000_000],
+                ["Id": "unknown-container", "SupportsDirectPlay": true, "SupportsTranscoding": false],
             ],
         ]))
         let request = try LuminaClient().playbackRequest(
@@ -1965,6 +1967,12 @@ final class LuminaCoreTests: XCTestCase {
 
         XCTAssertEqual(request.mediaSourceID, "source-two")
         XCTAssertEqual(request.bitRate, 2_000_000)
+        XCTAssertEqual(request.sourceContainer, "mkv", "Stats must describe the selected version, not the preferred file.")
+        let unknown = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+            mediaSourceID: "unknown-container"
+        )
+        XCTAssertNil(unknown.sourceContainer, "An unknown alternate container must not inherit another file's format.")
         XCTAssertEqual(request.startPositionSeconds, item.durationSeconds)
         XCTAssertThrowsError(try LuminaClient().playbackRequest(
             origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,

@@ -234,7 +234,8 @@ See [reproduction commands](../scripts/README.md#dolby-vision-local-qualificatio
 The final complete LuminaCore suite executed 251 tests with five skips and zero
 failures, with both opt-in Dolby fixture cases enabled. Generic iOS and tvOS
 Simulator builds passed. The full backend suite passed 5,764 tests with 20
-skips; frontend unit tests passed 2,754 cases.
+skips; frontend unit tests passed 2,754 cases. The final `mise exec -- make check`
+passed, including all 656 browser cases in 1,066.935 seconds.
 
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 

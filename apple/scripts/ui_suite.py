@@ -31,6 +31,8 @@ PLAYBACK_PREPARATION_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 
 def proof_server_environment(test_class: str) -> dict[str, str]:
     """Return class-scoped faults for disposable native journeys."""
+    if test_class == "NativeLibraryCatalogScrollingTests":
+        return {"LUMINA_NATIVE_PERF_CATALOGUE_COUNT": "120"}
     if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
     if test_class == "NativeAudioFormatRecoveryTests":

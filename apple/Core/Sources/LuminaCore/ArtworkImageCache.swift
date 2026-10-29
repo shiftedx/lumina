@@ -245,10 +245,10 @@ public final class ArtworkImageCache {
 
     /// Replace stale lookahead with the latest window. A single worker keeps speculative
     /// loading at four requests even when scrolling rapidly replaces many view tasks.
-    public func prefetch(_ urls: [URL]) async {
+    public func prefetch(_ urls: [URL], limit: Int = 16) async {
         guard !isBackgrounded, !Task.isCancelled else { return }
         var seen = Set<URL>()
-        pendingPrefetch = urls.prefix(16).filter { seen.insert($0).inserted && cachedImage(for: $0) == nil }
+        pendingPrefetch = urls.prefix(min(72, max(0, limit))).filter { seen.insert($0).inserted && cachedImage(for: $0) == nil }
         if let prefetchTask {
             await prefetchTask.value
             return

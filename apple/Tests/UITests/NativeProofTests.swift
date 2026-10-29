@@ -243,6 +243,13 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 }
 #if os(iOS)
 @MainActor
+final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
+    func testCompleteCatalogSupportsFastPosterScrolling() throws {
+        try journeyCompleteCatalogSupportsFastPosterScrolling()
+    }
+}
+
+@MainActor
 final class NativeLibraryWarmReturnTests: NativeProofJourney {
     func testLibraryTabReturnsToRetainedRootsAndClearsArtworkCache() throws {
         try journeyNativeLibraryWarmReturn()
@@ -3699,6 +3706,40 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
+    func journeyCompleteCatalogSupportsFastPosterScrolling() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        let readiness = element("libraryArtworkReadiness")
+        try waitForExistence(readiness, timeout: 25, named: "catalog wall")
+        XCTAssertTrue(waitUntil(timeout: 30) {
+            guard let progress = self.libraryArtworkReadiness(readiness) else { return false }
+            let catalog = self.accessibilityText(readiness).range(of: #"catalog=(\d+)"#, options: .regularExpression)
+            let count = catalog.flatMap { Int(self.accessibilityText(readiness)[$0].dropFirst("catalog=".count)) } ?? 0
+            return count >= 120 && progress.ready == progress.total
+        }, "The complete catalog must be scrollable before reaching the first page boundary")
+        let library = element("libraryScreen")
+        let cards = application!.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
+        let first = cards.allElementsBoundByIndex.first { self.hasVisibleFrame($0) }
+        let firstIdentifier = try XCTUnwrap(first).identifier
+        try attachFrame(named: "Complete lightweight catalog before flick")
+        library.swipeUp(velocity: .fast)
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            !self.hasVisibleFrame(self.element(firstIdentifier))
+                && cards.allElementsBoundByIndex.contains { self.hasVisibleFrame($0) && $0.isHittable }
+        }, "A fast flick must move through the complete wall and leave usable poster controls")
+        try attachFrame(named: "Poster wall after fast flick")
+        library.swipeDown(velocity: .fast)
+        XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(self.element(firstIdentifier)) },
+                      "Reverse scrolling must retain the beginning of the wall")
+        try attachFrame(named: "Poster wall after reverse flick")
+        completed = true
+    }
+
     /// Verifies the tab-selection path rather than the Back path: returning to
     /// Library must reveal its retained catalog immediately, while a new Home
     /// Browse selection can still deliberately choose a different category.

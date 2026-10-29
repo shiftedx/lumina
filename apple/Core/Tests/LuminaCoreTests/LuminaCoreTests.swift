@@ -301,6 +301,128 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 5)
     }
 
+    func testFullLibraryCatalogLoadsAheadAndAlphabetJumpRetainsTheEntireWall() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { @Sendable request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Lumina/Library/alphabet":
+                return response(request, json: ["anchors": [["letter": "A", "index": 0], ["letter": "W", "index": 1000]], "total": 1200])
+            case "/Items":
+                let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+                let value = { (name: String) in query.first { $0.name == name }?.value }
+                guard value("Fields") == "LuminaCatalog" else { return response(request, json: page(items: [])) }
+                let start = Int(value("StartIndex")!)!, limit = Int(value("Limit")!)!
+                let rows = (start..<min(1200, start + limit)).map { index in
+                    ["Id": "title-\(index)", "Name": "Title \(index)", "Type": "Movie", "ImageTags": ["Primary": "poster"]] as [String: Any]
+                }
+                return response(request, json: ["Items": rows, "TotalRecordCount": 1200, "StartIndex": start])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        await store.loadLibrary(kind: .movies, filters: VideoFilters(favoritesOnly: true), preloadCatalog: true)
+        XCTAssertEqual(store.items.count, 50, "The first viewport must publish without waiting for the complete catalog")
+        await store.loadMore() // Joins the store-owned catalog task, without a scroll/end-of-page trigger.
+        XCTAssertEqual(store.items.map(\.id), (0..<1200).map { "title-\($0)" })
+        XCTAssertFalse(store.hasMore)
+        XCTAssertFalse(store.isCatalogLoading)
+        XCTAssertNil(store.errorMessage)
+        let catalog = requests.all.filter { $0.url?.query?.contains("LuminaCatalog") == true }
+        XCTAssertEqual(catalog.count, 4)
+        let queries = catalog.map { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)!.queryItems! }
+        XCTAssertEqual(queries.map { $0.first { $0.name == "StartIndex" }?.value }, ["0", "50", "550", "1050"])
+        XCTAssertEqual(queries.map { $0.first { $0.name == "Limit" }?.value }, ["50", "500", "500", "500"])
+        XCTAssertTrue(queries.allSatisfy { $0.contains { $0.name == "IsFavorite" && $0.value == "true" } })
+        for _ in 0..<100 where store.libraryAlphabet.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        let w = try XCTUnwrap(store.libraryAlphabet.first { $0.letter == "W" })
+        let jump = await store.jumpLibrary(to: w)
+        XCTAssertEqual(jump, "title-1000")
+        XCTAssertEqual(store.items.count, 1200, "Alphabet seeking must preserve scrollable A-Z content")
+        await store.loadLibrary(kind: .movies, filters: VideoFilters(favoritesOnly: true), preloadCatalog: true)
+        XCTAssertEqual(requests.all.filter { $0.url?.query?.contains("LuminaCatalog") == true }.count, 4, "Warm returns and alphabet navigation reuse the complete catalog")
+    }
+
+    func testFullLibraryCatalogSuspendsResumesAndRejectsObsoleteCategoryPages() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "member"]) }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard request.url?.path == "/Items", query.contains(where: { $0.value == "LuminaCatalog" }) else {
+                return response(request, json: page(items: []))
+            }
+            let start = Int(query.first { $0.name == "StartIndex" }!.value!)!
+            let anime = query.contains { $0.name == "LuminaCategory" && $0.value == "anime" }
+            return response(request, json: ["Items": [["Id": anime ? "anime" : "movie-\(start)", "Name": "Title", "Type": "Movie"]], "TotalRecordCount": anime ? 1 : 3, "StartIndex": start])
+        }
+        HomeDelayedURLProtocol.delay = { request in
+            request.url?.query?.contains("StartIndex=1") == true ? 0.2 : 0
+        }
+        await store.restore()
+        let firstPage = expectation(description: "Background catalog page started")
+        HomeDelayedURLProtocol.onStart = { request in
+            if request.url?.query?.contains("StartIndex=1") == true { firstPage.fulfill() }
+        }
+        await store.loadLibrary(kind: .movies, preloadCatalog: true)
+        await fulfillment(of: [firstPage], timeout: 2)
+        store.setCatalogBackgrounded(true)
+        for _ in 0..<100 where store.isBusy { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertFalse(store.isBusy)
+        XCTAssertFalse(store.isCatalogLoading)
+        XCTAssertEqual(store.items.map(\.id), ["movie-0"])
+        XCTAssertTrue(store.hasMore)
+        XCTAssertNil(store.errorMessage, "Suspension is cancellation, not a catalog error")
+        let resumed = expectation(description: "The suspended catalog resumes from its cursor")
+        HomeDelayedURLProtocol.onStart = { request in
+            if request.url?.query?.contains("StartIndex=1") == true { resumed.fulfill() }
+        }
+        store.setCatalogBackgrounded(false)
+        await fulfillment(of: [resumed], timeout: 2)
+        await store.loadLibrary(kind: .anime, preloadCatalog: true)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(store.items.map(\.id), ["anime"], "An obsolete Movies response must never append into Anime")
+        XCTAssertFalse(store.hasMore)
+        XCTAssertFalse(store.isCatalogLoading)
+        XCTAssertFalse(store.isBusy)
+        XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 2)
+        HomeDelayedURLProtocol.onStart = nil
+        await store.loadLibrary(kind: .movies, preloadCatalog: true)
+        await store.loadMore()
+        XCTAssertEqual(store.items.map(\.id), ["movie-0", "movie-1", "movie-2"], "A partial category snapshot resumes at its retained cursor")
+    }
+
+    func testFullLibraryCatalogFailureRetainsPostersAndExplicitRetryCompletes() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let attempts = PathCounter()
+        MockURLProtocol.handler = { @Sendable request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "member"]) }
+            guard request.url?.path == "/Items", request.url?.query?.contains("LuminaCatalog") == true else {
+                return response(request, json: page(items: []))
+            }
+            let next = request.url?.query?.contains("StartIndex=1") == true
+            if next, attempts.next("next") == 1 { return response(request, status: 503) }
+            return response(request, json: ["Items": [["Id": next ? "last" : "first", "Name": "Title", "Type": "Movie"]], "TotalRecordCount": 2, "StartIndex": next ? 1 : 0])
+        }
+        await store.restore()
+        await store.loadLibrary(kind: .movies, preloadCatalog: true)
+        await store.loadMore()
+        XCTAssertEqual(store.items.map(\.id), ["first"])
+        XCTAssertTrue(store.hasMore)
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertFalse(store.isBusy)
+        XCTAssertFalse(store.isCatalogLoading)
+        await store.loadMore()
+        XCTAssertEqual(store.items.map(\.id), ["first", "last"])
+        XCTAssertFalse(store.hasMore)
+        XCTAssertNil(store.errorMessage)
+    }
+
     func testTechnicalMovieFiltersCarryAcrossLibraryPagingAndAlphabetIndex() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))

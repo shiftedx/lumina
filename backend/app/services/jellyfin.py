@@ -543,6 +543,7 @@ class JellyfinMapper:
         self.server_id = jellyfin_server_id(db)
         self.sources = bool({value.lower() for value in fields} & {"mediasources", "mediastreams"})
         self.people = "people" in {value.lower() for value in fields}
+        self.catalog = "luminacatalog" in {value.lower() for value in fields} and not self.sources
 
     # ---- views and single entities ------------------------------------------------
 
@@ -594,6 +595,15 @@ class JellyfinMapper:
             self.user, titles, with_artifacts=sources, with_metadata=sources, with_artwork=False,
         )
         dtos = [self.title_dto(title, batch, sources=sources) for title in titles]
+        if self.catalog and not sources:
+            # Native poster walls enumerate the catalog without retaining detail metadata
+            # or scheduling hero-framing work for every title. Detail reads stay complete.
+            fields = {
+                "Id", "Name", "Type", "ProductionYear", "UserData", "ImageTags",
+                "SeriesId", "SeriesName", "SeriesPrimaryImageTag", "SeasonId",
+                "IndexNumber", "ParentIndexNumber", "RunTimeTicks", "ChildCount",
+            }
+            return [{key: value for key, value in dto.items() if key in fields} for dto in dtos]
         backdrop_owners: dict[str, MediaTitle] = {}
         people = people_for_titles(self.db, titles) if (sources or self.people) else {}  # one query, only when projected
         for title, dto in zip(titles, dtos, strict=True):

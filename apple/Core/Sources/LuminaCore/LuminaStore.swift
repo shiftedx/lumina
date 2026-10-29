@@ -15,6 +15,7 @@ let tickScale = 10_000_000.0
                 librarySnapshots.removeAll()
                 loadedLibraryQuery = nil
                 if oldValue != nil {
+                    cancelCatalogPreload()
                     libraryTask?.cancel()
                     libraryTask = nil
                     libraryTaskQuery = nil
@@ -59,6 +60,7 @@ let tickScale = 10_000_000.0
     public private(set) var isBusy = false
     public private(set) var errorMessage: String?
     public private(set) var hasMore = false
+    public private(set) var isCatalogLoading = false
     public private(set) var libraryAlphabet = [LibraryAlphabetAnchor]()
     public private(set) var availableLibraryCategories = Set<String>()
 
@@ -88,6 +90,7 @@ let tickScale = 10_000_000.0
         let kind: VideoBrowseKind
         let sort: VideoSort
         let filters: VideoFilters
+        var preloadCatalog = false
     }
 
     private struct LibrarySnapshot {
@@ -119,6 +122,9 @@ let tickScale = 10_000_000.0
     private var libraryTask: Task<Void, Never>?
     private var libraryTaskQuery: LibraryQuery?
     private var libraryAlphabetTask: Task<Void, Never>?
+    private var catalogTask: Task<Void, Never>?
+    private var catalogBackgrounded = false
+    private var catalogEnabled = false
     private var isConnectivityRefreshInFlight = false
     private var nextIndex = 0
     private var libraryGeneration = 0
@@ -349,6 +355,7 @@ let tickScale = 10_000_000.0
     private func clearSession() {
         homeTask?.cancel()
         homeTask = nil
+        cancelCatalogPreload()
         libraryTask?.cancel()
         libraryTask = nil
         libraryTaskQuery = nil
@@ -379,17 +386,22 @@ let tickScale = 10_000_000.0
     /// Reenter a warm wall without refetching page one or discarding its pagination.
     /// Pull-to-refresh and account/activity refreshes explicitly request fresh server state.
     public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name,
-                            filters: VideoFilters = .init(), forceRefresh: Bool = false) async {
+                            filters: VideoFilters = .init(), forceRefresh: Bool = false, preloadCatalog: Bool = false) async {
         guard !Task.isCancelled, session != nil else { return }
-        let query = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
+        let query = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters,
+                                 preloadCatalog: preloadCatalog && search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && [.all, .movies, .shows, .anime].contains(kind))
         if !forceRefresh, let loading = libraryTask, libraryTaskQuery == query {
             await loading.value
             return
         }
-        if !forceRefresh, !isOffline, loadedLibraryQuery == query, errorMessage == nil { return }
+        if !forceRefresh, !isOffline, loadedLibraryQuery == query, errorMessage == nil {
+            startCatalogPreload()
+            return
+        }
         if !isOffline { retainLibrarySnapshot() }
         if !forceRefresh, !isOffline, errorMessage == nil,
            let snapshot = librarySnapshots.last(where: { $0.query == query }) {
+            cancelCatalogPreload()
             libraryTask?.cancel()
             libraryTask = nil
             libraryTaskQuery = nil
@@ -408,11 +420,13 @@ let tickScale = 10_000_000.0
             libraryAlphabet = snapshot.alphabet
             items = snapshot.items
             loadedLibraryQuery = query
+            catalogEnabled = query.preloadCatalog
             errorMessage = nil
             isBusy = false
+            startCatalogPreload()
             return
         }
-        await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true)
+        await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true, preloadCatalog: query.preloadCatalog)
     }
 
     private func retainLibrarySnapshot() {
@@ -421,7 +435,9 @@ let tickScale = 10_000_000.0
         librarySnapshots.append(LibrarySnapshot(query: query, items: items, nextIndex: nextIndex,
             hasMore: hasMore, parentID: videoParentID, sourceProvider: videoSourceProvider,
             category: videoLuminaCategory, alphabet: libraryAlphabet))
-        if librarySnapshots.count > 8 { librarySnapshots.removeFirst() }
+        while librarySnapshots.count > 8 || librarySnapshots.reduce(0, { $0 + $1.items.count }) > 10_000 {
+            librarySnapshots.removeFirst()
+        }
     }
 
     /// Feature-detects the server-side technical movie index only when the UI is
@@ -472,14 +488,16 @@ let tickScale = 10_000_000.0
         }
     }
 
-    private func loadLibrary(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, clearsError: Bool) async {
+    private func loadLibrary(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, clearsError: Bool, preloadCatalog: Bool = false) async {
         guard !Task.isCancelled, session != nil else { return }
+        cancelCatalogPreload()
         libraryTask?.cancel()
         libraryAlphabetTask?.cancel()
         libraryAlphabetTask = nil
         libraryGeneration += 1
         let generation = libraryGeneration
-        libraryTaskQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
+        catalogEnabled = preloadCatalog
+        libraryTaskQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters, preloadCatalog: preloadCatalog)
         isBusy = true
         if clearsError { errorMessage = nil }
         let task = Task { [weak self] in
@@ -492,6 +510,7 @@ let tickScale = 10_000_000.0
                 isBusy = false
                 libraryTask = nil
                 libraryTaskQuery = nil
+                startCatalogPreload()
             }
         }
         // This request belongs to the current catalog query, not an appearance task
@@ -526,10 +545,10 @@ let tickScale = 10_000_000.0
                 if videoParentID == nil { items = []; hasMore = false; nextIndex = 0; return }
                 if kind == .youtube { videoSourceProvider = "youtube" }
             }
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters)
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters, catalog: catalogEnabled)
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
-            loadedLibraryQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
+            loadedLibraryQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters, preloadCatalog: catalogEnabled)
             nextIndex = (page.startIndex ?? 0) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
             if supportsLibraryAlphabet {
@@ -558,32 +577,87 @@ let tickScale = 10_000_000.0
     }
 
     public func loadMore() async {
-        guard let active = session, !isOffline, hasMore, !isBusy else { return }
+        if let catalogTask { await catalogTask.value; return }
+        if catalogEnabled { errorMessage = nil }
+        await loadMoreLibraryPage()
+        startCatalogPreload()
+    }
+
+    private func cancelCatalogPreload() {
+        catalogTask?.cancel()
+        catalogTask = nil
+        isCatalogLoading = false
+    }
+
+    /// Catalog work belongs to the query, survives pushing a detail, and stops at suspension.
+    public func setCatalogBackgrounded(_ backgrounded: Bool) {
+        catalogBackgrounded = backgrounded
+        if backgrounded { cancelCatalogPreload() }
+        else { startCatalogPreload() }
+    }
+
+    private func startCatalogPreload() {
+        guard catalogEnabled, loadedLibraryQuery?.preloadCatalog == true, !catalogBackgrounded, !isOffline, hasMore,
+              !isBusy, catalogTask == nil, errorMessage == nil else { return }
+        let generation = libraryGeneration
+        isCatalogLoading = true
+        catalogTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == self.libraryGeneration, !Task.isCancelled {
+                    self.catalogTask = nil
+                    self.isCatalogLoading = false
+                }
+            }
+            while !Task.isCancelled, generation == self.libraryGeneration, self.hasMore {
+                let start = self.nextIndex
+                await self.loadMoreLibraryPage()
+                guard self.nextIndex > start else { return }
+            }
+        }
+    }
+
+    private func loadMoreLibraryPage() async {
+        guard !Task.isCancelled, let active = session, !isOffline, hasMore, !isBusy else { return }
         let generation = libraryGeneration
         let start = nextIndex
         isBusy = true
-        defer { if generation == libraryGeneration { isBusy = false } }
+        defer {
+            if generation == libraryGeneration {
+                isBusy = false
+                if Task.isCancelled { startCatalogPreload() }
+            }
+        }
         do {
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: start, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: videoFilters)
-            guard generation == libraryGeneration, isCurrent(active) else { return }
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: start, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: videoFilters, catalog: catalogEnabled, limit: 500)
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             let playable = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
             items.append(contentsOf: playable)
             nextIndex = (page.startIndex ?? start) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
         } catch {
-            guard generation == libraryGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             handleRequestFailure(error, for: active)
         }
     }
 
-    /// Replaces the visible page with the first server page at an alphabet
-    /// anchor. The returned id lets a platform focus its first newly-loaded card.
+    /// Full catalogs seek within the retained wall; paged clients fetch an anchor page.
+    /// The returned id lets a platform focus or scroll to the requested card.
     @discardableResult
     public func jumpLibrary(to anchor: LibraryAlphabetAnchor) async -> String? {
         guard let active = session,
               supportsLibraryAlphabet,
               anchor.index >= 0,
               libraryAlphabet.contains(anchor) else { return nil }
+        if catalogEnabled {
+            guard !Task.isCancelled else { return nil }
+            if anchor.index < items.count { return items[anchor.index].id }
+            let generation = libraryGeneration
+            if let catalogTask { await catalogTask.value }
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active),
+                  anchor.index < items.count else { return nil }
+            return items[anchor.index].id
+        }
         libraryGeneration += 1
         let generation = libraryGeneration
         isBusy = true
@@ -625,7 +699,7 @@ let tickScale = 10_000_000.0
         guard !isOffline else { presentOfflineItems(); return }
         errorMessage = nil
         async let home: Void = loadHome(clearsError: false)
-        await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters, clearsError: false)
+        await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters, clearsError: false, preloadCatalog: catalogEnabled)
         await home
     }
 
@@ -1021,12 +1095,14 @@ let tickScale = 10_000_000.0
     }
 
     /// Warms the next visible slice without making scrolling views own fetch tasks per cell.
-    public func prefetchArtwork(after itemID: String?, in items: [MediaItem], maxWidth: Int = 400) async {
+    public func prefetchArtwork(after itemID: String?, in items: [MediaItem], maxWidth: Int = 400, count: Int = 16, movingForward: Bool = true) async {
         guard !Task.isCancelled, let itemID, let index = items.firstIndex(where: { $0.id == itemID }) else { return }
-        let urls = items.dropFirst(index + 1).prefix(16).compactMap {
-            imageURL(for: $0, maxWidth: maxWidth)
-        }
-        await ArtworkImageCache.shared.prefetch(urls)
+        let count = min(72, max(0, count))
+        let candidates = movingForward
+            ? Array(items.dropFirst(index + 1).prefix(count))
+            : Array(items.prefix(index).suffix(count).reversed())
+        let urls = candidates.compactMap { imageURL(for: $0, maxWidth: maxWidth) }
+        await ArtworkImageCache.shared.prefetch(urls, limit: count)
     }
 
     public func artworkFraming(for source: URL) async -> HeroFraming? {

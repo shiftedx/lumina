@@ -26,6 +26,7 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Known follow-ups and evidence limits
 
+- **Library scrolling (source only, after build 31):** iOS video categories load the first 50 lightweight records, then drain the catalog in 500-record pages. Preserve in-place alphabet jumps, query/session cancellation, suspension/resume, ordinary search/channel pagination, and directional poster lookahead capped at 72 renditions with the existing four-load and cache budgets. See [ADR 0034](../adr/0034-retain-native-artwork-in-a-private-device-cache.md). This change is not in the uploaded build 31.
 - **Portrait detail Play CTA:** confirmed on standard iPhone: the floating tab bar can cover the hero's Play button. Not fixed. The focused gesture test enters playback in landscape, then tests the portrait/landscape player. That setup workaround does not establish that the detail-page obstruction is resolved.
 - **Category artwork under the rail, PR #197:** iOS build passed; the closed-display baseline passed before the change. Open portrait visual verification was blocked by a locked Mac. Recheck the actual open display when this layout is next touched.
 - **Brightness:** both Duo postures passed dispatch/availability checks. Actual physical backlight behavior remains a device check; a HUD alone is insufficient.

@@ -130,10 +130,14 @@ final class LuminaClient: @unchecked Sendable {
         ))
     }
 
-    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
+    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init(), catalog: Bool = false, limit: Int = 50) async throws -> ItemPage {
         let query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
                                  sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters)
-        return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
+        let projected = catalog ? query.filter { $0.name != "Fields" && $0.name != "Limit" } + [
+            URLQueryItem(name: "Fields", value: "LuminaCatalog"),
+            URLQueryItem(name: "Limit", value: String(min(1000, max(1, limit)))),
+        ] : query
+        return try await json(request(origin: origin, path: "/Items", query: projected, token: token, deviceID: deviceID))
     }
 
     func libraryAlphabet(origin: URL, token: String, deviceID: String, types: String, parentID: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> LibraryAlphabetPage {

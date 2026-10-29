@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app import db as db_module
 from app.main import app
@@ -208,3 +209,33 @@ def test_native_technical_filters_keep_one_visible_source_and_match_alphabet(tmp
                           headers=mediabrowser(ALICE_TOKEN)).json() == {"LuminaTechnicalFilters": True}
     finally:
         client.close()
+
+
+def test_native_catalog_pages_keep_wall_state_and_visibility_without_detail_payload(native: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import jellyfin as jf
+
+    with db_module.SessionLocal.begin() as db:
+        for title in db.scalars(select(MediaTitle)):
+            title.metadata_json = {**(title.metadata_json or {}), "overview": "Long detail description. " * 1000}
+
+    full = items(native, ALICE_TOKEN)
+    bob = items(native, BOB_TOKEN)
+    warmed = []
+    monkeypatch.setattr(jf.hero_framing.hero_framing, "warm_library", lambda *args: warmed.append(args))
+    for token, expected in [(ALICE_TOKEN, full), (BOB_TOKEN, bob)]:
+        collected = []
+        for start in range(0, expected["TotalRecordCount"], 2):
+            page = items(native, token, Fields="LuminaCatalog", Limit=2, StartIndex=start)
+            assert page["StartIndex"] == start
+            assert page["TotalRecordCount"] == expected["TotalRecordCount"]
+            collected.extend(page["Items"])
+        assert [row["Id"] for row in collected] == [row["Id"] for row in expected["Items"]]
+        for compact, original in zip(collected, expected["Items"], strict=True):
+            for field in ("Id", "Name", "Type", "ProductionYear", "ImageTags", "UserData", "RunTimeTicks", "ChildCount"):
+                assert compact.get(field) == original.get(field)
+            assert not ({"Overview", "People", "MediaSources", "BackdropImageTags", "ProviderIds"} & compact.keys())
+    assert not warmed, "Enumerating a wall must not schedule hero framing for every title"
+    detail = native.get(f"/Items/{full['Items'][0]['Id']}", headers=mediabrowser(ALICE_TOKEN))
+    assert detail.status_code == 200
+    assert detail.json()["Overview"].startswith("Long detail description.")
+    assert warmed, "The normal detail path must retain hero preparation"

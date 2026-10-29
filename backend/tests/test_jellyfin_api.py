@@ -200,6 +200,8 @@ HEX = jellyfin_id
 
 def assert_known(payload: dict, schema: str) -> None:
     unknown = set(payload) - set(PROPS[schema]) if schema in PROPS else set()  # UserPolicy etc.: SDK-required only
+    if schema == "BaseItemDto":  # The three source-specific native extensions documented in ADR 0035.
+        unknown -= {"LuminaIMDbRating", "LuminaRottenTomatoesRating", "LuminaMetacriticRating"}
     assert not unknown, f"{schema} emits non-Jellyfin keys {sorted(unknown)}"
     if schema in REQUIRED:
         missing = {key for key in REQUIRED[schema] if payload.get(key) is None}

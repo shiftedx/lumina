@@ -78,3 +78,11 @@ to hide them. Double-tap and pinch retain artwork zoom, and edge swipes retain
 page turning. The page's VoiceOver custom action can still show or hide controls.
 EPUB retains its reveal action in the managed bottom bar, clear of the text.
 This source change follows uploaded iOS build 33 and is not in that package.
+
+The focused iPad Pro/iOS 27 comic and PDF workflow passes (201-second test
+session), including center-tap reveal/hide without a page change, zoom/pan,
+cancelled/completed RTL/LTR curls and saved-position restoration. Actual
+immersive/menu screenshots were inspected. Local evidence:
+`output/reader-center-tap/reader-cover-entry.xcresult`. Test entry now uses Home
+readiness and visible public cover/category frames; earlier attempts stopped in
+navigation setup before the reader. No full suite or physical-Duo check was run.

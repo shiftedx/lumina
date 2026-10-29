@@ -546,6 +546,8 @@ class NativeProofJourney: XCTestCase {
     }
 
     func journeyArtworkCurlHonorsReadingOrderAndCommitsOnlyCompletedTurns(compactLayoutOnly: Bool = false) async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
         let comic = try XCTUnwrap(fixture.comicBookID)
         let pdf = try XCTUnwrap(fixture.pdfBookID)
@@ -561,11 +563,15 @@ class NativeProofJourney: XCTestCase {
         // than the wide Home category rail. The shared tour helper follows
         // that public route while retaining the iPad behavior.
         try selectTourBooksRoot()
-        try revealBookItem(element("bookCatalogButton"))
-        try activate(element("bookCatalogButton"))
+        if compactLayoutOnly {
+            try revealBookItem(element("bookCatalogButton"))
+            try activate(element("bookCatalogButton"))
+        }
         for book in [comic, pdf] {
             let card = element("book-\(book)")
-            try revealBookItem(card); try activate(card)
+            try waitForExistence(card, timeout: 25, named: "book cover")
+            if compactLayoutOnly { try revealBookItem(card); try activate(card) }
+            else { card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap() }
             let pager = element("bookCurlPager")
             try waitForExistence(pager, timeout: 30, named: "native paper curl reader")
             try waitForExistence(application!.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Page 1 of")).firstMatch,
@@ -637,12 +643,13 @@ class NativeProofJourney: XCTestCase {
             let selected = pager.value as? String
             try showBookControls()
             try activate(element("bookCloseButton"))
-            try revealBookItem(card); try activate(card)
+            card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
             try waitForExistence(pager, timeout: 30, named: "restored curled page")
             XCTAssertTrue(waitUntil(timeout: 20) { pager.value as? String == selected })
             try showBookControls()
             try activate(element("bookCloseButton"))
         }
+        completed = true
     }
 
     private func showBookControls() throws {
@@ -8467,7 +8474,13 @@ class NativeProofJourney: XCTestCase {
         let control = element("iPadCategory-\(category)")
         try waitForExistence(control, timeout: 15, named: "unified iPad \(category) category")
         revealMenuControl(control, in: categories)
-        try activate(control)
+        let visible = control.frame.intersection(categories.frame).intersection(try applicationViewport())
+        guard visible.width >= min(44, control.frame.width), visible.height >= min(44, control.frame.height) else {
+            throw ProofFailure.ui("The iPad \(category) category is outside the visible rail.")
+        }
+        // Native floating category buttons can have a visible frame while AX reports them unhittable.
+        application!.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: visible.midX, dy: visible.midY)).tap()
         for _ in 0..<4 {
             if hasVisibleFrame(element(screen)) { return true }
             let back = application!.buttons.matching(identifier: "BackButton").firstMatch

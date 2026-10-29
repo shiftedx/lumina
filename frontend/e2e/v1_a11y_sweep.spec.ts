@@ -8,7 +8,7 @@ import { episodeSegments, fulfillRangeMedia, item, mockAdminFixtures, mockApi, m
 import { mockHome } from './home-mock';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 import { mockPaletteSearch } from './palette-mock';
-import { mockPopular, mockPreview, mockReco, popularWithForYou } from './reco-mock';
+import { mockPopular, mockReco, popularWithForYou } from './reco-mock';
 import { redOrPinkInMain } from './red-check';
 
 /**
@@ -621,22 +621,33 @@ areaTest('deleted', async ({ page, visit }) => {
   await page.reload(); await settle(page); await visit('empty');
 });
 
-areaTest('watch-web', async ({ page, visit }) => {
-  await mockPreview(page, {
-    title: item.title,
-    webpage_url: item.webpage_url,
-    capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: true, chat: { live: 'unavailable', replay: 'unavailable' } },
-    raw: { id: item.remote_id, extractor: item.extractor, uploader: item.uploader, duration: item.duration },
-    playback: { status: 'ready', stream_id: 'a11y-watch-web', transport: 'progressive', media_kind: 'video', playback_url: '/api/remote-streams/a11y-watch-web/content', content_type: SYNTHETIC_MEDIA_TYPE, has_video: true, has_audio: true, seekable: true, renditions: [] },
+areaTest('watch-web', async ({ page, uiPrefs, visit }) => {
+  // The shared fixture ends in 1.5 seconds; this audit needs one stable watch surface, not its autoplay successor.
+  uiPrefs.autoplay_up_next = false;
+  await page.route('**/api/preview', (route) => {
+    const next = (route.request().postDataJSON() as { source_url?: unknown }).source_url === 'https://www.youtube.com/watch?v=v1';
+    const streamId = next ? 'a11y-watch-next' : 'a11y-watch-web';
+    return route.fulfill({ json: {
+      kind: 'video', title: next ? 'Harbor walk at dawn' : item.title, webpage_url: next ? 'https://www.youtube.com/watch?v=v1' : item.webpage_url, entries: [],
+      capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: true, chat: { live: 'unavailable', replay: 'unavailable' } },
+      raw: { id: next ? 'v1' : item.remote_id, extractor: item.extractor, uploader: next ? 'Channel v1' : item.uploader, duration: item.duration },
+      playback: { status: 'ready', stream_id: streamId, transport: 'progressive', media_kind: 'video', playback_url: `/api/remote-streams/${streamId}/content`, content_type: SYNTHETIC_MEDIA_TYPE, has_video: true, has_audio: true, seekable: true, renditions: [] },
+    } });
   });
-  await page.route('**/api/remote-streams/a11y-watch-web/**', (route) => route.request().method() === 'DELETE'
+  await page.route('**/api/remote-streams/a11y-watch-*/**', (route) => route.request().method() === 'DELETE'
     ? route.fulfill({ status: 204, body: '' })
     : route.fulfill({ status: 200, contentType: SYNTHETIC_MEDIA_TYPE, body: Buffer.from(SYNTHETIC_MEDIA_BASE64, 'base64') }));
   await mockReco(page, { similar: [] });
   await openSigned(page, `/watch/library/${item.id}`);
-  await expect(page.locator('video')).toHaveCount(1);
+  const video = page.locator('video');
+  await expect(video).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Harbor walk at dawn, Channel v1' })).toBeVisible();
+  const source = await video.getAttribute('src');
+  expect(source).not.toBeNull();
+  await video.evaluate((media) => media.dispatchEvent(new Event('ended')));
   await visit('editorial', true);
-  const more = page.getByRole('button', { name: 'More', exact: true });
+  await expect(video).toHaveAttribute('src', source ?? '');
+  const more = page.locator('.g-watch-about').getByRole('button', { name: 'More', exact: true });
   if (await more.isVisible().catch(() => false)) { await more.click(); await visit('description-open'); }
 });
 
@@ -682,7 +693,9 @@ areaTest('player', async ({ page, uiPrefs, visit }) => {
   await visit('recovery-error');
 });
 
-areaTest('player-up-next', async ({ page, visit }) => {
+areaTest('player-up-next', async ({ page, uiPrefs, visit }) => {
+  // Keep the card's audit on this episode; autoplay behavior is exercised by the dedicated Up Next workflows.
+  uiPrefs.autoplay_up_next = false;
   const ep = 'item-ep-2-2';
   await mockTitles(page);
   await page.route(`**/api/library/${ep}/media`, fulfillRangeMedia);

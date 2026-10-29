@@ -154,6 +154,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public private(set) var mediaStreams: [MediaTechnicalStream]? = nil
     public private(set) var officialRating: String? = nil
     public private(set) var communityRating: Double? = nil
+    public private(set) var criticRating: Double? = nil
     public private(set) var genres: [String]? = nil
     /// Native Home row-only classification. General Jellyfin item DTOs intentionally omit it.
     public private(set) var luminaCategory: String? = nil
@@ -186,8 +187,13 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public let container: String?
     private let chapterMarkers: [PlaybackChapter]?
 
+    public var criticRatingPercentage: Int? {
+        guard let criticRating, criticRating.isFinite, (0...100).contains(criticRating) else { return nil }
+        return Int(criticRating.rounded())
+    }
+
     public init(id: String, name: String, type: String, overview: String?, productionYear: Int?,
-                officialRating: String? = nil, communityRating: Double? = nil,
+                officialRating: String? = nil, communityRating: Double? = nil, criticRating: Double? = nil,
                 genres: [String]? = nil, luminaCategory: String? = nil, people: [MediaPerson]? = nil,
                 seriesName: String?, seriesID: String?, seriesPrimaryImageTag: String? = nil,
                 seasonID: String?, collectionType: String?, indexNumber: Int?, parentIndexNumber: Int?,
@@ -202,6 +208,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         self.productionYear = productionYear
         self.officialRating = officialRating
         self.communityRating = communityRating
+        self.criticRating = criticRating
         self.genres = genres
         self.luminaCategory = luminaCategory
         self.people = people
@@ -231,7 +238,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "Id", name = "Name", type = "Type", overview = "Overview"
         case premiereDate = "PremiereDate", mediaStreams = "MediaStreams"
-        case productionYear = "ProductionYear", officialRating = "OfficialRating", communityRating = "CommunityRating"
+        case productionYear = "ProductionYear", officialRating = "OfficialRating", communityRating = "CommunityRating", criticRating = "CriticRating"
         case genres = "Genres", luminaCategory = "LuminaCategory", luminaReco = "LuminaReco", people = "People", seriesName = "SeriesName"
         case seriesID = "SeriesId", seasonID = "SeasonId", collectionType = "CollectionType"
         case seriesPrimaryImageTag = "SeriesPrimaryImageTag"

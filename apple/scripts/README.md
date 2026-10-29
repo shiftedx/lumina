@@ -168,6 +168,33 @@ complete ordered RPU sequence and independently readable seek fragments. They
 skip when their fixture environment is absent. Keep fixtures outside the source
 tree. Physical Dolby Vision, HDMI/Match Content and Atmos remain separate checks.
 
+Profile 7 uses a separate MKV packaging-conversion declaration. It converts RPUs
+to Profile 8.1, copies base pictures and drops the enhancement layer; it does
+not qualify full FEL reconstruction, original P7 decoding, MP4 P7 conversion or
+server HLS Dolby Vision output. Native playback info reports this distinction.
+
+Generate the structural MEL/FEL and deliberately malformed-RPU corpus outside
+Git with the same explicit dovi_tool executable:
+
+```sh
+mise exec -- python apple/scripts/generate_dv7_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-dolby-fixtures/p7
+
+LUMINA_DV7_MKV_FIXTURES=/tmp/lumina-dolby-fixtures/p7/p7-mel.mkv:/tmp/lumina-dolby-fixtures/p7/p7-fel.mkv \
+LUMINA_DV7_INVALID_RPU_FIXTURE=/tmp/lumina-dolby-fixtures/p7/p7-invalid-rpu.mkv \
+mise exec -- swift test --package-path apple/Core --filter NativeVideoSourceTests
+```
+
+The helper encodes eight-second synthetic base/enhancement video and AAC, then
+uses hash-pinned tiny P7 RPU vectors from dovi_tool 2.3.4. It records provenance,
+tool versions and hashes in its manifest. These are structural tests, not
+licensed reference movies or a color/fidelity qualification. Core checks cover
+P8.1 signaling, exact converted RPU sequences, removed EL, unchanged base VCL,
+normal/subtitle masters and independent seek fragments. A malformed RPU before
+an ordinary segment cut must fail validation. The engine publishes counters
+only at those cuts, so this is not all-file corruption detection; final partial
+segment statistics are a known limitation of the pinned engine.
+
 ## Remote music startup benchmark
 
 Pass an optional codec to `benchmark_music_startup.swift` for a crossfade-off, source-loudness workload. It emits a `STARTUP` marker at confirmation, records two seconds of playback, then qualifies progressive midpoint seek and pause/resume outside the measured window. `benchmark_music_remote.py` compares five source formats with a shared per-run delivery budget, records bytes sent at confirmation and rejects any revised sample that waits for the whole input or fails seek/resume. See [progressive startup results and reproduction](../docs/performance-review.md#2a-remote-music-startup--progressive-source-playback). Use focused native transport checks and both Simulator builds for this slice; the full repository suite is deferred to the release gate at the user's request.

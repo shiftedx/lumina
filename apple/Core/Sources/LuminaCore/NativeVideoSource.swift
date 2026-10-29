@@ -16,6 +16,28 @@ public final class NativeVideoSource {
         case externalSubtitleTooLarge
         case subtitleDelayUnavailable
         case externalSubtitleUnsupportedTiming
+        /// A Profile 7 conversion emitted an RPU or packet that cannot match
+        /// the advertised single-layer Profile 8.1 route.
+        case invalidDolbyVisionConversion
+    }
+
+    /// Host-owned conversion evidence, without exposing PrismCore types.
+    public struct DolbyVisionConversionSnapshot: Sendable, Equatable {
+        public let convertedRPUs: Int
+        public let failedRPUs: Int
+        public let droppedEnhancementLayerNALs: Int
+        public let staleUnconvertedPackets: Int
+        /// Prism's verdict for the segments produced so far: at least one RPU
+        /// was rewritten, no RPU or packet was refused, and an enhancement-layer
+        /// NAL was actually removed. A non-`nil` snapshot is published only
+        /// after a produced segment, not as an all-file preflight.
+        public let isClean: Bool
+
+        /// The P8.1 route is unsafe until the complete conversion evidence is
+        /// clean. This deliberately includes zero successful conversions and
+        /// zero removed EL NALs, which otherwise leave the master lying about
+        /// a single-layer conversion.
+        public var hasFailure: Bool { !isClean }
     }
 
     public struct ExternalSubtitle: Sendable, Equatable {
@@ -54,6 +76,22 @@ public final class NativeVideoSource {
     private let injectedDisplay: DisplayCapabilities?
     /// Compressed bytes read from the source, excluding local HLS delivery and container framing.
     public var sourceBytesRead: Int64? { demux?.sourceBytesRead }
+    /// `nil` until PrismCore has produced conversion statistics. This is not an
+    /// all-file preflight: later packets can still make `validateDolbyVisionConversion()` fail.
+    public var dolbyVisionConversion: DolbyVisionConversionSnapshot? {
+        get async {
+            guard let session = demux,
+                  let conversion = await session.dolbyVisionConversion,
+                  demux === session else { return nil }
+            return .init(
+                convertedRPUs: conversion.convertedRPUs,
+                failedRPUs: conversion.failedRPUs,
+                droppedEnhancementLayerNALs: conversion.droppedEnhancementLayerNALs,
+                staleUnconvertedPackets: conversion.staleUnconvertedPackets,
+                isClean: conversion.isClean
+            )
+        }
+    }
     private var subtitleMaster: SubtitleMaster?
     private var externalSubtitleDirectory: URL?
     private var statusObservation: NSKeyValueObservation?
@@ -70,6 +108,17 @@ public final class NativeVideoSource {
     private static let maximumExternalSubtitleBytes = 10 << 20
     private static let maximumPrismPlaylistBytes = 128 << 10
     private static let maximumWebVTTSeconds = Double(Int.max / 1_000)
+
+    /// Mirrors PrismCore 3.8.1's build-time Libdovi guard. The capability says
+    /// this binary can convert P7; per-session evidence still comes from
+    /// `dolbyVisionConversion` after packets have been produced.
+    nonisolated static var supportsDolbyVisionProfile7Conversion: Bool {
+        #if canImport(Libdovi)
+        true
+        #else
+        false
+        #endif
+    }
 
     public init() { injectedDisplay = nil }
 
@@ -123,6 +172,7 @@ public final class NativeVideoSource {
             let playlist = try await session.start()
             try Task.checkCancellation()
             guard demux === session else { throw CancellationError() }
+            try await validateDolbyVisionConversion()
             let deliveredAudio = session.audioTrackDeliveries
             if let preferredAudioStreamIndex {
                 guard deliveredAudio.contains(where: {
@@ -197,6 +247,17 @@ public final class NativeVideoSource {
             await session.stop()
             if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
             throw error
+        }
+    }
+
+    /// Fail only once a producer observed an unsafe P7 conversion. Missing
+    /// statistics are inconclusive; callers may poll this while playback proceeds.
+    public func validateDolbyVisionConversion() async throws {
+        guard let session = demux,
+              let conversion = await session.dolbyVisionConversion,
+              demux === session else { return }
+        guard conversion.isClean else {
+            throw SelectionError.invalidDolbyVisionConversion
         }
     }
 

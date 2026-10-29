@@ -237,6 +237,47 @@ Simulator builds passed. The full backend suite passed 5,764 tests with 20
 skips; frontend unit tests passed 2,754 cases. The final `mise exec -- make check`
 passed, including all 656 browser cases in 1,066.935 seconds.
 
+## Profile 7 client packaging conversion, 2026-10-29
+
+PR #218 was merged after integrating the episode-controls changes from main and
+passing an integrated iOS Simulator build. The continuation adds a separate
+MKV-only P7/compatibility-6 to P8.1 packaging declaration. It requires the P8.1
+runtime/output capability, a compiled Libdovi converter and complete source
+level/RPU/EL/BL facts. Original-preservation profiles, MP4, WebM, server HLS and
+the H.264 compatibility profile do not gain P7 support from it.
+
+The pinned engine converts the dynamic metadata, removes enhancement-layer
+NALs and copies the base pictures. Both structural MEL and FEL cases passed
+native decoded-frame, advancing-playback and six-second seek probes through
+`NativeVideoSource`. Metadata contracts inspect normal and subtitle masters,
+P8.1 configuration/signaling, expected mode-2 RPU sequences, removed EL,
+unchanged base VCL and independently readable seek fragments. A deliberately
+malformed RPU before an ordinary segment cut is rejected, and zero-conversion
+or zero-EL-removal evidence is treated as unsafe.
+
+The native info row says Profile 7 is converted to 8.1 with the enhancement
+layer omitted. Known failures pause playback and can request one compatible
+retry after advancement while retaining selected options and position. Snapshot
+and source/request identity checks prevent stale conversion evidence from
+affecting a replacement source. Validation samples produced-segment counters;
+it is not an atomic preflight. Prism 3.8.1 does not refresh these counters at a
+final partial segment, so errors visible only there may not trigger this check.
+
+Fixtures use synthetic eight-second video/AAC and hash-pinned upstream RPU test
+vectors, not reference-graded or private movie media. They establish structural
+conversion and base playback only. Full FEL residual reconstruction, reference
+color accuracy, physical Dolby Vision/HDMI/Match Content and separate-track EL
+inputs remain unqualified. The Libdovi availability getter was independently
+verified to return true in the compiled arm64/x86_64 iOS and tvOS Simulator
+objects. See [fixture commands](../scripts/README.md#dolby-vision-local-qualification).
+
+The final complete Core suite executed 254 tests with five skips and zero
+failures, with all P5/P8/P7 fixture contracts enabled. Generic iOS/tvOS Simulator
+builds passed, as did the full backend suite (5,783 passed, 20 skipped) and
+2,754 frontend unit tests. The final `mise exec -- make check` passed, including
+all 656 browser cases in 1,080.958 seconds. Final iOS/tvOS builds include the
+known-failure guard on rate restoration as well as ordinary playback/rate updates.
+
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 
 The native clients open on Home, with separate Video and Audio destinations. Home uses a cinematic artwork hero with an eight-second idle rotation, manual previous/next and title selection, horizontal swiping on iOS, and an explicit Pause control. Automatic rotation stops for Reduce Motion, VoiceOver, an inactive scene, or TV focus interaction. Continue watching, Next up, and recent-video shelves use the authenticated server catalog. The recent shelf can contain movies or episodes; its first visible card is not a fixed fixture item. Authenticated artwork requests support inherited series backdrops while preserving own-art precedence.

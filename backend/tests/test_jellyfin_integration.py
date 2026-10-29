@@ -214,6 +214,48 @@ def test_playback_info_requires_the_posted_dolby_vision_direct_play_declaration(
     assert denied["SupportsDirectPlay"] is False
 
 
+@needs_ffmpeg
+def test_playback_info_profile_seven_packaging_requires_the_exact_mkv_declaration(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.media_probe import MediaProbeService
+
+    make_media(vault.media / "Movies" / "Profile Seven (2026).mkv")
+    items = scan(vault.admin, vault.media)
+    item_id = next(iter(items.values()))["id"]
+    facts = {
+        "container": "matroska,webm", "webm_suffix": False, "bit_rate": 5_000_000,
+        "streams": [
+            {"index": 0, "type": "video", "codec": "hevc", "width": 1920, "height": 1080,
+             "pix_fmt": "yuv420p10le", "dv_profile": 7, "dv_compat": 6, "dv_level": 9,
+             "dv_rpu_present": True, "dv_el_present": True, "dv_bl_present": True},
+            {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "default": True},
+        ],
+    }
+    monkeypatch.setattr(MediaProbeService, "facts", lambda *_args: facts)
+    conversion = {
+        "SourceProfile": 7, "SourceCompatibilityIDs": [6], "TargetProfile": 8,
+        "TargetCompatibilityID": 1, "MaxLevel": 9, "EnhancementLayerDisposition": "dropped",
+    }
+    profile = {
+        "DirectPlayProfiles": [{
+            "Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+            "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": [conversion],
+        }],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"},
+        ]}],
+    }
+    who = login(vault)
+    url = f"/Items/{jellyfin_id(item_id)}/PlaybackInfo"
+
+    allowed = vault.jf.post(url, headers=who.headers, json={"DeviceProfile": profile}).json()["MediaSources"][0]
+    profile["DirectPlayProfiles"][0]["LuminaDolbyVisionPackagingConversions"] = []
+    denied = vault.jf.post(url, headers=who.headers, json={"DeviceProfile": profile}).json()["MediaSources"][0]
+
+    assert allowed["SupportsDirectPlay"] is True and "TranscodingUrl" not in allowed
+    assert denied["SupportsDirectPlay"] is False and denied["SupportsTranscoding"] is True
+
+
 FAKE_FFMPEG = """#!/bin/sh
 for arg; do
   [ "$arg" = "-filters" ] && exit 0

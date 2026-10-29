@@ -2591,6 +2591,10 @@ struct VideoCollectionView: View {
         _selectedEpisodeID = State(initialValue: initialEpisodeID)
     }
 
+    private var collectionControlTrailingInset: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome ? 0 : 76
+    }
+
     private var isSeriesCollection: Bool { item.type == "Series" }
     private var collectionSectionTitle: String { "Episodes" }
     private var collectionSectionID: String { "collection-\(item.id)-content" }
@@ -2636,33 +2640,48 @@ struct VideoCollectionView: View {
                                 Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
                             }
                         } else if item.type == "Series" {
-                            ViewThatFits(in: .horizontal) {
-                                HStack { seasonSelector; Spacer(); downloadButton }
-                                VStack(alignment: .leading, spacing: 12) { seasonSelector; downloadButton }
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Episodes")
+                                    .font(.title2.weight(.bold))
+                                    .accessibilityAddTraits(.isHeader)
+                                ViewThatFits(in: .horizontal) {
+                                    HStack { seasonSelector; Spacer(); downloadButton }
+                                    VStack(alignment: .leading, spacing: 12) { seasonSelector; downloadButton }
+                                }
                             }
-                                .id(collectionSectionID)
+                            .id(collectionSectionID)
                             if isSeriesCollection {
                                 VStack(alignment: .leading, spacing: 12) {
                                     if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
-                                        Text(selectedEpisode.name)
-                                            .font(.headline)
-                                            .accessibilityIdentifier("collectionEpisodeTitle")
-                                        if !selectedEpisode.displaySubtitle.isEmpty {
-                                            Text(selectedEpisode.displaySubtitle)
-                                                .font(.subheadline)
-                                                .foregroundStyle(.secondary)
+                                        ViewThatFits(in: .horizontal) {
+                                            HStack(alignment: .center, spacing: 20) {
+                                                selectedEpisodeHeading(selectedEpisode)
+                                                Spacer(minLength: 0)
+                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
+                                            }
+                                            VStack(alignment: .leading, spacing: 12) {
+                                                selectedEpisodeHeading(selectedEpisode)
+                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
+                                            }
+                                        }
+                                        if let playbackError {
+                                            Text(playbackError)
+                                                .font(.callout).foregroundStyle(LuminaTheme.accentInk)
+                                                .accessibilityIdentifier("selectedEpisodePlaybackError")
                                         }
                                     }
                                     if isLoadingSelectedSeason {
                                         ProgressView("Loading episodes…")
                                     } else {
                                         episodeCards(selectedSeasonEpisodes)
+                                            .padding(.trailing, -collectionControlTrailingInset)
                                     }
                                 }
                                 .id(initialEpisodeSectionID)
                             }
                         } else {
                             episodeCards(children)
+                                .padding(.trailing, -collectionControlTrailingInset)
                         }
 
                         collectionAbout
@@ -2670,7 +2689,8 @@ struct VideoCollectionView: View {
                         NativeTitleSupplement(item: detailItem ?? item, store: store)
                             .padding(.top, 4)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.trailing, collectionControlTrailingInset)
+                    .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.vertical, 28)
                 }
                 .frame(maxWidth: .infinity)
@@ -2707,6 +2727,7 @@ struct VideoCollectionView: View {
 
     private var downloadButton: some View {
         Button("Download to Device", glyph: .download) { downloadsPresented = true }
+            .fixedSize(horizontal: true, vertical: false)
             .buttonStyle(LuminaQuietActionStyle())
             .disabled(isLoading || isLoadingSelectedSeason || store.isOffline)
             .accessibilityHint("Choose episodes or whole seasons to save for offline playback.")
@@ -2793,9 +2814,6 @@ struct VideoCollectionView: View {
     }
 
     @ViewBuilder private var seasonSelectorContent: some View {
-        Text("Episodes")
-            .font(.title2.weight(.bold))
-            .accessibilityAddTraits(.isHeader)
         Menu {
             Picker("Season", selection: Binding(
                 get: { selectedSeasonID },
@@ -2856,18 +2874,33 @@ struct VideoCollectionView: View {
         }
     }
 
-    @ViewBuilder
-    private var playbackActions: some View {
+    private func selectedEpisodeHeading(_ episode: MediaItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(episode.name).font(.headline)
+                .accessibilityIdentifier("collectionEpisodeTitle")
+            if !episode.displaySubtitle.isEmpty {
+                Text(episode.displaySubtitle).font(.subheadline).foregroundStyle(LuminaTheme.muted)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func collectionPlayButton(identifier: String) -> some View {
         Button {
             preparePlayback()
         } label: {
             Label(isPreparingPlayback ? "Preparing…" : hasResumeEpisode ? "Resume" : "Play",
                   glyph: .play, variant: .solid, size: 24)
         }
-        .buttonStyle(LuminaMediaActionStyle(primary: true))
+        .fixedSize(horizontal: true, vertical: false)
+        .buttonStyle(LuminaQuietActionStyle(primary: true))
         .disabled(isPreparingPlayback || isLoading || isLoadingSelectedSeason)
-        .accessibilityIdentifier("playButton")
+        .accessibilityIdentifier(identifier)
+    }
 
+    @ViewBuilder
+    private var playbackActions: some View {
+        collectionPlayButton(identifier: "playButton")
         NativeWatchlistButton(item: item, store: store)
             .buttonStyle(LuminaMediaActionStyle(primary: false))
             .accessibilityIdentifier("videoWatchlistButton")
@@ -2928,7 +2961,6 @@ struct VideoCollectionView: View {
         }
         .tint(LuminaTheme.ink)
         .frame(maxWidth: 600, alignment: .leading)
-        .padding(.trailing, UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome ? 0 : 64)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("collectionAbout")
     }

@@ -106,6 +106,9 @@ export const FIELD_META: Record<string, FieldMeta> = {
   custom_rating: { label: 'Custom rating', kind: 'text', max: 20 },
   community_rating: { label: 'Community rating', kind: 'decimal' },
   critic_rating: { label: 'Critic rating', kind: 'decimal' },
+  imdb_rating: { label: 'IMDb user rating', kind: 'decimal' },
+  rotten_tomatoes_rating: { label: 'Rotten Tomatoes rating', kind: 'decimal' },
+  metacritic_rating: { label: 'Metacritic rating', kind: 'decimal' },
   genres: { label: 'Genres', kind: 'list', vocabulary: 'genres' },
   tags: { label: 'Tags', kind: 'list', vocabulary: 'tags' },
   studios: { label: 'Studios', kind: 'list', vocabulary: 'studios' },
@@ -150,7 +153,7 @@ export function parseInput(kind: FieldKind, raw: string): unknown {
   }
 }
 
-const SOURCE_NAME = { tmdb: 'TMDB', musicbrainz: 'MusicBrainz', nfo: 'NFO file', path: 'folder name' } as const;
+const SOURCE_NAME = { tmdb: 'TMDB', omdb: 'OMDb', musicbrainz: 'MusicBrainz', nfo: 'NFO file', path: 'folder name' } as const;
 
 export function sourceChip(state: FieldState): string | null {
   if (state.source === 'user') return sameValue(state.value, state.kept?.value ?? null) ? 'Pinned' : 'Your edit';

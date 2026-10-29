@@ -119,6 +119,23 @@ describe('GalleryTitlePage: hero, headline and states', () => {
     await waitFor(() => expect(metrics.recordMetric).toHaveBeenCalledWith('detail_hero_ms', 'deep_link', 420));
   });
 
+  it('shows only valid, source-labelled ratings beneath the title metadata', async () => {
+    api.getTitle.mockResolvedValue({ ...movie, imdb_rating: 8.2, rotten_tomatoes_rating: 91, metacritic_rating: 74 });
+    render(page());
+    const ratings = await screen.findByLabelText('Ratings');
+    expect(ratings.textContent).toBe('IMDb user rating8.2 / 10Rotten Tomatoes: Fresh91%Metacritic: Favorable74 / 100');
+    expect(ratings.querySelector('[src="/ratings/imdb.svg"]')).toBeTruthy();
+    expect(ratings.querySelector('[src="/ratings/rottentomatoes-fresh.svg"]')).toBeTruthy();
+    expect(ratings.querySelector('.t-metascore--favorable')?.textContent).toBe('74');
+  });
+
+  it('hides the ratings block when a title has no source ratings', async () => {
+    api.getTitle.mockResolvedValue(movie);
+    render(page());
+    await screen.findByRole('heading', { level: 1, name: 'Northern Lantern' });
+    expect(screen.queryByLabelText('Ratings')).toBeNull();
+  });
+
   it('sets a long name in its logo art, and falls back to the words when the logo fails', async () => {
     const name = 'The Lamp Keepers of the Northern Ice';
     api.getTitle.mockResolvedValue(titleDetail(movieSummary('movie-long', { name })));

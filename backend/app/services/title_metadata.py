@@ -27,8 +27,8 @@ from app.models import AppSettings, MediaTitle, Person, User, utcnow
 from app.persistence import write_transaction
 from app.services.artwork import ArtworkNotFoundError, ArtworkResponse, ArtworkService
 from app.services.library import LibraryService
-from app.services.media_titles import MATCHABLE_TYPES, TITLE_COLUMNS, apply_field, parse_item_id, person_key
-from app.services import cast_photos, library_search, tmdb
+from app.services.media_titles import MATCHABLE_TYPES, TITLE_COLUMNS, apply_field, clear_omdb_values, parse_item_id, person_key
+from app.services import cast_photos, library_search, omdb, tmdb
 from app.services.local_ai import AiConfig, LocalAiError, chat, effective_config
 from app.services.summaries import parse_model_json
 from app.services.yt_dlp_service import YtDlpService
@@ -143,6 +143,7 @@ class Fetched:
     collection: tuple[int, str, tmdb.Parsed] | None = None
     seasons: dict[int, tmdb.Parsed] = field(default_factory=dict)
     order: dict[tuple[int, int], tuple[int, int]] | None = None  # local (season, episode) -> TMDB aired; None = aired order
+    omdb_ratings: dict[str, float] = field(default_factory=dict)
 
 
 def snapshot(db: Session, title: MediaTitle) -> Snapshot:
@@ -238,7 +239,29 @@ def resolve_order(client: tmdb.TmdbClient, tmdb_id: int, snap: Snapshot, raw: di
     return None, {"order": snap.display_order, "episode_group": None, "fallback": "aired"}
 
 
-def fetch(client: tmdb.TmdbClient, snap: Snapshot, ai: AiConfig, today: date) -> Fetched:
+def _effective_imdb_id(snap: Snapshot, details: tmdb.Parsed) -> str | None:
+    """The id that storage will retain after TMDB's provider-id precedence rules."""
+    current = snap.provider_ids.get("Imdb")
+    if snap.provider_source == "user":
+        return current if isinstance(current, str) else None  # an absent user id is deliberate
+    if snap.provider_source == "nfo" and isinstance(current, str):
+        return current
+    imdb_id = details.provider_ids.get("Imdb")
+    return imdb_id if isinstance(imdb_id, str) else None
+
+
+def _omdb_ratings(client: omdb.OmdbClient | None, snap: Snapshot, details: tmdb.Parsed) -> dict[str, float]:
+    """An unavailable optional score source never invalidates TMDB metadata."""
+    imdb_id = _effective_imdb_id(snap, details)
+    if client is None or imdb_id is None:
+        return {}
+    try:
+        return client.ratings(imdb_id)
+    except omdb.OmdbError:
+        return {}
+
+
+def fetch(client: tmdb.TmdbClient, snap: Snapshot, ai: AiConfig, today: date, omdb_client: omdb.OmdbClient | None = None) -> Fetched:
     """All network and AI work for one title: one details call, plus the collection or the local seasons."""
     tmdb_id, match = resolve_match(client, snap, ai)
     if tmdb_id is None:
@@ -256,7 +279,7 @@ def fetch(client: tmdb.TmdbClient, snap: Snapshot, ai: AiConfig, today: date) ->
                 collection = (collection_id, name, parsed)
             except tmdb.TmdbNotFound:
                 pass
-        return Fetched(tmdb_id, match, details, collection)
+        return Fetched(tmdb_id, match, details, collection, omdb_ratings=_omdb_ratings(omdb_client, snap, details))
     raw = client.get(f"/tv/{tmdb_id}", append_to_response="aggregate_credits,content_ratings,images,external_ids",
                      include_image_language=languages)
     details = tmdb.series_fields(raw, client.lang2, client.region)
@@ -269,7 +292,7 @@ def fetch(client: tmdb.TmdbClient, snap: Snapshot, ai: AiConfig, today: date) ->
             seasons[number] = tmdb.season_fields(client.get(f"/tv/{tmdb_id}/season/{number}"), client.lang2, today)
         except tmdb.TmdbNotFound:
             continue  # a local season TMDB does not have: leave it as scanned
-    return Fetched(tmdb_id, {**match, **note}, details, seasons=seasons, order=order)
+    return Fetched(tmdb_id, {**match, **note}, details, seasons=seasons, order=order, omdb_ratings=_omdb_ratings(omdb_client, snap, details))
 
 
 def _apply(title: MediaTitle, fields: dict[str, Any]) -> None:
@@ -285,6 +308,8 @@ def _store_provider_ids(title: MediaTitle, ids: dict[str, str]) -> None:
             return  # a user's dict is exact (a deleted Imdb id stays deleted); apply_field kept TMDB's for revert
         if missing := {key: value for key, value in ids.items() if key not in current}:
             title.provider_ids = {**current, **missing}  # the recorded source stays: no existing value changed
+    if current.get("Imdb") != (title.provider_ids or {}).get("Imdb"):
+        clear_omdb_values(title)
 
 
 def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
@@ -304,6 +329,8 @@ def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
         return True
     _store_provider_ids(title, details.provider_ids)
     _apply(title, details.fields)
+    for name, value in fetched.omdb_ratings.items():
+        apply_field(title, name, value, "omdb")
     people = list(details.people)
     if fetched.collection is not None and title.type == "movie":
         _link_boxset(db, title, *fetched.collection)
@@ -402,7 +429,7 @@ def _record_failure(title_id: str, now: datetime, expected_due: datetime | None)
 
 
 def refresh_title(
-    title_id: str, client: tmdb.TmdbClient, ai: AiConfig, now: datetime | None = None,
+    title_id: str, client: tmdb.TmdbClient, ai: AiConfig, now: datetime | None = None, omdb_client: omdb.OmdbClient | None = None,
 ) -> Literal["matched", "unmatched", "failed", "skipped"]:
     """Refresh one series/movie title. A TMDB, AI or parse failure backs off this title only; it never raises."""
     now = now or utcnow()
@@ -417,7 +444,7 @@ def refresh_title(
             db.get(MediaTitle, title_id).metadata_due_at = None
         return "skipped"
     try:
-        fetched = fetch(client, snap, ai, now.date())
+        fetched = fetch(client, snap, ai, now.date(), omdb_client)
         with session_scope() as db, write_transaction(db, name="tmdb_metadata"):
             stored = store(db, snap, fetched, now)
     except Exception as exc:  # noqa: BLE001 - one title fails, never the batch; the type only, never content
@@ -444,7 +471,7 @@ def clear_tmdb_values(title: MediaTitle) -> None:
         for child in (*seasons, *episodes):
             clear_tmdb_values(child)
     sources = dict(title.field_sources or {})
-    tmdb_fields = [name for name, source in sources.items() if source == "tmdb"]
+    tmdb_fields = [name for name, source in sources.items() if source in ("tmdb", "omdb")]
     images = dict(title.images or {})
     metadata = {key: value for key, value in (title.metadata_json or {}).items() if key != "match"}
     for name in tmdb_fields:
@@ -456,9 +483,9 @@ def clear_tmdb_values(title: MediaTitle) -> None:
         elif name not in TITLE_COLUMNS:
             metadata.pop(name, None)
     title.field_sources, title.images, title.metadata_json = sources, images, metadata
-    # a revert must not resurrect the wrong match's value: a kept tmdb value becomes "nothing kept"
+    # a revert must not resurrect the wrong match's value from either online source.
     title.source_values = {
-        field: {"source": None, "value": None} if entry.get("source") == "tmdb" else entry
+        field: {"source": None, "value": None} if entry.get("source") in ("tmdb", "omdb") else entry
         for field, entry in dict(title.source_values or {}).items()
     }
 
@@ -480,7 +507,7 @@ def run_due_batch(now: datetime | None = None) -> bool:
     now = now or utcnow()
     with session_scope() as db:
         record = YtDlpService(db).get_app_settings()
-        client, ai = tmdb.client_for(record), match_ai_config(record)
+        client, ai, omdb_client = tmdb.client_for(record), match_ai_config(record), omdb.client_for(record)
         if client is None:
             return False
         due = list(db.scalars(
@@ -490,7 +517,7 @@ def run_due_batch(now: datetime | None = None) -> bool:
             .limit(BATCH_SIZE)
         ))
     with ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="tmdb-metadata") as pool:
-        list(pool.map(lambda title_id: refresh_title(title_id, client, ai, now), due))
+        list(pool.map(lambda title_id: refresh_title(title_id, client, ai, now, omdb_client), due))
     return len(due) == BATCH_SIZE
 
 

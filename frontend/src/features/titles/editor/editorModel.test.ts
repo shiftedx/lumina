@@ -4,7 +4,7 @@ import {
   type Draft,
 } from './editorModel';
 
-const state = (value: unknown, source: 'user' | 'nfo' | 'tmdb' | 'path' | null = 'tmdb', patch = {}) => ({ value, source, locked: source === 'user', kept: null, ...patch });
+const state = (value: unknown, source: 'user' | 'nfo' | 'tmdb' | 'omdb' | 'path' | null = 'tmdb', patch = {}) => ({ value, source, locked: source === 'user', kept: null, ...patch });
 
 describe('draft', () => {
   it('records a change with the loaded value as its base and drops it when the value returns to the base', () => {
@@ -60,6 +60,7 @@ describe('conflicts', () => {
 describe('field presentation', () => {
   it('names the source of a field', () => {
     expect(sourceChip(state('x', 'tmdb'))).toBe('From TMDB');
+    expect(sourceChip(state('x', 'omdb'))).toBe('From OMDb');
     expect(sourceChip(state('x', 'nfo'))).toBe('From NFO file');
     expect(sourceChip(state('x', 'path'))).toBe('From folder name');
     expect(sourceChip(state(null, null))).toBeNull();
@@ -88,6 +89,9 @@ describe('field presentation', () => {
   });
   it('labels every catalogue key the Details tab can show', () => {
     expect(FIELD_META.official_rating.label).toBe('Parental rating');
+    expect(FIELD_META.imdb_rating.label).toBe('IMDb user rating');
+    expect(FIELD_META.rotten_tomatoes_rating.label).toBe('Rotten Tomatoes rating');
+    expect(FIELD_META.metacritic_rating.label).toBe('Metacritic rating');
     expect(FIELD_META.index_number.label).toBe('Number');
   });
 });

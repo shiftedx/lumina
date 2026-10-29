@@ -53,6 +53,23 @@ def test_movie_nfo_ids_set_rating_people(tmp_path: Path) -> None:
     }
 
 
+def test_movie_nfo_named_critic_scores_are_normalized_and_audience_is_ignored(tmp_path: Path) -> None:
+    tag, fields = nfo(tmp_path, (
+        "<movie><title>Heat</title><ratings>"
+        "<rating name='imdb' max='100'><value>85</value><votes>1</votes></rating>"
+        "<rating name='tomatometerallcritics' max='10'><value>7.4</value></rating>"
+        "<rating name='metacritic' max='100'><value>76</value></rating>"
+        "<rating name='audience' max='100'><value>99</value></rating>"
+        "</ratings><actor><rating name='imdb' max='10'>9.9</rating></actor>"
+        "<rating name='imdb' max='999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999'>"
+        "1</rating></movie>"
+    ))
+    values = nfo_title_fields(tag, fields)
+    assert values["imdb_rating"] == 8.5
+    assert values["rotten_tomatoes_rating"] == 74
+    assert values["metacritic_rating"] == 76
+
+
 def test_legacy_set_tvshow_id_and_episode_airs_before(tmp_path: Path) -> None:
     assert nfo(tmp_path, "<movie><title>X</title><set>Old Saga</set></movie>")[1]["set"] == "Old Saga"
     tag, fields = nfo(tmp_path, "<tvshow><title>Omega</title><id>76107</id><tmdbid>1234</tmdbid></tvshow>")
@@ -499,6 +516,23 @@ def test_user_name_survives_an_nfo_change(admin: TestClient, media: Path) -> Non
     scan(admin)
     movie = by_key()["Movies/Heat (1995)"]
     assert (movie.name, movie.field_sources["name"], movie.sort_name) == ("Heat (director's pick)", "user", "Heat 2")
+
+
+def test_nfo_imdb_id_change_drops_cached_omdb_scores_and_queues_refresh(admin: TestClient, media: Path) -> None:
+    folder = media / "Movies" / "Heat (1995)"
+    write(folder / "Heat (1995).mkv", b"film")
+    write(folder / "movie.nfo", "<movie><title>Heat</title><uniqueid type='imdb'>tt0133093</uniqueid></movie>")
+    scan(admin)
+    with db_module.SessionLocal() as db:
+        movie = db.scalars(select(MediaTitle).where(MediaTitle.type == "movie")).one()
+        apply_field(movie, "imdb_rating", 8.7, "omdb")
+        movie.metadata_due_at = None
+        db.commit()
+    write(folder / "movie.nfo", "<movie><title>Heat</title><uniqueid type='imdb'>tt1375666</uniqueid></movie>")
+    scan(admin)
+    movie = by_key()["Movies/Heat (1995)"]
+    assert movie.provider_ids["Imdb"] == "tt1375666" and "imdb_rating" not in movie.metadata_json
+    assert "imdb_rating" not in movie.field_sources and movie.metadata_due_at is not None
 
 
 def test_reclassified_file_unlinks_title(admin: TestClient, media: Path) -> None:

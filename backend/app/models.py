@@ -711,6 +711,8 @@ class AppSettings(Base):
     jellyfin_server_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # NULL = env LUMINA_TMDB_API_KEY; nulled in backups next to ai_api_key.
     tmdb_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL = env LUMINA_OMDB_API_KEY; this optional supplement is never serialized.
+    omdb_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_language: Mapped[str] = mapped_column(String(16), default="en-US", server_default=text("'en-US'"), nullable=False)
     # NULL or "" = no external embedding model. A change re-indexes in the background. Only a switch between local
     # models keeps the old vectors serving until the new index is complete; the previous external model is no longer

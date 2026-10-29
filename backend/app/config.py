@@ -163,6 +163,8 @@ class EnvSettings(BaseSettings):
     asr_server_script: str = "/opt/lumina-asr/server.py"
     # TMDB v3 API key used until an admin saves one (write-only). Unset/"" = no TMDB.
     tmdb_api_key: str = ""
+    # OMDb key for optional IMDb, Rotten Tomatoes and Metacritic score enrichment.
+    omdb_api_key: str = ""
     # Read-only folder of cast photos in the metadata/People layout; unset/"" = off.
     people_dir: str = ""
     # The name before 2.11, used while LUMINA_PEOPLE_DIR is empty: docker-compose.yml always passes the

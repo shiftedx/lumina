@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -96,6 +97,14 @@ TITLE_SORTS = {
     "year": (MediaTitle.year.desc().nulls_last(), SORT_NAME, MediaTitle.id),
     "rating": (func.json_extract(MediaTitle.metadata_json, "$.community_rating").desc().nulls_last(), SORT_NAME, MediaTitle.id),
 }
+
+
+def critic_rating(meta: dict, key: str, maximum: float) -> float | None:
+    value = meta.get(key)
+    if type(value) not in (int, float):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and 0 <= number <= maximum else None
 
 
 def user_data_from(progress: PlaybackProgress | None, *, favorite: bool) -> TitleUserData:
@@ -824,6 +833,8 @@ class TitleService:
             season_number=season.index_number if season else (title.index_number if title.type == "season" else None),
             overview=meta.get("overview"), genres=list(meta.get("genres") or []), official_rating=meta.get("official_rating"),
             community_rating=meta.get("community_rating"), runtime_seconds=runtime,
+            imdb_rating=critic_rating(meta, "imdb_rating", 10), rotten_tomatoes_rating=critic_rating(meta, "rotten_tomatoes_rating", 100),
+            metacritic_rating=critic_rating(meta, "metacritic_rating", 100),
             poster_url=image_url(title, "Primary"), backdrop_url=image_url(title, "Backdrop"),
             play_item_id=preferred.id if preferred else None, added_at=title.arrived_at, user_data=batch.user_data(title),
             poster=batch.art(title, "Primary", preview=True), backdrop=batch.art(title, "Backdrop", preview=False),

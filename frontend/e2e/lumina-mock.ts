@@ -210,7 +210,7 @@ export async function mockAdminFixtures(page: Page) {
     backups: { backups: [{ name: 'lumina-20260924T031500Z-scheduled', kind: 'scheduled', created_at: at, app_version: '1.0.0', schema_version: 1, size: 48e6, sha256: 'a', counts: { users: 2, library_items: 1272, library_notes: 38 } }], schedule: { daily: true, keep: 7 } },
     imports: [],
     'library/automation': { server_timezone: 'UTC', night_hour: 3, poller: { heartbeat_at: null, stalled: false }, roots: [] },
-    'media-server': { jellyfin_enabled: true, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, anime_folders: ['Anime'], recategorising: false },
+      'media-server': { jellyfin_enabled: true, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, has_omdb_key: false, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, anime_folders: ['Anime'], recategorising: false },
     'metadata/unmatched': [],
     artwork: { total: 41200, prepared: 38112, failed: 3, unsupported: 1, cache_bytes: 1.2e9, running: true, paused_for_playback: false, failure_reasons: { timeout: 3 }, serving: { hits_memory: 0, hits_disk: 0, misses: 0, generated: 0, fallback_original: 0, fallback_unavailable: 0, failures: 0 }, updated_at: at },
     settings: { concurrency: 2, max_active_jobs_per_user: 25, min_free_disk_mb: 2048 },

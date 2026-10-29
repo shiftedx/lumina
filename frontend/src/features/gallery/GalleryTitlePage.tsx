@@ -31,7 +31,7 @@ import { PosterCard } from './PosterCard';
 import { StorySoFar } from './StorySoFar';
 import { TitleActions } from './TitleActions';
 import { cachedTitle, forgetTitle, loadTitle, summaryFor } from './titleCache';
-import { castOf, hasDropCap, metaLine, pageAccent, sideBlocks, storyVisible, usesLogo } from './titlePageModel';
+import { castOf, hasDropCap, metaLine, pageAccent, sideBlocks, storyVisible, titleRatings, usesLogo } from './titlePageModel';
 import './gallery.css';
 import './titlePage.css';
 
@@ -273,6 +273,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
   const colour = cardColour(shown, 'backdrop');
   const logo = data && usesLogo(data) && !logoFailed ? data.logo : null;
   const meta = metaLine(data ?? shown);
+  const ratings = titleRatings(data ?? shown);
   const headline = (
     <h1 className="t-headline" ref={headingRef} tabIndex={-1}>
       {logo ? <GalleryArt alt={shown.name} art={logo} card={null} className="t-logo" colour={NO_SLOT} kind="logo" onFail={() => setLogoFailed(true)} priority={1} sizes={LOGO_SIZES} /> : shown.name}
@@ -292,6 +293,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
         <div className="t-heading">
           {plain ? null : headline}
           {meta.length ? <p className="t-meta g-label">{meta.map((part, index) => <Fragment key={index}>{index ? ' · ' : null}<span className="t-meta-part">{part}</span></Fragment>)}</p> : null}
+          {ratings.length ? <dl aria-label="Ratings" className="t-ratings">{ratings.map((entry) => <div key={entry.label}><dt className="sr-only">{entry.label}</dt><dd><img alt="" aria-hidden="true" className={`t-rating-logo t-rating-logo--${entry.source}`} src={`/ratings/${entry.asset ?? entry.source}.svg`} title={entry.status ? entry.label : undefined} />{entry.source === 'metacritic' ? <><span className={`t-metascore t-metascore--${entry.status?.toLowerCase()}`}>{entry.value.replace(' / 100', '')}</span><span className="t-metascore-suffix"> / 100</span></> : entry.value}</dd></div>)}</dl> : null}
         </div>
         <div className="t-main">
           {shown.overview ? <p className={`t-lede${hasDropCap(shown.overview) ? ' has-dropcap' : ''}`}>{shown.overview}</p> : null}

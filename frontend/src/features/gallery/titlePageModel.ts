@@ -49,6 +49,47 @@ export function metaLine(title: TitleSummary | TitleDetail): string[] {
   return parts.filter((part): part is string => Boolean(part));
 }
 
+type RatingSource = 'imdb' | 'rottentomatoes' | 'metacritic';
+type RottenTomatoesStatus = 'Fresh' | 'Rotten';
+type MetacriticStatus = 'Favorable' | 'Mixed' | 'Unfavorable';
+type RatingStatus = RottenTomatoesStatus | MetacriticStatus;
+export type TitleRating = { label: string; source: RatingSource; value: string; asset?: string; status?: RatingStatus };
+
+const scoreText = (value: number, decimals: boolean): string => decimals ? value.toFixed(1) : String(Number(value.toFixed(1)));
+/** Show only precision that cannot cross a source's rating band. */
+const truncatedScore = (value: number): string => String(Math.floor(value * 10) / 10);
+
+const rating = (value: number | null | undefined, maximum: number, label: string, source: RatingSource, suffix: string, decimals = false): TitleRating | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum
+    ? { label, source, value: `${scoreText(value, decimals)}${suffix}` }
+    : null;
+
+/** Source-labelled ratings for a title's masthead. Invalid and absent data stays invisible. */
+export function titleRatings(title: Pick<TitleSummary, 'imdb_rating' | 'rotten_tomatoes_rating' | 'metacritic_rating'>): TitleRating[] {
+  const rottenTomatoes = rating(title.rotten_tomatoes_rating, 100, 'Rotten Tomatoes', 'rottentomatoes', '%');
+  if (rottenTomatoes) {
+    const status: RottenTomatoesStatus = (title.rotten_tomatoes_rating ?? 0) >= 60 ? 'Fresh' : 'Rotten';
+    // Keep a Rotten percentage from rounding up across the Fresh threshold.
+    rottenTomatoes.value = `${truncatedScore(title.rotten_tomatoes_rating ?? 0)}%`;
+    rottenTomatoes.label = `Rotten Tomatoes: ${status}`;
+    rottenTomatoes.asset = `rottentomatoes-${status.toLowerCase()}`;
+    rottenTomatoes.status = status;
+  }
+  const metacritic = rating(title.metacritic_rating, 100, 'Metacritic', 'metacritic', ' / 100');
+  if (metacritic) {
+    const score = title.metacritic_rating ?? 0;
+    const status: MetacriticStatus = score >= 61 ? 'Favorable' : score >= 40 ? 'Mixed' : 'Unfavorable';
+    metacritic.value = `${truncatedScore(score)} / 100`;
+    metacritic.label = `Metacritic: ${status}`;
+    metacritic.status = status;
+  }
+  return [
+    rating(title.imdb_rating, 10, 'IMDb user rating', 'imdb', ' / 10', true),
+    rottenTomatoes,
+    metacritic,
+  ].filter((entry): entry is TitleRating => entry !== null);
+}
+
 export type SideBlock = { label: string; text: string };
 
 function movieLibrary(detail: TitleDetail): string {

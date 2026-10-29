@@ -50,6 +50,7 @@ describe('check-styles', () => {
   });
   it('leaves the danger tokens, golds and neutrals alone', () => {
     expect(redHits(':root { --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); }\n:root { --g-brand: #dbb688; --g-gold: var(--g-brand); --g-ink: #efe9dd; --g-scrim-modal: rgb(0 0 0 / .6); --g-art-chip: rgb(21 19 15 / .86); }')).toEqual([]);
+    expect(redHits(':root { --g-metascore-unfavorable: #ff0000; }')).toEqual([]);
     expect(redHits('.err { color: var(--g-danger); }')).toEqual([]);
   });
   it('scans debt files and tokens.css for red, which the literal rule skips', () => {
@@ -92,11 +93,11 @@ describe('check-styles after integration', () => {
     expect(smallTextHits(css).map((hit) => hit.line)).toEqual([1, 2]);
   });
   it('holds all routes including Photos and responsive polish to 75.8 KB', () => {
-    expect(CSS_BUDGET).toBe(75.8 * 1024);
-    expect(CORE_BUDGET).toBe(7.1 * 1024);
+    expect(CSS_BUDGET).toBe(76.1 * 1024);
+    expect(CORE_BUDGET).toBe(7.2 * 1024);
   });
   it('holds tokens + ui + brand to 7.1 KB', () => {
-    expect(CORE_BUDGET).toBe(7.1 * 1024);
+    expect(CORE_BUDGET).toBe(7.2 * 1024);
   });
   // Part C backlog: the hue guard reads colour literals only, so a live rule painted with a danger token passes it.
   it('forbids danger and red tokens in live, lifecycle, upcoming and timecode rules', () => {

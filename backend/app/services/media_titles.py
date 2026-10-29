@@ -21,7 +21,7 @@ from app.models import MediaTitle
 LUMINA_NAMESPACE = uuid.UUID("b313b443-44d5-44a1-95e2-052a2d34c25b")
 TICKS_PER_SECOND = 10_000_000
 # user > nfo > tmdb > path: a scan or refresh writes a field only at or above its recorded source.
-FIELD_SOURCE_RANK = {"path": 0, "tmdb": 1, "musicbrainz": 1, "nfo": 2, "user": 3}
+FIELD_SOURCE_RANK = {"path": 0, "tmdb": 1, "omdb": 1, "musicbrainz": 1, "nfo": 2, "user": 3}
 # Columns apply_field may write; key/type/root_id are structural and belong to the scanner. parent_id is structural
 # too, except that a user may move an episode to another season (#164): only the editor writes it through apply_field.
 TITLE_COLUMNS = frozenset({"name", "sort_name", "year", "index_number", "index_number_end", "provider_ids", "boxset_id", "parent_id"})
@@ -138,12 +138,36 @@ def wake_refresh(title: MediaTitle, now: datetime) -> None:
         title.metadata_due_at = now
 
 
+def clear_omdb_values(title: MediaTitle) -> None:
+    """Remove OMDb values and kept values without disturbing TMDB, NFO or manual fields."""
+    sources = dict(title.field_sources or {})
+    metadata = dict(title.metadata_json or {})
+    for name in [name for name, source in sources.items() if source == "omdb"]:
+        del sources[name]
+        if name not in TITLE_COLUMNS:
+            metadata.pop(name, None)
+    title.field_sources, title.metadata_json = sources, metadata
+    title.source_values = {
+        field: {"source": None, "value": None} if entry.get("source") == "omdb" else entry
+        for field, entry in dict(title.source_values or {}).items()
+    }
+
+
+def invalidate_omdb_for_imdb_change(title: MediaTitle, old_imdb: object, now: datetime) -> None:
+    """A changed established IMDb id invalidates cached OMDb ratings and queues the ordinary refresh."""
+    current = (title.provider_ids or {}).get("Imdb")
+    if current != old_imdb:
+        clear_omdb_values(title)
+        wake_refresh(title, now)
+
+
 def revert_field(title: MediaTitle, field: str, now: datetime) -> bool:
     """Unlock = revert (ADR 0016): the field takes back its kept source value, no network. False when not ``user``."""
     sources = dict(title.field_sources or {})
     if sources.get(field) != "user":
         return False
     kept = dict(title.source_values or {})
+    old_imdb = (title.provider_ids or {}).get("Imdb") if field == "provider_ids" else None
     entry = kept.pop(field, None)
     sources.pop(field)
     if entry and (entry.get("source") or field in ("added_at", "parent_id")):  # file-dated / structural: no source, a value
@@ -153,7 +177,9 @@ def revert_field(title: MediaTitle, field: str, now: datetime) -> bool:
     else:
         _drop(title, field)
     title.field_sources, title.source_values = sources, kept
-    if not entry or entry.get("source") in (None, "tmdb"):
+    if field == "provider_ids":
+        invalidate_omdb_for_imdb_change(title, old_imdb, now)
+    if not entry or entry.get("source") in (None, "tmdb", "omdb"):
         wake_refresh(title, now)
     return True
 
@@ -167,6 +193,7 @@ def set_item_locked(title: MediaTitle, locked: bool, now: datetime) -> bool:
     if locked:
         title.metadata_due_at = None
         return True
+    old_imdb = (title.provider_ids or {}).get("Imdb")
     kept = dict(title.source_values or {})
     for field, entry in list(kept.items()):
         if (title.field_sources or {}).get(field) != "user":
@@ -174,6 +201,7 @@ def set_item_locked(title: MediaTitle, locked: bool, now: datetime) -> bool:
                 apply_field(title, field, entry["value"], entry["source"])
             del kept[field]
     title.source_values = kept
+    invalidate_omdb_for_imdb_change(title, old_imdb, now)
     wake_refresh(title, now)
     return True
 

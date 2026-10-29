@@ -2442,6 +2442,10 @@ final class PlaybackModel {
 
     private func playNativePlayer() {
         guard !isCasting else { return }
+        guard videoDolbyVisionConversion?.hasFailure != true else {
+            pauseNativePlayer()
+            return
+        }
         recordPlaybackDiagnostic(.play)
         player.play()
     }
@@ -2535,8 +2539,11 @@ final class PlaybackModel {
         request.item.isAudio ? -1 : player.audiovisualBackgroundPlaybackPolicy.rawValue
     }
     #endif
-    private var videoSource = NativeVideoSource()
+    private var videoSource = NativeVideoSource() {
+        didSet { videoDolbyVisionConversion = nil }
+    }
     var videoSourceBytesRead: Int64? { videoSource.sourceBytesRead }
+    private(set) var videoDolbyVisionConversion: NativeVideoSource.DolbyVisionConversionSnapshot?
     private(set) var isSwitchingVideoStream = false
     private(set) var videoStreamError: String?
     private(set) var sourceAudioIsAutomatic = true
@@ -2783,8 +2790,8 @@ final class PlaybackModel {
 
     private func handleVideoPlaybackFailure(_ error: Error?) async {
         guard didSeek, !closed, !hasFinished, !isCasting, !isCommittingVideoStream, !isSwitchingVideoStream else { return }
-        if videoAdvancedRequestID != request.id, compatibilityRetryRequestID != request.id,
-           let error, request.canRetryCompatibleVideo(after: error) {
+        if compatibilityRetryRequestID != request.id,
+           let error, request.canRetryCompatibleVideo(after: error, hasAdvanced: videoAdvancedRequestID == request.id) {
             compatibilityRetryRequestID = request.id
             let recovered = await replaceVideoStream(
                 audioIndex: request.audioStreamIndex, externalSubtitle: attachedVideoSubtitle,
@@ -2793,7 +2800,10 @@ final class PlaybackModel {
             )
             if recovered || closed { return }
         }
-        errorMessage = "Playback stopped. Check your connection and try again."
+        let conversionFailure = (error as? NativeVideoSource.SelectionError) == .invalidDolbyVisionConversion
+        errorMessage = conversionFailure
+            ? "Dolby Vision conversion failed. Compatible playback could not be started."
+            : "Playback stopped. Check your connection and try again."
     }
 
     private func retryInitialCompatibleVideo(after error: Error) async throws {
@@ -2898,6 +2908,18 @@ final class PlaybackModel {
             Task { @MainActor [weak self] in
                 guard let self, !self.isCasting, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.traceContinuity("periodic-callback")
+                let source = self.videoSource
+                let requestID = self.request.id
+                let conversion = await source.dolbyVisionConversion
+                guard !self.closed, !self.hasFinished, self.videoSource === source, self.request.id == requestID,
+                      !self.isCasting, !self.isSwitchingVideoStream, !self.isCommittingVideoStream else { return }
+                self.videoDolbyVisionConversion = conversion
+                if conversion?.hasFailure == true {
+                    self.updatePosition()
+                    self.pauseNativePlayer()
+                    await self.handleVideoPlaybackFailure(NativeVideoSource.SelectionError.invalidDolbyVisionConversion)
+                    return
+                }
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.applyEffectiveVideoRateIfPermitted()
                 self.updatePosition()
@@ -3137,6 +3159,7 @@ final class PlaybackModel {
     private var permitsVideoRateApplication: Bool {
         !isCasting && autoplayWhenReady && isActive && !closed && !hasFinished
             && !isSwitchingVideoStream && !isCommittingVideoStream
+            && videoDolbyVisionConversion?.hasFailure != true
             && player.timeControlStatus == .playing
     }
 
@@ -3498,6 +3521,8 @@ final class PlaybackModel {
             subtitleDelaySeconds: subtitleDelay ?? subtitleDelaySeconds
         )
         item.audioTimePitchAlgorithm = .spectral
+        let conversion = await source.dolbyVisionConversion
+        if source === videoSource { videoDolbyVisionConversion = conversion }
         return item
     }
 
@@ -4787,6 +4812,12 @@ private struct VideoPlaybackSettings: View {
             LabeledContent("Stream") {
                 Text(methodLabel)
                     .accessibilityIdentifier("videoPlaybackMethod")
+            }
+            if let conversion = playback.videoDolbyVisionConversion, conversion.convertedRPUs > 0 {
+                LabeledContent("Dolby Vision conversion", value: conversion.hasFailure
+                    ? "Conversion failed"
+                    : "Profile 7 → 8.1; enhancement layer omitted")
+                    .accessibilityIdentifier("videoDolbyVisionConversion")
             }
             #if os(iOS)
             PlaybackInfoView(playback: playback, audioGroup: tracks.audioGroup)

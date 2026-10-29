@@ -28,20 +28,34 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         let maxLevel: Int
     }
 
+    /// A packaging-only conversion. It does not authorize original Profile 7
+    /// delivery, an HLS rendition, or distinguish MEL from FEL.
+    struct DolbyVisionPackagingConversion: Equatable, Sendable {
+        let sourceProfile: Int
+        let sourceCompatibilityIDs: [Int]
+        let targetProfile: Int
+        let targetCompatibilityID: Int
+        let maxLevel: Int
+        let enhancementLayerDisposition: String
+    }
+
     let directMP4: [Codec: Set<Range>]
     let directMP4BitDepth: [Codec: Int]
     let hls: [Codec: Set<Range>]
     let hlsBitDepth: [Codec: Int]
     let directMP4DolbyVisionProfiles: [DolbyVisionProfile]
+    let matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion]
 
     init(directMP4: [Codec: Set<Range>], directMP4BitDepth: [Codec: Int],
          hls: [Codec: Set<Range>], hlsBitDepth: [Codec: Int],
-         directMP4DolbyVisionProfiles: [DolbyVisionProfile] = []) {
+         directMP4DolbyVisionProfiles: [DolbyVisionProfile] = [],
+         matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = []) {
         self.directMP4 = directMP4
         self.directMP4BitDepth = directMP4BitDepth
         self.hls = hls
         self.hlsBitDepth = hlsBitDepth
         self.directMP4DolbyVisionProfiles = directMP4DolbyVisionProfiles
+        self.matroskaDolbyVisionPackagingConversions = matroskaDolbyVisionPackagingConversions
     }
 
     /// The established compatibility request never relies on a modern decoder
@@ -51,7 +65,8 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         directMP4BitDepth: [.h264: 8],
         hls: [.h264: [.sdr]],
         hlsBitDepth: [.h264: 8],
-        directMP4DolbyVisionProfiles: []
+        directMP4DolbyVisionProfiles: [],
+        matroskaDolbyVisionPackagingConversions: []
     )
 
     static func current() -> Self {
@@ -63,6 +78,7 @@ struct NativeVideoCapabilities: Equatable, Sendable {
             hdrEligible: AVPlayer.eligibleForHDRPlayback,
             dolbyVisionRoute: dolbyVisionRouteAvailable(),
             p81Supported: p81RuntimeSupported(),
+            converterAvailable: NativeVideoSource.supportsDolbyVisionProfile7Conversion,
             playableMP4Codecs: Set(queriedCodecs)
         ))
     }
@@ -76,6 +92,7 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         let hdrEligible: Bool
         let dolbyVisionRoute: Bool
         let p81Supported: Bool
+        let converterAvailable: Bool
         let playableMP4Codecs: Set<String>
     }
 
@@ -127,8 +144,23 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         } else {
             dolbyVisionProfiles = []
         }
+        let matroskaConversions: [DolbyVisionPackagingConversion]
+        if probe.converterAvailable,
+           let p81 = dolbyVisionProfiles.first(where: { $0.profile == 8 && $0.compatibilityIDs == [1] }) {
+            matroskaConversions = [DolbyVisionPackagingConversion(
+                sourceProfile: 7,
+                sourceCompatibilityIDs: [6],
+                targetProfile: 8,
+                targetCompatibilityID: 1,
+                maxLevel: p81.maxLevel,
+                enhancementLayerDisposition: "dropped"
+            )]
+        } else {
+            matroskaConversions = []
+        }
         return Self(directMP4: direct, directMP4BitDepth: directBitDepth, hls: hls,
-                    hlsBitDepth: hlsBitDepth, directMP4DolbyVisionProfiles: dolbyVisionProfiles)
+                    hlsBitDepth: hlsBitDepth, directMP4DolbyVisionProfiles: dolbyVisionProfiles,
+                    matroskaDolbyVisionPackagingConversions: matroskaConversions)
     }
 
     func ranges(for codec: Codec, delivery: Delivery) -> Set<Range> {
@@ -206,9 +238,13 @@ struct NativeVideoCapabilities: Equatable, Sendable {
     /// Network, authorization, cancellation, and transient resource failures
     /// must retain their ordinary error behavior.
     static func isFormatFailure(_ error: Error) -> Bool {
-        if let selection = error as? NativeVideoSource.SelectionError,
-           case .unsupportedAudioStream = selection {
-            return true
+        if let selection = error as? NativeVideoSource.SelectionError {
+            switch selection {
+            case .unsupportedAudioStream, .invalidDolbyVisionConversion:
+                return true
+            default:
+                return false
+            }
         }
         if error is CancellationError { return false }
         var current: NSError? = error as NSError

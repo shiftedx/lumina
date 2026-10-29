@@ -143,6 +143,106 @@ def test_explicit_dolby_vision_profile_seven_keeps_the_existing_base_layer_hls_f
     assert (decision.mode, decision.video, decision.reasons) == ("remux", "copy", ("ContainerNotSupported",))
 
 
+P7_TO_81 = [{
+    "SourceProfile": 7,
+    "SourceCompatibilityIDs": [6],
+    "TargetProfile": 8,
+    "TargetCompatibilityID": 1,
+    "MaxLevel": 9,
+    "EnhancementLayerDisposition": "dropped",
+}]
+
+
+def p7_packaging_client(conversions: object = P7_TO_81, *, container: str = "mkv", range_: str = "HDR10"):
+    return caps_from_device_profile({
+        "DirectPlayProfiles": [{
+            "Type": "Video", "Container": container, "VideoCodec": "hevc", "AudioCodec": "aac",
+            "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": conversions,
+        }],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": range_},
+        ]}],
+    })
+
+
+def test_profile_seven_mkv_packaging_is_explicit_and_reports_its_lossy_route() -> None:
+    decision = decide(p7_packaging_client(), facts(MKV, dovi_source(7, 6, el=True), a()))
+
+    assert (decision.mode, decision.video, decision.audio) == ("direct", "copy", "copy")
+    assert decision.client_packaging == "p7_to_p81_drop_el"
+
+
+@pytest.mark.parametrize("source", [
+    dovi_source(7, 1, el=True),
+    dovi_source(7, 6, level=None, el=True),
+    dovi_source(7, 6, level=10, el=True),
+    dovi_source(7, 6, rpu=False, el=True),
+    dovi_source(7, 6, el=False),
+    dovi_source(7, 6, bl=False, el=True),
+    v("hevc", pix_fmt="yuv420p", dv=7, compat=6, dv_level=9, rpu=True, el=True, bl=True),
+])
+def test_profile_seven_packaging_fails_closed_without_all_verified_dual_layer_facts(source: dict) -> None:
+    decision = decide(p7_packaging_client(), facts(MKV, source, a()))
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+def test_profile_seven_packaging_is_mkv_direct_only_and_does_not_authorize_hls() -> None:
+    source = dovi_source(7, 6, el=True)
+    missing = decide(p7_packaging_client([]), facts(MKV, source, a()))
+    mp4 = decide(p7_packaging_client(container="mp4"), facts(MP4, source, a()))
+    webm = decide(p7_packaging_client(container="mkv"), facts("matroska,webm", source, a(), webm=True))
+
+    for decision in (missing, mp4, webm):
+        assert decision.mode != "direct"
+        assert decision.client_packaging is None
+        assert decision.video == "copy"  # Existing HDR10-base HLS/remux fallback, not converted P8.1.
+
+
+def test_missing_profile_seven_packaging_declaration_keeps_legacy_direct_play_behavior() -> None:
+    legacy = caps_from_device_profile({
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac"}],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"},
+        ]}],
+    })
+
+    decision = decide(legacy, facts(MKV, dovi_source(7, 6, el=True), a()))
+
+    assert decision.mode == "direct"
+    assert decision.client_packaging is None
+
+
+@pytest.mark.parametrize("conversions", [
+    [{**P7_TO_81[0], "MaxLevel": 8}],
+    [{**P7_TO_81[0], "TargetCompatibilityID": True}],
+    [{**P7_TO_81[0], "SourceCompatibilityIDs": [True]}],
+    [{**P7_TO_81[0], "EnhancementLayerDisposition": "preserved"}],
+    [{key: value for key, value in P7_TO_81[0].items() if key != "TargetProfile"}],
+    [{**P7_TO_81[0], "Unknown": "field"}],
+    [P7_TO_81[0], P7_TO_81[0]],
+])
+def test_profile_seven_packaging_declaration_is_bounded_and_strict(conversions: object) -> None:
+    decision = decide(p7_packaging_client(conversions), facts(MKV, dovi_source(7, 6, el=True), a()))
+
+    assert decision.mode != "direct"
+
+
+def test_profile_seven_packaging_does_not_escape_direct_play_constraints() -> None:
+    source = dovi_source(7, 6, el=True)
+    caps = p7_packaging_client()
+    limited_audio = decide(replace(caps, max_channels=2), facts(MKV, source, a("aac", 8)))
+    burned_subtitle = decide(replace(caps, image_subtitles=False), facts(MKV, source, a(), s("hdmv_pgs_subtitle")), subtitle_index=2)
+    restricted_quality = decide(caps, facts(MKV, dovi_source(7, 6, el=True), a()), Limits(max_height=720))
+
+    for decision in (limited_audio, burned_subtitle, restricted_quality):
+        assert decision.mode != "direct"
+        assert decision.client_packaging is None
+
+
 @pytest.mark.parametrize("entries", [[], [{"Profile": 8, "CompatibilityIDs": [2], "MaxLevel": 9}],
                                       [{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 10}],
                                       [{"Profile": True, "CompatibilityIDs": [1], "MaxLevel": 9}],

@@ -1692,6 +1692,13 @@ final class LuminaCoreTests: XCTestCase {
                 .init(profile: 5, compatibilityIDs: [0], maxLevel: 9),
                 .init(profile: 8, compatibilityIDs: [1], maxLevel: 8),
                 .init(profile: 8, compatibilityIDs: [4], maxLevel: 7),
+            ],
+            matroskaDolbyVisionPackagingConversions: [
+                .init(
+                    sourceProfile: 7, sourceCompatibilityIDs: [6],
+                    targetProfile: 8, targetCompatibilityID: 1,
+                    maxLevel: 8, enhancementLayerDisposition: "dropped"
+                ),
             ]
         )
         let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: { capabilities })
@@ -1719,14 +1726,24 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(dolbyVision[2]["Profile"] as? Int, 8)
         XCTAssertEqual(dolbyVision[2]["CompatibilityIDs"] as? [Int], [4])
         XCTAssertEqual(dolbyVision[2]["MaxLevel"] as? Int, 7)
+        XCTAssertNil(direct[0]["LuminaDolbyVisionPackagingConversions"], "Profile 7 conversion is never an MP4 direct-play claim.")
         XCTAssertEqual(direct[1]["VideoCodec"] as? String, "h264,hevc", "PrismCore's qualified Matroska route excludes AV1 even when fMP4 HLS can use it.")
         let matroskaDolbyVision = try XCTUnwrap(direct[1]["LuminaDolbyVisionProfiles"] as? [[String: Any]])
         XCTAssertEqual(try JSONSerialization.data(withJSONObject: matroskaDolbyVision, options: .sortedKeys),
                        try JSONSerialization.data(withJSONObject: dolbyVision, options: .sortedKeys),
                        "The qualified Matroska path retains these same P5/P8 profiles and levels.")
+        let packagingConversions = try XCTUnwrap(direct[1]["LuminaDolbyVisionPackagingConversions"] as? [[String: Any]])
+        XCTAssertEqual(packagingConversions.count, 1)
+        XCTAssertEqual(packagingConversions[0]["SourceProfile"] as? Int, 7)
+        XCTAssertEqual(packagingConversions[0]["SourceCompatibilityIDs"] as? [Int], [6])
+        XCTAssertEqual(packagingConversions[0]["TargetProfile"] as? Int, 8)
+        XCTAssertEqual(packagingConversions[0]["TargetCompatibilityID"] as? Int, 1)
+        XCTAssertEqual(packagingConversions[0]["MaxLevel"] as? Int, 8)
+        XCTAssertEqual(packagingConversions[0]["EnhancementLayerDisposition"] as? String, "dropped")
         let hls = try XCTUnwrap(modern["TranscodingProfiles"] as? [[String: Any]])
         XCTAssertEqual(hls[0]["VideoCodec"] as? String, "h264,hevc,av1")
         XCTAssertNil(hls[0]["LuminaDolbyVisionProfiles"], "Original Dolby Vision delivery must not broaden server HLS.")
+        XCTAssertNil(hls[0]["LuminaDolbyVisionPackagingConversions"], "Profile 7 conversion must not broaden HLS.")
         let codecProfiles = try XCTUnwrap(modern["CodecProfiles"] as? [[String: Any]])
         let hevc = try XCTUnwrap(codecProfiles.first { $0["Codec"] as? String == "hevc" })
         let hevcConditions = try XCTUnwrap(hevc["Conditions"] as? [[String: String]])
@@ -1749,6 +1766,7 @@ final class LuminaCoreTests: XCTestCase {
         let fallbackDirect = try XCTUnwrap(fallback["DirectPlayProfiles"] as? [[String: Any]])
         XCTAssertTrue(fallbackDirect.allSatisfy { $0["AudioCodec"] as? String == "aac" })
         XCTAssertTrue(fallbackDirect.allSatisfy { ($0["LuminaDolbyVisionProfiles"] as? [[String: Any]])?.isEmpty == true })
+        XCTAssertTrue(fallbackDirect.allSatisfy { (($0["LuminaDolbyVisionPackagingConversions"] as? [[String: Any]]) ?? []).isEmpty })
         let aac = try XCTUnwrap(fallbackProfiles.first { $0["Codec"] as? String == "aac" })
         XCTAssertEqual(aac["Type"] as? String, "VideoAudio")
         XCTAssertEqual(aac["Conditions"] as? [[String: String]], [
@@ -1762,7 +1780,7 @@ final class LuminaCoreTests: XCTestCase {
         let p8 = "dvh1.08.07"
         func capabilities(
             main10: Bool = true, dvHardware: Bool = true, hdr: Bool = true,
-            route: Bool = true, p81: Bool = false, codecs: Set<String>
+            route: Bool = true, p81: Bool = false, converter: Bool = false, codecs: Set<String>
         ) -> NativeVideoCapabilities {
             NativeVideoCapabilities.from(.init(
                 hevcHardwareDecode: main10,
@@ -1771,6 +1789,7 @@ final class LuminaCoreTests: XCTestCase {
                 hdrEligible: hdr,
                 dolbyVisionRoute: route,
                 p81Supported: p81,
+                converterAvailable: converter,
                 playableMP4Codecs: codecs
             ))
         }
@@ -1791,6 +1810,14 @@ final class LuminaCoreTests: XCTestCase {
             .init(profile: 8, compatibilityIDs: [1], maxLevel: 7),
             .init(profile: 8, compatibilityIDs: [4], maxLevel: 7),
         ])
+        XCTAssertEqual(capabilities(p81: true, codecs: baselineCodecs.union([p5, p8])).matroskaDolbyVisionPackagingConversions, [])
+        XCTAssertEqual(capabilities(p81: true, converter: true, codecs: baselineCodecs.union([p5, p8])).matroskaDolbyVisionPackagingConversions, [
+            .init(
+                sourceProfile: 7, sourceCompatibilityIDs: [6],
+                targetProfile: 8, targetCompatibilityID: 1,
+                maxLevel: 7, enhancementLayerDisposition: "dropped"
+            ),
+        ])
     }
 
     func testOnlyNarrowAVFoundationCodecFailuresCanRetryCompatibility() throws {
@@ -1799,6 +1826,7 @@ final class LuminaCoreTests: XCTestCase {
         let unsupported = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.formatUnsupported.rawValue)
         let parse = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.fileFailedToParse.rawValue)
         let failedToParse = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.failedToParse.rawValue)
+        let dolbyVisionConversion = NativeVideoSource.SelectionError.invalidDolbyVisionConversion
         let nestedNetwork = NSError(
             domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue,
             userInfo: [NSUnderlyingErrorKey: URLError(.cannotConnectToHost)]
@@ -1823,6 +1851,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(parse))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(failedToParse))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(NativeVideoSource.SelectionError.unsupportedAudioStream(2)))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(dolbyVisionConversion))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(authorization))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(network))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(nestedNetwork))
@@ -1834,10 +1863,14 @@ final class LuminaCoreTests: XCTestCase {
                                       startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: false, methodLabel: "Direct")
         XCTAssertTrue(request.canRetryCompatibleVideo(after: format))
         XCTAssertFalse(request.canRetryCompatibleVideo(after: network))
+        XCTAssertTrue(request.canRetryCompatibleVideo(after: dolbyVisionConversion, hasAdvanced: true))
+        XCTAssertFalse(request.canRetryCompatibleVideo(after: format, hasAdvanced: true))
+        XCTAssertFalse(request.canRetryCompatibleVideo(after: network, hasAdvanced: true))
         let compatible = PlaybackRequest(id: "retry", item: item, url: request.url,
                                          startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: true,
                                          methodLabel: "HLS", usesCompatibleVideo: true)
         XCTAssertFalse(compatible.canRetryCompatibleVideo(after: format))
+        XCTAssertFalse(compatible.canRetryCompatibleVideo(after: dolbyVisionConversion, hasAdvanced: true))
     }
 
     func testPlaybackRequestCarriesServerStreamInventoryAndExplicitSubtitleOff() throws {

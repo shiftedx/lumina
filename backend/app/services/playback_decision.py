@@ -46,6 +46,10 @@ class DirectProfile:
     # None preserves the pre-extension behavior for a profile posted by an
     # older client. An empty tuple is an explicit denial for this exact row.
     dolby_vision: tuple["DolbyVisionCap", ...] | None = None
+    # A client-side Matroska route which rewrites Profile 7 RPUs as 8.1 and
+    # deliberately drops the enhancement layer. This is distinct from the
+    # original-stream Dolby Vision declaration above.
+    profile7_to_81_max_level: int | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,9 @@ class Decision:
     tonemap: bool = False
     video_codec: str = "h264"  # encoded output; copied video retains its probed source codec
     video_range: str = "SDR"  # encoded output range; copied video retains its probed source range
+    # Requested local packaging, not an assertion that its packet conversion
+    # completed. Prism's runtime conversion statistics provide that verdict.
+    client_packaging: str | None = None
     reasons: tuple[str, ...] = field(default=())
 
     @property
@@ -167,6 +174,40 @@ def _dolby_vision_matches(profile: DirectProfile, video: Mapping[str, Any] | Non
     )
 
 
+def _profile7_source_is_convertible(video: Mapping[str, Any]) -> bool:
+    """P7->8.1 packaging is a constrained, enhancement-layer-dropping route."""
+    # ffprobe's DOVI record does not identify MEL versus FEL. Both are admitted
+    # only to the explicitly lossy declaration; neither is described as preserved.
+    return (
+        video.get("codec") == "hevc"
+        and bit_depth(video) == 10
+        and type(video.get("dv_profile")) is int
+        and video["dv_profile"] == 7
+        and type(video.get("dv_compat")) is int
+        and video["dv_compat"] == 6
+        and isinstance(video.get("dv_level"), int)
+        and not isinstance(video.get("dv_level"), bool)
+        and 1 <= video["dv_level"] <= 9
+        and video.get("dv_rpu_present") is True
+        and video.get("dv_el_present") is True
+        and video.get("dv_bl_present") is True
+    )
+
+
+def _profile_can_package_profile7(
+    profile: DirectProfile, tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+) -> bool:
+    """Whether this exact MKV direct row may request client-side P7 packaging."""
+    return (
+        profile.profile7_to_81_max_level is not None
+        and profile.containers == frozenset({"mkv"})
+        and video is not None
+        and _profile_matches(profile, tokens, video.get("codec"), audio and audio.get("codec"))
+        and _profile7_source_is_convertible(video)
+        and video["dv_level"] <= profile.profile7_to_81_max_level
+    )
+
+
 def _is_dolby_vision_direct_candidate(
     profiles: Iterable[DirectProfile], tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
 ) -> bool:
@@ -179,6 +220,12 @@ def _is_dolby_vision_direct_candidate(
         and profile.dolby_vision is not None
         for profile in profiles
     )
+
+
+def _is_profile7_packaging_direct_candidate(
+    profiles: Iterable[DirectProfile], tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+) -> bool:
+    return any(_profile_can_package_profile7(profile, tokens, video, audio) for profile in profiles)
 
 
 def _height_for_bitrate(cap: int | None) -> int | None:
@@ -300,9 +347,10 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     reasons = video_reasons + codec_reasons + (["SecondaryAudioNotSupported"] if secondary else [])
     tokens = _container_tokens(facts)
     direct_dovi = _is_dolby_vision_direct_candidate(client.direct, tokens, video, audio)
+    profile7_packaging = _is_profile7_packaging_direct_candidate(client.direct, tokens, video, audio)
     playable = any(
         _profile_matches(profile, tokens, video and video.get("codec"), audio and audio.get("codec"))
-        and _dolby_vision_matches(profile, video)
+        and (_dolby_vision_matches(profile, video) or _profile_can_package_profile7(profile, tokens, video, audio))
         for profile in client.direct
     )
     indexes = {"video_index": video.get("index") if video else None, "audio_index": audio.get("index") if audio else None}
@@ -313,7 +361,10 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     # constraint (audio, subtitle, or selected track) rejects direct play.
     direct_reasons = [reason for reason in reasons if not (direct_dovi and reason == "VideoRangeTypeNotSupported")]
     if not direct_reasons and playable:
-        return Decision("direct", video="copy" if video else None, audio="copy" if audio else None, **indexes)
+        return Decision(
+            "direct", video="copy" if video else None, audio="copy" if audio else None,
+            client_packaging="p7_to_p81_drop_el" if profile7_packaging else None, **indexes,
+        )
     if not reasons:
         reasons.append("ContainerNotSupported")
 
@@ -462,6 +513,34 @@ def _dolby_vision_caps(value: Any) -> tuple[DolbyVisionCap, ...]:
     return tuple(caps)
 
 
+def _profile7_to_81_max_level(value: Any) -> int | None:
+    """Parse Lumina's one exact, intentionally lossy P7 client-packaging declaration."""
+    required = {
+        "SourceProfile", "SourceCompatibilityIDs", "TargetProfile", "TargetCompatibilityID",
+        "MaxLevel", "EnhancementLayerDisposition",
+    }
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        return None
+    entry = value[0]
+    if set(entry) != required:
+        return None
+    source_profile = _strict_int(entry.get("SourceProfile"), lower=1, upper=9)
+    target_profile = _strict_int(entry.get("TargetProfile"), lower=1, upper=9)
+    target_compatibility = _strict_int(entry.get("TargetCompatibilityID"), lower=0, upper=9)
+    max_level = _strict_int(entry.get("MaxLevel"), lower=1, upper=9)
+    source_ids = entry.get("SourceCompatibilityIDs")
+    return max_level if (
+        source_profile == 7
+        and isinstance(source_ids, list)
+        and all(type(item) is int for item in source_ids)
+        and source_ids == [6]
+        and target_profile == 8
+        and target_compatibility == 1
+        and entry.get("EnhancementLayerDisposition") == "dropped"
+        and max_level is not None
+    ) else None
+
+
 _CAP_FIELDS = {"Width": "max_width", "Height": "max_height", "VideoBitDepth": "max_bit_depth"}
 
 
@@ -482,7 +561,13 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         vids = (_tokens(entry.get("VideoCodec")) or ANY) if entry.get("Type") == "Video" else frozenset()
         auds = _tokens(entry.get("AudioCodec")) or ANY
         dovi = None if "LuminaDolbyVisionProfiles" not in entry else _dolby_vision_caps(entry.get("LuminaDolbyVisionProfiles"))
-        direct.append(DirectProfile(_tokens(entry.get("Container")) or ANY, vids, auds, dovi))
+        containers = _tokens(entry.get("Container")) or ANY
+        profile7_to_81 = (
+            _profile7_to_81_max_level(entry.get("LuminaDolbyVisionPackagingConversions"))
+            if entry.get("Type") == "Video" and containers == frozenset({"mkv"}) and "hevc" in vids
+            else None
+        )
+        direct.append(DirectProfile(containers, vids, auds, dovi, profile7_to_81))
         video_codecs |= vids
         audio |= auds
     transcode_video: set[str] = set()

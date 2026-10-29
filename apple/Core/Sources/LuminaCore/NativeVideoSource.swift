@@ -109,7 +109,7 @@ public final class NativeVideoSource {
     private static let maximumPrismPlaylistBytes = 128 << 10
     private static let maximumWebVTTSeconds = Double(Int.max / 1_000)
 
-    /// Mirrors PrismCore 3.8.1's build-time Libdovi guard. The capability says
+    /// Mirrors the pinned PrismCore engine's build-time Libdovi guard. The capability says
     /// this binary can convert P7; per-session evidence still comes from
     /// `dolbyVisionConversion` after packets have been produced.
     nonisolated static var supportsDolbyVisionProfile7Conversion: Bool {

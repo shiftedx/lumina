@@ -344,7 +344,7 @@ final class LuminaClient: @unchecked Sendable {
                 "EnhancementLayerDisposition": $0.enhancementLayerDisposition,
             ]
         }
-        // PrismCore 3.8.1's qualified Matroska packaging retains the complete
+        // The pinned PrismCore engine's qualified Matroska packaging retains the complete
         // P5/P8 configuration and RPU sequence, including subtitle masters.
         // This independent delivery policy does not authorize server HLS DV.
         let directProfiles: [[String: Any]] = [

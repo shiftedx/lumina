@@ -86,12 +86,14 @@ def annexb_has_enhancement_layer(data: bytes) -> bool:
     return any(kind == 63 for _, _, kind in annexb_nalus(data))
 
 
-def corrupt_second_rpu(data: bytes) -> tuple[bytes, bytes, bytes]:
-    """Keep frame one valid and make frame two's RPU checksum fail."""
+def corrupt_rpu(data: bytes, index: int, frames: int) -> tuple[bytes, bytes, bytes]:
+    """Damage exactly one RPU while preserving the dual-layer HEVC carriage."""
     rpus = [(start, end) for start, end, kind in annexb_nalus(data) if kind == 62]
-    if len(rpus) != FRAMES:
-        raise ValueError(f"Expected {FRAMES} RPU NALs for negative fixture, found {len(rpus)}")
-    start, end = rpus[1]
+    if len(rpus) != frames:
+        raise ValueError(f"Expected {frames} RPU NALs for negative fixture, found {len(rpus)}")
+    if not 0 <= index < frames:
+        raise ValueError(f"RPU index {index} is outside the {frames}-frame fixture")
+    start, end = rpus[index]
     if end - start < 8:
         raise ValueError("RPU NAL is unexpectedly short")
     original = data[start:end]
@@ -201,36 +203,41 @@ def generate_variant(output: Path, tool: str, kind: str, details: dict[str, str]
     }
 
 
-def generate_invalid_fixture(output: Path, tool: str) -> dict[str, object]:
-    """Create an 8-second P7 MEL stream whose second RPU is malformed.
-
-    Prism publishes conversion statistics on a normal HLS segment cut, not an
-    EOF flush. The later valid frames and regular keyframes ensure the first
-    six-second cut records both earlier successful rewrites and this refusal.
-    """
+def generate_invalid_fixture(
+    output: Path,
+    tool: str,
+    *,
+    container_name: str,
+    frames: int,
+    malformed_rpu_index: int,
+    phase: str,
+) -> dict[str, object]:
+    """Create a P7 MEL stream with one refused RPU at a named lifecycle phase."""
     details = P7_VECTORS["mel"]
     source_rpu = download(details["source"], details["source_sha256"])
     with tempfile.TemporaryDirectory(prefix="lumina-p7-invalid-") as temporary_name:
         temporary = Path(temporary_name)
         rpus = temporary / "rpus.bin"
-        rpus.write_bytes(source_rpu * FRAMES)
+        rpus.write_bytes(source_rpu * frames)
         base = temporary / "base.hevc"
         enhancement = temporary / "enhancement.hevc"
         enhancement_with_rpu = temporary / "enhancement-rpu.hevc"
         elementary = temporary / "p7.hevc"
-        run([
-            "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=128x72:rate={FRAME_RATE}:duration={FRAMES / FRAME_RATE}",
-            "-frames:v", str(FRAMES), "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast",
-            "-x265-params", "pools=1:frame-threads=1:bframes=0:keyint=24:min-keyint=24:scenecut=0:repeat-headers=1", str(base),
-        ])
-        run([
-            "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size=128x72:rate={FRAME_RATE}:duration={FRAMES / FRAME_RATE}",
-            "-frames:v", str(FRAMES), "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast",
-            "-x265-params", "pools=1:frame-threads=1:bframes=0:keyint=24:min-keyint=24:scenecut=0:repeat-headers=1", str(enhancement),
-        ])
+        duration = frames / FRAME_RATE
+        encode_layer(base, f"testsrc2=size=128x72:rate={FRAME_RATE}:duration={duration}", frames)
+        encode_layer(enhancement, f"testsrc=size=128x72:rate={FRAME_RATE}:duration={duration}", frames)
         run([tool, "inject-rpu", "-i", str(enhancement), "--rpu-in", str(rpus), "-o", str(enhancement_with_rpu)])
         run([tool, "mux", "--bl", str(base), "--el", str(enhancement_with_rpu), "-o", str(elementary)])
-        damaged, _, _ = corrupt_second_rpu(elementary.read_bytes())
+        source_elementary = elementary.read_bytes()
+        damaged, _, _ = corrupt_rpu(source_elementary, malformed_rpu_index, frames)
+        source_rpus = [(start, end) for start, end, kind in annexb_nalus(source_elementary) if kind == 62]
+        damaged_rpus = [(start, end) for start, end, kind in annexb_nalus(damaged) if kind == 62]
+        changed_rpus = [
+            index for index, ((source_start, source_end), (damaged_start, damaged_end)) in enumerate(zip(source_rpus, damaged_rpus))
+            if source_elementary[source_start:source_end] != damaged[damaged_start:damaged_end]
+        ]
+        if len(damaged_rpus) != frames or changed_rpus != [malformed_rpu_index]:
+            raise ValueError(f"Expected only RPU {malformed_rpu_index + 1} to change, found {changed_rpus}")
         invalid_elementary = temporary / "p7-invalid.hevc"
         invalid_elementary.write_bytes(damaged)
         failed = subprocess.run(
@@ -238,32 +245,39 @@ def generate_invalid_fixture(output: Path, tool: str) -> dict[str, object]:
             capture_output=True, timeout=90,
         )
         if failed.returncode == 0:
-            raise ValueError("Corrupted second RPU unexpectedly converted successfully")
+            raise ValueError(f"Corrupted {phase} RPU unexpectedly converted successfully")
 
         raw_mp4 = temporary / "raw.mp4"
         configured_mp4 = temporary / "p7.mp4"
-        invalid_mkv = output / "p7-invalid-rpu.mkv"
+        invalid_mkv = output / container_name
         run([
             "ffmpeg", "-v", "error", "-y", "-r", "24", "-i", str(invalid_elementary),
-            "-f", "lavfi", "-i", f"sine=frequency=440:duration={FRAMES / FRAME_RATE}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
             "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-tag:v", "hvc1", str(raw_mp4),
         ])
         configured_mp4.write_bytes(add_configuration(
             raw_mp4.read_bytes(), compatibility=6, profile=7, level=6, enhancement_layer=True
         ))
         run(["ffmpeg", "-v", "error", "-y", "-i", str(configured_mp4), "-map", "0", "-c", "copy", str(invalid_mkv)])
+        expect_profile7(configured_mp4)
         expect_profile7(invalid_mkv)
+        if video_packet_count(invalid_mkv) != frames:
+            raise ValueError(f"Expected {frames} video packets in {container_name}")
         invalid_container = subprocess.run(
             [tool, "-m", "2", "convert", "--discard", "-i", str(invalid_mkv), "-o", str(temporary / "container-p81.hevc")],
             capture_output=True, timeout=90,
         )
         if invalid_container.returncode == 0:
-            raise ValueError("Container remux unexpectedly repaired the malformed second RPU")
+            raise ValueError(f"Container remux unexpectedly repaired the malformed {phase} RPU")
     return {
         "container": invalid_mkv.name,
+        "phase": phase,
         "firstRpuValid": True,
-        "secondRpuMalformed": True,
-        "frames": FRAMES,
+        "malformedRpuIndex": malformed_rpu_index + 1,
+        "unchangedRPUsBeforeMalformed": malformed_rpu_index,
+        "secondRpuMalformed": malformed_rpu_index == 1,
+        "lastRpuMalformed": malformed_rpu_index == frames - 1,
+        "frames": frames,
         "sha256": hashlib.sha256(invalid_mkv.read_bytes()).hexdigest(),
         "structuralOnly": True,
     }
@@ -271,12 +285,36 @@ def generate_invalid_fixture(output: Path, tool: str) -> dict[str, object]:
 
 def generate(output: Path, tool: str) -> None:
     output.mkdir(parents=True, exist_ok=True)
+    early_invalid = generate_invalid_fixture(
+        output, tool,
+        container_name="p7-invalid-rpu.mkv",
+        frames=FRAMES,
+        malformed_rpu_index=1,
+        phase="early",
+    )
+    final_invalid = generate_invalid_fixture(
+        output, tool,
+        container_name="p7-invalid-final-rpu.mkv",
+        frames=FRAMES,
+        malformed_rpu_index=FRAMES - 1,
+        phase="final-fragment",
+    )
+    eof_invalid = generate_invalid_fixture(
+        output, tool,
+        container_name="p7-invalid-eof-rpu.mkv",
+        frames=2,
+        malformed_rpu_index=1,
+        phase="short-eof",
+    )
     manifest = {
         "purpose": "Structural Profile 7 MEL/FEL metadata and conversion testing; not reference colour or FEL residual qualification",
         "doviTool": run([tool, "--version"]).decode().strip(),
         "ffmpeg": run(["ffmpeg", "-version"]).decode().splitlines()[0],
         "fixtures": [generate_variant(output, tool, kind, details) for kind, details in P7_VECTORS.items()],
-        "invalidRpu": generate_invalid_fixture(output, tool),
+        # Retained name for existing early-failure consumers.
+        "invalidRpu": early_invalid,
+        "invalidFinalRpu": final_invalid,
+        "invalidEOFRpu": eof_invalid,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 

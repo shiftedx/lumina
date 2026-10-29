@@ -185,15 +185,27 @@ LUMINA_DV7_INVALID_RPU_FIXTURE=/tmp/lumina-dolby-fixtures/p7/p7-invalid-rpu.mkv 
 mise exec -- swift test --package-path apple/Core --filter NativeVideoSourceTests
 ```
 
+The helper also generates final-segment regression fixtures: an eight-second
+source with 191 valid RPUs followed by one malformed RPU, and a two-frame source
+with a valid first RPU and malformed last RPU. Neither may inherit a clean or
+missing verdict after its final partial segment is produced:
+
+```sh
+LUMINA_DV7_INVALID_TAIL_FIXTURES=/tmp/lumina-dolby-fixtures/p7/p7-invalid-final-rpu.mkv:/tmp/lumina-dolby-fixtures/p7/p7-invalid-eof-rpu.mkv \
+mise exec -- swift test --package-path apple/Core \
+  --filter NativeVideoSourceTests.testProfile7FinalPartialSegmentRejectsInvalidConversion
+```
+
 The helper encodes eight-second synthetic base/enhancement video and AAC, then
 uses hash-pinned tiny P7 RPU vectors from dovi_tool 2.3.4. It records provenance,
 tool versions and hashes in its manifest. These are structural tests, not
 licensed reference movies or a color/fidelity qualification. Core checks cover
 P8.1 signaling, exact converted RPU sequences, removed EL, unchanged base VCL,
 normal/subtitle masters and independent seek fragments. A malformed RPU before
-an ordinary segment cut must fail validation. The engine publishes counters
-only at those cuts, so this is not all-file corruption detection; final partial
-segment statistics are a known limitation of the pinned engine.
+an ordinary segment cut, final fragment or EOF tail must fail validation. The
+engine publishes the tail snapshot after flushing; this remains structural
+conversion accounting rather than all-file corruption detection or a physical
+Dolby Vision qualification.
 
 ## Remote music startup benchmark
 

@@ -2564,6 +2564,7 @@ struct VideoCollectionView: View {
     let store: LuminaStore
     let initialSeasonID: String?
     let initialEpisodeID: String?
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var children: [MediaItem] = []
@@ -2697,6 +2698,7 @@ struct VideoCollectionView: View {
                 initialSeasonID: isSeriesCollection ? selectedSeasonID : item.id,
                 initialEpisodes: isSeriesCollection ? selectedSeasonEpisodes : children
             )
+            .preferredColorScheme(colorScheme)
         }
         .nativePlayback(request: $playbackRequest, store: store) {
             Task { await load() }
@@ -3139,7 +3141,7 @@ private struct EpisodeDownloadPicker: View {
 
     var body: some View {
         NavigationStack {
-            List(selection: $selectedIDs) {
+            List {
                 if seasons.count > 1 {
                     Section {
                         Picker("Season", selection: $seasonID) {
@@ -3148,6 +3150,7 @@ private struct EpisodeDownloadPicker: View {
                         .pickerStyle(.menu)
                         .accessibilityIdentifier("episodeDownloadSeasonPicker")
                     }
+                    .listRowBackground(LuminaTheme.paper)
                 }
                 Section {
                     if isLoading {
@@ -3155,20 +3158,40 @@ private struct EpisodeDownloadPicker: View {
                     } else if let errorMessage {
                         InlineErrorView(message: errorMessage) { retry += 1 }
                     } else if episodes.isEmpty {
-                        Text("No episodes are available in this season.").foregroundStyle(.secondary)
+                        Text("No episodes are available in this season.").foregroundStyle(LuminaTheme.muted)
                     } else {
                         ForEach(episodes) { episode in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(episode.name).font(.body)
-                                if !episode.displaySubtitle.isEmpty {
-                                    Text(episode.displaySubtitle).font(.caption).foregroundStyle(.secondary)
+                            Button {
+                                if !selectedIDs.insert(episode.id).inserted { selectedIDs.remove(episode.id) }
+                            } label: {
+                                HStack(spacing: 16) {
+                                    ZStack {
+                                        Circle().fill(selectedIDs.contains(episode.id) ? LuminaTheme.primaryControlFill : .clear)
+                                        Circle().strokeBorder(LuminaTheme.muted, lineWidth: selectedIDs.contains(episode.id) ? 0 : 1.5)
+                                        if selectedIDs.contains(episode.id) {
+                                            LuminaIcon(glyph: .check, size: 16)
+                                                .foregroundStyle(LuminaTheme.onPrimaryControl)
+                                        }
+                                    }
+                                    .frame(width: 24, height: 24)
+                                    .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(episode.name).font(.body)
+                                        if !episode.displaySubtitle.isEmpty {
+                                            Text(episode.displaySubtitle).font(.caption).foregroundStyle(LuminaTheme.muted)
+                                        }
+                                        if let status = status(for: episode) {
+                                            Text(status).font(.caption).foregroundStyle(LuminaTheme.muted)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
                                 }
-                                if let status = status(for: episode) {
-                                    Text(status).font(.caption).foregroundStyle(.secondary)
-                                }
+                                .frame(minHeight: 44)
+                                .contentShape(.rect)
                             }
-                            .tag(episode.id)
-                            .selectionDisabled(!canDownload(episode))
+                            .buttonStyle(.plain)
+                            .disabled(!canDownload(episode))
+                            .accessibilityAddTraits(selectedIDs.contains(episode.id) ? .isSelected : [])
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("episodeDownload-\(episode.id)")
                         }
@@ -3176,27 +3199,34 @@ private struct EpisodeDownloadPicker: View {
                 } header: {
                     HStack {
                         Text(seasons.first { $0.id == seasonID }?.name ?? "Episodes")
+                            .font(LuminaTheme.editorial(26, relativeTo: .title2))
+                            .foregroundStyle(LuminaTheme.ink)
                         Spacer()
                         Button(wholeSeasonSelected ? "Deselect season" : "Select whole season") {
                             if wholeSeasonSelected { selectedIDs.subtract(selectableIDs) }
                             else { selectedIDs.formUnion(selectableIDs) }
                         }
-                        .buttonStyle(.borderless)
-                        .frame(minHeight: 44)
+                        .buttonStyle(LuminaQuietActionStyle())
                         .disabled(isLoading || selectableIDs.isEmpty)
                         .accessibilityIdentifier("selectDownloadSeasonButton")
                     }
                 } footer: {
                     Text("Selections are kept when you change seasons. Downloaded and queued episodes are already saved or in progress.")
+                        .foregroundStyle(LuminaTheme.muted)
                 }
+                .listRowBackground(LuminaTheme.paper)
                 Section {
                     Text("\(selectedEpisodes.count) selected")
                         .accessibilityIdentifier("episodeDownloadSelectionCount")
                     Text("Videos are saved at original quality. Manage progress, cancellation and storage in Downloads.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(LuminaTheme.muted)
                 }
+                .listRowBackground(LuminaTheme.paper)
             }
-            .environment(\.editMode, .constant(.active))
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LuminaTheme.paper.ignoresSafeArea())
+            .foregroundStyle(LuminaTheme.ink)
             .navigationTitle("Episodes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3216,6 +3246,8 @@ private struct EpisodeDownloadPicker: View {
             .task(id: "\(seasonID):\(retry)") { await loadSeason() }
             .accessibilityIdentifier("episodeDownloadPicker")
         }
+        .tint(LuminaTheme.ink)
+        .presentationBackground(LuminaTheme.paper)
     }
 
     private func canDownload(_ episode: MediaItem) -> Bool {

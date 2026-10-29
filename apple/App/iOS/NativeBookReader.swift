@@ -229,14 +229,6 @@ struct NativeBookReader: View {
             }
             .ignoresSafeArea(.container, edges: !controlsVisible && !isProse ? .all : [])
             .background(Color(uiColor: .systemBackground))
-            .overlay(alignment: .bottomTrailing) {
-                if !controlsVisible && !isProse {
-                    Group {
-                        if #available(iOS 26, *) { showControlsButton.buttonStyle(.glass) }
-                        else { showControlsButton.buttonStyle(.bordered) }
-                    }.padding(8)
-                }
-            }
             .toolbarVisibility(controlsVisible ? .visible : .hidden, for: .navigationBar)
             .toolbarVisibility(controlsVisible || isProse ? .visible : .hidden, for: .bottomBar)
             .statusBarHidden(!controlsVisible)
@@ -323,6 +315,7 @@ struct NativeBookReader: View {
         if primary, let error = model.error {
             ContentUnavailableView { Label("Unable to load page", systemImage: "book.closed") } description: { Text(error) } actions: {
                 Button("Retry") { if model.manifest == nil { Task { await model.open() } } else { retry += 1 } }
+                Button("Reading controls") { controlsVisible = true }
             }
         } else if let manifest = model.manifest {
             if manifest.book.format == "epub", let document = model.document {
@@ -333,10 +326,10 @@ struct NativeBookReader: View {
                 let index = primary ? (spread ? BookSpread.primary(current: model.unit, count: manifest.count, rightToLeft: manifest.readingDirection == "rtl") : model.unit) : BookSpread.companion(current: model.unit, count: manifest.count, rightToLeft: manifest.readingDirection == "rtl")
                 if let index, let image = model.images[index] {
                     NativeBookImagePage(image: image, label: "Page \(index + 1) of \(manifest.count)", pageID: "\(model.id):\(index)", fillDisplay: fillArtwork, rightToLeft: manifest.readingDirection == "rtl", onTurn: turnPage, onControls: { controlsVisible.toggle() })
-                } else if index != nil { ProgressView("Loading page…") }
+                } else if index != nil { ProgressView("Loading page…").onTapGesture { controlsVisible.toggle() } }
                 else { bookend }
             } else if primary { ProgressView("Typesetting chapter…") }
-        } else if primary { ProgressView("Opening book…") }
+        } else if primary { ProgressView("Opening book…").onTapGesture { controlsVisible.toggle() } }
     }
     @ViewBuilder private var bookend: some View {
         if let covers {
@@ -699,7 +692,8 @@ private final class BookCurlLeafController: UIHostingController<AnyView> {
          spineInset: CGFloat, physicalRight: Bool, load: @escaping (Int, CGSize) async throws -> UIImage, onTurn: @escaping (Bool) -> Void,
          onControls: @escaping () -> Void, onZoom: @escaping (Bool) -> Void) {
         self.index = index; self.physicalRight = physicalRight
-        super.init(rootView: AnyView(ProgressView("Loading page…").frame(maxWidth: .infinity, maxHeight: .infinity)))
+        super.init(rootView: AnyView(ProgressView("Loading page…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle()).onTapGesture(perform: onControls)))
         view.backgroundColor = .systemBackground
         guard (0..<count).contains(index) else {
             rootView = AnyView(Color(uiColor: .systemBackground)); return
@@ -723,6 +717,7 @@ private final class BookCurlLeafController: UIHostingController<AnyView> {
                         Label("Unable to load page", systemImage: "book.closed")
                     } description: { Text(error.localizedDescription) } actions: {
                         Button("Retry") { [weak controller] in controller?.reload?() }
+                        Button("Reading controls", action: onControls)
                     })
                 }
             }

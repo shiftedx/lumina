@@ -43,6 +43,16 @@ class DirectProfile:
     containers: frozenset[str]
     video: frozenset[str]  # ANY = any codec; empty = audio-only profile
     audio: frozenset[str]
+    # None preserves the pre-extension behavior for a profile posted by an
+    # older client. An empty tuple is an explicit denial for this exact row.
+    dolby_vision: tuple["DolbyVisionCap", ...] | None = None
+
+
+@dataclass(frozen=True)
+class DolbyVisionCap:
+    profile: int
+    compatibility_ids: frozenset[int]
+    max_level: int
 
 
 @dataclass(frozen=True)
@@ -121,6 +131,53 @@ def _profile_matches(profile: DirectProfile, tokens: set[str], video: str | None
         (profile.containers == ANY or bool(tokens & profile.containers))
         and (video is None or profile.video == ANY or video in profile.video)
         and (audio is None or profile.audio == ANY or audio in profile.audio)
+    )
+
+
+def _dolby_vision_source_is_single_layer(video: Mapping[str, Any]) -> bool:
+    """Only a fully probed, 10-bit single-layer HEVC source can use the opt-in path."""
+    return (
+        video.get("codec") == "hevc"
+        and bit_depth(video) == 10
+        and video.get("dv_profile") in {5, 8}
+        and isinstance(video.get("dv_compat"), int)
+        and not isinstance(video.get("dv_compat"), bool)
+        and isinstance(video.get("dv_level"), int)
+        and not isinstance(video.get("dv_level"), bool)
+        and 1 <= video["dv_level"] <= 9
+        and video.get("dv_rpu_present") is True
+        and video.get("dv_el_present") is False
+        and video.get("dv_bl_present") is True
+    )
+
+
+def _dolby_vision_matches(profile: DirectProfile, video: Mapping[str, Any] | None) -> bool:
+    """A present Lumina declaration is a strict direct-play gate for Dolby Vision."""
+    if video is None or video.get("dv_profile") is None:
+        return True
+    if profile.dolby_vision is None:  # Legacy DeviceProfile: retain its base-layer behavior.
+        return True
+    if not _dolby_vision_source_is_single_layer(video):
+        return False
+    return any(
+        cap.profile == video["dv_profile"]
+        and video["dv_compat"] in cap.compatibility_ids
+        and video["dv_level"] <= cap.max_level
+        for cap in profile.dolby_vision
+    )
+
+
+def _is_dolby_vision_direct_candidate(
+    profiles: Iterable[DirectProfile], tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+) -> bool:
+    """A matching opt-in may supersede only the generic DOVI range condition."""
+    if video is None or video.get("dv_profile") is None:
+        return False
+    return any(
+        _profile_matches(profile, tokens, video.get("codec"), audio and audio.get("codec"))
+        and _dolby_vision_matches(profile, video)
+        and profile.dolby_vision is not None
+        for profile in profiles
     )
 
 
@@ -242,11 +299,20 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     secondary = audio is not None and audio is not default_audio and not client.selects_audio
     reasons = video_reasons + codec_reasons + (["SecondaryAudioNotSupported"] if secondary else [])
     tokens = _container_tokens(facts)
-    playable = any(_profile_matches(p, tokens, video and video.get("codec"), audio and audio.get("codec")) for p in client.direct)
+    direct_dovi = _is_dolby_vision_direct_candidate(client.direct, tokens, video, audio)
+    playable = any(
+        _profile_matches(profile, tokens, video and video.get("codec"), audio and audio.get("codec"))
+        and _dolby_vision_matches(profile, video)
+        for profile in client.direct
+    )
     indexes = {"video_index": video.get("index") if video else None, "audio_index": audio.get("index") if audio else None}
     if video is None and bitrate_cap and ((facts.get("bit_rate") or 0) > bitrate_cap or (limits.require_known_bitrate and not facts.get("bit_rate"))):
         return Decision("unavailable", reasons=("ContainerBitrateExceedsLimit",))
-    if not reasons and playable:
+    # An explicit Dolby Vision row authorizes only its direct candidate. Its
+    # range exception must not escape into an HLS/remux fallback after another
+    # constraint (audio, subtitle, or selected track) rejects direct play.
+    direct_reasons = [reason for reason in reasons if not (direct_dovi and reason == "VideoRangeTypeNotSupported")]
+    if not direct_reasons and playable:
         return Decision("direct", video="copy" if video else None, audio="copy" if audio else None, **indexes)
     if not reasons:
         reasons.append("ContainerNotSupported")
@@ -369,8 +435,31 @@ def _number(value: Any) -> int | None:
         return None
 
 
+def _strict_int(value: Any, *, lower: int, upper: int) -> int | None:
+    return value if type(value) is int and lower <= value <= upper else None
+
+
 def _dicts(value: Any) -> list[dict[str, Any]]:
     return [entry for entry in value if isinstance(entry, dict)] if isinstance(value, list) else []
+
+
+def _dolby_vision_caps(value: Any) -> tuple[DolbyVisionCap, ...]:
+    """Parse Lumina's bounded per-DirectPlayProfile declaration, failing closed."""
+    caps: list[DolbyVisionCap] = []
+    for entry in _dicts(value):
+        profile = _strict_int(entry.get("Profile"), lower=1, upper=9)
+        max_level = _strict_int(entry.get("MaxLevel"), lower=1, upper=9)
+        ids = entry.get("CompatibilityIDs")
+        compatibility_ids = (
+            frozenset(ids)
+            if isinstance(ids, list) and all(type(item) is int and 0 <= item <= 9 for item in ids)
+            else frozenset()
+        )
+        if profile == 5 and compatibility_ids == frozenset({0}) and max_level is not None:
+            caps.append(DolbyVisionCap(profile, compatibility_ids, max_level))
+        elif profile == 8 and compatibility_ids and compatibility_ids <= frozenset({1, 4}) and max_level is not None:
+            caps.append(DolbyVisionCap(profile, compatibility_ids, max_level))
+    return tuple(caps)
 
 
 _CAP_FIELDS = {"Width": "max_width", "Height": "max_height", "VideoBitDepth": "max_bit_depth"}
@@ -392,7 +481,8 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
             continue
         vids = (_tokens(entry.get("VideoCodec")) or ANY) if entry.get("Type") == "Video" else frozenset()
         auds = _tokens(entry.get("AudioCodec")) or ANY
-        direct.append(DirectProfile(_tokens(entry.get("Container")) or ANY, vids, auds))
+        dovi = None if "LuminaDolbyVisionProfiles" not in entry else _dolby_vision_caps(entry.get("LuminaDolbyVisionProfiles"))
+        direct.append(DirectProfile(_tokens(entry.get("Container")) or ANY, vids, auds, dovi))
         video_codecs |= vids
         audio |= auds
     transcode_video: set[str] = set()

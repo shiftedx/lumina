@@ -25,9 +25,13 @@ def test_roku_audio_conversion_respects_aac_specific_channel_limit(source_codec:
     assert decision.audio_channels == 2
 
 
-def v(codec="h264", height=1080, width=1920, pix_fmt="yuv420p", transfer=None, dv=None, compat=None, index=0):
+def v(
+    codec="h264", height=1080, width=1920, pix_fmt="yuv420p", transfer=None, dv=None, compat=None,
+    dv_level=None, rpu=None, el=None, bl=None, index=0,
+):
     return {"index": index, "type": "video", "codec": codec, "height": height, "width": width, "pix_fmt": pix_fmt,
-            "color_transfer": transfer, "dv_profile": dv, "dv_compat": compat, "default": True}
+            "color_transfer": transfer, "dv_profile": dv, "dv_compat": compat, "dv_level": dv_level,
+            "dv_rpu_present": rpu, "dv_el_present": el, "dv_bl_present": bl, "default": True}
 
 
 def a(codec="aac", channels=2, index=1, default=True, bit_depth=16):
@@ -49,6 +53,114 @@ def hdr_v(*, transfer="smpte2084", **kwargs):
 
 
 MKV, MP4, AVI = "matroska,webm", "mov,mp4,m4a,3gp,3g2,mj2", "avi"
+
+
+def dovi_client(entries: object, *, range_: str = "SDR"):
+    return caps_from_device_profile({
+        "DirectPlayProfiles": [
+            {"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "hevc", "AudioCodec": "aac",
+             "LuminaDolbyVisionProfiles": entries},
+            {"Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+             "LuminaDolbyVisionProfiles": []},
+        ],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": range_},
+        ]}],
+    })
+
+
+def dovi_source(profile: int, compatibility: int, *, level: int | None = 9, rpu: bool | None = True,
+                el: bool | None = False, bl: bool | None = True):
+    return v("hevc", pix_fmt="yuv420p10le", dv=profile, compat=compatibility, dv_level=level, rpu=rpu, el=el, bl=bl)
+
+
+@pytest.mark.parametrize(("source", "entries"), [
+    (dovi_source(5, 0), [{"Profile": 5, "CompatibilityIDs": [0], "MaxLevel": 9}]),
+    (dovi_source(8, 1), [{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 9}]),
+    (dovi_source(8, 4), [{"Profile": 8, "CompatibilityIDs": [4], "MaxLevel": 9}]),
+])
+def test_lumina_dolby_vision_direct_play_is_exact_and_overrides_only_its_range_check(source: dict, entries: list[dict]) -> None:
+    decision = decide(dovi_client(entries), facts(MP4, source, a()))
+
+    assert (decision.mode, decision.video, decision.reasons) == ("direct", "copy", ())
+    # The qualified client packaging route opts in independently on its MKV
+    # row. An MP4 declaration alone must not grant this original-file route.
+    mkv_row = {"Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+               "LuminaDolbyVisionProfiles": entries}
+    caps = dovi_client(entries)
+    mkv_caps = replace(caps, direct=caps.direct + caps_from_device_profile({"DirectPlayProfiles": [mkv_row]}).direct)
+    assert decide(mkv_caps, facts(MKV, source, a())).mode == "direct"
+    assert decide(caps, facts(MKV, source, a())).mode != "direct"
+
+
+def test_dolby_vision_direct_range_exception_never_leaks_to_hls_after_audio_subtitle_or_track_failure() -> None:
+    caps = dovi_client([{"Profile": 5, "CompatibilityIDs": [0], "MaxLevel": 9}])
+    source = dovi_source(5, 0)
+
+    limited_audio = decide(replace(caps, max_channels=2), facts(MP4, source, a("aac", 8)))
+    burned_subtitle = decide(replace(caps, image_subtitles=False), facts(MP4, source, a(), s("hdmv_pgs_subtitle")), subtitle_index=2)
+    secondary_audio = decide(
+        replace(caps, selects_audio=False), facts(MP4, source, a(), a(index=2, default=False)), audio_index=2,
+    )
+
+    for decision in (limited_audio, burned_subtitle, secondary_audio):
+        assert decision.mode != "direct"
+        assert decision.video != "copy"
+
+
+@pytest.mark.parametrize("source", [
+    dovi_source(7, 1),
+    dovi_source(8, 1, level=None),
+    dovi_source(8, 1, level=10),
+    dovi_source(8, 1, rpu=False),
+    dovi_source(8, 1, el=True),
+    dovi_source(8, 1, bl=False),
+])
+def test_lumina_dolby_vision_declaration_fails_closed_for_unqualified_source(source: dict) -> None:
+    decision = decide(dovi_client([{"Profile": 8, "CompatibilityIDs": [1, 4], "MaxLevel": 9}]), facts(MP4, source, a()))
+
+    assert decision.mode != "direct"
+    assert "VideoRangeTypeNotSupported" in decision.reasons
+
+
+def test_lumina_dolby_vision_is_scoped_to_the_declaring_direct_profile() -> None:
+    caps = dovi_client([{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 9}])
+
+    mkv = decide(caps, facts(MKV, dovi_source(8, 1), a()))
+    audio_mismatch = decide(caps, facts(MP4, dovi_source(8, 1), a("eac3")))
+
+    assert mkv.mode != "direct"
+    assert audio_mismatch.mode != "direct"
+    assert "VideoRangeTypeNotSupported" in audio_mismatch.reasons
+
+
+def test_explicit_dolby_vision_profile_seven_keeps_the_existing_base_layer_hls_fallback() -> None:
+    caps = dovi_client([{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 9}], range_="HDR10")
+
+    decision = decide(caps, facts(MP4, dovi_source(7, 1), a()))
+
+    assert (decision.mode, decision.video, decision.reasons) == ("remux", "copy", ("ContainerNotSupported",))
+
+
+@pytest.mark.parametrize("entries", [[], [{"Profile": 8, "CompatibilityIDs": [2], "MaxLevel": 9}],
+                                      [{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 10}],
+                                      [{"Profile": True, "CompatibilityIDs": [1], "MaxLevel": 9}],
+                                      [{"Profile": 8, "CompatibilityIDs": [1, True], "MaxLevel": 9}]])
+def test_lumina_dolby_vision_invalid_or_empty_declaration_denies_only_that_row(entries: object) -> None:
+    decision = decide(dovi_client(entries), facts(MP4, dovi_source(8, 1), a()))
+
+    assert decision.mode != "direct"
+
+
+def test_missing_lumina_dolby_vision_declaration_preserves_legacy_base_layer_behavior() -> None:
+    caps = caps_from_device_profile({
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "hevc", "AudioCodec": "aac"}],
+    })
+
+    decision = decide(caps, facts(MP4, dovi_source(8, 1), a()))
+
+    assert decision.mode == "direct"
 
 
 @pytest.mark.parametrize("tonemap", ["cuda", "opencl", "vpp_qsv", "software", "none"])

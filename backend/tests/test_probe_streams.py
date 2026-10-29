@@ -23,7 +23,9 @@ RAW = {
     "streams": [
         {"index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 153, "width": 3840, "height": 2160,
          "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv", "avg_frame_rate": "24000/1001", "disposition": {"default": 1},
-         "side_data_list": [{"side_data_type": "DOVI configuration record", "dv_profile": 8, "dv_bl_signal_compatibility_id": 1}]},
+         "side_data_list": [{"side_data_type": "DOVI configuration record", "dv_profile": 8, "dv_level": 9,
+                              "rpu_present_flag": 1, "el_present_flag": 0, "bl_present_flag": 1,
+                              "dv_bl_signal_compatibility_id": 1}]},
         {"index": 1, "codec_type": "audio", "codec_name": "truehd", "channels": 8, "channel_layout": "7.1", "sample_rate": "48000",
          "tags": {"language": "eng", "title": "Atmos"}, "disposition": {"default": 1}},
         {"index": 2, "codec_type": "audio", "codec_name": "aac", "channels": 2, "bit_rate": "192000", "tags": {"language": "und"}},
@@ -47,7 +49,8 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
         "default": True, "forced": False, "hearing_impaired": False, "width": 3840, "height": 2160, "channels": None,
         "channel_layout": None, "sample_rate": None, "bit_rate": None, "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084",
         "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv",
-        "frame_rate": 23.976, "dv_profile": 8, "dv_compat": 1, "hdr10": False, "hdr10plus": False,
+        "frame_rate": 23.976, "dv_profile": 8, "dv_compat": 1, "dv_level": 9,
+        "dv_rpu_present": True, "dv_el_present": False, "dv_bl_present": True, "hdr10": False, "hdr10plus": False,
     }
     assert (truehd["language"], truehd["title"], truehd["channels"], truehd["sample_rate"], truehd["default"]) == ("eng", "Atmos", 8, 48000, True)
     assert (aac["language"], aac["bit_rate"], aac["default"]) == (None, 192000, False)  # "und" is no language

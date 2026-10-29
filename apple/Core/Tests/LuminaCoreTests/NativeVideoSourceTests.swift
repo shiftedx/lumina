@@ -1,5 +1,6 @@
 #if os(macOS)
 import AVFoundation
+import CryptoKit
 import CoreVideo
 import Foundation
 import XCTest
@@ -428,6 +429,267 @@ final class NativeVideoSourceTests: XCTestCase {
         let replay = try await owner.prepare(url: source, usesClientDemux: true)
         XCTAssertNotEqual((replay.asset as? AVURLAsset)?.url, playlist)
         await owner.stop().value
+    }
+
+    /// Opt-in evidence for the exact MKV -> Prism -> AVPlayer master route.
+    /// The public Apple source carries a real Profile 5 RPU, which ffmpeg cannot
+    /// synthesize. This only inspects the bytes and independent seek fragments;
+    /// it deliberately does not claim that this Mac's display presents Dolby
+    /// Vision. See `apple/scripts/qualify_dv5_fixture.py`.
+    func testPublicDV5MKVRetainsMasterInitAndRPUsThroughSubtitleMaster() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV5_MKV_FIXTURE"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV5_MKV_FIXTURE to the bounded public Apple DV5 MKV fixture")
+        }
+        try await assertDolbyVisionFixture(
+            URL(fileURLWithPath: value), expectedPrimaryCodec: "dvh1.05.", expectedRange: "PQ",
+            expectedSupplementalCodec: nil, expectedCompatibility: "0", withExternalSubtitle: false
+        )
+        try await assertDolbyVisionFixture(
+            URL(fileURLWithPath: value), expectedPrimaryCodec: "dvh1.05.", expectedRange: "PQ",
+            expectedSupplementalCodec: nil, expectedCompatibility: "0", withExternalSubtitle: true
+        )
+    }
+
+    /// These fixtures are generated with genuine Profile 8 RPU data by the
+    /// local dovi_tool qualifier. They exercise metadata delivery only, not
+    /// graded Dolby Vision output or display presentation.
+    func testSyntheticDV8MKVsRetainMasterInitAndRPUsThroughSubtitleMaster() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV8_MKV_FIXTURES"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV8_MKV_FIXTURES to the generated dv8-1.mkv:dv8-4.mkv files")
+        }
+        let fixtures = value.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        guard fixtures.count == 2 else {
+            XCTFail("LUMINA_DV8_MKV_FIXTURES must contain dv8-1 then dv8-4")
+            return
+        }
+        try await assertDolbyVisionFixture(
+            fixtures[0], expectedPrimaryCodec: "hvc1.", expectedRange: "PQ",
+            expectedSupplementalCodec: "dvh1.08.01/db1p", expectedCompatibility: "1", withExternalSubtitle: false
+        )
+        try await assertDolbyVisionFixture(
+            fixtures[0], expectedPrimaryCodec: "hvc1.", expectedRange: "PQ",
+            expectedSupplementalCodec: "dvh1.08.01/db1p", expectedCompatibility: "1", withExternalSubtitle: true
+        )
+        try await assertDolbyVisionFixture(
+            fixtures[1], expectedPrimaryCodec: "hvc1.", expectedRange: "HLG",
+            expectedSupplementalCodec: "dvh1.08.01/db4h", expectedCompatibility: "4", withExternalSubtitle: false
+        )
+        try await assertDolbyVisionFixture(
+            fixtures[1], expectedPrimaryCodec: "hvc1.", expectedRange: "HLG",
+            expectedSupplementalCodec: "dvh1.08.01/db4h", expectedCompatibility: "4", withExternalSubtitle: true
+        )
+    }
+
+    private func assertDolbyVisionFixture(
+        _ fixture: URL, expectedPrimaryCodec: String, expectedRange: String,
+        expectedSupplementalCodec: String?, expectedCompatibility: String, withExternalSubtitle: Bool
+    ) async throws {
+        guard FileManager.default.isReadableFile(atPath: fixture.path) else {
+            throw XCTSkip("Missing local Dolby Vision MKV fixture: \(fixture.lastPathComponent)")
+        }
+        let sourceConfiguration = try doviConfiguration(in: fixture)
+        XCTAssertEqual(sourceConfiguration["dv_bl_signal_compatibility_id"], expectedCompatibility)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let subtitle = directory.appendingPathComponent("dv.vtt")
+        try "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nDV fixture\n".write(
+            to: subtitle, atomically: true, encoding: .utf8
+        )
+        let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+        defer { owner.stop() }
+        let item = try await owner.prepare(
+            url: fixture,
+            usesClientDemux: true,
+            externalSubtitles: withExternalSubtitle
+                ? [.init(fileURL: subtitle, language: "en", name: "DV fixture")]
+                : []
+        )
+        let masterURL = try XCTUnwrap((item.asset as? AVURLAsset)?.url)
+        let master = try await text(at: masterURL)
+        XCTAssertTrue(master.contains("CODECS=\"\(expectedPrimaryCodec)"), "The Dolby Vision primary must remain in the master")
+        XCTAssertTrue(master.contains("VIDEO-RANGE=\(expectedRange)"), "The master must retain its dynamic-range claim")
+        if let expectedSupplementalCodec {
+            XCTAssertTrue(master.contains("SUPPLEMENTAL-CODECS=\"\(expectedSupplementalCodec)\""),
+                          "The Profile 8 supplemental declaration must retain its compatibility brand")
+        }
+        if withExternalSubtitle {
+            XCTAssertTrue(master.contains("SUBTITLES="), "Adding an external subtitle must not replace Prism's master")
+        } else {
+            XCTAssertFalse(master.contains("SUBTITLES="), "The normal Prism master must not require the sidecar wrapper")
+        }
+
+        let mediaURL = try hlsVariant(master, relativeTo: masterURL)
+        let media = try await text(at: mediaURL)
+        let initURL = try hlsMap(media, relativeTo: mediaURL)
+        let segments = try hlsSegments(media, relativeTo: mediaURL)
+        let initialization = try await bytes(at: initURL)
+        XCTAssertTrue(contains(initialization, Data(expectedPrimaryCodec.prefix(4).utf8)))
+        XCTAssertTrue(contains(initialization, Data("dvcC".utf8)) || contains(initialization, Data("dvvC".utf8)))
+
+        let sourceRPUs = try rpuHashes(in: fixture, directory: directory, name: "source")
+        XCTAssertFalse(sourceRPUs.isEmpty, "The Dolby Vision source must carry RPU NAL units")
+        XCTAssertEqual(sourceRPUs.count, try videoPacketCount(in: fixture),
+                       "The bounded fixture must carry one RPU per video packet")
+        var deliveredRPUs: [Data] = []
+        for (index, segment) in segments.enumerated() {
+            let fragment = try await bytes(at: segment)
+            let seekTarget = directory.appendingPathComponent("seek-\(index).mp4")
+            try (initialization + fragment).write(to: seekTarget, options: .atomic)
+            // Every independent HLS fragment is the byte-level seek target. A
+            // fresh demux verifies it can start without an earlier fragment.
+            try runFFmpeg(["-v", "error", "-nostdin", "-i", seekTarget.path, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"])
+            let fragmentRPUs = try rpuHashes(in: seekTarget, directory: directory, name: "segment-\(index)")
+            XCTAssertFalse(fragmentRPUs.isEmpty, "Seek fragment \(index) lost its Dolby Vision RPU")
+            XCTAssertEqual(fragmentRPUs.count, try videoPacketCount(in: seekTarget),
+                           "Seek fragment \(index) must retain one RPU per video packet")
+            deliveredRPUs.append(contentsOf: fragmentRPUs)
+            XCTAssertEqual(try doviConfiguration(in: seekTarget), sourceConfiguration,
+                           "Seek fragment \(index) changed the Dolby Vision configuration record")
+        }
+        XCTAssertEqual(deliveredRPUs, sourceRPUs,
+                       "The complete HLS delivery changed, dropped, or reordered a Dolby Vision RPU")
+    }
+
+    private func text(at url: URL) async throws -> String {
+        String(decoding: try await bytes(at: url), as: UTF8.self)
+    }
+
+    private func bytes(at url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Expected a Prism loopback response")
+        return data
+    }
+
+    private func hlsVariant(_ master: String, relativeTo masterURL: URL) throws -> URL {
+        let lines = master.split(whereSeparator: \.isNewline).map(String.init)
+        guard let index = lines.firstIndex(where: { $0.hasPrefix("#EXT-X-STREAM-INF:") }),
+              let name = lines.dropFirst(index + 1).first(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
+              let url = URL(string: name, relativeTo: masterURL)?.absoluteURL else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing Prism media variant"])
+        }
+        return url
+    }
+
+    private func hlsMap(_ media: String, relativeTo mediaURL: URL) throws -> URL {
+        guard let line = media.split(whereSeparator: \.isNewline).map(String.init).first(where: { $0.hasPrefix("#EXT-X-MAP:") }),
+              let range = line.range(of: "URI=\"") else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing HLS init map"])
+        }
+        let raw = line[range.upperBound...].prefix { $0 != "\"" }
+        guard let url = URL(string: String(raw), relativeTo: mediaURL)?.absoluteURL else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid HLS init map"])
+        }
+        return url
+    }
+
+    private func hlsSegments(_ media: String, relativeTo mediaURL: URL) throws -> [URL] {
+        let names = media.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        guard !names.isEmpty else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 4, userInfo: [NSLocalizedDescriptionKey: "No independent HLS segments"])
+        }
+        return try names.map {
+            guard let url = URL(string: $0, relativeTo: mediaURL)?.absoluteURL else {
+                throw NSError(domain: "NativeVideoSourceTests", code: 5, userInfo: [NSLocalizedDescriptionKey: "Invalid HLS segment"])
+            }
+            return url
+        }
+    }
+
+    private func rpuHashes(in source: URL, directory: URL, name: String) throws -> [Data] {
+        let elementary = directory.appendingPathComponent("\(name).hevc")
+        try runFFmpeg(["-v", "error", "-nostdin", "-y", "-i", source.path, "-map", "0:v:0", "-c", "copy", "-bsf:v", "hevc_mp4toannexb", elementary.path])
+        return annexBRPUs(try Data(contentsOf: elementary))
+    }
+
+    private func runFFmpeg(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ffmpeg"] + arguments
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            XCTFail("ffmpeg must inspect a stream-copy fragment (exit \(process.terminationStatus))")
+            throw NSError(domain: "NativeVideoSourceTests", code: 6,
+                          userInfo: [NSLocalizedDescriptionKey: "ffmpeg inspection failed"])
+        }
+    }
+
+    private func contains(_ data: Data, _ needle: Data) -> Bool {
+        data.range(of: needle) != nil
+    }
+
+    private func doviConfiguration(in source: URL) throws -> [String: String] {
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_side_data", "-of", "json", source.path]
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              let root = try JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any],
+              let stream = (root["streams"] as? [[String: Any]])?.first,
+              let dovi = (stream["side_data_list"] as? [[String: Any]])?.first(where: { $0["side_data_type"] as? String == "DOVI configuration record" }) else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 7,
+                          userInfo: [NSLocalizedDescriptionKey: "Missing Dolby Vision configuration record"])
+        }
+        let keys = ["dv_profile", "dv_level", "rpu_present_flag", "el_present_flag", "bl_present_flag", "dv_bl_signal_compatibility_id"]
+        var result: [String: String] = [:]
+        for key in keys {
+            guard let value = dovi[key] else {
+                throw NSError(domain: "NativeVideoSourceTests", code: 8,
+                              userInfo: [NSLocalizedDescriptionKey: "Dolby Vision configuration lacks \(key)"])
+            }
+            result[key] = String(describing: value)
+        }
+        return result
+    }
+
+    private func videoPacketCount(in source: URL) throws -> Int {
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets",
+                             "-show_entries", "stream=nb_read_packets", "-of", "default=nw=1:nk=1", source.path]
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+        let value = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0, let count = Int(value) else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 9,
+                          userInfo: [NSLocalizedDescriptionKey: "Unable to count video packets"])
+        }
+        return count
+    }
+
+    private func annexBRPUs(_ data: Data) -> [Data] {
+        let bytes = Array(data)
+        var starts: [(offset: Int, length: Int)] = []
+        var index = 0
+        while index + 3 < bytes.count {
+            if bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 1 {
+                starts.append((index, 3)); index += 3
+            } else if index + 4 < bytes.count, bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 0, bytes[index + 3] == 1 {
+                starts.append((index, 4)); index += 4
+            } else {
+                index += 1
+            }
+        }
+        var result: [Data] = []
+        for (ordinal, start) in starts.enumerated() {
+            let lower = start.offset + start.length
+            let upper = ordinal + 1 < starts.count ? starts[ordinal + 1].offset : bytes.count
+            guard lower + 1 < upper else { continue }
+            let nal = Data(bytes[lower..<upper])
+            guard ((nal[nal.startIndex] >> 1) & 0x3f) == 62 else { continue }
+            result.append(Data(SHA256.hash(data: nal)))
+        }
+        return result
     }
 }
 #endif

@@ -45,6 +45,34 @@ independent seek fragment and compare its configuration and packet-level RPU
 sequence with the source. This is stream-copy delivery, not Dolby Vision
 re-encoding, Profile 7 conversion, or physical-display certification.
 
+Profile 7 has a separate MKV-only packaging declaration,
+`LuminaDolbyVisionPackagingConversions`. The accepted shape is source profile
+7/compatibility 6 to target profile 8/compatibility 1, with a bounded `MaxLevel`
+and explicit `EnhancementLayerDisposition: "dropped"`. It requires Main 10
+HEVC and fully probed RPU/base/enhancement-layer flags. Native clients emit it
+only with the existing Profile 8.1 decoder/output capability and a build that
+includes the pinned engine's Libdovi converter. Original-preservation profiles,
+MP4 and server HLS do not inherit this permission. Other quality, track, audio
+and subtitle constraints remain in force.
+
+Prism's mode-2 conversion rewrites P7 RPUs to single-layer P8.1, removes EL
+NALs and copies the base pictures. It does not distinguish MEL from FEL; FEL
+enhancement precision is lost. The playback-info row describes that conversion
+and explicitly says the enhancement layer is omitted. This is not full P7/FEL
+decoding or a lossless Dolby Vision preservation claim.
+
+`NativeVideoSource` exposes the pinned engine's produced-segment conversion
+verdict. Non-clean evidence, including zero converted RPUs or zero removed EL
+NALs, fails validation. The existing one-second playback callback samples this
+evidence with source/request identity guards; known failures pause playback and
+can use one compatible retry even after advancement, retaining position and
+selected options. Playback/rate guards keep a known-bad source paused if that
+replacement fails. This is observation, not an atomic all-file preflight:
+Prism 3.8.1 publishes statistics at ordinary segment cuts, and its final partial
+segment does not refresh them. Corruption visible only there can escape this
+counter-based check. Separate-track EL inputs and physical output still need
+qualification; the strict conversion verdict may retain their server fallback.
+
 Subtitle timing uses Prism’s existing bounded offset before session start; positive values show text later. Timing changes replace candidates transactionally so AVPlayer cannot retain subtitle segments produced with the old offset. Selected server-HLS WebVTT sidecars are staged with adjusted cue timing. This does not add a caption overlay or change burned-in/bitmap captions. Quality ceilings use the existing server PlaybackInfo decision and preserve this native decoding boundary.
 
 Close, completion, failure and cancellation invalidate the owned session; stop/deinitialization tears down the listener and temporary files. Replay creates a new session. Pose changes on Duo retain the existing PlaybackModel and player. Playback reports refer to the original server request and its session, never the loopback URL.

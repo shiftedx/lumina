@@ -453,11 +453,13 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.resolvedQuality = resolvedQuality
     }
 
-    /// The startup owner uses this once, before any playback progress is sent.
-    /// It deliberately excludes transport/authentication errors and a request
-    /// that already used the H.264/SDR compatibility profile.
-    public func canRetryCompatibleVideo(after error: Error) -> Bool {
-        !item.isAudio && !usesCompatibleVideo && NativeVideoCapabilities.isFormatFailure(error)
+    /// Format recovery is normally startup-only. A detected P7 metadata
+    /// conversion failure can also recover after progress, retaining position.
+    /// Transport/auth failures and already-compatible requests never qualify.
+    public func canRetryCompatibleVideo(after error: Error, hasAdvanced: Bool = false) -> Bool {
+        let conversionFailure = (error as? NativeVideoSource.SelectionError) == .invalidDolbyVisionConversion
+        return !item.isAudio && !usesCompatibleVideo && (!hasAdvanced || conversionFailure)
+            && NativeVideoCapabilities.isFormatFailure(error)
     }
 }
 

@@ -480,6 +480,143 @@ final class NativeVideoSourceTests: XCTestCase {
         )
     }
 
+    /// Profile 7 is remuxed to Profile 8.1 structurally. This does not claim
+    /// Dolby Vision display presentation or retention of a FEL contribution.
+    func testProfile7MKVsConvertToProfile81WithoutEnhancementLayer() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_MKV_FIXTURES"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_MKV_FIXTURES to generated p7-mel.mkv:p7-fel.mkv files")
+        }
+        let fixtures = value.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        guard fixtures.count == 2 else {
+            XCTFail("LUMINA_DV7_MKV_FIXTURES must contain p7-mel then p7-fel")
+            return
+        }
+        XCTAssertTrue(NativeVideoSource.supportsDolbyVisionProfile7Conversion,
+                      "A successful P7 conversion requires the host's Libdovi build")
+        let fixtureDirectory = fixtures[0].deletingLastPathComponent()
+        for (fixture, expectedName) in zip(fixtures, ["p81-mel.rpu", "p81-fel.rpu"]) {
+            let expected = fixtureDirectory.appendingPathComponent(expectedName)
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: false)
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: true)
+        }
+    }
+
+    func testDolbyVisionConversionSnapshotRejectsIncompleteConversionEvidence() {
+        let noConvertedRPUs = NativeVideoSource.DolbyVisionConversionSnapshot(
+            convertedRPUs: 0, failedRPUs: 0, droppedEnhancementLayerNALs: 1,
+            staleUnconvertedPackets: 0, isClean: false
+        )
+        XCTAssertTrue(noConvertedRPUs.hasFailure,
+                      "Published conversion statistics with no converted RPU cannot certify P8.1")
+
+        let noDroppedEnhancementLayer = NativeVideoSource.DolbyVisionConversionSnapshot(
+            convertedRPUs: 1, failedRPUs: 0, droppedEnhancementLayerNALs: 0,
+            staleUnconvertedPackets: 0, isClean: false
+        )
+        XCTAssertTrue(noDroppedEnhancementLayer.hasFailure,
+                      "A P7 conversion that retained its EL cannot certify a single-layer master")
+    }
+
+    func testProfile7InvalidRPURefusesSingleLayerDeclaration() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_INVALID_RPU_FIXTURE"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_INVALID_RPU_FIXTURE to generated p7-invalid-rpu.mkv")
+        }
+        let fixture = URL(fileURLWithPath: value)
+        guard FileManager.default.isReadableFile(atPath: fixture.path) else {
+            throw XCTSkip("Missing generated invalid P7 fixture")
+        }
+        let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+        defer { owner.stop() }
+        do {
+            _ = try await owner.prepare(url: fixture, usesClientDemux: true)
+            XCTFail("A P7 stream with a malformed RPU must reject its P8.1 declaration before publishing an item")
+        } catch let error as NativeVideoSource.SelectionError {
+            XCTAssertEqual(error, .invalidDolbyVisionConversion)
+        }
+    }
+
+    private func assertProfile7Conversion(
+        _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool
+    ) async throws {
+        guard FileManager.default.isReadableFile(atPath: fixture.path),
+              FileManager.default.isReadableFile(atPath: expectedRPU.path) else {
+            throw XCTSkip("Missing generated Profile 7 conversion fixture")
+        }
+        XCTAssertEqual(try doviConfiguration(in: fixture), [
+            "dv_profile": "7", "dv_level": "6", "rpu_present_flag": "1",
+            "el_present_flag": "1", "bl_present_flag": "1",
+            "dv_bl_signal_compatibility_id": "6"
+        ])
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let subtitle = directory.appendingPathComponent("p7.vtt")
+        try "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nP7 fixture\n".write(
+            to: subtitle, atomically: true, encoding: .utf8
+        )
+        let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+        defer { owner.stop() }
+        let item = try await owner.prepare(
+            url: fixture,
+            usesClientDemux: true,
+            externalSubtitles: withExternalSubtitle
+                ? [.init(fileURL: subtitle, language: "en", name: "P7 fixture")]
+                : []
+        )
+        let masterURL = try XCTUnwrap((item.asset as? AVURLAsset)?.url)
+        let master = try await text(at: masterURL)
+        XCTAssertTrue(master.contains("CODECS=\"hvc1."))
+        XCTAssertTrue(master.contains("SUPPLEMENTAL-CODECS=\"dvh1.08.06/db1p\""))
+        XCTAssertTrue(master.contains("VIDEO-RANGE=PQ"))
+        if withExternalSubtitle { XCTAssertTrue(master.contains("SUBTITLES=")) }
+
+        let mediaURL = try hlsVariant(master, relativeTo: masterURL)
+        let media = try await text(at: mediaURL)
+        let initialization = try await bytes(at: hlsMap(media, relativeTo: mediaURL))
+        XCTAssertTrue(contains(initialization, Data("hvc1".utf8)))
+        XCTAssertTrue(contains(initialization, Data("dvvC".utf8)))
+
+        let expectedPayloads = try expectedRPUPayloads(at: expectedRPU)
+        let sourceNals = try hevcNALs(in: fixture, directory: directory, name: "p7-source")
+        XCTAssertTrue(sourceNals.contains { hevcNALType($0) == 63 }, "P7 fixture must contain an EL NAL")
+        let sourceBaseVCL = sourceNals.filter { hevcNALType($0) <= 31 && hevcNALLayer($0) == 0 }
+        XCTAssertFalse(sourceBaseVCL.isEmpty)
+
+        var deliveredBaseVCL: [Data] = []
+        var deliveredRPUPayloads: [Data] = []
+        for (index, segment) in try hlsSegments(media, relativeTo: mediaURL).enumerated() {
+            let fragment = try await bytes(at: segment)
+            let seekTarget = directory.appendingPathComponent("p7-seek-\(index).mp4")
+            try (initialization + fragment).write(to: seekTarget, options: .atomic)
+            try runFFmpeg(["-v", "error", "-nostdin", "-i", seekTarget.path, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"])
+            XCTAssertEqual(try doviConfiguration(in: seekTarget), [
+                "dv_profile": "8", "dv_level": "6", "rpu_present_flag": "1",
+                "el_present_flag": "0", "bl_present_flag": "1",
+                "dv_bl_signal_compatibility_id": "1"
+            ], "P7 seek fragment \(index) must declare its converted P8.1 payload")
+            let nals = try hevcNALs(in: seekTarget, directory: directory, name: "p7-seek-\(index)")
+            XCTAssertFalse(nals.contains { hevcNALType($0) == 63 || hevcNALLayer($0) != 0 },
+                           "P7 seek fragment \(index) retained an enhancement layer")
+            deliveredBaseVCL.append(contentsOf: nals.filter { hevcNALType($0) <= 31 && hevcNALLayer($0) == 0 })
+            deliveredRPUPayloads.append(contentsOf: nals.filter { hevcNALType($0) == 62 }.map { Data($0.dropFirst(2)) })
+        }
+        XCTAssertEqual(deliveredBaseVCL, sourceBaseVCL, "P7 conversion must leave base-layer picture NALs unchanged")
+        XCTAssertEqual(deliveredRPUPayloads.count, sourceBaseVCL.count, "Every P7 video packet needs a converted RPU")
+        XCTAssertEqual(deliveredRPUPayloads, expectedPayloads,
+                       "P7 RPUs must be rewritten to the ordered generated P8.1 vectors, not merely retagged")
+
+        let conversion = await owner.dolbyVisionConversion
+        let snapshot = try XCTUnwrap(conversion)
+        XCTAssertGreaterThan(snapshot.convertedRPUs, 0)
+        XCTAssertEqual(snapshot.failedRPUs, 0)
+        XCTAssertGreaterThan(snapshot.droppedEnhancementLayerNALs, 0)
+        XCTAssertEqual(snapshot.staleUnconvertedPackets, 0)
+        XCTAssertTrue(snapshot.isClean)
+        XCTAssertFalse(snapshot.hasFailure)
+        try await owner.validateDolbyVisionConversion()
+    }
+
     private func assertDolbyVisionFixture(
         _ fixture: URL, expectedPrimaryCodec: String, expectedRange: String,
         expectedSupplementalCodec: String?, expectedCompatibility: String, withExternalSubtitle: Bool
@@ -600,9 +737,25 @@ final class NativeVideoSourceTests: XCTestCase {
     }
 
     private func rpuHashes(in source: URL, directory: URL, name: String) throws -> [Data] {
+        try hevcNALs(in: source, directory: directory, name: name)
+            .filter { hevcNALType($0) == 62 }
+            .map { Data(SHA256.hash(data: $0)) }
+    }
+
+    private func hevcNALs(in source: URL, directory: URL, name: String) throws -> [Data] {
         let elementary = directory.appendingPathComponent("\(name).hevc")
         try runFFmpeg(["-v", "error", "-nostdin", "-y", "-i", source.path, "-map", "0:v:0", "-c", "copy", "-bsf:v", "hevc_mp4toannexb", elementary.path])
-        return annexBRPUs(try Data(contentsOf: elementary))
+        return annexBNALs(try Data(contentsOf: elementary))
+    }
+
+    private func expectedRPUPayloads(at source: URL) throws -> [Data] {
+        let bytes = try Data(contentsOf: source)
+        let nals = annexBNALs(bytes)
+        guard !nals.isEmpty else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 10,
+                          userInfo: [NSLocalizedDescriptionKey: "Expected generated Annex-B RPU payloads"])
+        }
+        return nals
     }
 
     private func runFFmpeg(_ arguments: [String]) throws {
@@ -667,7 +820,7 @@ final class NativeVideoSourceTests: XCTestCase {
         return count
     }
 
-    private func annexBRPUs(_ data: Data) -> [Data] {
+    private func annexBNALs(_ data: Data) -> [Data] {
         let bytes = Array(data)
         var starts: [(offset: Int, length: Int)] = []
         var index = 0
@@ -685,11 +838,19 @@ final class NativeVideoSourceTests: XCTestCase {
             let lower = start.offset + start.length
             let upper = ordinal + 1 < starts.count ? starts[ordinal + 1].offset : bytes.count
             guard lower + 1 < upper else { continue }
-            let nal = Data(bytes[lower..<upper])
-            guard ((nal[nal.startIndex] >> 1) & 0x3f) == 62 else { continue }
-            result.append(Data(SHA256.hash(data: nal)))
+            result.append(Data(bytes[lower..<upper]))
         }
         return result
+    }
+
+    private func hevcNALType(_ nal: Data) -> UInt8 {
+        guard let first = nal.first else { return 255 }
+        return (first >> 1) & 0x3f
+    }
+
+    private func hevcNALLayer(_ nal: Data) -> UInt8 {
+        guard nal.count >= 2 else { return 255 }
+        return ((nal[nal.startIndex] & 1) << 5) | (nal[nal.index(after: nal.startIndex)] >> 3)
     }
 }
 #endif

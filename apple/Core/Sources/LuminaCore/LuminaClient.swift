@@ -334,6 +334,16 @@ final class LuminaClient: @unchecked Sendable {
         let dolbyVisionProfiles: [[String: Any]] = capabilities.directMP4DolbyVisionProfiles.map {
             ["Profile": $0.profile, "CompatibilityIDs": $0.compatibilityIDs, "MaxLevel": $0.maxLevel]
         }
+        let dolbyVisionPackagingConversions: [[String: Any]] = capabilities.matroskaDolbyVisionPackagingConversions.map {
+            [
+                "SourceProfile": $0.sourceProfile,
+                "SourceCompatibilityIDs": $0.sourceCompatibilityIDs,
+                "TargetProfile": $0.targetProfile,
+                "TargetCompatibilityID": $0.targetCompatibilityID,
+                "MaxLevel": $0.maxLevel,
+                "EnhancementLayerDisposition": $0.enhancementLayerDisposition,
+            ]
+        }
         // PrismCore 3.8.1's qualified Matroska packaging retains the complete
         // P5/P8 configuration and RPU sequence, including subtitle masters.
         // This independent delivery policy does not authorize server HLS DV.
@@ -345,6 +355,7 @@ final class LuminaClient: @unchecked Sendable {
             [
                 "Type": "Video", "Container": "mkv", "VideoCodec": codecList(matroska), "AudioCodec": matroskaAudio,
                 "LuminaDolbyVisionProfiles": matroska.contains(.hevc) ? dolbyVisionProfiles : [],
+                "LuminaDolbyVisionPackagingConversions": matroska.contains(.hevc) ? dolbyVisionPackagingConversions : [],
             ],
         ]
         var videoProfiles = [[String: Any]]()

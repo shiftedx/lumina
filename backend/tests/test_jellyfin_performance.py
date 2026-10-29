@@ -103,7 +103,7 @@ def test_jellyfin_title_batch_skips_unused_artwork_loading(monkeypatch) -> None:
     mapper.titles = Titles()
     mapper.user = SimpleNamespace(id="member")
     monkeypatch.setattr(mapper, "title_dto", lambda *_args, **_kwargs: {})
-    title = SimpleNamespace(id="title", metadata_json={}, field_sources={}, locked=False)
+    title = SimpleNamespace(id="title", type="boxset", metadata_json={}, field_sources={}, locked=False)
 
     assert mapper.title_dtos([title]) == [{"LockData": False, "LockedFields": []}]
     assert calls == [{"with_artifacts": False, "with_metadata": False, "with_artwork": False}]

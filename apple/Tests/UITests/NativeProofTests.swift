@@ -274,6 +274,9 @@ final class NativeStandardPhoneAppearanceChromeTests: NativeProofJourney {
 }
 @MainActor
 final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
+    func testCategoryArtworkExtendsUnderFloatingNavigation() throws {
+        try journeyCategoryArtworkUnderNavigation()
+    }
     func testOpenPortraitPlacesNavigationOverContentAndUtilitiesBelowStatus() async throws {
         try await journeyPortraitNavigationWithMusic()
     }
@@ -4385,6 +4388,40 @@ class NativeProofJourney: XCTestCase {
               abs(toggle.frame.midX - search.frame.midX) <= 4 else {
             throw ProofFailure.ui("Portrait Search and Now Playing must stack below the system status corner: search=\(search.frame), artwork=\(artwork.frame), toggle=\(toggle.frame).")
         }
+    }
+
+    func journeyCategoryArtworkUnderNavigation() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        let display = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              display.width >= 600, display.height > display.width else {
+            throw XCTSkip("This layout contract targets the open Duo portrait display.")
+        }
+        try signIn(using: fixture, waitsForAccount: false)
+        let library = application!.buttons["Library"].firstMatch
+        try waitForHittable(library, timeout: 20, named: "Library tab")
+        try activate(library)
+        try waitForExistence(element("libraryScreen"), timeout: 25, named: "Movies library")
+        let artwork = element("libraryArtworkReadiness")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "loaded movie artwork")
+        let viewport = try applicationViewport()
+        XCTAssertEqual(artwork.frame.maxX, viewport.maxX - 20, accuracy: 2,
+                       "Category artwork must extend to the normal page gutter beneath the floating rail.")
+        try attachFrame(named: "Category artwork beneath floating navigation")
+
+        let search = element("videoSearchButton")
+        try waitForHittable(search, timeout: 15, named: "Library search")
+        try activate(search)
+        let cancel = element("videoSearchCancelButton")
+        try waitForHittable(cancel, timeout: 15, named: "Library search cancel")
+        let options = element("videoOptionsMenu")
+        XCTAssertLessThanOrEqual(cancel.frame.maxX, options.frame.minX - 8,
+                                 "Search controls must remain clear of the floating utility rail.")
+        try attachFrame(named: "Category search clear of floating navigation")
+        completed = true
     }
 
     func journeyOpenDuoLibraryHeaderAndSearch() throws {

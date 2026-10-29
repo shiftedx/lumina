@@ -317,6 +317,13 @@ struct MediaBillboard<Actions: View>: View {
                     .foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                     .accessibilityIdentifier("featuredEpisodeSubtitle")
             }
+            if let rating = item.criticRatingPercentage {
+                Text("Critics \(rating)%")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .accessibilityLabel("Critic rating: \(rating) percent")
+                    .accessibilityIdentifier("heroCriticRating-\(item.id)")
+            }
             if showsMetadata {
                 MediaMetadata(item: item, onArtwork: true)
             }

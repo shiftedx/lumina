@@ -299,7 +299,7 @@ final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourn
         try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle()
     }
     func testHomeHeroSwipeKeepsWideLayoutStable() async throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(checksLayout: true)
     }
@@ -4668,6 +4668,10 @@ class NativeProofJourney: XCTestCase {
             try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Home")).firstMatch)
         }
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Home hero")
+        if checksLayout {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            XCTAssertTrue(waitUntil(timeout: 8) { (try? self.applicationWindow().frame.width) ?? 0 > 700 })
+        }
         let choice = element("featuredChoice-\(fixture.directItemID)")
         let title = element("featuredTitleButton")
         if !checksLayout || title.label != fixture.directItemTitle {
@@ -4677,6 +4681,9 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 5, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Home did not select the seeded hero before swiping.")
         }
+        let criticRating = element("heroCriticRating-\(fixture.directItemID)")
+        try waitForExistence(criticRating, timeout: 5, named: "server critic rating")
+        XCTAssertEqual(criticRating.label, "Critic rating: 88 percent")
         try attachFrame(named: "Home hero Resume button before artwork swipe")
         let window = try applicationWindow()
         let artwork = application!.descendants(matching: .any).matching(
@@ -4706,6 +4713,7 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("Swiping left on Home artwork must select the next hero without opening details.")
         }
         try attachFrame(named: "Home artwork swipe selects the next hero")
+        XCTAssertTrue(disappears(criticRating, timeout: 5), "A different hero must not retain the previous title’s critic score.")
         if checksLayout {
             let diagnostics = try XCTUnwrap(artwork.value as? String)
             let transition = try XCTUnwrap(diagnostics.split(separator: " ").first { $0.hasPrefix("transition=") })
@@ -4725,8 +4733,12 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 3, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Swiping right on Home artwork must return to the previous hero.")
         }
+        try waitForExistence(criticRating, timeout: 5, named: "restored critic rating")
         if checksLayout {
             try attachFrame(named: "Home hero after swiping in both directions")
+            XCUIDevice.shared.orientation = .portrait
+            XCTAssertTrue(waitUntil(timeout: 8) { artwork.frame.width < artwork.frame.height })
+            try attachFrame(named: "Portrait hero with critic rating")
             completed = true
             return
         }

@@ -234,7 +234,7 @@ export function FetchedShelf({ id, userId, visit, actions, hidden, onStatus }: F
 }
 
 function RowShelf({ row, actions }: { row: ShelfRow; actions: ShelfActions }) {
-  // Only a row the server annotated (Because you watched, Recommended) is a served list: its cards carry the foot.
+  // Only a server-annotated row is a served recommendation list with impression tracking and feedback.
   const observe = useRecoImpressions(row.titles?.find((title) => title.reco)?.reco?.list_id ?? null);
   const filtered = useRecoFilter(row.titles ?? [], titleTarget, true);
   const titles = row.titles?.some((title) => title.reco) ? filtered : row.titles ?? [];

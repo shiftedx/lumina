@@ -45,7 +45,7 @@ describe('shelf loaders', () => {
     ] });
     const visit = createVisit();
     const [because, recommended] = await Promise.all([loadShelf('because_you_watched', visit, 'member-1'), loadShelf('recommended', visit, 'member-1')]);
-    expect(because.map((row) => [row.key, row.heading])).toEqual([['because_you_watched:b1', 'Because you watched Arrival'], ['because_you_watched:b3', 'Because you watched Dune']]);
+    expect(because.map((row) => [row.key, row.heading])).toEqual([['because_you_watched:b1', 'More for you'], ['because_you_watched:b3', 'More for you']]);
     expect(recommended).toMatchObject([{ key: 'recommended', heading: 'Recommended for you', shape: 'poster' }]);
     expect(api.getHomeTitleRows).toHaveBeenCalledTimes(1);
     await loadShelf('recommended', createVisit(), 'member-1');

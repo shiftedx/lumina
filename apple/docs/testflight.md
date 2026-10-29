@@ -284,3 +284,28 @@ is preserved; no TV upload was performed or authorized.
 Preserve the earlier unuploaded build-32 package unchanged. Named ratings require
 the matching server update; no household deployment or physical-TV/HDMI/HDR/audio
 qualification occurred.
+
+
+### Internal dogfood package 34, 2026-10-29 — iOS uploaded
+
+**iOS 0.1.0 (34) uploaded to Apple**, confirmed in Xcode's completion screen
+and Organizer with uploaded build number 34. Built from clean main
+`6ba190119f9d908997bc707de52af9f65538b4db`, including all earlier merged changes,
+the unobstructed reader controls (#211), episode/full-season downloads (#212),
+and the corrected Lumina download-picker appearance and selection contrast (#213).
+
+The committed Xcode project was archived directly with build-setting overrides.
+Xcode cloud-managed signing retained build 34, included symbols, and enabled
+TestFlight Internal Only. The exact submitted IPA, validated unsigned source and
+signed Organizer reference archives, matching executable/dSYM UUIDs, tracked
+source snapshot/input hashes, package hashes, successful upload logs and
+confirmation are retained in ignored `apple/Distribution/0.1.0-34/`.
+
+Focused reader and episode/season workflows passed, including Light/Dark captures,
+cancellation, cross-season choices, completed downloads and decoded offline video.
+Eight download service contracts and both signing/framework packaging safeguards
+passed. Release archive and signed-package validation passed. No full suite,
+server deployment or new physical-device qualification was performed.
+
+Do not upload iOS build 34 again. Apple processing and tester assignment remain
+unverified. This release operation did not build or upload tvOS.

@@ -1931,9 +1931,9 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) { pause.label == "Play" },
                       "A resumed video must be pausable again before gesture seeking.")
         // Paused playback deliberately keeps chrome visible. Hide that known
-        // public state through the accessible surface, then use a real surface
+        // public state through its center, then use a real surface
         // tap to prove the user-facing reveal route without resuming playback.
-        try activate(surface)
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         XCTAssertTrue(disappears(pause, timeout: 3),
                       "The visible paused playback chrome must hide through its public surface action.")
         let diagnosticsBeforeReveal = diagnostics.value as? String ?? "absent"

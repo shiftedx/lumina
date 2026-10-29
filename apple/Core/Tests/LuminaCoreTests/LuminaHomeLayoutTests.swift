@@ -192,7 +192,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         await feed.load()
         XCTAssertTrue(feed.hasLoaded)
         XCTAssertEqual(feed.rows.map(\.id), displayedRows.map(\.id))
-        XCTAssertEqual(feed.errorMessage, "Home could not be loaded.")
+        XCTAssertNil(feed.errorMessage, "One failed refresh must not add a warning over an already loaded Home.")
 
         feed.configure(session: LuminaSession(
             serverURL: session.serverURL, accessToken: session.accessToken, userID: "member-two",
@@ -201,6 +201,76 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertFalse(feed.hasLoaded)
         XCTAssertTrue(feed.rows.isEmpty)
         XCTAssertNil(feed.errorMessage)
+    }
+
+    func testHomeBlipsStayQuietAfterSuccessWhileInitialAndActionableFailuresRemainVisible() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HomeLayoutProtocol.self]
+        let session = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "token",
+                                    userID: "member", username: "Member", serverName: "Lumina", deviceID: "home-device")
+        let feed = LuminaHomeFeed(session: session, client: LuminaClient(configuration: configuration))
+        let data = try JSONSerialization.data(withJSONObject: ["rows": [[
+            "id": "recent", "shelf_id": "new_in_library", "title": "New in your library", "shape": "poster",
+            "items": [["Id": "movie", "Name": "Example film", "Type": "Movie"]]
+        ]]])
+        func respond(_ status: Int, body: Data? = nil) {
+            HomeLayoutProtocol.handler = { request in
+                (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, body ?? data)
+            }
+        }
+        HomeLayoutProtocol.handler = { _ in throw URLError(.cancelled) }
+        await feed.load()
+        XCTAssertNil(feed.errorMessage)
+        XCTAssertFalse(feed.hasLoaded)
+
+        respond(503)
+        await feed.load()
+        XCTAssertFalse(feed.hasLoaded)
+        XCTAssertNotNil(feed.errorMessage, "A first load without content needs a retry path.")
+
+        respond(200)
+        await feed.load()
+        XCTAssertNil(feed.errorMessage)
+        XCTAssertEqual(feed.rows.first?.items.first?.id, "movie")
+        for code in [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet, .cancelled] {
+            HomeLayoutProtocol.handler = { _ in throw URLError(code) }
+            await feed.load()
+            XCTAssertNil(feed.errorMessage, "A refresh blip should not alarm the member: \(code)")
+            XCTAssertEqual(feed.rows.first?.items.first?.id, "movie")
+        }
+        for status in [408, 429, 500, 503] {
+            respond(status)
+            await feed.load()
+            XCTAssertNil(feed.errorMessage)
+            XCTAssertTrue(feed.hasLoaded)
+        }
+        for status in [401, 403, 404] {
+            respond(status)
+            await feed.load()
+            XCTAssertNotNil(feed.errorMessage, "A permanent or authorization failure must remain actionable.")
+            if status == 401 || status == 403 {
+                XCTAssertTrue(feed.rows.isEmpty, "Do not retain Home content after authorization is rejected.")
+                HomeLayoutProtocol.handler = { _ in throw URLError(.timedOut) }
+                await feed.load()
+                XCTAssertNotNil(feed.errorMessage, "A later timeout must not conceal an unresolved sign-in failure.")
+            }
+        }
+        HomeLayoutProtocol.handler = { _ in throw URLError(.serverCertificateUntrusted) }
+        await feed.load()
+        XCTAssertNotNil(feed.errorMessage, "A trust failure must not be hidden as a refresh blip.")
+        respond(200, body: Data("invalid".utf8))
+        await feed.load()
+        XCTAssertNotNil(feed.errorMessage, "Malformed server data is not a network blip.")
+        respond(200)
+        await feed.load()
+        XCTAssertNil(feed.errorMessage)
+
+        feed.configure(session: nil)
+        feed.configure(session: session)
+        HomeLayoutProtocol.handler = { _ in throw URLError(.cannotConnectToHost) }
+        await feed.load()
+        XCTAssertNotNil(feed.errorMessage)
+        XCTAssertTrue(feed.rows.isEmpty)
     }
 
     func testOverlappingHomeLoadsCoalesceToOneRequestPerEndpoint() async throws {

@@ -212,7 +212,29 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
             hasLoaded = true
         } catch {
             guard operation == operationGeneration, currentSession == sessionGeneration else { return }
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
+                rows = []
+                hasLoaded = false
+            }
+            // A failed background refresh does not invalidate the last successful Home.
+            // First-load and actionable failures still need a visible recovery path.
+            if hasLoaded, Self.isTransientRefreshFailure(error) { return }
             errorMessage = "Home could not be loaded."
+        }
+    }
+
+    private static func isTransientRefreshFailure(_ error: Error) -> Bool {
+        if case .http(let status) = error as? LuminaError {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .resourceUnavailable:
+            return true
+        default:
+            return false
         }
     }
 
@@ -280,12 +302,10 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
             deviceID: session.deviceID
         )
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await client.response(request)
+        guard (200..<300).contains(response.statusCode) else { throw LuminaError.http(response.statusCode) }
         do {
-            let (data, response) = try await client.response(request)
-            guard (200..<300).contains(response.statusCode) else { throw LuminaError.http(response.statusCode) }
             return try JSONDecoder().decode(Value.self, from: data)
-        } catch let error as LuminaError {
-            throw error
         } catch {
             throw LuminaError.malformedResponse
         }

@@ -569,8 +569,8 @@ def _verified_master_attributes(value: object) -> dict[str, str] | None:
 def _cache_master_attributes(session: PlaybackSession, ffprobe: str | None) -> None:
     if not ffprobe or "master" in session.info:
         return
-    # The variant is already complete enough to serve. A verifier failure is not
-    # a conversion failure and must never hold startup hostage.
+    # Describe the first master before serving it, with a bounded startup delay.
+    # A verifier failure retains the legacy master rather than failing playback.
     segment = f"seg{session.run.index}.m4s" if session.run else "seg0.m4s"
     init = session.run.init if session.run else "init.mp4"
     if (session.directory / init).is_file() and (session.directory / segment).is_file():

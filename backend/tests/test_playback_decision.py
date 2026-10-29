@@ -437,12 +437,15 @@ def test_modern_hls_output_reencodes_non_aac_audio(codec: str) -> None:
     assert (decision.video, decision.video_codec, decision.audio, decision.audio_channels) == ("encode", codec, "encode", 2)
 
 
-@pytest.mark.parametrize("av1_hls", [False, True])
+@pytest.mark.parametrize("av1_hls, hls_audio", [(False, "aac"), (True, "aac"), (True, "eac3")])
 @pytest.mark.parametrize("container, audio_codec", [(MP4, "aac"), (MKV, "aac"), (MP4, "dts")])
-def test_native_av1_direct_support_does_not_authorize_hls_stream_copy(av1_hls: bool, container: str, audio_codec: str) -> None:
+def test_native_av1_direct_support_does_not_authorize_hls_stream_copy(av1_hls: bool, hls_audio: str, container: str, audio_codec: str) -> None:
     profile = {
         "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,mov,m4v", "VideoCodec": "h264,hevc,av1", "AudioCodec": "aac"}],
-        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264,hevc,av1" if av1_hls else "h264,hevc", "AudioCodec": "aac"}],
+        "TranscodingProfiles": [
+            {"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264,hevc", "AudioCodec": "aac"},
+            {"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "av1" if av1_hls else "h264", "AudioCodec": hls_audio},
+        ],
         "CodecProfiles": [
             {"Type": "Video", "Codec": codec, "Conditions": [
                 {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
@@ -458,7 +461,7 @@ def test_native_av1_direct_support_does_not_authorize_hls_stream_copy(av1_hls: b
 
     if container == MP4 and audio_codec == "aac":
         assert decision.mode == "direct" and decision.video == "copy"
-    elif av1_hls:
+    elif av1_hls and hls_audio == "aac":
         assert decision.video == "copy" and decision.audio == ("copy" if audio_codec == "aac" else "encode")
     else:
         assert (decision.video, decision.video_codec, decision.video_range, decision.tonemap) == ("encode", "hevc", "HDR10", False)

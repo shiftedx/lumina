@@ -406,7 +406,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         # Lumina emits fragmented MP4 HLS with AAC. A profile for TS/WebM or
         # another audio codec is not an authorization to use this rendition.
         containers, vids, auds = _tokens(entry.get("Container")), _tokens(entry.get("VideoCodec")), _tokens(entry.get("AudioCodec"))
-        if containers & {"mp4", "fmp4", "m4v"} and "av1" in vids:
+        if containers & {"mp4", "fmp4", "m4v"} and "av1" in vids and "aac" in auds:
             hls_video_copy.add("av1")
         video_codecs |= vids
         audio |= auds

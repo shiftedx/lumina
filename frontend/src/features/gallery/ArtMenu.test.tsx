@@ -82,7 +82,7 @@ describe('ArtMenu on web videos', () => {
 });
 
 describe('ArtMenu inside a recommendation card', () => {
-  it('heads the menu with the reason and sends Not interested through the same suppression call', async () => {
+  it('omits the reason while sends Not interested through the same suppression call', async () => {
     const suppress = vi.fn().mockResolvedValue({ id: 's1' });
     const item = recoEntry('v1', 0, { title: 'Harbor walk', uploader: 'Harbor Films' });
     render(
@@ -92,7 +92,8 @@ describe('ArtMenu inside a recommendation card', () => {
     );
     await open('Harbor walk');
     const menu = screen.getByRole('menu');
-    expect(within(menu).getByRole('group', { name: item.reco!.reason })).toBeTruthy();
+    expect(within(menu).queryByRole('group', { name: item.reco!.reason })).toBeNull();
+    expect(within(menu).getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
     await userEvent.click(screen.getByRole('menuitem', { name: 'Not interested' }));
     expect(suppress).toHaveBeenCalledWith(expect.objectContaining({ scope: 'item', source_id: 'v1', list_id: item.reco!.list_id }));
   });

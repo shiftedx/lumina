@@ -71,6 +71,7 @@ def test_movie_detail_lists_versions_extras_and_boxset(library, api_client) -> N
     assert [e["extra_type"] for e in movie["extras"]] == ["trailer"]
     assert movie["boxset"]["name"] == "Saga" and movie["play_item_id"] == MOVIE_1080
     assert movie["provider_ids"] == {"Tmdb": "603", "Imdb": "tt0133093"} and movie["match"] is None
+    assert (movie["imdb_rating"], movie["rotten_tomatoes_rating"], movie["metacritic_rating"]) == (8.2, 91, 73)
     with factory() as session:  # unwatched: the largest file is preferred
         session.get(LibraryItem, MOVIE_4K).file_size = 10_000
         session.commit()

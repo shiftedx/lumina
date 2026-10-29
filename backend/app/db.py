@@ -289,6 +289,9 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE media_cast_tickets ADD COLUMN playback_session_id VARCHAR(64)",
         "ALTER TABLE media_cast_tickets ADD COLUMN audio_index INTEGER",
     ),  # Native tickets bind paired devices; music_receiver_tickets comes from create_all.
+    40: (
+        "ALTER TABLE app_settings ADD COLUMN omdb_api_key TEXT",
+    ),  # Optional public critic-score supplement; rollback NULLs/ignores the additive column.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

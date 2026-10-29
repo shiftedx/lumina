@@ -42,7 +42,7 @@ from app.services.library_search import LibrarySearchService, index_title, title
 from app.services.audio_tags import AUDIO_TAG_VERSION, AudioTags, read_tags
 from app.services.cast_photos import save_people, split_crew, split_people
 from app.services.local_metadata import AUDIO_EXTENSIONS, describe, read_bounded
-from app.services.media_titles import apply_field, refresh_added_at, scanned_parent
+from app.services.media_titles import apply_field, invalidate_omdb_for_imdb_change, refresh_added_at, scanned_parent
 from app.services.categories import refresh_category
 from app.services.storage_roots import ONLINE_STATES, StorageRootService
 from app.services.transcripts import MAX_TRACK_BYTES, TEXT_TRACK_EXTS, TranscriptService, parse_caption
@@ -1066,13 +1066,16 @@ class LibraryImportService:
                     for field, value in spec["fields"].get(source, {}).items():
                         if foreign and field.startswith("images."):
                             continue
+                        old_imdb = (title.provider_ids or {}).get("Imdb") if field == "provider_ids" else None
                         if field == "provider_ids":
                             value = {**(title.provider_ids or {}), **value}  # apply_field replaces dicts
                         elif field == "people":
                             value = split_people(value, photos)  # thumbs go to nfo_people rows, not into every title's refs
                         elif field == "crew":
                             value = split_crew(value, photos)  # nfo_title_fields puts "crew" after "people": thumbs first
-                        apply_field(title, field, value, source)
+                        changed = apply_field(title, field, value, source)
+                        if field == "provider_ids" and changed and old_imdb is not None:
+                            invalidate_omdb_for_imdb_change(title, old_imdb, now)
                 parent = title
             source_album_id = parent.id
             destination = destinations.get(item.id) if manual_album else None

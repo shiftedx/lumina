@@ -1,0 +1,14 @@
+# ADR 0035: Keep title ratings separate by source
+
+- Status: Accepted
+- Date: 2026-10-28
+
+Title heroes show IMDb user ratings, Rotten Tomatoes critic percentages and Metacritic scores as separate metadata fields. Each field uses the existing source precedence and edit/revert machinery independently: an NFO IMDb score must not prevent another provider from filling the other two scores. TMDB's community score, the generic Jellyfin critic score and parental certificates retain their existing meanings; none can stand in for a named score.
+
+Named NFO ratings and household edits work locally. Optional OMDb enrichment uses exact IMDb identities, with its own provenance at the same precedence as TMDB. It supplements the existing background metadata refresh rather than fetching when someone opens a hero or creating another scheduler. An OMDb failure or incomplete response preserves cached scores and does not fail a successful TMDB refresh. Identify and Unmatch clear scores belonging to the previous online match while retaining NFO values and household edits.
+
+The server keeps the OMDb key write-only and removes it from backups. Requests use fixed HTTPS hosts, the public-address transport and bounded responses. OMDb is an opt-in external service with its own availability, quota and content terms; no IMDb, Rotten Tomatoes or Metacritic pages are scraped. Missing scores are omitted, including when a provider does not cover a title.
+
+Source logos identify the scores visually, with source names retained for assistive technology. Rotten Tomatoes uses its Fresh tomato for scores of at least 60% and its Rotten splat below 60%, following [the published Tomatometer rules](https://www.rottentomatoes.com/about). A score alone cannot establish Certified Fresh status, which requires a separate designation and review criteria; Lumina does not infer that award.
+
+Metacritic scores use the [movie and TV color ranges](https://metacritichelp.zendesk.com/hc/en-us/articles/15456077802647-What-s-with-these-green-yellow-and-red-colors): green from 61, yellow from 40 to below 61, and red below 40. The numeric score and an accessible sentiment label accompany the color. Game-specific thresholds do not apply to these titles.

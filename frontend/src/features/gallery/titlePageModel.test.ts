@@ -6,7 +6,7 @@ import { versionQuality } from '../titles/titleModel';
 import { readableAccent } from './galleryModel';
 import {
   castOf, episodeBlurb, episodeHeading, episodeLabel, episodeMeta, hasDropCap, metaLine, minutesLeft, pageAccent, playNextScrollLeft, sideBlocks,
-  stillPriority, storyVisible, usesLogo,
+  stillPriority, storyVisible, titleRatings, usesLogo,
 } from './titlePageModel';
 
 const season = (n: number): TitleSummary => movieSummary(`season-${n}`, { type: 'season', name: n ? `Season ${n}` : 'Specials', index_number: n, parent_id: 'series-1' });
@@ -40,6 +40,47 @@ describe('metaLine', () => {
     expect(metaLine(show(episodeSummary(2, 4, { user_data: inProgress })))).toEqual(['2021', '3 seasons', 'Drama', 'Continue S2 · E4, 28 min left']);
     expect(metaLine(show(episodeSummary(2, 5)))).toEqual(['2021', '3 seasons', 'Drama', 'Up next S2 · E5']);
     expect(metaLine(show(null))).toEqual(['2021', '3 seasons', 'Drama']);
+  });
+});
+
+describe('titleRatings', () => {
+  it('keeps source labels and order, including valid zero scores', () => {
+    expect(titleRatings(movieSummary('movie-1', { imdb_rating: 8.2, rotten_tomatoes_rating: 91, metacritic_rating: 0 }))).toEqual([
+      { label: 'IMDb user rating', source: 'imdb', value: '8.2 / 10' },
+      { label: 'Rotten Tomatoes: Fresh', source: 'rottentomatoes', asset: 'rottentomatoes-fresh', status: 'Fresh', value: '91%' },
+      { label: 'Metacritic: Unfavorable', source: 'metacritic', status: 'Unfavorable', value: '0 / 100' },
+    ]);
+  });
+
+  it('hides absent and invalid source data without inventing a rating', () => {
+    expect(titleRatings(movieSummary('movie-1', { imdb_rating: null, rotten_tomatoes_rating: 101, metacritic_rating: Number.NaN }))).toEqual([]);
+  });
+
+  it('limits non-integer critic values to one decimal without adding a trailing zero', () => {
+    expect(titleRatings(movieSummary('movie-1', { rotten_tomatoes_rating: 83.33333333333334, metacritic_rating: 74.0 }))).toEqual([
+      { label: 'Rotten Tomatoes: Fresh', source: 'rottentomatoes', asset: 'rottentomatoes-fresh', status: 'Fresh', value: '83.3%' }, { label: 'Metacritic: Favorable', source: 'metacritic', status: 'Favorable', value: '74 / 100' },
+    ]);
+  });
+
+  it('uses the Rotten splat for scores below Fresh', () => {
+    expect(titleRatings(movieSummary('movie-1', { rotten_tomatoes_rating: 59.9 }))).toEqual([
+      { label: 'Rotten Tomatoes: Rotten', source: 'rottentomatoes', asset: 'rottentomatoes-rotten', status: 'Rotten', value: '59.9%' },
+    ]);
+    expect(titleRatings(movieSummary('movie-1', { rotten_tomatoes_rating: 59.99 }))[0]).toMatchObject({
+      label: 'Rotten Tomatoes: Rotten', value: '59.9%',
+    });
+  });
+
+  it('uses movie and TV Metascore bands without rounding into another band', () => {
+    expect(titleRatings(movieSummary('movie-1', { metacritic_rating: 60.99 }))).toEqual([
+      { label: 'Metacritic: Mixed', source: 'metacritic', status: 'Mixed', value: '60.9 / 100' },
+    ]);
+    expect(titleRatings(movieSummary('movie-1', { metacritic_rating: 61 }))).toEqual([
+      { label: 'Metacritic: Favorable', source: 'metacritic', status: 'Favorable', value: '61 / 100' },
+    ]);
+    expect(titleRatings(movieSummary('movie-1', { metacritic_rating: 39.99 }))).toEqual([
+      { label: 'Metacritic: Unfavorable', source: 'metacritic', status: 'Unfavorable', value: '39.9 / 100' },
+    ]);
   });
 });
 

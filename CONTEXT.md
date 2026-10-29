@@ -4,6 +4,10 @@ Lumina presents a household's registered media alongside acquisition and playbac
 
 ## Language
 
+**Source-specific title rating**:
+A score attributed to its named publication or audience. IMDb's score is a user rating; Rotten Tomatoes and Metacritic provide critic scores. Each retains its own scale and can be absent independently.
+_Avoid_: Parental rating, TMDB community rating
+
 **Observed inventory**:
 Media known to a connected manager, including items the household added outside Lumina. An observation does not establish that a member can play a file.
 _Avoid_: Imported library, playable media

@@ -120,6 +120,7 @@
    "min_free_disk_mb",
    "model_threads",
    "native_streaming_enabled",
+   "omdb_api_key",
    "plex_import_url",
    "public_address",
    "recording_keep_days",
@@ -1347,5 +1348,5 @@
    "user_id"
   ]
  },
- "version": 39
+ "version": 40
 }

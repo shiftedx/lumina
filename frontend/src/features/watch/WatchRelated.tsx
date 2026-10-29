@@ -1,8 +1,8 @@
 /**
  * Up next: the autoplay switch and one compact row per
- * related entry, a 160px still with the member's markers and the LIVE badge, the serif title and a channel label, then
- * the server's reason and the `…` menu. A row the member hides becomes its "Hidden. Undo" line in place. The autoplay
- * target is described as "Plays next" after its reason.
+ * related entry, a 160px still with the member's markers and the LIVE badge, the serif title, channel label, and `…`
+ * menu. A row the member hides becomes its "Hidden. Undo" line in place. The autoplay target is described as
+ * "Plays next".
  */
 import { useId } from 'react';
 
@@ -44,14 +44,11 @@ export function WatchRelated({ items, autoplay, autoplayIndex, showAutoplay, loa
         {items.length ? null : error ? <p className="g-list-row-meta" role="status">Couldn’t load suggestions. {onRetry ? <button className="g-text-button" data-focus-item disabled={loading} onClick={onRetry} type="button">{loading ? 'Retrying…' : 'Retry'}</button> : null}</p> : <p className="g-list-row-meta">{loading ? 'Finding related videos…' : remote ? 'No related videos from this source yet.' : 'Related videos appear here when you stream from a source.'}</p>}
         {items.map((item, index) => {
           const next = index === autoplayIndex && autoplay;
-          const reasonId = `${ids}-reason-${index}`;
-          const reason = item.reco?.reason;
-          const describedBy = [next ? playsNextId : null, reason ? reasonId : null].filter(Boolean).join(' ') || undefined;
           return (
             <RecoCard key={item.webpage_url || item.id || index} reco={item.reco} target={remoteTarget(item)}>
                 <RemoteStillCard
-                  actions={next || reason ? <>{next ? <span className="g-label g-plays-next" id={playsNextId}>Plays next</span> : null}{reason ? <div className="g-list-row-meta" id={reasonId}>{reason}</div> : null}</> : null}
-                  describedBy={describedBy}
+                  actions={next ? <span className="g-label g-plays-next" id={playsNextId}>Plays next</span> : null}
+                  describedBy={next ? playsNextId : undefined}
                   item={item}
                   onOpen={onOpen}
                   position={index}

@@ -47,6 +47,11 @@
   --g-danger: #e58a74;
   --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent);
   --g-success: #8cc79a;
+  /* Metacritic's published movie, TV, and music Metascore bands. */
+  --g-metascore-favorable: #66cc33;
+  --g-metascore-mixed: #ffcc33;
+  --g-metascore-unfavorable: #ff0000;
+  --g-metascore-ink: #0d0d0d;
   --g-accent: var(--g-ink);   --g-scrim-modal: rgb(0 0 0 / .6);
 
     --g-overlay-bg: #000;

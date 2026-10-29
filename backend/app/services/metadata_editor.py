@@ -248,6 +248,9 @@ CATALOGUE: dict[str, FieldSpec] = {
     "official_rating": FieldSpec("meta", VIDEO_ALL, _text(20)), "custom_rating": FieldSpec("meta", VIDEO_ALL, _text(20)),
     "community_rating": FieldSpec("meta", VIDEO_ALL, _number(0, 10, integer=False, decimals=1)),
     "critic_rating": FieldSpec("meta", MS, _number(0, 100)),
+    "imdb_rating": FieldSpec("meta", MS, _number(0, 10, integer=False, decimals=1)),
+    "rotten_tomatoes_rating": FieldSpec("meta", MS, _number(0, 100, integer=False, decimals=1)),
+    "metacritic_rating": FieldSpec("meta", MS, _number(0, 100, integer=False, decimals=1)),
     "genres": FieldSpec("meta", MSE | MUSIC, _strings(30, 60)), "tags": FieldSpec("meta", ALL, _strings(50, 60)),
     "studios": FieldSpec("meta", MS | ALBUM, _strings(30, 120)), "people": FieldSpec("meta", VIDEO_ALL, _people),
     "provider_ids": FieldSpec("column", ALL, _provider_ids),
@@ -605,6 +608,7 @@ def field_of(entry: EditEntry, new: dict[str, Any], error: FieldError) -> str:
 
 
 def _write_one(title: MediaTitle, field: str, value: Any, batch: Batch, now: datetime) -> None:
+    old_imdb = (title.provider_ids or {}).get("Imdb") if field == "provider_ids" else None
     tmdb_id = (value or {}).get("Tmdb") if field == "provider_ids" else None
     if tmdb_id and tmdb_id != (title.provider_ids or {}).get("Tmdb") and title.type in title_metadata.MATCHABLE:
         before = read_field(title, field)  # the history shows the id the title had, not identify's intermediate
@@ -613,5 +617,8 @@ def _write_one(title: MediaTitle, field: str, value: Any, batch: Batch, now: dat
         title.metadata_due_at = now
         return
     write_user_field(title, field, value, batch)
+    if field == "provider_ids" and (value or {}).get("Imdb") != old_imdb:
+        media_titles.invalidate_omdb_for_imdb_change(title, old_imdb, now)
+        return
     if field in REFRESHING and not title.locked:
         media_titles.wake_refresh(title, now)

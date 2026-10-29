@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     # Shutdown finishes model downloads' joins and stops on-device model servers; Docker's 10 s default is too short.
     stop_grace_period: 30s
-    image: ${LUMINA_DOCKER_IMAGE:-ghcr.io/shiftedx/lumina:0.4.0}
+    image: ${LUMINA_DOCKER_IMAGE:-ghcr.io/shiftedx/lumina:0.5.0}
     build:
       context: .
       args:
@@ -32,6 +32,8 @@ services:
       LUMINA_ASR_MODEL: ${LUMINA_ASR_MODEL:-}
       # TMDB v3 key or v4 read token for movie/TV metadata; empty = off. Admin → Media server overrides it.
       LUMINA_TMDB_API_KEY: ${LUMINA_TMDB_API_KEY:-}
+      # Optional IMDb, Rotten Tomatoes and Metacritic score enrichment alongside TMDB matching.
+      LUMINA_OMDB_API_KEY: ${LUMINA_OMDB_API_KEY:-}
       # Read-only mount of Jellyfin's metadata/People folder for cast photos (docker/README.md); empty = off.
       LUMINA_PEOPLE_DIR: ${LUMINA_PEOPLE_DIR:-${LUMINA_JELLYFIN_PEOPLE_DIR:-}}
     volumes:

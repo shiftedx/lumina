@@ -77,17 +77,18 @@ describe('tokens.css contrast', () => {
     expect(light['--g-art-paper']).toBe(dark['--g-art-paper']);
   });
 
-  it('defines no red or pink token apart from danger (the live surfaces must stay red-free, plan Review Focus)', () => {
+  it('defines no red or pink token apart from danger and required third-party score marks', () => {
     // Only hex, rgb() and color-mix() are used, so the hue check below (and check-styles' redHits) can parse every literal.
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\b(?:hsla?|hwb|lab|lch|oklab|oklch|color)\(/);
     for (const [name, value] of [...Object.entries(dark), ...Object.entries(light)]) {
-      if (name.startsWith('--g-danger')) continue;
+      if (name.startsWith('--g-danger') || name === '--g-metascore-unfavorable') continue;
       for (const [, hex] of value.matchAll(/#([0-9a-f]{6}|[0-9a-f]{3})\b/gi)) {
         const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
         const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
         expect(isRedOrPink(r, g, b), `${name}: #${hex}`).toBe(false);
       }
     }
+    expect(dark['--g-metascore-unfavorable']).toBe('#ff0000');
   });
 
   it('uses the approved brand token for selected navigation, progress and badges without retaining the old gold palette', () => {

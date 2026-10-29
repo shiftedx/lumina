@@ -9,6 +9,7 @@ Field precedence: sidecar, then filename.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import stat
@@ -29,6 +30,12 @@ NFO_FIELDS = frozenset({
     "sorttitle", "id", "imdbid", "tmdbid", "tvdbid", "mpaa", "certification",
     "airsbefore_season", "airsbefore_episode", "airsafter_season",
 })
+NFO_RATING_SOURCES = {
+    "imdb": ("imdb_rating", 10), "tomatometer": ("rotten_tomatoes_rating", 100),
+    "tomatometerallcritics": ("rotten_tomatoes_rating", 100), "rottentomatoes": ("rotten_tomatoes_rating", 100),
+    "metacritic": ("metacritic_rating", 100),
+}
+NFO_RATING_NUMBER = re.compile(r"^\d+(?:\.\d+)?$")
 NFO_MAX_ACTORS = 20  # <actor> credits kept, cast and crew together in document order (Jellyfin people-bloat lesson)
 # The <actor><type> values Lumina shows (Jellyfin's PersonKind names, any case); a credit without one is an Actor.
 PERSON_KINDS = {kind.casefold(): kind for kind in ("Actor", "GuestStar", "Director", "Writer", "Creator", "Producer", "Composer")}
@@ -137,6 +144,7 @@ def parse_nfo(path: Path) -> tuple[str, dict[str, Any]] | None:
     root_tag: str | None = None
     fields: dict[str, Any] = {}
     depth = 0
+    element_tags: list[str] = []
     closed = False
     try:
         parser.feed(data)
@@ -149,14 +157,44 @@ def parse_nfo(path: Path) -> tuple[str, dict[str, Any]] | None:
             if depth > NFO_MAX_DEPTH:
                 return None
             root_tag = root_tag or element.tag
+            element_tags.append(element.tag)
             continue
+        element_depth = depth
+        parent_tag = element_tags[-2] if len(element_tags) > 1 else None
+        element_tags.pop()
         depth -= 1
         if depth == 0:
             closed = True
             break
+        # The pull parser has built the whole element by its end event, so child lookups work here.
+        if element.tag == "rating" and (
+            (element_depth == 2 and parent_tag == root_tag)
+            or (element_depth == 3 and parent_tag == "ratings")
+        ):
+            source = NFO_RATING_SOURCES.get(str(element.get("name") or "").strip().casefold())
+            value = (element.findtext("value") or element.text or "").strip()
+            maximum = (element.get("max") or "").strip()
+            if source and NFO_RATING_NUMBER.fullmatch(value) and NFO_RATING_NUMBER.fullmatch(maximum):
+                try:
+                    raw, source_maximum = float(value), float(maximum)
+                except (OverflowError, ValueError):
+                    continue
+                key, target_maximum = source
+                normalized = raw * target_maximum / source_maximum if source_maximum else None
+                if (
+                    source_maximum > 0
+                    and source_maximum in (10, 100)
+                    and math.isfinite(raw)
+                    and math.isfinite(source_maximum)
+                    and normalized is not None
+                    and math.isfinite(normalized)
+                    and 0 <= raw <= source_maximum
+                    and 0 <= normalized <= target_maximum
+                ):
+                    fields.setdefault("ratings", {})[key] = normalized
+            continue
         if depth != 1:
             continue
-        # The pull parser has built the whole element by its end event, so child lookups work here.
         if element.tag == "actor":
             name = (element.findtext("name") or "").strip()
             kind = PERSON_KINDS.get((element.findtext("type") or "Actor").strip().casefold())
@@ -276,6 +314,8 @@ def nfo_title_fields(tag: str | None, fields: dict[str, Any]) -> dict[str, Any]:
         "people": people or None,
         "crew": crew or None,  # display only: never search text (title_search_fields reads "people")
     }
+    if tag in ("movie", "tvshow"):
+        values.update(fields.get("ratings") or {})
     if tag == "episodedetails":
         values.update({key: _int(fields.get(key)) for key in ("airsbefore_season", "airsbefore_episode", "airsafter_season")})
     return {key: value for key, value in values.items() if value is not None}

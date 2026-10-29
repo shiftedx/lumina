@@ -102,7 +102,7 @@ def seed_tree(session: Session, root: Path) -> None:
         MediaTitle(id=BOXSET, type="boxset", key="set:saga", name="Saga"),
         title(MOVIE, "movie", "Movie (2020)", "Movie", year=2020, boxset_id=BOXSET, created_at=T0 + timedelta(days=2),
               provider_ids={"Tmdb": "603", "Imdb": "tt0133093"}, images={"Primary": {"path": "Movie (2020)/poster.png"}},
-              metadata_json={"overview": "A heist.", "community_rating": 7.9, "premiered": "2020-03-01", "genres": ["Action"], "studios": ["Acme"]}),
+              metadata_json={"overview": "A heist.", "community_rating": 7.9, "imdb_rating": 8.2, "rotten_tomatoes_rating": 91, "metacritic_rating": 73, "premiered": "2020-03-01", "genres": ["Action"], "studios": ["Acme"]}),
         title(SECRET_SERIES, "series", "Secret Show", "Secret Show"),
         title(SECRET_SEASON, "season", "Secret Show#s1", "Season 1", parent_id=SECRET_SERIES, index_number=1),
         title(SECRET_EPISODE, "episode", "Secret Show#s1e1", "Hidden", parent_id=SECRET_SEASON, index_number=1),

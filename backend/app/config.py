@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]"}
 # Opt-in LAN HTTP mode (ADR 0001 amendment): RFC 1918 IPv4 only. No IPv6: Starlette's TrustedHostMiddleware
 # cannot match a bracketed IPv6 Host header, so such a URL would start but reject every request.
@@ -163,6 +163,8 @@ class EnvSettings(BaseSettings):
     asr_server_script: str = "/opt/lumina-asr/server.py"
     # TMDB v3 API key used until an admin saves one (write-only). Unset/"" = no TMDB.
     tmdb_api_key: str = ""
+    # OMDb key for optional IMDb, Rotten Tomatoes and Metacritic score enrichment.
+    omdb_api_key: str = ""
     # Read-only folder of cast photos in the metadata/People layout; unset/"" = off.
     people_dir: str = ""
     # The name before 2.11, used while LUMINA_PEOPLE_DIR is empty: docker-compose.yml always passes the

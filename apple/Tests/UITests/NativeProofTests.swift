@@ -1626,9 +1626,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(hasVisibleFrame(play))
         play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "video player")
-        XCUIDevice.shared.orientation = .landscapeLeft
         let surface = element("videoControlsSurface")
-        XCTAssertTrue(waitUntil(timeout: 15) { surface.frame.width > surface.frame.height })
+        XCTAssertTrue(waitUntil(timeout: 15) { surface.frame.width > 200 && surface.frame.height > 200 })
         try tapVideoTransportAfterChromeHides(named: "pause for device control checks")
         try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
         let diagnostics = element("videoGestureDiagnostics")

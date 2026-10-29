@@ -14,10 +14,13 @@ interaction rules; it is guidance for the existing player, not a new engine.
 - Existing seek buttons and timelines call `PlaybackModel.seek(to:)`. Gestures
   join that authority; previews do not seek until release. Outstanding requests
   coalesce and relative skips use the optimistic destination.
-- Video currently offers player mute and the system route picker. A right swipe
-  adjusts **player volume**, not hardware output. A visible `MPVolumeView` remains
-  available in playback settings; no private system-volume bridge is used.
-- Brightness belongs to the player's actual window screen. A shared per-screen
+- A right swipe drives the system-owned `MPVolumeView` slider, sharing output
+  volume with hardware buttons. Chromecast retains its receiver volume. The
+  redundant video volume sliders are removed.
+- Brightness uses UIKit's supported main-screen brightness control while the
+  player belongs to an application scene. Duo inner-window screens are tracked
+  for attachment/transition changes but do not provide a separate supported
+  brightness-write endpoint. External presentation scenes are excluded. A shared
   lease restores the original level on exit/inactivity/PiP only while Lumina still
   owns the last applied value. External changes revoke ownership.
 - `Core/.../NativePlaybackPreferences.swift` stores device preferences in
@@ -45,7 +48,7 @@ Apple references: [player-local volume](https://developer.apple.com/documentatio
 | --- | --- |
 | Single tap | Show/hide controls; remains available with advanced gestures off |
 | Two-finger tap | Toggle play/pause once |
-| Left/right vertical swipe | Screen brightness / player-local volume |
+| Left/right vertical swipe | System screen brightness / device output volume |
 | Left/right double tap | Skip backward / forward; further same-side taps accumulate |
 | Horizontal swipe | Preview relative position; seek once on release; cancel discards preview |
 | Hold | Temporary absolute 2× while eligible playback is already running |

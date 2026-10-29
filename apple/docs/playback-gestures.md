@@ -13,7 +13,9 @@ interaction rules; it is guidance for the existing player, not a new engine.
   including letterboxing. The lower tabletop transport retains its own touches.
 - Existing seek buttons and timelines call `PlaybackModel.seek(to:)`. Gestures
   join that authority; previews do not seek until release. Outstanding requests
-  coalesce and relative skips use the optimistic destination.
+  are superseded by the latest committed target; obsolete native seeks are
+  cancelled rather than blocking the new target. Relative skips use the
+  optimistic destination. Drag previews still commit only once on release.
 - A right swipe drives the system-owned `MPVolumeView` slider, sharing output
   volume with hardware buttons. Chromecast retains its receiver volume. The
   redundant video volume sliders are removed.
@@ -82,7 +84,7 @@ Core command: `mise exec -- swift test --package-path apple/Core --filter
 
 Physical Duo/open/closed-screen gesture feel, real brightness/system-volume
 behavior, route changes, interruptions and PiP during an active hold remain device
-qualification. Two-finger chords and live-window coalescing have deterministic
+qualification. Two-finger chords and live-window seek bounds have deterministic
 state tests; they are not claimed as hardware-tested. XCTest's default full-screen
 two-finger tap places contacts inside excluded system-edge bands, so it is not
 used to claim a valid centered chord. No new thumbnail provider, server endpoint,

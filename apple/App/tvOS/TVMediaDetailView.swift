@@ -140,11 +140,12 @@ struct TVDetailView: View {
         detailError = nil
         defer { isLoadingDetail = false }
         do {
-            let loaded = try await store.loadItem(item)
+            let loaded = try await store.loadItem(item, useCache: true)
             guard !Task.isCancelled else { return }
             refreshedItem = loaded
+            isLoadingDetail = false
             // Related titles enhance the screen when available but never replace usable title details.
-            let related = try? await store.relatedItems(for: loaded)
+            let related = try? await store.relatedItems(for: loaded, useCache: true)
             guard !Task.isCancelled else { return }
             relatedItems = related?.filter { $0.id != loaded.id } ?? []
         } catch {
@@ -482,10 +483,10 @@ struct TVVideoCollectionView: View {
         seasonEpisodes.removeAll()
         defer { isLoading = false }
         do {
-            let loaded = try await store.loadItem(item)
+            let loaded = try await store.loadItem(item, useCache: true)
             guard !Task.isCancelled else { return }
             refreshedItem = loaded
-            seasons = item.type == "Series" ? try await store.loadChildren(of: item) : [loaded]
+            seasons = item.type == "Series" ? try await store.loadChildren(of: item, useCache: true) : [loaded]
             guard !Task.isCancelled else { return }
             let preferred = (store.resumeItems + store.nextUpItems).first {
                 $0.type == "Episode" && ($0.seriesID == item.id || $0.seasonID == item.id) && $0.userData?.played != true
@@ -494,14 +495,14 @@ struct TVVideoCollectionView: View {
                 ?? seasons.first { $0.id == preferred?.seasonID } ?? seasons.first
             if let initialSeason {
                 selectedSeasonID = initialSeason.id
-                episodes = try await store.loadChildren(of: initialSeason)
+                episodes = try await store.loadChildren(of: initialSeason, useCache: true)
                 seasonEpisodes[initialSeason.id] = episodes
                 guard !Task.isCancelled else { return }
                 // When no Home continuation is cached, walk only as far as the first
                 // season with an unwatched episode rather than loading every season.
                 if preferred == nil && selectedEpisodeID == nil && episodes.allSatisfy({ $0.userData?.played == true }) {
                     for season in seasons where season.id != initialSeason.id {
-                        let candidates = try await store.loadChildren(of: season)
+                        let candidates = try await store.loadChildren(of: season, useCache: true)
                         seasonEpisodes[season.id] = candidates
                         guard !Task.isCancelled else { return }
                         if candidates.contains(where: { $0.userData?.played != true }) {
@@ -516,7 +517,7 @@ struct TVVideoCollectionView: View {
             }
             detailRevision += 1
             isLoading = false
-            let related = try? await store.relatedItems(for: loaded)
+            let related = try? await store.relatedItems(for: loaded, useCache: true)
             guard !Task.isCancelled else { return }
             relatedItems = related?.filter { $0.id != loaded.id } ?? []
         } catch is CancellationError { return }
@@ -542,7 +543,7 @@ struct TVVideoCollectionView: View {
         seasonTask = Task {
             defer { if seasonGeneration == generation { isLoadingSeason = false; seasonTask = nil } }
             do {
-                let loaded = try await store.loadChildren(of: season)
+                let loaded = try await store.loadChildren(of: season, useCache: true)
                 guard !Task.isCancelled, seasonGeneration == generation else { return }
                 seasonEpisodes[season.id] = loaded
                 selectedSeasonID = season.id
@@ -566,7 +567,7 @@ struct TVVideoCollectionView: View {
         guard let selectedEpisodeID, let episode = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
         guard episodeDetails[selectedEpisodeID] == nil else { return }
         // Focus can move rapidly; the keyed task cancels superseded detail work.
-        guard let detail = try? await store.loadItem(episode), !Task.isCancelled,
+        guard let detail = try? await store.loadItem(episode, useCache: true), !Task.isCancelled,
               self.selectedEpisodeID == selectedEpisodeID else { return }
         episodeDetails[selectedEpisodeID] = detail
     }

@@ -305,7 +305,7 @@ struct TVMusicDetailView: View {
         defer { loading = false }
 
         do {
-            let loaded = try await store.loadItem(item)
+            let loaded = try await store.loadItem(item, useCache: true)
             guard !Task.isCancelled else { return }
             currentItem = loaded
 

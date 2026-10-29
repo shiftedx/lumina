@@ -1640,6 +1640,23 @@ class NativeProofJourney: XCTestCase {
     func journeyInitialVideoFormatRecovery() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
+        #if os(iOS)
+        // Password storage is owned by iOS and may arrive after Home has
+        // rendered. Install the monitor before authentication so XCTest can
+        // handle it at the next user interaction without a direct tap waiting
+        // for the app to become idle behind the sheet.
+        let passwordMonitor = addUIInterruptionMonitor(withDescription: "Discard disposable proof password") { alert in
+            guard alert.staticTexts["Save Password?"].exists else { return false }
+            // The system sheet can expose this under a non-Button AX trait.
+            let decline = alert.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Not Now"))
+                .firstMatch
+            guard decline.exists else { return false }
+            decline.tap()
+            return true
+        }
+        defer { removeUIInterruptionMonitor(passwordMonitor) }
+        #endif
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
@@ -1650,13 +1667,29 @@ class NativeProofJourney: XCTestCase {
 
         try launchAndResetSession()
         try signIn(using: fixture, waitsForAccount: false)
-        #if os(iOS)
-        // Keychain's sheet can arrive after the initial Home-ready assertion.
-        // Drain that delayed OS interruption before opening the seeded item.
-        try dismissDelayedPasswordPrompt()
-        #endif
         let resume = element("resumeItem-\(fixture.directItemID)")
-        try waitForHittable(resume, timeout: 25, named: "seeded direct-video resume item")
+        do {
+            #if os(iOS)
+            // Interruption monitors run on a user interaction, not an AX
+            // query. This ordinary Home scroll is restored below before
+            // selecting the seeded Continue Watching card.
+            element("homeScreen").swipeUp()
+            try revealInLibraryViewport([resume], in: element("homeScreen"))
+            #endif
+            #if os(tvOS)
+            try waitForExistence(resume, timeout: 25, named: "seeded direct-video resume item")
+            #else
+            try waitForHittable(resume, timeout: 25, named: "seeded direct-video resume item")
+            #endif
+        } catch {
+            let evidence = await api.recoveryHomeEvidence(identity: identity, itemID: fixture.directItemID,
+                                                          title: fixture.directItemTitle)
+            let attachment = XCTAttachment(string: "expected=\(fixture.directItemID) title=\(fixture.directItemTitle) ax=\(resume.exists ? resume.identifier : "absent") \(evidence)")
+            attachment.name = "Compatible-video recovery Home evidence"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            throw error
+        }
         try activate(resume)
         try waitForExistence(element("detailScreen"), timeout: 25, named: "direct-video detail screen")
         let time = try startPlayback(using: "playButton")
@@ -8176,19 +8209,6 @@ class NativeProofJourney: XCTestCase {
         }
     }
 
-    private func dismissDelayedPasswordPrompt() throws {
-        let prompt = application!.sheets["Save Password?"]
-        let promptTitle = application!.staticTexts["Save Password?"]
-        guard waitUntil(timeout: 5, condition: { prompt.exists || promptTitle.exists }) else { return }
-        let decline = application!.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "Not Now"))
-            .firstMatch
-        try waitForHittable(decline, timeout: 10, named: "delayed password-storage decline action")
-        decline.tap()
-        guard waitUntil(timeout: 25, condition: { !prompt.exists && !promptTitle.exists }) else {
-            throw ProofFailure.timeout("Delayed password storage did not dismiss after declining it.")
-        }
-    }
     #endif
 
     private func nativeSwitchValue(_ control: XCUIElement) -> Bool? {
@@ -9743,6 +9763,41 @@ private struct ProofAPI {
     func initialVideoFormatRecovery() async throws -> VideoFormatRecoveryEvidence {
         let request = URLRequest(url: origin.appendingPathComponent("Lumina/Proof/initial-video-format-recovery"))
         return try JSONDecoder().decode(VideoFormatRecoveryEvidence.self, from: await send(request))
+    }
+
+    func recoveryHomeEvidence(identity: APIIdentity, itemID: String, title: String) async -> String {
+        func matches(_ data: Data, key: String) -> String {
+            guard let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return "\(key)=malformed"
+            }
+            let rows = (document["rows"] as? [[String: Any]]) ?? []
+            let items = (document["Items"] as? [[String: Any]]) ?? []
+            let entries = rows.flatMap { row in
+                ((row["items"] as? [[String: Any]]) ?? []).map { item in
+                    "\(row["shelf_id"] as? String ?? "unknown"):\(item["Id"] as? String ?? "missing"):\(item["Name"] as? String ?? "missing")"
+                }
+            } + items.map { item in
+                "resume:\(item["Id"] as? String ?? "missing"):\(item["Name"] as? String ?? "missing")"
+            }
+            let expected = entries.filter { $0.contains(itemID) || $0.contains(title) }
+            return "\(key)=\(expected.isEmpty ? "absent" : expected.joined(separator: ","))"
+        }
+        do {
+            var home = URLRequest(url: origin.appendingPathComponent("Lumina/Home/rows"))
+            home.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+            var components = URLComponents(url: origin.appendingPathComponent("UserItems/Resume"), resolvingAgainstBaseURL: false)
+            components?.queryItems = [
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie,Episode,Video"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "Limit", value: "50"),
+            ]
+            guard let resumeURL = components?.url else { return "evidence=unavailable" }
+            var resume = URLRequest(url: resumeURL)
+            resume.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+            return "\(matches(try await send(home), key: "home")) \(matches(try await send(resume), key: "resume"))"
+        } catch {
+            return "evidence=unavailable"
+        }
     }
 
     @MainActor func musicJSON(identity: APIIdentity, path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {

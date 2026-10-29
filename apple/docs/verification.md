@@ -108,6 +108,23 @@ correction passed the extended playback-decision suite (103 tests). Both iOS
 and tvOS generic simulator application builds succeeded. These checks do not
 replace the device-output qualification below.
 
+The final serial Core run passed all 247 tests with five fixture-dependent
+skips. The local Linux arm64 image, labeled with source revision `4faeba27`,
+passed four production HEVC/AV1 × HDR10/HLG HLS encodes with AAC. Every fragment
+passed static HDR metadata verification, and each emitted master contained
+the actual codec configuration, resolution, frame rate and PQ/HLG range.
+The image check ran without network access as a non-root user with a read-only
+root filesystem and disposable temporary storage.
+
+The new automatic format-recovery UI journey remains unqualified. Its latest
+iOS test bundle built successfully, but the simulator stopped and Xcode stalled
+collecting diagnostics before a readable final result was produced; the owned
+runner and disposable simulator were cleaned up. Earlier attempts stopped
+before playback on the password-sheet/hittability precondition, with matching
+Home/Resume API and accessibility identities. The scoped interruption-monitor
+revision has no passing execution, and the tvOS recovery journey was not run.
+The fixture scripts passed compilation and all 27 broker unit checks.
+
 This is a finite host-only AVFoundation delivery check, not a display-output
 claim. On the local arm64 macOS 27.0.1 host,
 `AVPlayer.eligibleForHDRPlayback` was `false` even though VideoToolbox reported

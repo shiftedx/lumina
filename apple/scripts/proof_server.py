@@ -575,7 +575,15 @@ def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[],
         return len(path) == 4 and path[1].lower() == "items" and path[3].lower() == "playbackinfo" and path[2].replace("-", "").lower() == normalized_item_id
 
     def option_values(body: dict[str, Any]) -> dict[str, Any]:
-        return {key: body.get(key) for key in ("StartTimeTicks", "MaxStreamingBitrate", "AudioStreamIndex", "SubtitleStreamIndex")}
+        # The direct fixture has video stream 0 and its sole AAC stream 1, with
+        # no selected subtitle. Jellyfin accepts those defaults when omitted,
+        # while the prepared compatible request writes them explicitly.
+        return {
+            "StartTimeTicks": body.get("StartTimeTicks"),
+            "MaxStreamingBitrate": body.get("MaxStreamingBitrate"),
+            "AudioStreamIndex": body.get("AudioStreamIndex", 1),
+            "SubtitleStreamIndex": body.get("SubtitleStreamIndex", -1),
+        }
 
     def compatibility_profile(body: dict[str, Any]) -> bool:
         profile = body.get("DeviceProfile")

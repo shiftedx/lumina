@@ -1676,8 +1676,19 @@ class NativeProofJourney: XCTestCase {
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
         try launchAndResetSession()
         try signIn(using: fixture)
-        try openLibraryItem(id: fixture.directItemID)
+        try selectDestination("Library", screen: "libraryScreen")
+        let movie = element("libraryItem-\(fixture.directItemID)")
+        try waitForExistence(movie, timeout: 25, named: "gesture proof movie")
+        try revealInLibraryViewport([movie], in: element("libraryScreen"))
+        // Poster context menus can suppress AX's hittable trait; use the
+        // observed, visible poster frame to open its native detail link.
+        movie.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("detailScreen"), timeout: 25, named: "gesture proof detail")
+        // The phone's floating tab bar covers this fixture's portrait hero CTA.
+        // Enter playback from landscape, then test the portrait player itself.
+        XCUIDevice.shared.orientation = .landscapeLeft
         let time = try startPlayback(using: "playButton")
+        XCUIDevice.shared.orientation = .portrait
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
         let surface = element("videoControlsSurface")
         let diagnostics = element("videoGestureDiagnostics")

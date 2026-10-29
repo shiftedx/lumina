@@ -2992,6 +2992,8 @@ final class PlaybackModel {
             _ = videoSeekAuthority.complete(submission, actualTime: nil)
             return
         }
+        videoSeekTask?.cancel()
+        item.cancelPendingSeeks()
         videoSeekTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let playhead = self.player.currentTime().seconds
@@ -3014,9 +3016,8 @@ final class PlaybackModel {
         switch videoSeekAuthority.complete(submission, actualTime: actual) {
         case .ignored:
             return
-        case .submit(let next):
-            submitVideoSeek(next)
         case .settled(let position):
+            videoSeekTask = nil
             if let position { elapsedSeconds = position }
             else { updatePosition() }
             if didSeek {
@@ -3028,7 +3029,10 @@ final class PlaybackModel {
     }
 
     private func invalidateVideoSeekWork() {
-        videoSeekTask?.cancel()
+        if videoSeekTask != nil {
+            videoSeekTask?.cancel()
+            player.currentItem?.cancelPendingSeeks()
+        }
         videoSeekTask = nil
         videoSeekAuthority.invalidate()
     }

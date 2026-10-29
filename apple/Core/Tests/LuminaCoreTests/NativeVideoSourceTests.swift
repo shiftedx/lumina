@@ -7,6 +7,87 @@ import XCTest
 
 @MainActor
 final class NativeVideoSourceTests: XCTestCase {
+    func testRepeatedHTTPSeeksDoNotWaitForObsoleteTargets() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("synthetic.mkv")
+        let generate = Process()
+        generate.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        generate.arguments = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=90",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=90", "-c:v", "libx264", "-preset", "ultrafast",
+            "-g", "300", "-keyint_min", "300", "-sc_threshold", "0", "-c:a", "aac", source.path]
+        try generate.run()
+        generate.waitUntilExit()
+        XCTAssertEqual(generate.terminationStatus, 0)
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: source), mime: "video/x-matroska", delay: 100)
+        let remote = try await server.start().deletingLastPathComponent().appendingPathComponent("synthetic.mkv")
+        defer { server.stop() }
+        for input in [source, remote] {
+            let owner = NativeVideoSource()
+            let item = try await owner.prepare(url: input, usesClientDemux: true)
+            let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+            item.add(frames)
+            let player = AVPlayer(playerItem: item)
+            player.volume = 0
+            defer { player.replaceCurrentItem(with: nil); owner.stop() }
+            try await NativeVideoSource.waitUntilReady(player)
+            player.play()
+            try await Task.sleep(for: .milliseconds(500))
+            if !input.isFileURL {
+                var authority = VideoSeekAuthority()
+                let range = VideoSeekRange(0, 89)!
+                let first = try XCTUnwrap(authority.request(target: 72.3, ranges: [range], direction: .forward))
+                let olderSeek = Task { @MainActor in
+                    await player.seek(to: CMTime(seconds: first.target, preferredTimescale: 600),
+                                      toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+                try await Task.sleep(for: .milliseconds(50))
+                let latestRequested = ContinuousClock.now
+                let latest = try XCTUnwrap(authority.request(target: 8.7, ranges: [range], direction: .backward))
+                item.cancelPendingSeeks()
+                let finished = await player.seek(to: CMTime(seconds: latest.target, preferredTimescale: 600),
+                                                 toleranceBefore: .zero, toleranceAfter: .zero)
+                XCTAssertTrue(finished)
+                _ = await olderSeek.value
+                let frameDeadline = latestRequested + .seconds(1)
+                var decodedLatest = false
+                while ContinuousClock.now < frameDeadline {
+                    if abs(item.currentTime().seconds - latest.target) < 1,
+                       frames.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil) != nil {
+                        decodedLatest = true
+                        break
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                XCTAssertTrue(decodedLatest, "The superseding seek must render its destination promptly")
+                let latency = latestRequested.duration(to: .now)
+                print("Superseding cached seek latency=\(latency)")
+                XCTAssertLessThan(latency, .seconds(1),
+                                  "A new scrub to cached media must not wait for an obsolete HTTP seek")
+            }
+            for target in [8.7, 72.3, 16.7, 51.2, 82.8, 12.3] {
+                let start = ContinuousClock.now
+                let finished = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                                 toleranceBefore: .zero, toleranceAfter: .zero)
+                XCTAssertTrue(finished)
+                let deadline = start + .seconds(5)
+                var decoded = false
+                while ContinuousClock.now < deadline {
+                    let time = item.currentTime()
+                    if abs(time.seconds - target) < 1,
+                       frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
+                        decoded = true
+                        break
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                print("Seek benchmark remote=\(!input.isFileURL) target=\(target) decoded=\(decoded) elapsed=\(start.duration(to: .now))")
+                XCTAssertTrue(decoded, "A long-GOP seek must produce a frame without a multi-second stall")
+            }
+        }
+    }
+
     func testExternalSubtitleMustBeLocal() async {
         let source = NativeVideoSource()
         do {

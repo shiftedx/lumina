@@ -1,6 +1,7 @@
 """Hardware probe, software fallback and the ffmpeg arguments per hw × tone-map × burn-in."""
 from __future__ import annotations
 
+import json
 import threading
 import time
 import shutil
@@ -121,11 +122,136 @@ def test_hdr_ranges_are_exact_demand_probes_and_choice_fails_closed(monkeypatch:
     assert accel.output_ranges("ffmpeg", "qsv", "ffprobe-a", video_range="HDR10") == {}
 
 
+def test_hdr_decoder_proof_is_exact_cached_and_a_runtime_failure_revokes_only_that_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc"))
+    calls: list[tuple[str, str, str, str, bool]] = []
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: status)
+
+    def probe(ffmpeg, ffprobe, hw, codec, video_range, *, input_codec="hevc", input_pix_fmt="yuv420p10le", hw_decode=False):  # noqa: ANN001 - public probe seam
+        calls.append((input_codec, input_pix_fmt, codec, video_range, hw_decode))
+        return (input_codec == "hevc" and hw_decode, "decoder unsupported")
+
+    monkeypatch.setattr(hw_module, "_hdr_encode_test", probe)
+    accel = HwAccel()
+    exact = ("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+
+    assert accel.hdr_decode_supported(*exact)
+    assert accel.hdr_decode_supported(*exact)  # exact verifier/device/pixel-format tuple is cached
+    assert calls == [("hevc", "yuv420p10le", "hevc", "HDR10", True)]
+    # A different known 10-bit format cannot inherit the first decoder proof.
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "p010le", "hevc", "HDR10", "ffprobe")
+    assert len(calls) == 2
+    assert not accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "av1", "HDR10", "ffprobe")
+    # Unknown and non-10-bit-4:2:0 facts never launch a permissive decoder probe.
+    assert not accel.hdr_decode_supported("ffmpeg", "qsv", "h264", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+    assert not accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p", "hevc", "HDR10", "ffprobe")
+    assert len(calls) == 2
+
+    accel.record_hdr_decode_failure(*exact)
+
+    assert not accel.hdr_decode_supported(*exact)  # stale positive proof must not launch another hardware decode
+    assert len(calls) == 2
+    cached = accel.peek("ffmpeg", "qsv")
+    assert cached is not None
+    assert cached.hdr_decode_pairs == ()
+    assert cached.hdr_decode_errors == {"hevc10->hevc/HDR10": "runtime_decoder_failure"}
+
+
+def test_hdr_decoder_proof_cache_never_generalizes_range_output_verifier_or_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc", "av1"))
+    calls: list[tuple[str, str, str, str, str]] = []
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: status)
+    monkeypatch.setattr(
+        hw_module,
+        "_hdr_encode_test",
+        lambda ffmpeg, ffprobe, hw, codec, video_range, *, input_codec="hevc", input_pix_fmt="yuv420p10le", hw_decode=False:
+        calls.append((ffprobe, input_codec, input_pix_fmt, codec, video_range)) or (hw_decode, "decoder unsupported"),
+    )
+    accel = HwAccel()
+
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HLG", "ffprobe")
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "av1", "HDR10", "ffprobe")
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "other-ffprobe")
+    monkeypatch.setattr(hw_module.settings, "hwaccel_gpu_index", 1)
+    assert accel.hdr_decode_supported("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+
+    assert calls == [
+        ("ffprobe", "hevc", "yuv420p10le", "hevc", "HDR10"),
+        ("ffprobe", "hevc", "yuv420p10le", "hevc", "HLG"),
+        ("ffprobe", "hevc", "yuv420p10le", "av1", "HDR10"),
+        ("other-ffprobe", "hevc", "yuv420p10le", "hevc", "HDR10"),
+        ("ffprobe", "hevc", "yuv420p10le", "hevc", "HDR10"),
+    ]
+
+
+def test_hdr_decoder_probe_discards_results_when_reprobe_or_device_context_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc"))
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: status)
+    calls = 0
+    accel = HwAccel()
+
+    def reprobe_during_probe(ffmpeg, ffprobe, hw, codec, video_range, **kwargs):  # noqa: ANN001 - private probe seam
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            accel.reprobe()
+        return True, ""
+
+    monkeypatch.setattr(hw_module, "_hdr_encode_test", reprobe_during_probe)
+    exact = ("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")
+    assert not accel.hdr_decode_supported(*exact)
+    assert accel.peek("ffmpeg", "qsv") is None
+    assert accel.hdr_decode_supported(*exact)
+    assert calls == 2
+
+    context_calls = 0
+    accel = HwAccel()
+    monkeypatch.setattr(hw_module.settings, "hwaccel_gpu_index", 0)
+
+    def change_device_during_probe(ffmpeg, ffprobe, hw, codec, video_range, **kwargs):  # noqa: ANN001 - private probe seam
+        nonlocal context_calls
+        context_calls += 1
+        if context_calls == 1:
+            monkeypatch.setattr(hw_module.settings, "hwaccel_gpu_index", 1)
+        return True, ""
+
+    monkeypatch.setattr(hw_module, "_hdr_encode_test", change_device_during_probe)
+    assert not accel.hdr_decode_supported(*exact)
+    cached = accel.peek("ffmpeg", "qsv")
+    assert cached is not None and not cached.hdr_decode_pairs and not cached.hdr_decode_errors
+    assert accel.hdr_decode_supported(*exact)
+    assert context_calls == 2
+
+
+def test_hdr_decoder_runtime_revocation_wins_over_an_older_inflight_positive_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc"))
+    monkeypatch.setattr(hw_module, "detect", lambda ffmpeg, mode: status)
+    monkeypatch.setattr(hw_module, "_hdr_encode_test", lambda *args, **kwargs: (True, ""))
+    accel = HwAccel()
+    ffmpeg, mode, ffprobe = "ffmpeg", "qsv", "ffprobe"
+    input_codec, pix_fmt, output_codec, video_range = "hevc", "yuv420p10le", "hevc", "HDR10"
+    accel.status(ffmpeg, mode)
+    context = (ffprobe, str(hw_module.settings.hwaccel_device), hw_module.settings.hwaccel_gpu_index)
+    identity = (ffmpeg, mode, ffprobe, context[1], context[2], "qsv", input_codec, pix_fmt, output_codec, video_range)
+    with accel._lock:  # Reserve the epoch an external probe observed before the runtime failure.
+        accel._hdr_decode_context[(ffmpeg, mode)] = context
+        stale_epoch = accel._hdr_decode_epoch
+    assert accel.hdr_decode_supported(ffmpeg, mode, input_codec, pix_fmt, output_codec, video_range, ffprobe)
+    accel.record_hdr_decode_failure(ffmpeg, mode, input_codec, pix_fmt, output_codec, video_range, ffprobe)
+
+    assert not accel._store_hdr_decode_result(identity, stale_epoch, (True, ""))
+    cached = accel.peek(ffmpeg, mode)
+    assert cached is not None and cached.hdr_decode_pairs == ()
+    assert cached.hdr_decode_errors == {"hevc10->hevc/HDR10": "runtime_decoder_failure"}
+
+
 def test_hdr_probe_stops_before_launching_an_encode_after_its_total_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     ticks = iter((0.0, 0.0, hw_module.HDR_PROBE_TIMEOUT_SECONDS + 0.1))
     calls: list[list[str]] = []
     monkeypatch.setattr(hw_module.time, "monotonic", lambda: next(ticks))
-    monkeypatch.setattr(hw_module, "_hdr_source", lambda ffmpeg, source, video_range, timeout: (True, ""))
+    monkeypatch.setattr(hw_module, "_hdr_source", lambda ffmpeg, source, video_range, timeout, **kwargs: (True, ""))
     monkeypatch.setattr(hw_module, "_run", lambda args, **kwargs: calls.append(args) or (True, ""))
     assert hw_module._hdr_encode_test("ffmpeg", "ffprobe", "none", "hevc", "HDR10") == (False, "HDR probe deadline exceeded")
     assert calls == []
@@ -138,8 +264,35 @@ def test_static_hdr_metadata_requires_every_mastering_coordinate_and_light_level
         {"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400},
     ]}
     assert hw_module._has_static_hdr_metadata(stream)
+    expected = hw_module._hdr_static_metadata(stream)
+    assert expected is not None
+    assert hw_module._has_static_hdr_metadata(stream, expected, expected_codec="av1", output_codec="hevc")
     stream["side_data_list"][0]["red_x"] = "1/2"  # type: ignore[index]
     assert not hw_module._has_static_hdr_metadata(stream)
+    assert not hw_module._has_static_hdr_metadata(stream, expected, expected_codec="av1", output_codec="hevc")
+
+
+def test_hdr_source_verifier_merges_frame_only_cicp_and_static_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FFmpeg 8.1 puts decoded HDR facts on frames while older builds use streams."""
+    mastering = {key: f"{value.numerator}/{value.denominator}" for key, value in hw_module._HDR_MASTERING.items()}
+    frame_only = {
+        "streams": [{
+            "codec_name": "hevc",
+            # This existing stream metadata must survive the frame merge.
+            "side_data_list": [{"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400}],
+        }],
+        "frames": [{
+            "pix_fmt": "yuv420p10le", "color_primaries": "bt2020", "color_transfer": "smpte2084",
+            "color_space": "bt2020nc", "color_range": "tv",
+            "side_data_list": [{"side_data_type": "Mastering display metadata", **mastering}],
+        }],
+    }
+    missing_both = {"streams": [{"codec_name": "hevc"}], "frames": [{"pix_fmt": "yuv420p10le"}]}
+    outputs = iter((json.dumps(frame_only), json.dumps(missing_both)))
+    monkeypatch.setattr(hw_module, "_run", lambda *args, **kwargs: (True, next(outputs)))
+
+    assert hw_module._verify_hdr_source("ffprobe", Path("/tmp/hdr.mp4"), "hevc", "HDR10") == (True, "")
+    assert hw_module._verify_hdr_source("ffprobe", Path("/tmp/hdr.mp4"), "hevc", "HDR10") == (False, "generated HDR source metadata did not match")
 
 
 def test_rkmpp_zero_copy_is_pair_proven_and_cached_for_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,8 +342,21 @@ def test_hdr_command_keeps_p010_bt2020_and_svt_hdr_metadata() -> None:
     assert "-color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc -color_range tv" in joined
     vt = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc", video_range="HDR10"), hw="videotoolbox")
     assert "scale=-2:144,format=p010le" in " ".join(vt)
+    vt_decode = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc", video_range="HDR10"), hw="videotoolbox", hdr_hw_decode=True)
+    assert "-hwaccel videotoolbox" in " ".join(vt_decode) and "hwdownload,format=p010le" in graph(vt_decode)
     qsv = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc"), hw="qsv")
     assert "-hwaccel" not in qsv and "format=p010,hwupload=extra_hw_frames=64" in graph(qsv)
+    qsv_decode = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc"), hw="qsv", hdr_hw_decode=True)
+    assert "-hwaccel qsv" in " ".join(qsv_decode)
+    for hw, accelerator, output_format, scale in (
+        ("qsv", "qsv", "qsv", "scale_qsv=w=-1:h=144:format=p010"),
+        ("vaapi", "vaapi", "vaapi", "scale_vaapi=w=-2:h=144:format=p010"),
+        ("nvenc", "cuda", "cuda", "scale_cuda=w=-2:h=144:format=p010"),
+    ):
+        qualified = lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="hevc", video_range="HDR10"), hw=hw, hdr_hw_decode=True)
+        assert f"-hwaccel {accelerator}" in " ".join(qualified)
+        assert f"-hwaccel_output_format {output_format}" in " ".join(qualified)
+        assert scale in graph(qualified) and "hwupload" not in graph(qualified)
     with pytest.raises(lps.ConversionError, match="H.264 HDR"):
         lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, video_codec="h264", video_range="HDR10"))
     with pytest.raises(lps.ConversionError, match="burned subtitles"):
@@ -227,18 +393,38 @@ def test_installed_hdr_encoders_preserve_cicp_static_metadata_and_seek(tmp_path:
     if ffmpeg is None or ffprobe is None:
         return
     encoders = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, check=False).stdout
-    variants = [("none", "hevc", "HDR10", "libx265"), ("none", "av1", "HLG", "libsvtav1")]
+    variants = [
+        # Keep AV1-in/HLG on the retained end-to-end path: it catches source
+        # transfer syntax mistakes that HEVC-only inputs cannot expose.
+        ("none", "hevc", "HDR10", "libx265", "hevc", "libx265"),
+        ("none", "av1", "HLG", "libsvtav1", "hevc", "libx265"),
+        ("none", "hevc", "HLG", "libx265", "av1", "libsvtav1"),
+    ]
     if "hevc_videotoolbox" in encoders:
-        variants.append(("videotoolbox", "hevc", "HDR10", "hevc_videotoolbox"))
-    for hw, codec, video_range, required in variants:
-        if required not in encoders:
+        variants.append(("videotoolbox", "hevc", "HDR10", "hevc_videotoolbox", "hevc", "libx265"))
+    for hw, codec, video_range, required, input_codec, source_encoder in variants:
+        if required not in encoders or source_encoder not in encoders:
             continue
+        if hw != "none":
+            available, _ = hw_module._run([ffmpeg, "-hide_banner", "-v", "error", *hw_module._encode_test(hw, codec), "-f", "null", "-"])
+            if not available:
+                continue  # The optional native encoder is listed but no usable device is attached.
         source = tmp_path / f"{codec}-{video_range}.mp4"
-        generated, error = hw_module._hdr_source(ffmpeg, source, video_range)
-        if not generated:  # Optional host encoder/source capability; the runtime fails closed too.
-            continue
+        generated, error = hw_module._hdr_source(ffmpeg, source, video_range, input_codec=input_codec)
+        assert generated, error
+        source_ok, source_error = hw_module._verify_hdr_source(ffprobe, source, input_codec, video_range)
+        assert source_ok, source_error
+        source_probe = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1", "-show_streams", "-show_frames", "-of", "json", str(source)],
+            capture_output=True, text=True, check=True, timeout=15,
+        )
+        source_data = json.loads(source_probe.stdout)
+        source_stream = source_data["streams"][0]
+        source_frame = next(frame for frame in source_data["frames"] if frame.get("media_type") == "video")
+        source_metadata = hw_module._hdr_static_metadata({**source_stream, "side_data_list": source_frame.get("side_data_list") or source_stream.get("side_data_list")})
+        assert source_metadata is not None
         facts = {"streams": [{
-            "index": 0, "type": "video", "codec": "hevc", "width": 384, "height": 216,
+            "index": 0, "type": "video", "codec": input_codec, "width": 384, "height": 216,
             "pix_fmt": "yuv420p10le", "color_primaries": "bt2020", "color_transfer": "smpte2084" if video_range == "HDR10" else "arib-std-b67",
             "color_space": "bt2020nc", "color_range": "tv",
         }]}
@@ -246,8 +432,11 @@ def test_installed_hdr_encoders_preserve_cicp_static_metadata_and_seek(tmp_path:
         for start, label in ((0, "start"), (1, "seek")):
             output = tmp_path / f"{hw}-{codec}-{video_range}-{label}"
             output.mkdir()
-            subprocess.run(lps.ffmpeg_command(ffmpeg, source, facts, output, decision, hw=hw, start=start), check=True, timeout=60)
-            verified, verify_error = hw_module._verify_hdr_hls(ffprobe, output, codec, video_range)
+            subprocess.run(lps.ffmpeg_command(ffmpeg, source, facts, output, decision, hw=hw, start=start, hdr_hw_decode=hw != "none"), check=True, timeout=60)
+            verified, verify_error = hw_module._verify_hdr_hls(
+                ffprobe, output, codec, video_range, expected_metadata=source_metadata,
+                expected_codec=input_codec,
+            )
             assert verified, verify_error
 
 

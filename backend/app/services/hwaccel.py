@@ -46,12 +46,31 @@ CODECS = ("h264", "hevc", "av1")
 HDR_RANGES = ("HDR10", "HLG")
 _HDR_TRANSFER = {"HDR10": "smpte2084", "HLG": "arib-std-b67"}
 _HDR_CODEC = frozenset({"hevc", "av1"})
+_HDR_DECODE_INPUT_CODECS = frozenset({"hevc", "av1", "vp9"})
+_HDR_10BIT_420 = frozenset({"yuv420p10le", "yuv420p10be", "p010le", "p010be"})
 _HDR_MASTERING = {
     "red_x": Fraction(34000, 50000), "red_y": Fraction(16000, 50000),
     "green_x": Fraction(13250, 50000), "green_y": Fraction(34500, 50000),
     "blue_x": Fraction(7500, 50000), "blue_y": Fraction(3000, 50000),
     "white_point_x": Fraction(15635, 50000), "white_point_y": Fraction(16450, 50000),
     "min_luminance": Fraction(1, 10000), "max_luminance": Fraction(10000000, 10000),
+}
+_HDR_CHROMATICITY = frozenset({
+    "red_x", "red_y", "green_x", "green_y", "blue_x", "blue_y", "white_point_x", "white_point_y",
+})
+_HDR_MIN_LUMINANCE = "min_luminance"
+_HDR_MAX_LUMINANCE = "max_luminance"
+# HEVC MDCV uses a 1/50000 grid; AV1 uses 1/65536 for chromaticity,
+# 1/16384 for minimum luminance, and 1/256 for maximum luminance.  A
+# HEVC->AV1 source conversion therefore cannot compare its decimal fields as
+# identical Fractions.  We allow at most half the two representation steps
+# when AV1 is part of the path; CLL remains exact.
+_HDR_QUANTIZATION = {
+    "hevc": {**{key: Fraction(1, 50000) for key in _HDR_CHROMATICITY}, _HDR_MIN_LUMINANCE: Fraction(1, 10000), _HDR_MAX_LUMINANCE: Fraction(1, 10000)},
+    "av1": {**{key: Fraction(1, 65536) for key in _HDR_CHROMATICITY}, _HDR_MIN_LUMINANCE: Fraction(1, 16384), _HDR_MAX_LUMINANCE: Fraction(1, 256)},
+    # VP9's source expectation is read back from the generated Matroska frame,
+    # so it has no additional assumed grid before a downstream AV1 conversion.
+    "vp9": {key: Fraction() for key in _HDR_MASTERING},
 }
 # ``ENCODERS`` remains the H.264 compatibility surface used by existing callers;
 # new sessions ask ``encoder_args`` for the negotiated output codec.
@@ -92,6 +111,8 @@ class HwStatus:
     # never starts a slow HDR or DRM-PRIME process probe.
     hdr_encode_ranges: dict[str, tuple[str, ...]] = field(default_factory=dict, compare=False)
     hdr_encode_errors: dict[str, str] = field(default_factory=dict, compare=False)
+    hdr_decode_pairs: tuple[str, ...] = ()
+    hdr_decode_errors: dict[str, str] = field(default_factory=dict, compare=False)
     zero_copy_pairs: tuple[str, ...] = ()
     zero_copy_errors: dict[str, str] = field(default_factory=dict, compare=False)
 
@@ -156,8 +177,10 @@ def _hdr_colour_args(video_range: str) -> list[str]:
     ]
 
 
-def _hdr_source(ffmpeg: str, source: Path, video_range: str, timeout: float = PROBE_TIMEOUT_SECONDS) -> tuple[bool, str]:
-    """Create a bounded, local MP4 source with CICP plus HDR10 static SEI.
+def _hdr_source(
+    ffmpeg: str, source: Path, video_range: str, timeout: float = PROBE_TIMEOUT_SECONDS, *, input_codec: str = "hevc",
+) -> tuple[bool, str]:
+    """Create a bounded, local source with CICP plus HDR static metadata.
 
     This is intentionally a real local file, rather than an HLS input: runtime
     sessions retain the file-only demuxer and protocol boundary too.
@@ -169,25 +192,66 @@ def _hdr_source(ffmpeg: str, source: Path, video_range: str, timeout: float = PR
         "master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):"
         "max-cll=1000,400"
     )
-    return _run([
+    base = [
         ffmpeg, "-hide_banner", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=384x216:rate=2",
         "-t", "3", "-vf", "format=yuv420p10le", *_hdr_colour_args(video_range),
-        "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", x265,
-        "-tag:v", "hvc1", "-movflags", "+write_colr", str(source),
+    ]
+    if input_codec in {"vp9", "av1"}:
+        deadline = time.monotonic() + timeout
+        intermediate = source.with_name("hdr-base.mp4")
+        generated, output = _run([
+            *base, "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", x265,
+            "-tag:v", "hvc1", "-movflags", "+write_colr", str(intermediate),
+        ], timeout=timeout)
+        if not generated:
+            return generated, output
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, "probe_timeout"
+        if input_codec == "vp9":
+            return _run([
+                ffmpeg, "-hide_banner", "-y", "-v", "error", "-i", str(intermediate), "-vf", "format=yuv420p10le", *_hdr_colour_args(video_range),
+                "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "0", "-profile:v", "2",
+                "-f", "matroska", str(source),
+            ], timeout=remaining)
+        svt_transfer = "16" if video_range == "HDR10" else "18"
+        return _run([
+            ffmpeg, "-hide_banner", "-y", "-v", "error", "-i", str(intermediate), "-vf", "format=yuv420p10le", *_hdr_colour_args(video_range),
+            "-c:v", "libsvtav1", "-preset", "13", "-crf", "38", "-svtav1-params", f"lp=1:scd=0:enable-hdr=1:transfer-characteristics={svt_transfer}",
+            "-tag:v", "av01", "-movflags", "+write_colr", str(source),
+        ], timeout=remaining)
+    encoder = {
+        "hevc": ["-c:v", "libx265", "-preset", "ultrafast", "-x265-params", x265, "-tag:v", "hvc1"],
+    }.get(input_codec)
+    if encoder is None:
+        return False, f"unsupported HDR decoder input codec: {input_codec}"
+    return _run([
+        *base,
+        *encoder, "-movflags", "+write_colr", str(source),
     ], timeout=timeout)
 
 
-def _hdr_graph(hw: str, height: int) -> tuple[list[str], str]:
+def _hdr_graph(hw: str, height: int, *, hw_decode: bool = False) -> tuple[list[str], str]:
     """A P010-only encode graph; no tone map or 8-bit transfer is permitted."""
     if hw == "none":
         return [], f"scale=-2:{height},format=yuv420p10le"
     if hw == "qsv":
-        return device_args(hw), f"format=p010,hwupload=extra_hw_frames=64,scale_qsv=w=-1:h={height}:format=p010"
+        return [*device_args(hw), *(["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"] if hw_decode else [])], (
+            f"scale_qsv=w=-1:h={height}:format=p010" if hw_decode else f"format=p010,hwupload=extra_hw_frames=64,scale_qsv=w=-1:h={height}:format=p010"
+        )
     if hw == "vaapi":
-        return device_args(hw), f"format=p010,hwupload=extra_hw_frames=64,scale_vaapi=w=-2:h={height}:format=p010"
+        return [*device_args(hw), *(["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"] if hw_decode else [])], (
+            f"scale_vaapi=w=-2:h={height}:format=p010" if hw_decode else f"format=p010,hwupload=extra_hw_frames=64,scale_vaapi=w=-2:h={height}:format=p010"
+        )
     if hw == "nvenc":
-        return device_args(hw), f"format=p010,hwupload=extra_hw_frames=64,scale_cuda=w=-2:h={height}:format=p010"
-    if hw in {"videotoolbox", "amf"}:
+        return [*device_args(hw), *(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-threads", "1", "-hwaccel_flags", "+unsafe_output"] if hw_decode else [])], (
+            f"scale_cuda=w=-2:h={height}:format=p010" if hw_decode else f"format=p010,hwupload=extra_hw_frames=64,scale_cuda=w=-2:h={height}:format=p010"
+        )
+    if hw == "videotoolbox":
+        return (["-hwaccel", "videotoolbox", "-hwaccel_output_format", "videotoolbox_vld"] if hw_decode else []), (
+            f"hwdownload,format=p010le,scale=-2:{height},format=p010le" if hw_decode else f"scale=-2:{height},format=p010le"
+        )
+    if hw == "amf":
         return [], f"scale=-2:{height},format=p010le"
     raise ValueError(f"HDR preservation is unavailable for {hw}")
 
@@ -206,33 +270,123 @@ def _hdr_stream(ffprobe: str, init: Path, segment: Path, timeout: float) -> tupl
     return stream, ""
 
 
-def _has_static_hdr_metadata(stream: Mapping[str, object]) -> bool:
+def _hdr_metadata_integer(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
+
+
+def _hdr_static_metadata(stream: Mapping[str, object]) -> tuple[dict[str, Fraction], tuple[int, int]] | None:
     side_data = stream.get("side_data_list")
     if not isinstance(side_data, list):
-        return False
-    kinds = {str(item.get("side_data_type")) for item in side_data if isinstance(item, dict)}
-    if not {"Mastering display metadata", "Content light level metadata"} <= kinds:
-        return False
+        return None
     mastering = next((item for item in side_data if isinstance(item, dict) and item.get("side_data_type") == "Mastering display metadata"), None)
     if not isinstance(mastering, dict):
-        return False
+        return None
     try:
-        if any(Fraction(str(mastering.get(key))) != expected for key, expected in _HDR_MASTERING.items()):
-            return False
+        values = {key: Fraction(str(mastering.get(key))) for key in _HDR_MASTERING}
     except (ValueError, ZeroDivisionError):
-        return False
+        return None
     light = next((item for item in side_data if isinstance(item, dict) and item.get("side_data_type") == "Content light level metadata"), None)
     if not isinstance(light, dict):
+        return None
+    max_content = _hdr_metadata_integer(light.get("max_content"))
+    max_average = _hdr_metadata_integer(light.get("max_average"))
+    if max_content is None or max_average is None:
+        return None
+    return values, (max_content, max_average)
+
+
+def _has_static_hdr_metadata(
+    stream: Mapping[str, object], expected_metadata: tuple[dict[str, Fraction], tuple[int, int]] | None = None,
+    *, expected_codec: str = "hevc", output_codec: str | None = None,
+) -> bool:
+    """Compare every MDCV and CLL field, allowing only AV1 bitstream rounding."""
+    actual = _hdr_static_metadata(stream)
+    if actual is None:
         return False
-    return str(light.get("max_content")) == "1000" and str(light.get("max_average")) == "400"
+    expected, expected_light = expected_metadata or (_HDR_MASTERING, (1000, 400))
+    actual_values, actual_light = actual
+    if actual_light != expected_light or set(actual_values) != set(expected):
+        return False
+    actual_codec = output_codec or str(stream.get("codec_name"))
+    for key, value in expected.items():
+        tolerance = Fraction()
+        if "av1" in {expected_codec, actual_codec}:
+            source_step = _HDR_QUANTIZATION.get(expected_codec, {}).get(key)
+            output_step = _HDR_QUANTIZATION.get(actual_codec, {}).get(key)
+            if source_step is None or output_step is None:
+                return False
+            tolerance = (source_step + output_step) / 2
+        if abs(actual_values[key] - value) > tolerance:
+            return False
+    return True
 
 
-def _verify_hdr_hls(ffprobe: str, directory: Path, codec: str, video_range: str, deadline: float | None = None) -> tuple[bool, str]:
+def _hdr_stream_matches(
+    stream: object, codec: str, video_range: str, expected_metadata: tuple[dict[str, Fraction], tuple[int, int]] | None = None,
+    *, expected_codec: str = "hevc",
+) -> bool:
+    if not isinstance(stream, Mapping):
+        return False
+    return (
+        stream.get("codec_name") == codec
+        and stream.get("pix_fmt") in {"yuv420p10le", "p010le"}
+        and stream.get("color_primaries") == "bt2020"
+        and stream.get("color_transfer") == _HDR_TRANSFER[video_range]
+        and stream.get("color_space") == "bt2020nc"
+        and stream.get("color_range") == "tv"
+        and _has_static_hdr_metadata(stream, expected_metadata, expected_codec=expected_codec, output_codec=codec)
+    )
+
+
+def _hdr_source_stream(ffprobe: str, source: Path, timeout: float) -> tuple[dict[str, object] | None, str]:
+    if timeout <= 0:
+        return None, "probe_timeout"
+    ok, output = _run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_streams", "-show_frames", "-of", "json", str(source)], timeout=timeout)
+    if not ok:
+        return None, _last_line(output)
+    try:
+        data = json.loads(output)
+        raw_stream = data.get("streams", [])[0]
+        frame = data.get("frames", [])[0]
+        if not isinstance(raw_stream, Mapping) or not isinstance(frame, Mapping):
+            return None, "ffprobe returned malformed generated HDR source"
+        stream = dict(raw_stream)
+        # FFmpeg 8.1 reports some decoded HDR facts (notably CICP) only on
+        # the first frame, while older builds report them on the stream.  The
+        # probe is verifying that same decoded frame, so merge its facts over
+        # the header without discarding any stream-side static metadata.
+        for key in ("color_space", "color_transfer", "color_primaries", "color_range", "pix_fmt"):
+            if frame.get(key):
+                stream[key] = frame[key]
+        frame_side_data = frame.get("side_data_list")
+        if isinstance(frame_side_data, list):
+            existing = stream.get("side_data_list")
+            known = existing if isinstance(existing, list) else []
+            stream["side_data_list"] = known + [entry for entry in frame_side_data if isinstance(entry, dict) and entry not in known]
+    except (IndexError, TypeError, json.JSONDecodeError):
+        return None, "ffprobe returned no generated HDR source"
+    return stream, ""
+
+
+def _verify_hdr_source(ffprobe: str, source: Path, codec: str, video_range: str, timeout: float = PROBE_TIMEOUT_SECONDS) -> tuple[bool, str]:
+    stream, error = _hdr_source_stream(ffprobe, source, timeout)
+    if stream is None:
+        return False, error
+    return (_hdr_stream_matches(stream, codec, video_range), "generated HDR source metadata did not match" if not _hdr_stream_matches(stream, codec, video_range) else "")
+
+
+def _verify_hdr_hls(
+    ffprobe: str, directory: Path, codec: str, video_range: str, deadline: float | None = None,
+    *, expected_metadata: tuple[dict[str, Fraction], tuple[int, int]] | None = None, expected_codec: str = "hevc",
+) -> tuple[bool, str]:
     init = directory / "init.mp4"
     segments = sorted(directory.glob("seg*.m4s"))
     if not init.is_file() or len(segments) < 2:
         return False, "HDR HLS output did not create multiple fMP4 fragments"
-    expected_transfer = _HDR_TRANSFER[video_range]
     for segment in segments:
         timeout = PROBE_TIMEOUT_SECONDS if deadline is None else deadline - time.monotonic()
         if timeout <= 0:
@@ -240,20 +394,14 @@ def _verify_hdr_hls(ffprobe: str, directory: Path, codec: str, video_range: str,
         stream, error = _hdr_stream(ffprobe, init, segment, timeout)
         if stream is None:
             return False, f"{segment.name}: {error}"
-        if (
-            stream.get("codec_name") != codec
-            or stream.get("pix_fmt") not in {"yuv420p10le", "p010le"}
-            or stream.get("color_primaries") != "bt2020"
-            or stream.get("color_transfer") != expected_transfer
-            or stream.get("color_space") != "bt2020nc"
-            or stream.get("color_range") != "tv"
-            or not _has_static_hdr_metadata(stream)
-        ):
+        if not _hdr_stream_matches(stream, codec, video_range, expected_metadata, expected_codec=expected_codec):
             return False, f"{segment.name}: HDR CICP or static metadata did not survive"
     return True, ""
 
 
-def _hdr_encode_test(ffmpeg: str, ffprobe: str, hw: str, codec: str, video_range: str) -> tuple[bool, str]:
+def _hdr_encode_test(
+    ffmpeg: str, ffprobe: str, hw: str, codec: str, video_range: str, *, input_codec: str = "hevc", input_pix_fmt: str = "yuv420p10le", hw_decode: bool = False,
+) -> tuple[bool, str]:
     """Prove exact output codec/range through local MP4 -> fMP4 HLS, including seek.
 
     The small bounded input still uses a realistic 384x216 -> 256x144 shape;
@@ -261,21 +409,39 @@ def _hdr_encode_test(ffmpeg: str, ffprobe: str, hw: str, codec: str, video_range
     """
     if codec not in _HDR_CODEC or video_range not in HDR_RANGES or hw == "rkmpp":
         return False, "unsupported HDR encoder/range"
+    if input_codec not in _HDR_DECODE_INPUT_CODECS or input_pix_fmt not in _HDR_10BIT_420:
+        return False, "unsupported HDR decoder input"
+    if hw_decode and hw not in {"qsv", "vaapi", "nvenc", "videotoolbox"}:
+        return False, "unsupported HDR hardware decoder"
     try:
-        pre, graph = _hdr_graph(hw, 144)
+        pre, graph = _hdr_graph(hw, 144, hw_decode=hw_decode)
     except ValueError as exc:
         return False, str(exc)
     gpu = ["-gpu", str(settings.hwaccel_gpu_index)] if hw == "nvenc" else []
     deadline = time.monotonic() + HDR_PROBE_TIMEOUT_SECONDS
     with tempfile.TemporaryDirectory(prefix="lumina-hdr-probe-") as temporary:
         root = Path(temporary)
-        source = root / "source.mp4"
+        source = root / ("source.mkv" if input_codec == "vp9" else "source.mp4")
         source_timeout = deadline - time.monotonic()
         if source_timeout <= 0:
             return False, "HDR probe deadline exceeded"
-        generated, output = _hdr_source(ffmpeg, source, video_range, source_timeout)
+        source_args = (ffmpeg, source, video_range, source_timeout)
+        generated, output = (
+            _hdr_source(*source_args)
+            if input_codec == "hevc"
+            else _hdr_source(*source_args, input_codec=input_codec)
+        )
         if not generated:
             return False, f"HDR source synthesis failed: {_last_line(output)}"
+        source_timeout = deadline - time.monotonic()
+        if source_timeout <= 0:
+            return False, "HDR probe deadline exceeded"
+        source_stream, source_error = _hdr_source_stream(ffprobe, source, source_timeout)
+        if source_stream is None or not _hdr_stream_matches(source_stream, input_codec, video_range):
+            return False, f"HDR source verification failed: {source_error or 'generated HDR source metadata did not match'}"
+        source_metadata = _hdr_static_metadata(source_stream)
+        if source_metadata is None:
+            return False, "HDR source verification failed: generated HDR source had no static metadata"
         for seek in (0, 1):
             timeout = deadline - time.monotonic()
             if timeout <= 0:
@@ -294,7 +460,10 @@ def _hdr_encode_test(ffmpeg: str, ffprobe: str, hw: str, codec: str, video_range
             ok, probe_output = _run(command, timeout=timeout)
             if not ok:
                 return False, f"HDR {'seek ' if seek else ''}encode failed: {_last_line(probe_output)}"
-            verified, error = _verify_hdr_hls(ffprobe, directory, codec, video_range, deadline)
+            verified, error = _verify_hdr_hls(
+                ffprobe, directory, codec, video_range, deadline,
+                expected_metadata=source_metadata, expected_codec=input_codec,
+            )
             if not verified:
                 return False, f"HDR {'seek ' if seek else ''}verification failed: {error}"
     return True, ""
@@ -401,8 +570,11 @@ class HwAccel:
         self._cache: dict[tuple[str | None, str], HwStatus] = {}
         self._software_cache: dict[tuple[str | None, str, str, str | None], bool] = {}
         self._hdr_cache: dict[tuple[str | None, str, str | None, str, int, str, str], tuple[bool, str]] = {}
+        self._hdr_decode_cache: dict[tuple[str, str, str, str, int, str, str, str, str, str], tuple[bool, str]] = {}
         self._zero_copy_cache: dict[tuple[str | None, str | None, str, int, str, str], tuple[bool, str]] = {}
         self._hdr_context: dict[tuple[str | None, str], tuple[str, str, int]] = {}
+        self._hdr_decode_epoch = 0
+        self._hdr_decode_context: dict[tuple[str, str], tuple[str, str, int]] = {}
         self._zero_copy_context: dict[str | None, tuple[str, str, int]] = {}
         self.failures = 0
         self.fallbacks = 0
@@ -530,6 +702,102 @@ class HwAccel:
             self._software_cache[key] = result
         return result
 
+    def _store_hdr_decode_result(self, identity: tuple[str, str, str, str, int, str, str, str, str, str], epoch: int, result: tuple[bool, str], *, require_positive: bool = False) -> bool:
+        """Store only a result that still belongs to the selected device/probe generation."""
+        ffmpeg, mode, ffprobe, device, gpu, active, input_codec, pix_fmt, output_codec, video_range = identity
+        context = (ffprobe, device, gpu)
+        with self._lock:
+            status = self._cache.get((ffmpeg, mode))
+            if (
+                epoch != self._hdr_decode_epoch
+                or status is None
+                or status.active != active
+                or self._hdr_decode_context.get((ffmpeg, mode)) != context
+                or context != (ffprobe, str(settings.hwaccel_device), settings.hwaccel_gpu_index)
+            ):
+                return False
+            existing = self._hdr_decode_cache.get(identity)
+            if require_positive and (existing is None or not existing[0]):
+                return False
+            self._hdr_decode_cache[identity] = result
+            label = f"{input_codec}10->{output_codec}/{video_range}"
+            pairs = set(status.hdr_decode_pairs)
+            errors = dict(status.hdr_decode_errors)
+            if result[0]:
+                pairs.add(label)
+                errors.pop(label, None)
+            else:
+                pairs.discard(label)
+                errors[label] = result[1][:200]
+            self._cache[(ffmpeg, mode)] = replace(status, hdr_decode_pairs=tuple(sorted(pairs)), hdr_decode_errors=errors)
+            # A runtime failure must also discard an earlier in-flight proof of
+            # this tuple: otherwise its late success could re-enable the bad
+            # decoder path after this exact revocation.
+            if require_positive:
+                self._hdr_decode_epoch += 1
+            return True
+
+    def hdr_decode_supported(
+        self, ffmpeg: str | None, mode: str, input_codec: str | None, pix_fmt: str | None,
+        output_codec: str, video_range: str, ffprobe: str | None,
+    ) -> bool:
+        """Prove one exact HDR decoder -> P010 -> encoder path on the selected device.
+
+        This is demand-only: an unknown or failing decoder keeps the already
+        proven HDR encoder, but session decoding remains on CPU frames.
+        """
+        if (
+            not ffmpeg or not ffprobe or input_codec not in _HDR_DECODE_INPUT_CODECS or pix_fmt not in _HDR_10BIT_420
+            or output_codec not in _HDR_CODEC or video_range not in HDR_RANGES
+        ):
+            return False
+        status = self.status(ffmpeg, mode)
+        if (
+            self.disabled or status.active not in {"qsv", "vaapi", "nvenc", "videotoolbox"}
+            or output_codec not in status.encode_codecs
+        ):
+            return False
+        context = (ffprobe, str(settings.hwaccel_device), settings.hwaccel_gpu_index)
+        with self._lock:
+            current = self._cache.get((ffmpeg, mode))
+            if current is None or current.active not in {"qsv", "vaapi", "nvenc", "videotoolbox"}:
+                return False
+            if self._hdr_decode_context.get((ffmpeg, mode)) != context:
+                current = replace(current, hdr_decode_pairs=(), hdr_decode_errors={})
+                self._cache[(ffmpeg, mode)] = current
+                self._hdr_decode_context[(ffmpeg, mode)] = context
+            active = current.active
+            identity = (ffmpeg, mode, ffprobe, context[1], context[2], active, input_codec, pix_fmt, output_codec, video_range)
+            epoch = self._hdr_decode_epoch
+            cached = self._hdr_decode_cache.get(identity)
+        if cached is None:
+            result = _hdr_encode_test(
+                ffmpeg, ffprobe, active, output_codec, video_range,
+                input_codec=input_codec, input_pix_fmt=pix_fmt, hw_decode=True,
+            )
+            if not self._store_hdr_decode_result(identity, epoch, result):
+                return False
+            return result[0]
+        if not self._store_hdr_decode_result(identity, epoch, cached):
+            return False
+        return cached[0]
+
+    def record_hdr_decode_failure(
+        self, ffmpeg: str | None, mode: str, input_codec: str | None, pix_fmt: str | None,
+        output_codec: str, video_range: str, ffprobe: str | None, error: str = "runtime_decoder_failure",
+    ) -> None:
+        """Pin a decoder proof to CPU after its initial runtime path fails."""
+        if not ffmpeg or not ffprobe or input_codec is None or pix_fmt is None:
+            return
+        context = (ffprobe, str(settings.hwaccel_device), settings.hwaccel_gpu_index)
+        with self._lock:
+            status = self._cache.get((ffmpeg, mode))
+            if status is None or self._hdr_decode_context.get((ffmpeg, mode)) != context:
+                return
+            epoch = self._hdr_decode_epoch
+            identity = (ffmpeg, mode, ffprobe, context[1], context[2], status.active, input_codec, pix_fmt, output_codec, video_range)
+        self._store_hdr_decode_result(identity, epoch, (False, error), require_positive=True)
+
     def zero_copy_supported(
         self, ffmpeg: str | None, input_codec: str | None, output_codec: str, ffprobe: str | None = None,
     ) -> bool:
@@ -583,8 +851,11 @@ class HwAccel:
             self._cache.clear()
             self._software_cache.clear()
             self._hdr_cache.clear()
+            self._hdr_decode_cache.clear()
             self._zero_copy_cache.clear()
             self._hdr_context.clear()
+            self._hdr_decode_epoch += 1
+            self._hdr_decode_context.clear()
             self._zero_copy_context.clear()
 
 

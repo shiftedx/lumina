@@ -114,16 +114,21 @@ def test_output_codec_diagnostics_only_reports_proven_formats_and_redacts_probe_
         encode_errors={"av1": f"cannot open {settings.data_dir}/private-device token={SECRETS[1]}"},
         hdr_encode_ranges={"hevc": ("HDR10", "HLG")},
         hdr_encode_errors={"av1/HDR10": f"cannot open {settings.data_dir}/hdr-device token={SECRETS[1]}"},
+        hdr_decode_pairs=("hevc10->hevc/HDR10",),
+        hdr_decode_errors={"av110->hevc/HLG": f"cannot open {settings.data_dir}/hdr-decoder token={SECRETS[1]}"},
     )
     monkeypatch.setattr(hwaccel, "status", lambda *_: status)
     monkeypatch.setattr(hwaccel, "output_ranges", lambda *_args, **_kwargs: pytest.fail("Reading diagnostics must not start an HDR probe"))
+    monkeypatch.setattr(hwaccel, "hdr_decode_supported", lambda *_args, **_kwargs: pytest.fail("Reading diagnostics must not start an HDR decoder probe"))
     login(client)
     response = client.get("/api/admin/diagnostics")
     assert response.status_code == 200, response.text
     body = response.json()["playback"]
     assert body["encode_codecs"] == ["h264", "hevc"]
     assert body["hdr_encode_ranges"] == {"hevc": ["HDR10", "HLG"]}
+    assert body["hdr_decode_pairs"] == ["hevc10->hevc/HDR10"]
     assert "[redacted]" in body["hdr_encode_errors"]["av1/HDR10"]
+    assert "[redacted]" in body["hdr_decode_errors"]["av110->hevc/HLG"]
     assert "[redacted]" in body["encode_errors"]["av1"]
     assert SECRETS[1] not in response.text and str(settings.data_dir) not in response.text
 
@@ -150,6 +155,20 @@ def test_rockchip_diagnostics_runs_explicit_pair_checks_and_redacts_failures(cli
     assert response.status_code == 200, response.text
     assert calls[0][0] == "hdr" and "ffprobe" in calls[0][2]
     assert set(calls[1:]) == {(source, codec) for source in ("h264", "hevc", "vp9", "av1") for codec in ("h264", "hevc")}
+
+
+def test_transcode_diagnostics_does_not_expand_hdr_decoder_pairs(client: TestClient, factory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Decoder qualification is demand-driven by a real source, never an admin Cartesian probe."""
+    monkeypatch.setattr(hwaccel, "status", lambda *_: HwStatus(active="qsv", probe_ok=True, encode_codecs=("h264", "hevc")))
+    monkeypatch.setattr(hwaccel, "reprobe", lambda: None)
+    monkeypatch.setattr(hwaccel, "output_ranges", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(hwaccel, "hdr_decode_supported", lambda *_args, **_kwargs: pytest.fail("diagnostics must not invent input decoder pairs"))
+    csrf = login(client)
+
+    response = client.post("/api/admin/media-server/transcode-diagnostics", headers={"Origin": settings.allowed_origins_list[0], "X-CSRF-Token": csrf})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["hdr_decode_pairs"] == []
 
 
 def test_log_records_are_redacted(caplog: pytest.LogCaptureFixture) -> None:

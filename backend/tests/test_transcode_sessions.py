@@ -160,6 +160,78 @@ def test_a_decode_failure_retries_cpu_decode_with_the_hardware_encoder(registry,
     assert session.kind == "video_hw" and hwaccel.fallbacks == 0 and hwaccel.failures == 0
 
 
+def test_hdr_decoder_proof_failure_starts_cpu_decode_on_the_same_hardware_encoder(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unqualified HDR decoder is not an encoder failure or an HDR admission failure."""
+    monkeypatch.setattr(hwaccel, "choice", lambda *_args, **_kwargs: ("qsv", "software"))
+    monkeypatch.setattr(hwaccel, "hdr_decode_supported", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(hwaccel, "record_hdr_decode_failure", lambda *_args, **_kwargs: pytest.fail("CPU decode was selected before launch"))
+    commands: list[list[str]] = []
+    command = lps.ffmpeg_command
+
+    def record(*args, **kwargs):  # noqa: ANN002, ANN003 - forwarding a public command boundary
+        built = command(*args, **kwargs)
+        commands.append(built)
+        return built
+
+    monkeypatch.setattr(lps, "ffmpeg_command", record)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p10le"}, FACTS["streams"][1]]}
+    decision = replace(VIDEO, video_codec="hevc", video_range="HDR10")
+
+    session = registry.start(user_id="alice", item_id="hdr", ffmpeg=registry.ffmpeg, ffprobe="ffprobe", source=Path("/media/hdr.mkv"), facts=facts, decision=decision, cap=2)
+
+    assert len(commands) == 1 and "-hwaccel" not in commands[0]
+    assert session.kind == "video_hw" and session.info["video"]["decode"] == "software"
+    assert hwaccel.failures == 0 and hwaccel.fallbacks == 0
+
+
+def test_hdr_decoder_proof_starts_hardware_decode_and_reports_it_truthfully(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hwaccel, "choice", lambda *_args, **_kwargs: ("qsv", "software"))
+    monkeypatch.setattr(hwaccel, "hdr_decode_supported", lambda *_args, **_kwargs: True)
+    commands: list[list[str]] = []
+    command = lps.ffmpeg_command
+
+    def record(*args, **kwargs):  # noqa: ANN002, ANN003 - forwarding a public command boundary
+        built = command(*args, **kwargs)
+        commands.append(built)
+        return built
+
+    monkeypatch.setattr(lps, "ffmpeg_command", record)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p10le"}, FACTS["streams"][1]]}
+    decision = replace(VIDEO, video_codec="hevc", video_range="HDR10")
+
+    session = registry.start(user_id="alice", item_id="hdr", ffmpeg=registry.ffmpeg, ffprobe="ffprobe", source=Path("/media/hdr.mkv"), facts=facts, decision=decision, cap=2)
+
+    assert len(commands) == 1 and "-hwaccel" in commands[0]
+    assert session.kind == "video_hw" and session.info["video"]["decode"] == "hardware"
+    assert hwaccel.failures == 0 and hwaccel.fallbacks == 0
+
+
+def test_hdr_decoder_runtime_failure_revokes_the_pair_and_retries_cpu_decode_with_the_same_encoder(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hwaccel, "choice", lambda *_args, **_kwargs: ("qsv", "software"))
+    monkeypatch.setattr(hwaccel, "hdr_decode_supported", lambda *_args, **_kwargs: True)
+    revoked: list[tuple] = []
+    monkeypatch.setattr(hwaccel, "record_hdr_decode_failure", lambda *args, **kwargs: revoked.append((args, kwargs)))
+    monkeypatch.setenv("FAKE_FAIL_DECODE", "1")
+    commands: list[list[str]] = []
+    command = lps.ffmpeg_command
+
+    def record(*args, **kwargs):  # noqa: ANN002, ANN003 - forwarding a public command boundary
+        built = command(*args, **kwargs)
+        commands.append(built)
+        return built
+
+    monkeypatch.setattr(lps, "ffmpeg_command", record)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p10le"}, FACTS["streams"][1]]}
+    decision = replace(VIDEO, video_codec="hevc", video_range="HDR10")
+
+    session = registry.start(user_id="alice", item_id="hdr", ffmpeg=registry.ffmpeg, ffprobe="ffprobe", source=Path("/media/hdr.mkv"), facts=facts, decision=decision, cap=2)
+
+    assert len(commands) == 2 and "-hwaccel" in commands[0] and "-hwaccel" not in commands[1]
+    assert session.kind == "video_hw" and session.info["video"]["decode"] == "software"
+    assert len(revoked) == 1
+    assert hwaccel.failures == 0 and hwaccel.fallbacks == 0
+
+
 def test_rkmpp_zero_copy_decoder_failure_retries_cpu_upload_with_the_same_encoder(registry, monkeypatch: pytest.MonkeyPatch) -> None:
     """DRM-PRIME/RGA is an optional decoder path, not a reason to lose the MPP encoder."""
     monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HwStatus(active="rkmpp", probe_ok=True, encode_codecs=("h264", "hevc")))

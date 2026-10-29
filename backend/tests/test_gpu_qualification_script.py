@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,6 +82,44 @@ def test_zero_copy_cli_requires_rockchip_and_an_explicit_input_codec(monkeypatch
         qualifier.main()
 
 
+def test_hdr_qualifier_uses_the_public_production_probe_and_reports_its_pair(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class Acceleration:
+        def hdr_decode_supported(self, *args: object) -> bool:
+            calls.append(args)
+            return True
+
+        def status(self, _ffmpeg: str, _mode: str) -> object:
+            return SimpleNamespace(hdr_decode_pairs=("hevc10->hevc/HDR10",), hdr_decode_errors={})
+
+    monkeypatch.setattr(qualifier.hwaccel, "HwAccel", Acceleration)
+    result = qualifier._qualify_hdr_decode("ffmpeg", "ffprobe", "qsv", "hevc", "hevc", "HDR10")
+    assert calls == [("ffmpeg", "qsv", "hevc", "yuv420p10le", "hevc", "HDR10", "ffprobe")]
+    assert result == {
+        "ok": True,
+        "detail": "production hardware-decode/P010/fMP4 metadata proof passed",
+        "input": {"codec": "hevc", "pix_fmt": "yuv420p10le"},
+        "output": {"codec": "hevc", "range": "HDR10"},
+    }
+
+
+def test_hdr_qualifier_keeps_hdr_and_rockchip_zero_copy_modes_separate(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", [
+        "qualifier", "--mode", "rkmpp", "--codec", "hevc", "--input-codec", "hevc", "--zero-copy", "--hdr-range", "HDR10",
+    ])
+    with pytest.raises(SystemExit, match="2"):
+        qualifier.main()
+
+
+def test_hdr_qualifier_rejects_unqualified_h264_high10_input(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", [
+        "qualifier", "--mode", "qsv", "--codec", "hevc", "--input-codec", "h264", "--hdr-range", "HDR10",
+    ])
+    with pytest.raises(SystemExit, match="2"):
+        qualifier.main()
+
+
 def test_qualifier_standalone_help_bootstraps_the_checkout_backend() -> None:
     environment = dict(os.environ)
     environment.pop("PYTHONPATH", None)
@@ -91,3 +130,4 @@ def test_qualifier_standalone_help_bootstraps_the_checkout_backend() -> None:
     assert result.returncode == 0, result.stderr
     assert "--zero-copy" in result.stdout
     assert "--input-codec {av1,h264,hevc,vp9}" in result.stdout
+    assert "--hdr-range {HDR10,HLG}" in result.stdout

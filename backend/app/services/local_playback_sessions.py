@@ -26,7 +26,7 @@ from urllib.parse import quote
 from app.config import settings
 from app.services import subtitle_tracks
 from app.services import rockchip
-from app.services.hwaccel import ENCODERS, device_args, encoder_args, hwaccel
+from app.services.hwaccel import ENCODERS, _hdr_graph, device_args, encoder_args, hwaccel
 from app.services.media_probe import LOCAL_INPUT_ARGS
 from app.services.playback_decision import Decision, video_range as source_video_range
 
@@ -171,7 +171,7 @@ def _can_hw_decode(codec: str | None, pix_fmt: str | None, hw: str, tonemap: str
 
 
 def _video_graph(
-    decision: Decision, codec: str | None, pix_fmt: str | None, hw: str, tonemap: str, *, hw_decode: bool = True, zero_copy: bool = False,
+    decision: Decision, codec: str | None, pix_fmt: str | None, hw: str, tonemap: str, *, hw_decode: bool = True, hdr_hw_decode: bool = False, zero_copy: bool = False,
 ) -> tuple[list[str], str]:
     """(hardware-device input args, filtergraph from the video stream to [v]) for an encoded video stream."""
     height = decision.height
@@ -182,19 +182,20 @@ def _video_graph(
         raise ConversionError("HDR preservation is unavailable with tone mapping or burned subtitles.")
     if preserve_hdr and hw == "rkmpp":
         raise ConversionError("Rockchip MPP only supports SDR output.")
+    if preserve_hdr:
+        # The HDR decoder probe and the runtime use this exact graph. The
+        # default remains CPU decode until the input tuple proves otherwise.
+        pre, chain = _hdr_graph(hw, height, hw_decode=hdr_hw_decode)
+        return pre, f"[0:{decision.video_index}]{chain}[v]"
     pre: list[str] = []
     download: list[str] = []
     upload: list[str] = []
     if hw == "none":
-        chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP if tm == "software" else "format=yuv420p10le" if preserve_hdr else "format=yuv420p"]
+        chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP if tm == "software" else "format=yuv420p"]
     else:
         # High-10 AVC has no broadly available fixed-function decoder. Keep the GPU encoder
         # and decode it in software; this is also the retry path for older GPU generations.
-        # HDR output uses the exact CPU-decode/P010-upload path the capability
-        # probe verifies. This is the current ceiling: a qualified per-input
-        # hardware-decoder metadata proof may replace CPU decode later, but an
-        # encoder-only pass must never imply that it is safe today.
-        decode = hw_decode and not preserve_hdr and _can_hw_decode(codec, pix_fmt, hw, tm)
+        decode = hw_decode and _can_hw_decode(codec, pix_fmt, hw, tm)
         if hw in {"qsv", "vaapi"}:
             pre = device_args(hw)
             if tm == "opencl":
@@ -227,17 +228,17 @@ def _video_graph(
             elif hw == "rkmpp" and decision.burn_subtitle is None:
                 chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP, rockchip.encode_filter()]
         elif hw == "nvenc":
-            fmt = "p010" if preserve_hdr or tm == "cuda" else "nv12"
+            fmt = "p010" if tm == "cuda" else "nv12"
             chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
             chain.append(f"scale_cuda=w=-2:h={height}:format={fmt}")
             if tm == "cuda":
                 chain.append("tonemap_cuda=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=nv12:apply_dovi=1")
         elif hw in {"videotoolbox", "amf"}:
-            chain = [f"scale=-2:{height}", "format=p010le" if preserve_hdr else "format=nv12"]
+            chain = [f"scale=-2:{height}", "format=nv12"]
         elif hw == "rkmpp":
             chain = [f"scale=-2:{height}"] if decision.burn_subtitle is not None else [f"scale=-2:{height}", rockchip.encode_filter()]
         else:
-            fmt = "p010" if preserve_hdr or tm in {"opencl", "vpp_qsv"} else "nv12"
+            fmt = "p010" if tm in {"opencl", "vpp_qsv"} else "nv12"
             chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
             if hw == "qsv" and tm == "vpp_qsv":
                 chain.append(f"vpp_qsv=w=-1:h={height}:tonemap=1:format=nv12")
@@ -264,7 +265,7 @@ def _video_graph(
     )
 
 
-def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: Path, decision: Decision, *, hw: str = "none", tonemap: str = "none", start: float = 0, audio_gain_db: float | None = None, run: HlsRun | None = None, hw_decode: bool = True, zero_copy: bool = False) -> list[str]:
+def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: Path, decision: Decision, *, hw: str = "none", tonemap: str = "none", start: float = 0, audio_gain_db: float | None = None, run: HlsRun | None = None, hw_decode: bool = True, hdr_hw_decode: bool = False, zero_copy: bool = False) -> list[str]:
     """One command for any decision: copy what the client plays, encode H.264/HEVC/AV1 plus AAC.
 
     A non-zero ``start`` input-seeks there (keyframe-accurate for copied video) and keeps source
@@ -291,7 +292,7 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     pre: list[str] = []
     out: list[str] = []
     if decision.video == "encode":
-        pre, video_graph = _video_graph(decision, codec, video.get("pix_fmt"), hw, tonemap, hw_decode=hw_decode, zero_copy=zero_copy)
+        pre, video_graph = _video_graph(decision, codec, video.get("pix_fmt"), hw, tonemap, hw_decode=hw_decode, hdr_hw_decode=hdr_hw_decode, zero_copy=zero_copy)
         bitrate = decision.bitrate or 8_000_000
         out += [
             "-filter_complex", video_graph, "-map", "[v]", *_encoder_args(hw, output, video_range),
@@ -455,11 +456,16 @@ class LocalPlaybackSessions:
         if decision.tonemap and tonemap == "none":
             raise ConversionError("This HDR file cannot be tone-mapped on this server.")
         video = next((s for s in facts.get("streams") or [] if s.get("index") == decision.video_index), {})
+        hdr_hw_decode = (
+            encode and hw != "none" and video_range != "SDR" and hwaccel.hdr_decode_supported(
+                ffmpeg, hwaccel_mode, video.get("codec"), video.get("pix_fmt"), codec, video_range, ffprobe,
+            )
+        )
         zero_copy = (
             encode and hw == "rkmpp" and video_range == "SDR" and not decision.tonemap and decision.burn_subtitle is None
             and _sdr_8bit_420(video.get("pix_fmt")) and hwaccel.zero_copy_supported(ffmpeg, video.get("codec"), codec, ffprobe)
         )
-        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, codec, video_range, plan is not None, hw, tonemap, zero_copy)
+        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, codec, video_range, plan is not None, hw, tonemap, hdr_hw_decode, zero_copy)
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
             source=source, facts=facts, decision=decision, start=start, audio_gain_db=audio_gain_db, key=key,
@@ -485,7 +491,7 @@ class LocalPlaybackSessions:
                 raise SessionCapError("The server is low on disk space, so playback conversion is paused.")
             for old in stale:
                 self._sessions.pop(old.id)
-            session = spawn(hw=hw, tonemap=tonemap, hw_decode=True, zero_copy=zero_copy)
+            session = spawn(hw=hw, tonemap=tonemap, hw_decode=True, hdr_hw_decode=hdr_hw_decode, zero_copy=zero_copy)
         for old in stale:
             self._dispose(old)
         try:
@@ -495,31 +501,25 @@ class LocalPlaybackSessions:
         except ConversionError:
             if hw == "none":
                 raise
-            # A DRM-PRIME/RGA failure is decoder-path specific. Retain the same
-            # RKMPP encoder with its separately-proven CPU-upload pipeline.
-            if zero_copy:
+            if hdr_hw_decode:
+                hwaccel.record_hdr_decode_failure(
+                    ffmpeg, hwaccel_mode, video.get("codec"), video.get("pix_fmt"), codec, video_range, ffprobe,
+                )
+            # A failed decoder path retains the same proven GPU encoder with
+            # CPU frames. This covers an HDR tuple, RKMPP zero-copy, and older
+            # SDR GPUs that can encode a codec they cannot decode.
+            retry_cpu_decode = (
+                hdr_hw_decode
+                or zero_copy
+                or (video_range == "SDR" and _can_hw_decode(video.get("codec"), video.get("pix_fmt"), hw, tonemap if decision.tonemap else "none"))
+            )
+            if retry_cpu_decode:
                 with self._lock:
                     if any(s.user_id == user_id and s.device == device for s in self._sessions.values()):
                         raise SupersededError("A newer playback request replaced this one.") from None
                     if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
                         raise SessionCapError(BUSY) from None
-                    session = spawn(hw=hw, tonemap=tonemap, hw_decode=False, zero_copy=False)
-                try:
-                    session = self._await_manifest(session)
-                except ConversionError:
-                    pass
-                else:
-                    hwaccel.record_success()
-                    return session
-            # Older GPUs often encode a source codec they cannot decode. Retry the
-            # same encoder with CPU-decoded frames before disabling hardware.
-            if _can_hw_decode(video.get("codec"), video.get("pix_fmt"), hw, tonemap if decision.tonemap else "none"):
-                with self._lock:
-                    if any(s.user_id == user_id and s.device == device for s in self._sessions.values()):
-                        raise SupersededError("A newer playback request replaced this one.") from None
-                    if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
-                        raise SessionCapError(BUSY) from None
-                    session = spawn(hw=hw, tonemap=tonemap, hw_decode=False, zero_copy=False)
+                    session = spawn(hw=hw, tonemap=tonemap, hw_decode=False, hdr_hw_decode=False, zero_copy=False)
                 try:
                     session = self._await_manifest(session)
                 except ConversionError:
@@ -540,7 +540,7 @@ class LocalPlaybackSessions:
                     raise SupersededError("A newer playback request replaced this one.") from None
                 if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
                     raise SessionCapError(BUSY) from None
-                session = spawn(hw="none", tonemap=software_tonemap, hw_decode=False, zero_copy=False)
+                session = spawn(hw="none", tonemap=software_tonemap, hw_decode=False, hdr_hw_decode=False, zero_copy=False)
             return self._await_manifest(session)
         if hw != "none":
             hwaccel.record_success()
@@ -548,7 +548,7 @@ class LocalPlaybackSessions:
 
     def _spawn(
         self, *, user_id: str, item_id: str, device: str, play_session_id: str | None, ffmpeg: str, source: Path,
-        facts: dict[str, Any], decision: Decision, start: float, audio_gain_db: float | None, key: tuple, hw: str, tonemap: str, hw_decode: bool, zero_copy: bool,
+        facts: dict[str, Any], decision: Decision, start: float, audio_gain_db: float | None, key: tuple, hw: str, tonemap: str, hw_decode: bool, hdr_hw_decode: bool, zero_copy: bool,
         plan: Plan | None = None, run: HlsRun | None = None, resource_admission: Any = None,
     ) -> PlaybackSession:
         """Launch one ffmpeg child in a fresh directory. The caller holds the lock."""
@@ -560,7 +560,7 @@ class LocalPlaybackSessions:
             # O_APPEND, so reap() can truncate the log under a running child.
             with open(directory / "ffmpeg.log", "ab") as log:  # the child keeps its own descriptor
                 return subprocess.Popen(
-                    ffmpeg_command(ffmpeg, source, facts, directory, decision, hw=hw, tonemap=tonemap, start=start, audio_gain_db=audio_gain_db, run=run, hw_decode=hw_decode, zero_copy=zero_copy),
+                    ffmpeg_command(ffmpeg, source, facts, directory, decision, hw=hw, tonemap=tonemap, start=start, audio_gain_db=audio_gain_db, run=run, hw_decode=hw_decode, hdr_hw_decode=hdr_hw_decode, zero_copy=zero_copy),
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
                 )
 
@@ -570,6 +570,8 @@ class LocalPlaybackSessions:
         info = describe_decision(decision, facts)
         if decision.video == "encode":
             info.setdefault("video", {})["zero_copy"] = zero_copy
+            if _output_range(decision) != "SDR":
+                info["video"]["decode"] = "hardware" if hdr_hw_decode else "software"
         session = PlaybackSession(
             session_id, user_id, item_id, decision.mode, directory, process, start, start,
             device=device, play_session_id=play_session_id, kind=kind, key=key, bandwidth=bandwidth,

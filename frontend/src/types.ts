@@ -1779,6 +1779,8 @@ export interface TranscodeDiagnostics {
   encode_errors?: Record<string, string>;
   hdr_encode_ranges?: Record<string, Array<'HDR10' | 'HLG'>>;
   hdr_encode_errors?: Record<string, string>;
+  hdr_decode_pairs?: string[];
+  hdr_decode_errors?: Record<string, string>;
   zero_copy_pairs?: string[];
   zero_copy_errors?: Record<string, string>;
   hardware_disabled: boolean;
@@ -2376,9 +2378,9 @@ export interface LibraryAutomationDiagnostics {
 /** Admin Activity dashboard. */
 export interface ActivityUser { id: string; name: string }
 export type ActivityMethod = 'direct' | 'remux' | 'transcode' | 'relay';
-export type ActivityHardware = 'qsv' | 'vaapi' | 'software';
+export type ActivityHardware = Exclude<HwaccelMode, 'auto' | 'off'> | 'software';
 export interface ActivityClient { kind: 'web' | 'app'; name: string; device: string | null }
-export interface ActivityVideo { from: string | null; to: string | null; height: number | null; tonemap: boolean }
+export interface ActivityVideo { from: string | null; to: string | null; height: number | null; tonemap: boolean; range?: string; decode?: 'hardware' | 'software' }
 export interface ActivitySession {
   id: string;
   source: 'library' | 'remote';
@@ -2409,7 +2411,7 @@ export interface ActivityServer {
   uptime_seconds: number | null;
   transcoder_cpu_percent: number | null;
   ffmpeg_processes: number;
-  hardware: { mode: 'auto' | 'off' | 'qsv' | 'vaapi'; active: 'qsv' | 'vaapi' | null; disabled: boolean; failures: number; fallbacks: number };
+  hardware: { mode: HwaccelMode; active: Exclude<ActivityHardware, 'software'> | null; disabled: boolean; failures: number; fallbacks: number };
 }
 export interface AdminActivity { generated_at: string; sessions: ActivitySession[]; downloads: ActivityDownload[]; recordings: ActivityRecording[]; server: ActivityServer }
 export interface ActivityHistoryRow {

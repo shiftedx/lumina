@@ -3,14 +3,14 @@ import { parseServerTime } from '../../utils';
 
 export const NOT_AVAILABLE = 'Not available on this system';
 export const METHOD_LABELS: Record<ActivityMethod, string> = { direct: 'Direct play', remux: 'Remux', transcode: 'Transcode', relay: 'Relay' };
-export const HARDWARE_LABELS: Record<ActivityHardware, string> = { qsv: 'Intel QSV', vaapi: 'VAAPI', software: 'Software' };
+export const HARDWARE_LABELS: Record<ActivityHardware, string> = { qsv: 'Intel QSV', vaapi: 'VAAPI', nvenc: 'NVIDIA NVENC', videotoolbox: 'Apple VideoToolbox', amf: 'AMD AMF', rkmpp: 'Rockchip MPP', software: 'Software' };
 
 const pair = (from: string | null, to: string | null) => (from && to && from !== to ? `${from} → ${to}` : to ?? from);
 
 /** "HEVC → H.264 · 1080p · HDR tone-mapped"; empty when the server reported no video facts. */
 export function videoLine(video: ActivityVideo | null): string {
   if (!video) return '';
-  return [pair(video.from, video.to), video.height ? `${video.height}p` : null, video.tonemap ? 'HDR tone-mapped' : null].filter(Boolean).join(' · ');
+  return [pair(video.from, video.to), video.height ? `${video.height}p` : null, video.tonemap ? 'HDR tone-mapped' : video.range && video.range !== 'SDR' ? video.range : null, video.decode === 'hardware' ? 'Hardware decoding' : video.decode === 'software' ? 'CPU decoding' : null].filter(Boolean).join(' · ');
 }
 export const audioLine = (audio: ActivitySession['audio']): string => (audio ? pair(audio.from, audio.to) ?? '' : '');
 

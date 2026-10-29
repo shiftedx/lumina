@@ -38,6 +38,21 @@ describe('Activity: now playing', () => {
     expect(screen.getByText('HEVC → H.264 · 1080p · HDR tone-mapped · Audio EAC3 → AAC')).toBeTruthy();
   });
 
+  it.each([
+    ['nvenc', 'NVIDIA NVENC'], ['videotoolbox', 'Apple VideoToolbox'], ['amf', 'AMD AMF'], ['rkmpp', 'Rockchip MPP'],
+  ] as const)('reports %s sessions and the actual HDR decoder path', async (hardware, label) => {
+    const base = snapshot();
+    api.getAdminActivity.mockResolvedValue({ ...base, sessions: [session({ hardware, video: { from: 'HEVC', to: 'HEVC', height: 1080, tonemap: false, range: 'HDR10', decode: 'hardware' } })], server: { ...base.server, hardware: { ...base.server.hardware, mode: hardware, active: hardware } } });
+    const view = render(ui(<><ActivityNowPlaying /><ActivityServerStats /></>));
+    expect(await screen.findByText(label)).toBeTruthy();
+    expect(screen.getByText(`${label} active`)).toBeTruthy();
+    expect(screen.getByText('HEVC · 1080p · HDR10 · Hardware decoding · Audio EAC3 → AAC')).toBeTruthy();
+    view.unmount();
+    api.getAdminActivity.mockResolvedValue(snapshot({ sessions: [session({ hardware, video: { from: 'HEVC', to: 'HEVC', height: 1080, tonemap: false, range: 'HDR10', decode: 'software' } })] }));
+    render(ui(<ActivityNowPlaying />));
+    expect(await screen.findByText('HEVC · 1080p · HDR10 · CPU decoding · Audio EAC3 → AAC')).toBeTruthy();
+  });
+
   it('stops after confirming, then refreshes', async () => {
     api.getAdminActivity.mockResolvedValueOnce(snapshot()).mockResolvedValue(snapshot({ sessions: [] }));
     api.stopActivitySession.mockResolvedValue(undefined);

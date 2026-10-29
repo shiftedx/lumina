@@ -137,6 +137,8 @@ def playback_diagnostics(db: Session, known_paths: list[str]) -> TranscodeDiagno
         encode_errors={codec: _clean(error, known_paths) for codec, error in status.encode_errors.items()},
         hdr_encode_ranges={codec: list(ranges) for codec, ranges in status.hdr_encode_ranges.items()} if hardware else {},
         hdr_encode_errors={key: _clean(error, known_paths) for key, error in status.hdr_encode_errors.items()},
+        hdr_decode_pairs=list(status.hdr_decode_pairs) if hardware else [],
+        hdr_decode_errors={key: _clean(error, known_paths) for key, error in status.hdr_decode_errors.items()},
         zero_copy_pairs=list(status.zero_copy_pairs) if hardware else [],
         zero_copy_errors={key: _clean(error, known_paths) for key, error in status.zero_copy_errors.items()},
         hardware_disabled=hwaccel.disabled,

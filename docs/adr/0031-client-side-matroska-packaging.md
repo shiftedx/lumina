@@ -32,7 +32,9 @@ array denies Dolby Vision direct play on that row; an absent extension retains
 older clients' existing behavior. This exception applies only to an otherwise
 eligible direct candidate: audio, subtitles or quality constraints cannot carry
 it into a server HLS stream-copy decision. Ordinary base-layer fallback remains
-separate from a Dolby Vision preservation claim.
+separate from a Dolby Vision preservation claim. The Profile 8.1 OS boundary
+follows [Apple's 2026 HLS update](https://developer.apple.com/streaming/Whats-new-HLS.pdf);
+the Profile 8.4 path follows [Apple's AVFoundation guidance](https://developer.apple.com/av-foundation/Incorporating-HDR-video-with-Dolby-Vision-into-your-apps.pdf).
 
 The same bounded Profile 5/8 capabilities are advertised on the HEVC Matroska
 row after qualifying the pinned engine's packaging path independently. That

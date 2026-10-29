@@ -220,6 +220,11 @@ Both paths use `NativeVideoSource.prepare` with the unmodified pinned PrismCore
 description so that this host can inspect full Dolby masters; production still
 samples the actual route. No display capability is forced in shipping code.
 
+The macOS 27.0.1 host reported HEVC/Dolby Vision hardware decoding and positive
+exact MP4 queries for Profiles 5 and 8 at levels 1, 7 and 9, while
+`AVPlayer.eligibleForHDRPlayback` was false. The successful frame/seek checks
+therefore establish native decoding, not physical Dolby Vision presentation.
+
 Fixtures remain outside Git. The generated Profile 8 metadata is a structural
 retention test, not reference-graded Dolby Vision content. These local checks do
 not certify physical Dolby Vision presentation, dynamic tone-mapping accuracy,

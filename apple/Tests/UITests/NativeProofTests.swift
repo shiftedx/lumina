@@ -4825,9 +4825,11 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 5, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Home did not select the seeded hero before swiping.")
         }
-        let criticRating = element("heroCriticRating-\(fixture.directItemID)")
+        let criticRating = element("heroRottenTomatoesRating-\(fixture.directItemID)")
         try waitForExistence(criticRating, timeout: 5, named: "server critic rating")
-        XCTAssertEqual(criticRating.label, "Critic rating: 88 percent")
+        XCTAssertEqual(criticRating.label, "Rotten Tomatoes: 91.5 percent, Fresh")
+        XCTAssertEqual(element("heroIMDbRating-\(fixture.directItemID)").label, "IMDb: 8.2 out of 10")
+        XCTAssertEqual(element("heroMetacriticRating-\(fixture.directItemID)").label, "Metacritic: 73 out of 100, Favorable")
         try attachFrame(named: "Home hero Resume button before artwork swipe")
         let window = try applicationWindow()
         let artwork = application!.descendants(matching: .any).matching(

@@ -1050,7 +1050,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         # Reuse the generated vault titles as exact, authenticated catalog matches.
         # This keeps the proof server offline while Requests follows the same
         # provider-ID status path as a household library.
-        direct_title.metadata_json = {**(direct_title.metadata_json or {}), "critic_rating": 88}
+        direct_title.metadata_json = {**(direct_title.metadata_json or {}), "critic_rating": 88, "imdb_rating": 8.2, "rotten_tomatoes_rating": 91.5, "metacritic_rating": 73}
         direct_title.field_sources = {**(direct_title.field_sources or {}), "critic_rating": "user"}
         direct_title.provider_ids = {**direct_title.provider_ids, "Tmdb": "603"}
         show_title.provider_ids = {**show_title.provider_ids, "Tmdb": "1399", "Tvdb": "424536"}

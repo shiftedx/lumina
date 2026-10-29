@@ -155,6 +155,9 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public private(set) var officialRating: String? = nil
     public private(set) var communityRating: Double? = nil
     public private(set) var criticRating: Double? = nil
+    public private(set) var imdbRating: Double? = nil
+    public private(set) var rottenTomatoesRating: Double? = nil
+    public private(set) var metacriticRating: Double? = nil
     public private(set) var genres: [String]? = nil
     /// Native Home row-only classification. General Jellyfin item DTOs intentionally omit it.
     public private(set) var luminaCategory: String? = nil
@@ -186,6 +189,10 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public let childCount: Int?
     public let container: String?
     private let chapterMarkers: [PlaybackChapter]?
+
+    public var validIMDbRating: Double? { imdbRating.flatMap { $0.isFinite && (0...10).contains($0) ? $0 : nil } }
+    public var validRottenTomatoesRating: Double? { rottenTomatoesRating.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil } }
+    public var validMetacriticRating: Double? { metacriticRating.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil } }
 
     public var criticRatingPercentage: Int? {
         guard let criticRating, criticRating.isFinite, (0...100).contains(criticRating) else { return nil }
@@ -239,6 +246,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         case id = "Id", name = "Name", type = "Type", overview = "Overview"
         case premiereDate = "PremiereDate", mediaStreams = "MediaStreams"
         case productionYear = "ProductionYear", officialRating = "OfficialRating", communityRating = "CommunityRating", criticRating = "CriticRating"
+        case imdbRating = "LuminaIMDbRating", rottenTomatoesRating = "LuminaRottenTomatoesRating", metacriticRating = "LuminaMetacriticRating"
         case genres = "Genres", luminaCategory = "LuminaCategory", luminaReco = "LuminaReco", people = "People", seriesName = "SeriesName"
         case seriesID = "SeriesId", seasonID = "SeasonId", collectionType = "CollectionType"
         case seriesPrimaryImageTag = "SeriesPrimaryImageTag"

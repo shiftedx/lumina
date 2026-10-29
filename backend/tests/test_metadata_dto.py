@@ -39,10 +39,12 @@ def edit(title_id: str, *, meta: dict | None = None, sources: dict | None = None
 
 
 def test_new_fields_reach_the_dto(jf: TestClient) -> None:
-    edit(MOVIE, meta={"original_title": "Dune", "tags": ["kids"], "critic_rating": 88, "custom_rating": "R-ish"})
+    edit(MOVIE, meta={"original_title": "Dune", "tags": ["kids"], "critic_rating": 88, "custom_rating": "R-ish",
+                      "imdb_rating": 8.2, "rotten_tomatoes_rating": 91.5, "metacritic_rating": 73})
     edit(SERIES, meta={"air_days": ["Monday"], "air_time": "21:30"})
     movie, series = fetch(jf, MOVIE), fetch(jf, SERIES)
     assert (movie["OriginalTitle"], movie["Tags"], movie["CriticRating"], movie["CustomRating"]) == ("Dune", ["kids"], 88, "R-ish")
+    assert (movie["LuminaIMDbRating"], movie["LuminaRottenTomatoesRating"], movie["LuminaMetacriticRating"]) == (8.2, 91.5, 73)
     assert (series["AirDays"], series["AirTime"]) == (["Monday"], "21:30")
 
 
@@ -90,3 +92,12 @@ def test_title_metadata_fields_ignores_wrong_types() -> None:
     title = MediaTitle(id="t", type="movie", key="k", root_id="r", name="N", metadata_json={"tags": "x", "air_days": [1], "critic_rating": True}, field_sources={})
     out = title_metadata_fields(title)
     assert not {"Tags", "AirDays", "CriticRating"} & set(out)
+
+
+@pytest.mark.parametrize("value", [True, "88", -1, 101, float("nan"), float("inf"), None])
+def test_source_ratings_drop_invalid_values_independently(value: object) -> None:
+    title = MediaTitle(id="t", type="movie", key="k", root_id="r", name="N",
+                       metadata_json={"imdb_rating": value, "rotten_tomatoes_rating": value, "metacritic_rating": 0})
+    dto = title_metadata_fields(title)
+    assert "LuminaIMDbRating" not in dto and "LuminaRottenTomatoesRating" not in dto
+    assert dto["LuminaMetacriticRating"] == 0

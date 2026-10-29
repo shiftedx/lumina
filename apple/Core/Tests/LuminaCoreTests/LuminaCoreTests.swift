@@ -2573,6 +2573,65 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Users/Me" }.count, 2)
     }
 
+    func testSelectedEpisodeDownloadsPersistOfflineAndAllowPartialFailureRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-season-downloads-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let saved = syntheticKeychainSession()
+        let episodes = try ["episode-1", "episode-2", "episode-3"].map { id in
+            var payload = movie()
+            payload["Id"] = id
+            payload["Name"] = "Synthetic \(id)"
+            payload["Type"] = "Episode"
+            payload["SeriesId"] = "series-1"
+            payload["SeasonId"] = "season-1"
+            return try JSONDecoder().decode(MediaItem.self, from: json(payload))
+        }
+        var seasonPayload = movie()
+        seasonPayload["Id"] = "season-1"
+        seasonPayload["Type"] = "Season"
+        let season = try JSONDecoder().decode(MediaItem.self, from: json(seasonPayload))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": saved.userID, "Name": saved.username])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Items/episode-2/Download": return response(request, status: 403)
+            case "/Items/episode-1/Download", "/Items/episode-3/Download":
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "video/mp4"])!, Data(repeating: 0, count: 64))
+            default: return response(request, status: 404)
+            }
+        }
+        let credentials = TestCredentials(session: saved)
+        let offline = LuminaOfflineLibrary(root: root, configuration: mockConfiguration())
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials,
+            connectivity: LuminaConnectivity(status: .online, monitoringEnabled: false), offline: offline)
+        await store.restore()
+        await store.downloadVideos(items: episodes + [episodes[0], season])
+        XCTAssertEqual(Set(offline.downloadedItems.map(\.id)), ["episode-1", "episode-3"],
+                       "One unavailable episode must not prevent other selected episodes from completing.")
+        guard case .failed = offline.downloadStates["episode-2"] else { return XCTFail("The rejected download needs a retry state") }
+        XCTAssertEqual(requests.all.compactMap(\.url?.path).filter { $0.hasSuffix("/Download") }.sorted(),
+                       episodes.map { "/Items/\($0.id)/Download" }.sorted(),
+                       "Duplicate selections and season containers must not cause extra file requests.")
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                headerFields: ["Content-Type": "video/mp4"])!, Data(repeating: 0, count: 64))
+        }
+        await store.downloadVideos(items: [episodes[1]])
+        XCTAssertEqual(offline.downloadStates["episode-2"], .downloaded)
+        let restored = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials,
+            connectivity: LuminaConnectivity(status: .offline, monitoringEnabled: false),
+            offline: LuminaOfflineLibrary(root: root, configuration: mockConfiguration()))
+        await restored.restore()
+        XCTAssertEqual(Set(restored.offlineVideoItems.map(\.id)), Set(episodes.map(\.id)))
+        for episode in episodes {
+            let playback = try await restored.preparePlayback(for: episode)
+            XCTAssertTrue(playback.url.isFileURL, "Every selected episode must reopen from its local file while disconnected.")
+        }
+    }
+
     func testDownloadedMKVUsesClientDemuxAndHonorsExplicitReplayPosition() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-store-offline-\(UUID())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

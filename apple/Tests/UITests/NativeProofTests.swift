@@ -163,6 +163,9 @@ final class NativeDownloadedVideoTests: NativeProofJourney {
     func testMKVDownloadPlaysLocally() async throws {
         try await journeyDownloadedVideoPlaysOffline(mkv: true)
     }
+    func testShowsDownloadSelectedEpisodesAndWholeSeasonsForOfflinePlayback() async throws {
+        try await journeyShowEpisodeDownloads()
+    }
 }
 #endif
 
@@ -2219,6 +2222,76 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThanOrEqual(stillPaused, pausedBeforeHome + 0.5,
                                  "Returning from Home must not resume explicitly paused video playback.")
         try closePlayer()
+    }
+
+    func journeyShowEpisodeDownloads() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let secondSeasonEpisode = try XCTUnwrap(fixture.secondSeasonEpisodeID)
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        try selectLibraryCategory("tv", screen: "libraryScreen")
+        let show = try revealLibraryItem(id: fixture.showID, named: "show to download")
+        show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let collection = element("videoCollectionScreen")
+        try waitForExistence(collection, timeout: 20, named: "show with seasons and episodes")
+        let download = element("downloadEpisodesButton")
+        func openDownloadPicker() throws {
+            try revealDetailElement(download, in: collection, named: "show download action", requiresHittable: false)
+            let visible = download.frame.intersection(try standardPhoneNavigationViewport())
+            application!.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: visible.midX, dy: visible.midY)).tap()
+            try waitForExistence(element("episodeDownloadPicker"), timeout: 15, named: "episode download picker")
+        }
+        try openDownloadPicker()
+        let first = element("episodeDownload-\(fixture.episodeID)")
+        try waitForHittable(first, timeout: 20, named: "episode download choice")
+        try activate(first)
+        XCTAssertEqual(element("episodeDownloadSelectionCount").label, "1 selected")
+        try activate(element("cancelEpisodeDownloadsButton"))
+        try openDownloadPicker()
+        try waitForHittable(first, timeout: 20, named: "new episode selection")
+        XCTAssertFalse(element("confirmEpisodeDownloadsButton").isEnabled, "Cancel must discard the selection without downloading.")
+        try activate(element("selectDownloadSeasonButton"))
+        XCTAssertEqual(element("episodeDownloadSelectionCount").label, "2 selected")
+        try activate(element("selectDownloadSeasonButton"))
+        XCTAssertFalse(element("confirmEpisodeDownloadsButton").isEnabled)
+        try activate(first)
+        try activate(element("episodeDownloadSeasonPicker"))
+        try activate(menuAction("Season 2"))
+        try waitForHittable(element("episodeDownload-\(secondSeasonEpisode)"), timeout: 20, named: "second season download choice")
+        XCTAssertEqual(element("episodeDownloadSelectionCount").label, "1 selected",
+                       "Selections must survive changing seasons.")
+        try activate(element("selectDownloadSeasonButton"))
+        XCTAssertEqual(element("episodeDownloadSelectionCount").label, "2 selected")
+        try attachFrame(named: "Episode and full-season download selection")
+        try activate(element("confirmEpisodeDownloadsButton"))
+        XCTAssertTrue(disappears(element("episodeDownloadPicker"), timeout: 10))
+        try openDownloadPicker()
+        try waitForExistence(first, timeout: 20, named: "first episode download state")
+        XCTAssertTrue(waitUntil(timeout: 60) { first.label.contains("On this device") }, "The individually selected episode must finish downloading.")
+        try activate(element("episodeDownloadSeasonPicker"))
+        try activate(menuAction("Season 2"))
+        let secondSeason = element("episodeDownload-\(secondSeasonEpisode)")
+        try waitForExistence(secondSeason, timeout: 20, named: "downloaded season")
+        XCTAssertTrue(waitUntil(timeout: 60) { secondSeason.label.contains("On this device") }, "The selected whole season must finish downloading.")
+        try activate(element("cancelEpisodeDownloadsButton"))
+        let app = application!
+        app.terminate()
+        app.launchArguments.append("--ui-testing-offline")
+        app.launch()
+        try waitForExistence(element("offlineLibraryScreen"), timeout: 20, named: "device downloads after offline relaunch")
+        try waitForExistence(element("offlineItem-\(fixture.episodeID)"), timeout: 15, named: "individually downloaded episode")
+        let savedSeasonEpisode = element("offlineItem-\(secondSeasonEpisode)")
+        try waitForExistence(savedSeasonEpisode, timeout: 15, named: "downloaded season episode")
+        XCTAssertFalse(element("offlineItem-\(fixture.secondEpisodeID)").exists, "An unselected episode must not be downloaded.")
+        try activate(savedSeasonEpisode)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "downloaded episode playing offline")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
+        try attachPlaybackFrame(named: "Selected season episode playing from device storage offline")
+        try closePlayer()
+        completed = true
     }
 
     func journeyDownloadedVideoPlaysOffline(mkv: Bool) async throws {

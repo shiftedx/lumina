@@ -23,42 +23,45 @@ struct TVDetailView: View {
     private var currentItem: MediaItem { refreshedItem ?? item }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 34) {
-                MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false) {
-                    if !metadataFacts.isEmpty {
-                        Text(metadataFacts.joined(separator: " · "))
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.9))
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 34) {
+                    MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false,
+                                   artworkFirst: true, wideMinimumHeight: min(900, max(620, geometry.size.height * 0.82))) {
+                        if !metadataFacts.isEmpty {
+                            Text(metadataFacts.joined(separator: " · "))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                        detailActionRow
+                        detailStatus
                     }
-                    detailActionRow
-                    detailStatus
-                }
 
-                if let overview = currentItem.overview, !overview.isEmpty {
-                    TVDetailStory(overview: overview)
-                        .padding(.horizontal, 82)
-                }
+                    if let overview = currentItem.overview, !overview.isEmpty {
+                        TVDetailStory(overview: overview)
+                            .padding(.horizontal, 82)
+                    }
 
-                if !castMembers.isEmpty {
-                    TVDetailCastRail(people: castMembers, store: store)
-                        .padding(.horizontal, 82)
-                }
+                    if !castMembers.isEmpty {
+                        TVDetailCastRail(people: castMembers, store: store)
+                            .padding(.horizontal, 82)
+                    }
 
-                if !relatedItems.isEmpty {
-                    TVDetailRelatedRail(items: relatedItems, store: store, onOpen: onOpen)
-                        .padding(.horizontal, 82)
+                    if !relatedItems.isEmpty {
+                        TVDetailRelatedRail(items: relatedItems, store: store, onOpen: onOpen)
+                            .padding(.horizontal, 82)
+                    }
                 }
+                .padding(.bottom, 76)
             }
-            .padding(.bottom, 76)
+            .ignoresSafeArea(.container, edges: [.horizontal, .top])
+            .background(LuminaTheme.theater.ignoresSafeArea())
+            .accessibilityIdentifier("detailScreen")
+            .onPlayPauseCommand { preparePlayback(forceTranscode: false) }
+            .defaultFocus($focusedAction, .play)
+            .task(id: item.id) { await refreshItem() }
+            .onDisappear { cancelPlaybackPreparation() }
         }
-        .ignoresSafeArea(.container, edges: [.horizontal, .top])
-        .background(LuminaTheme.theater.ignoresSafeArea())
-        .accessibilityIdentifier("detailScreen")
-        .onPlayPauseCommand { preparePlayback(forceTranscode: false) }
-        .defaultFocus($focusedAction, .play)
-        .task(id: item.id) { await refreshItem() }
-        .onDisappear { cancelPlaybackPreparation() }
     }
 
     private var metadataFacts: [String] {
@@ -70,7 +73,7 @@ struct TVDetailView: View {
             facts.append(officialRating)
         }
         if let communityRating = currentItem.communityRating {
-            facts.append("\(communityRating.formatted(.number.precision(.fractionLength(1)))) / 10")
+            facts.append("Community \(communityRating.formatted(.number.precision(.fractionLength(1)))) / 10")
         }
         return facts
     }
@@ -271,63 +274,34 @@ struct TVVideoCollectionView: View {
     }
 
     private var episodeHero: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            MediaTitleArtwork(name: currentItem.name, url: store.logoURL(for: currentItem), maximumWidth: 380, maximumHeight: 130) {
-                Text(currentItem.name)
-                    .font(.system(size: 54, weight: .bold))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("detailTitle")
-            }
-            .frame(height: 130, alignment: .leading)
-
-            if let episode = selectedEpisode {
-                Text(episodeHeading(episode))
-                    .font(.system(size: 29, weight: .semibold))
-                    .lineLimit(2)
-                    .accessibilityIdentifier("collectionEpisodeTitle")
-                episodeFacts(episode)
-                Text(episode.overview ?? currentItem.overview ?? "")
-                    .font(.system(size: 25))
-                    .lineSpacing(3)
-                    .lineLimit(3)
-                    .frame(height: 96, alignment: .topLeading)
-                    .accessibilityIdentifier("collectionEpisodeSynopsis")
-            } else {
-                Text(currentItem.overview ?? "")
-                    .font(.system(size: 25))
-                    .lineLimit(3)
-                    .frame(height: 180, alignment: .topLeading)
-            }
-            Spacer(minLength: 24)
-            collectionActionRow
-            if let errorMessage, !isLoading {
-                Label(errorMessage, glyph: .warning)
-                    .font(.system(size: 23))
-                    .foregroundStyle(LuminaTheme.accentInk)
-                    .accessibilityIdentifier("collectionError")
-            }
-        }
-        .foregroundStyle(.white)
-        .frame(width: 760, alignment: .leading)
-        .frame(minHeight: 584, alignment: .topLeading)
-        .padding(.horizontal, 82)
-        .padding(.top, 64)
-        .padding(.bottom, 32)
-        .frame(maxWidth: .infinity, minHeight: 680, alignment: .topLeading)
-        .background {
-            ZStack {
-                MediaBackdrop(item: currentItem, store: store)
-                LinearGradient(stops: [
-                    .init(color: LuminaTheme.theater.opacity(0.94), location: 0),
-                    .init(color: LuminaTheme.theater.opacity(0.72), location: 0.32),
-                    .init(color: .clear, location: 0.72),
-                ], startPoint: .leading, endPoint: .trailing)
-                LinearGradient(stops: [
-                    .init(color: .clear, location: 0.50),
-                    .init(color: LuminaTheme.theater, location: 1),
-                ], startPoint: .top, endPoint: .bottom)
+        MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false,
+                       showsMetadata: false, showsProgress: false, artworkFirst: true, wideMinimumHeight: 820) {
+            VStack(alignment: .leading, spacing: 20) {
+                if let episode = selectedEpisode {
+                    Text(episodeHeading(episode))
+                        .font(.system(size: 29, weight: .semibold))
+                        .lineLimit(2)
+                        .accessibilityIdentifier("collectionEpisodeTitle")
+                    episodeFacts(episode)
+                    Text(episode.overview ?? currentItem.overview ?? "")
+                        .font(.system(size: 25))
+                        .lineSpacing(3)
+                        .lineLimit(3)
+                        .frame(height: 96, alignment: .topLeading)
+                        .accessibilityIdentifier("collectionEpisodeSynopsis")
+                } else {
+                    Text(currentItem.overview ?? "")
+                        .font(.system(size: 25))
+                        .lineLimit(3)
+                        .frame(height: 96, alignment: .topLeading)
+                }
+                collectionActionRow
+                if let errorMessage, !isLoading {
+                    Label(errorMessage, glyph: .warning)
+                        .font(.system(size: 23))
+                        .foregroundStyle(LuminaTheme.accentInk)
+                        .accessibilityIdentifier("collectionError")
+                }
             }
         }
     }
@@ -345,7 +319,7 @@ struct TVVideoCollectionView: View {
                 Text(genres.prefix(3).joined(separator: ", "))
             }
             if let rating = episode.communityRating ?? currentItem.communityRating {
-                Label("\(rating.formatted(.number.precision(.fractionLength(1)))) / 10",
+                Label("Community \(rating.formatted(.number.precision(.fractionLength(1)))) / 10",
                       glyph: .ratingStar, variant: .solid)
             }
         }

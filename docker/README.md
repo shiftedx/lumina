@@ -396,6 +396,10 @@ An invited member creates their own account, then enters the visual welcome. **P
 
 Local films and episodes have a dedicated playback layout: the player comes first, followed by title, synopsis, playback actions, and continuation. Episodes show their series and episode order with autoplay controls; films show their poster and collection context. Playback quality, subtitles, resume, theater mode, fullscreen, and picture-in-picture retain their existing controls.
 
+Native iOS and tvOS heroes display stored IMDb, Rotten Tomatoes, and Metacritic scores separately, using the same sources as the web. These named ratings require both an updated native app and the matching server adapter; uploading an app build does not update a household server. Missing scores remain absent, and opening a title never triggers a provider lookup.
+
+Updated iOS and tvOS video walls load complete lightweight poster catalogs for ordinary empty-search library queries. They download poster images through bounded lookahead and device caches rather than fetching every image with the metadata. Search and saved-provider channels retain pagination. The server projection reduces metadata payloads; older servers remain compatible but may return larger responses. This client work does not schedule a household library rescan.
+
 ## Outgoing email
 
 Configure SMTP under **Manage Server → Connections → Email**, then use **Send test email** to check delivery. Invitations, request updates, security notices, and the test message share the app’s media-vault styling. Invitations show their expiry and shared libraries; request messages show the title, status, and the relevant action; security notices show the affected account and pause duration.

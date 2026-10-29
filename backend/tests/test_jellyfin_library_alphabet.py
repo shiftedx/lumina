@@ -216,7 +216,8 @@ def test_native_catalog_pages_keep_wall_state_and_visibility_without_detail_payl
 
     with db_module.SessionLocal.begin() as db:
         for title in db.scalars(select(MediaTitle)):
-            title.metadata_json = {**(title.metadata_json or {}), "overview": "Long detail description. " * 1000}
+            title.metadata_json = {**(title.metadata_json or {}), "overview": "Long detail description. " * 1000,
+                                   "imdb_rating": 8.2, "rotten_tomatoes_rating": 91.5, "metacritic_rating": 73}
 
     full = items(native, ALICE_TOKEN)
     bob = items(native, BOB_TOKEN)
@@ -233,9 +234,11 @@ def test_native_catalog_pages_keep_wall_state_and_visibility_without_detail_payl
         for compact, original in zip(collected, expected["Items"], strict=True):
             for field in ("Id", "Name", "Type", "ProductionYear", "ImageTags", "UserData", "RunTimeTicks", "ChildCount"):
                 assert compact.get(field) == original.get(field)
-            assert not ({"Overview", "People", "MediaSources", "BackdropImageTags", "ProviderIds"} & compact.keys())
+            assert not ({"Overview", "People", "MediaSources", "BackdropImageTags", "ProviderIds",
+                         "LuminaIMDbRating", "LuminaRottenTomatoesRating", "LuminaMetacriticRating"} & compact.keys())
     assert not warmed, "Enumerating a wall must not schedule hero framing for every title"
     detail = native.get(f"/Items/{full['Items'][0]['Id']}", headers=mediabrowser(ALICE_TOKEN))
     assert detail.status_code == 200
     assert detail.json()["Overview"].startswith("Long detail description.")
+    assert (detail.json()["LuminaIMDbRating"], detail.json()["LuminaRottenTomatoesRating"], detail.json()["LuminaMetacriticRating"]) == (8.2, 91.5, 73)
     assert warmed, "The normal detail path must retain hero preparation"

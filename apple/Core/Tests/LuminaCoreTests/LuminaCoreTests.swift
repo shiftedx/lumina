@@ -1434,6 +1434,9 @@ final class LuminaCoreTests: XCTestCase {
         payload["OfficialRating"] = "PG-13"
         payload["CommunityRating"] = 8.4
         payload["CriticRating"] = 88
+        payload["LuminaIMDbRating"] = 8.2
+        payload["LuminaRottenTomatoesRating"] = 91.5
+        payload["LuminaMetacriticRating"] = 73
         payload["Genres"] = ["Animation", "Adventure"]
         payload["People"] = [["Name": "Example Actor", "Type": "Actor"]]
 
@@ -1442,6 +1445,9 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(item.officialRating, "PG-13")
         XCTAssertEqual(item.communityRating, 8.4)
         XCTAssertEqual(item.criticRatingPercentage, 88)
+        XCTAssertEqual(item.validIMDbRating, 8.2)
+        XCTAssertEqual(item.validRottenTomatoesRating, 91.5)
+        XCTAssertEqual(item.validMetacriticRating, 73)
         XCTAssertEqual(item.genres, ["Animation", "Adventure"])
         XCTAssertEqual(item.people?.first?.name, "Example Actor")
         XCTAssertEqual(item.people?.first?.type, "Actor")
@@ -1450,12 +1456,18 @@ final class LuminaCoreTests: XCTestCase {
     func testHeroCriticRatingOnlyDisplaysValidServerPercentages() throws {
         for rating in [nil, -1.0, 0, 88, 100, 101] as [Double?] {
             var payload = movie()
+            payload["LuminaIMDbRating"] = rating.map { $0 as Any } ?? NSNull()
+            payload["LuminaRottenTomatoesRating"] = rating.map { $0 as Any } ?? NSNull()
+            payload["LuminaMetacriticRating"] = rating.map { $0 as Any } ?? NSNull()
             payload["CriticRating"] = rating.map { $0 as Any } ?? NSNull()
             let item = try JSONDecoder().decode(MediaItem.self, from: json(payload))
             let expected = rating.flatMap { (0...100).contains($0) ? Int($0) : nil }
             XCTAssertEqual(item.criticRatingPercentage, expected)
             let roundTrip = try JSONDecoder().decode(MediaItem.self, from: JSONEncoder().encode(item))
             XCTAssertEqual(roundTrip.criticRatingPercentage, expected)
+            XCTAssertEqual(roundTrip.validIMDbRating, rating.flatMap { (0...10).contains($0) ? $0 : nil })
+            XCTAssertEqual(roundTrip.validRottenTomatoesRating, rating.flatMap { (0...100).contains($0) ? $0 : nil })
+            XCTAssertEqual(roundTrip.validMetacriticRating, rating.flatMap { (0...100).contains($0) ? $0 : nil })
         }
         XCTAssertNil(try JSONDecoder().decode(MediaItem.self, from: json(movie())).criticRatingPercentage)
     }

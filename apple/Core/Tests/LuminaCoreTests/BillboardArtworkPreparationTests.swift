@@ -45,6 +45,50 @@ final class BillboardArtworkPreparationTests: XCTestCase {
 
 extension BillboardArtworkPreparationTests {
     @MainActor
+    func testArtworkURLBudgetSurvivesOriginalFallbackAndDiskReload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disk = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let cases: [(URL, Data, Int, Int)] = [
+            (URL(string: "https://media.example.test/Items/portrait/Images/Primary?maxWidth=240")!,
+             jpeg(width: 2_000, height: 4_000), 240, 480),
+            (URL(string: "https://media.example.test/Items/landscape/Images/Primary?maxWidth=480")!,
+             jpeg(width: 4_000, height: 3_000), 480, 360),
+            (URL(string: "https://media.example.test/Items/rotated/Images/Primary?maxWidth=240")!,
+             jpeg(width: 4_000, height: 2_000, orientation: .right), 240, 480),
+        ]
+        let originals = Dictionary(uniqueKeysWithValues: cases.map { ($0.0, $0.1) })
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "image/jpeg"])!, originals[request.url!]!)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let cache = ArtworkImageCache(session: session, diskCache: disk)
+        for (url, _, width, height) in cases {
+            let loaded = await cache.image(for: url)
+            let image = try XCTUnwrap(loaded)
+            XCTAssertEqual(image.width, width, "An original fallback must respect the requested thumbnail width")
+            XCTAssertEqual(image.height, height)
+        }
+        let expectedBytes = cases.reduce(0) { $0 + $1.1.count }
+        for _ in 0..<100 where await disk.usageBytes() < expectedBytes { try await Task.sleep(for: .milliseconds(10)) }
+        cache.trimMemory()
+        for (url, _, width, height) in cases {
+            let reloaded = await cache.image(for: url)
+            let image = try XCTUnwrap(reloaded)
+            XCTAssertEqual(image.width, width, "Disk decoding must retain the same rendition budget")
+            XCTAssertEqual(image.height, height)
+        }
+        XCTAssertEqual(recorder.requestCount, cases.count, "Reloading a private rendition must not download its original again")
+    }
+
+    @MainActor
     func testBackgroundArtworkTrimsMemoryStopsLookaheadAndRetainsDiskRenditions() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

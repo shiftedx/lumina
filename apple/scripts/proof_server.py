@@ -1097,6 +1097,9 @@ def make_show(media_root: Path) -> None:
         (1, 2, SECOND_EPISODE_TITLE),
         (2, 1, SECOND_SEASON_EPISODE_TITLE),
     ]
+    if os.environ.get("LUMINA_NATIVE_LONG_SERIES") == "1":
+        episodes += [(season, 1, f"Signal from season {season}") for season in range(3, 28)]
+        episodes += [(27, episode, f"Late signal {episode}") for episode in range(2, 6)]
     for season_number, episode_number, title in episodes:
         season = show / f"Season {season_number:02d}"
         season.mkdir(parents=True, exist_ok=True)
@@ -1174,6 +1177,13 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         run_id = run.id
 
     drive(run_id)
+    if os.environ.get("LUMINA_NATIVE_LONG_SERIES") == "1":
+        # This fixture exceeds the startup probe batch; finish its generated files
+        # before API verification instead of racing the background warmer.
+        from app.services.media_probe import MediaProbeService
+        with session_scope() as db:
+            for item in db.query(LibraryItem).all():
+                MediaProbeService(db).facts(item)
     with session_scope() as db:
         items = {item.title: item.id for item in db.query(LibraryItem).all()}
         titles = {(title.type, title.name): title.id for title in db.query(MediaTitle).all()}

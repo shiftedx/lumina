@@ -226,6 +226,9 @@ struct MediaBillboard<Actions: View>: View {
     var onBrowse: ((Int) -> Void)? = nil
     @ViewBuilder let actions: Actions
     @State private var compactLayout = true
+    #if os(tvOS) && LUMINA_UI_TESTING
+    @State private var heroOriginY = 0
+    #endif
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorSchemeContrast) private var contrast
     #if !os(tvOS)
@@ -324,6 +327,14 @@ struct MediaBillboard<Actions: View>: View {
         .onGeometryChange(for: Bool.self) { $0.size.width < minimumWideWidth } action: { compactLayout = $0 }
         #endif
         .tint(.white)
+        #if os(tvOS) && LUMINA_UI_TESTING
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tvHeroBounds")
+        .accessibilityValue(String(heroOriginY))
+        .onGeometryChange(for: Int.self) { geometry in
+            Int(geometry.frame(in: .scrollView(axis: .vertical)).minY.rounded())
+        } action: { heroOriginY = $0 }
+        #endif
     }
 
     private var copy: some View {

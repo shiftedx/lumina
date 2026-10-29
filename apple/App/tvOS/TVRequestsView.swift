@@ -67,9 +67,10 @@ struct TVRequestsView: View {
     private var browseTitle: String { browseGenre.isEmpty ? (browseKind?.rawValue.capitalized ?? "Featured") : browseGenre }
 
     var body: some View {
-        ScrollView {
+        TVHeroScrollView {
             LazyVStack(alignment: .leading, spacing: 48) {
                 controls
+                    .focusedValue(\.tvHeroRegion, true)
 
                 if !query.isEmpty {
                     searchContent
@@ -80,6 +81,7 @@ struct TVRequestsView: View {
                         .frame(maxWidth: .infinity, minHeight: 460)
                 } else if let home = catalog.home, let featured = home.hero.first {
                     TVRequestHero(item: featured, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
+                        .focusedValue(\.tvHeroRegion, true)
                         .focusSection()
 
                     ForEach(home.rails) { rail in

@@ -226,6 +226,12 @@ final class NativeTVHomeNavigationPreservesSelectionTests: NativeProofJourney {
     func testTVHomeNavigationPreservesSelection() async throws { try await journeyTVHomeNavigationPreservesSelection() }
 }
 @MainActor
+final class NativeTVEpisodeRemoteNavigationTests: NativeProofJourney {
+    func testEpisodeCardSelectStartsPlayback() async throws { try await journeyTVEpisodeCardActivation() }
+    func testHeroReturnsFullyIntoView() async throws { try await journeyTVHeroReturn() }
+    func testHeroReturnAcrossBrowseDestinations() async throws { try await journeyTVBrowseHeroReturns() }
+}
+@MainActor
 final class NativeTVLibraryAlphabetTests: NativeProofJourney {
     func testTVLibraryAlphabetSortAndJump() throws { try journeyTVLibraryAlphabetSortAndJump() }
 }
@@ -3264,6 +3270,138 @@ class NativeProofJourney: XCTestCase {
     }
 
 #if os(tvOS)
+    func journeyTVEpisodeCardActivation() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 12)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let resume = element("resumeItem-\(fixture.episodeID)")
+        for _ in 0..<8 where !resume.exists { XCUIRemote.shared.press(.down) }
+        try activate(resume)
+        try waitForExistence(element("collectionEpisodeRail"), timeout: 25, named: "show episode rail")
+        let episode = element("videoCollectionItem-\(fixture.secondEpisodeID)")
+        XCTAssertTrue(focus(episode, timeout: 20))
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.accessibilityText(self.element("collectionEpisodeTitle")).contains(fixture.secondEpisodeTitle)
+        }, "Focus must preview the episode before Select.")
+        XCUIRemote.shared.press(.select)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "playback directly from episode Select")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
+        try attachPlaybackFrame(named: "TV episode Select starts the focused episode")
+        try closePlayer()
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.secondEpisodeID)
+        try waitForExistence(episode, timeout: 15, named: "episode after playback Back")
+        XCTAssertTrue(waitUntil(timeout: 10) { episode.hasFocus }, "Playback Back must restore the episode card.")
+        completed = true
+    }
+
+    private func tvHeroOrigin() -> Double {
+        Double(element("tvHeroBounds").value as? String ?? "") ?? .infinity
+    }
+
+    func journeyTVHeroReturn() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 12)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let resume = element("resumeItem-\(fixture.episodeID)")
+        for _ in 0..<8 where !resume.exists { XCUIRemote.shared.press(.down) }
+        try activate(resume)
+        try waitForExistence(element("collectionEpisodeRail"), timeout: 25, named: "show episode rail")
+        let seasons = element("collectionSeasonSelector").buttons
+        XCTAssertEqual(seasons.count, 27, "The reproduction needs a horizontally scrolled season selector.")
+        try activate(seasons.element(boundBy: 0))
+        for _ in 0..<26 { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(waitUntil(timeout: 8) { seasons.element(boundBy: 26).hasFocus })
+        XCUIRemote.shared.press(.select)
+        let episode = element("collectionEpisodeRail").buttons.element(boundBy: 4)
+        try waitForExistence(episode, timeout: 20, named: "late episode in season 27")
+        XCTAssertTrue(focus(episode, timeout: 30))
+        XCTAssertLessThan(tvHeroOrigin(), -1, "The episode rail must actually scroll the hero away.")
+        for _ in 0..<5 { XCUIRemote.shared.press(.up) }
+        try attachFrame(named: "TV show after Up from late season")
+        print("TV_HERO_RETURN origin=\(tvHeroOrigin()) focus=\(focusedElement()?.identifier ?? "none")")
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            return abs(self.tvHeroOrigin()) < 2
+        }, "Up from the episode rail must restore the whole hero, including its title.")
+        try attachFrame(named: "TV Up returns the complete show hero")
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after show Back")
+        XCTAssertTrue(focus(resume, timeout: 20))
+        for _ in 0..<5 { XCUIRemote.shared.press(.up) }
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            abs(self.tvHeroOrigin()) < 2
+        }, "Up from Home shelves must restore the full hero artwork, not only its bottom controls.")
+        try attachFrame(named: "TV Up returns the complete Home hero")
+        completed = true
+    }
+
+    func journeyTVBrowseHeroReturns() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let movie = element("resumeItem-\(fixture.directItemID)")
+        for _ in 0..<8 where !movie.exists { XCUIRemote.shared.press(.down) }
+        try activate(movie)
+        try waitForExistence(element("tvHeroBounds"), timeout: 20, named: "movie hero")
+        XCTAssertTrue(waitUntil(timeout: 8) { abs(self.tvHeroOrigin()) < 2 })
+        try attachFrame(named: "TV movie opens with its full hero")
+        try activate(element("playButton"))
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "movie playback from restored hero")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 12 }
+        try attachPlaybackFrame(named: "TV movie hero retains decoded playback")
+        try closePlayer()
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home before Music")
+        try activate(element("homeBrowse-music"))
+        let albumHero = element("audioFeaturedAlbum")
+        try waitForExistence(albumHero, timeout: 20, named: "Music hero")
+        let album = element("audioItem-\(fixture.audioAlbumID)")
+        for _ in 0..<8 where !album.exists { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(focus(album, timeout: 25))
+        XCTAssertLessThan(albumHero.frame.minY, -1)
+        for _ in 0..<6 { XCUIRemote.shared.press(.up) }
+        XCTAssertTrue(waitUntil(timeout: 8) { abs(albumHero.frame.minY) < 2 },
+                      "Music Up must restore its artwork and header.")
+        try attachFrame(named: "TV Music hero restored from albums")
+        try selectDestination("Requests", screen: "requestsScreen")
+        let heading = element("requestsScreen").staticTexts["Requests"].firstMatch
+        try waitForExistence(heading, timeout: 20, named: "Requests heading")
+        let initialHeadingY = heading.frame.minY
+        let poster = application!.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "requestPoster-")).firstMatch
+        for _ in 0..<8 where !poster.exists { XCUIRemote.shared.press(.down) }
+        try waitForExistence(poster, timeout: 20, named: "Requests shelf poster")
+        XCTAssertTrue(focus(poster, timeout: 25))
+        XCTAssertTrue(!heading.exists || heading.frame.minY < initialHeadingY - 1)
+        for _ in 0..<8 { XCUIRemote.shared.press(.up) }
+        XCTAssertTrue(waitUntil(timeout: 8) { heading.exists && abs(heading.frame.minY - initialHeadingY) < 2 },
+                      "Requests Up must restore the top controls and hero.")
+        try attachFrame(named: "TV Requests top restored from shelves")
+        completed = true
+    }
+
     func journeyTVHomeArtworkAndCachedReturns(nextUp: Bool) async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -3865,8 +4003,8 @@ class NativeProofJourney: XCTestCase {
         // Labels and the selected focus outline affect a card's outer
         // accessibility frame. Compare the poster surfaces, which retain the
         // equal media-card geometry users see in the rail.
-        let firstArtwork = firstEpisode.images.firstMatch
-        let secondArtwork = secondEpisode.images.firstMatch
+        let firstArtwork = firstEpisode.descendants(matching: .any).matching(identifier: "tvArtwork-\(fixture.episodeID)").firstMatch
+        let secondArtwork = secondEpisode.descendants(matching: .any).matching(identifier: "tvArtwork-\(fixture.secondEpisodeID)").firstMatch
         try waitForExistence(firstArtwork, timeout: 15, named: "first episode poster")
         try waitForExistence(secondArtwork, timeout: 15, named: "second episode poster")
         XCTAssertEqual(firstArtwork.frame.width, secondArtwork.frame.width, accuracy: 2,
@@ -3896,23 +4034,17 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "TV episode-focused collection with inline season selector")
 
         try activate(secondSeasonEpisode)
-        XCTAssertTrue(waitUntil(timeout: 10) {
-            self.accessibilityText(self.element("collectionEpisodeTitle")).contains(secondSeasonEpisodeTitle)
-                && (self.element("videoCollectionItem-\(secondSeasonEpisodeID)").value as? String) == "Selected"
-        }, "Selecting an episode must keep its parent show open with that episode selected.")
-        XCTAssertFalse(element("detailScreen").exists,
-                       "Selecting an episode must not replace its parent show with a standalone detail screen.")
-        try waitForHittable(play, timeout: 15, named: "selected episode collection play")
-        try activate(play)
         try waitForExistence(element("playbackScreen"), timeout: 30, named: "selected episode playback")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { _ in true }
         try closePlayer()
 
-        // A fresh local session must prefer the server's saved resume episode over
+        // A fresh app process must prefer the server's saved resume episode over
         // season-one's first unwatched item.
         try await api.seedProgress(identity: identity, itemID: secondSeasonEpisodeID, seconds: 30)
-        try launchAndResetSession()
-        try signIn(using: fixture)
+        let relaunched = try XCTUnwrap(application)
+        relaunched.terminate()
+        relaunched.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after episode process relaunch")
         try selectDestination("Video", screen: "libraryScreen")
         try activate(element("homeBrowse-tv"))
         let resumedShow = element("libraryItem-\(fixture.showID)")

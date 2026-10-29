@@ -246,7 +246,7 @@ still need media bytes. The separately identified standard-phone portrait detail
 Play-button/tab-bar overlap is not fixed in this build.
 
 
-### Internal dogfood package 33, 2026-10-29 — upload pending
+### Internal dogfood package 33, 2026-10-29 — iOS uploaded
 
 Version **0.1.0 (33)** has validated unsigned Release device archives for iOS
 and tvOS in ignored `apple/Distribution/0.1.0-33/`, built from clean main
@@ -265,16 +265,22 @@ performance tour and 503-title stress workload pass; see the
 [measurement record](tvos-performance-2026-10-29.md). The owner requested focused
 checks, so no full repository/Core/native UI suite was run.
 
-**No build-33 IPA has been signed or uploaded.** CLI iOS export failed with
-“No Accounts” and no iOS Distribution certificate. The Mac remained locked,
-preventing access to Xcode's existing cloud-signing account. The requested iOS
-upload remains pending; tvOS is staged for qualification and has no upload
-authorization. Preserve the earlier unuploaded build-32 package unchanged.
+**Xcode Organizer confirmed iOS 0.1.0 (33) uploaded to Apple on October 29.**
+CLI export had failed with No Accounts / no local distribution certificate.
+After unlock, Xcode's existing cloud-signing account exported a signed IPA;
+local distribution and matching-symbol validation passed. The signed reference
+archive's manual-signing upload route required a local key, so that attempt was
+cancelled. Automatic cloud signing from the source archive successfully uploaded.
+Build-number management was disabled, internal-only distribution enabled, and
+symbols included. The final summary and Organizer status both identify build 33.
 
-After unlock, recheck live build inventory, sign/export the existing iOS archive
-with internal-only distribution and automatic build-number changes disabled,
-validate the actual signed IPA, and prepare its signed Organizer copy. Retain the
-actual uploaded artifact, symbols, logs and confirmation before updating upload
-status. The latest confirmed iOS upload remains build 31; processing and tester
-assignment are unverified. Named ratings require the matching server update;
-no household deployment or physical-TV/HDMI/HDR/audio qualification occurred.
+The exact submitted IPA was copied from Xcode's upload pipeline and validated
+before submission. Preserve `upload-iOS/Lumina-iOS.ipa`, its hash, final
+`Upload-iOS.xcdistributionlogs`, `UploadConfirmation-iOS.json`, and the separate
+validated signed export/Organizer reference. Do not upload iOS build 33 again.
+Processing and tester-group assignment remain unverified. tvOS now has a locally validated distribution-signed IPA and signed Organizer
+archive with matching executable/dSYM UUIDs. Its original unsigned source archive
+is preserved; no TV upload was performed or authorized.
+Preserve the earlier unuploaded build-32 package unchanged. Named ratings require
+the matching server update; no household deployment or physical-TV/HDMI/HDR/audio
+qualification occurred.

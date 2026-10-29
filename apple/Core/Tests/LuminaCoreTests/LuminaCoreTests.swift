@@ -104,6 +104,121 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "Cannot reach this server. Check Wi-Fi or VPN.")
     }
 
+    func testRepeatedDetailBrowsingReusesMetadata() async throws {
+        let credentials = TestCredentials()
+        credentials.stored = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!,
+            accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            calls.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1":
+                Thread.sleep(forTimeInterval: 0.05)
+                return response(request, json: movie())
+            default: return response(request, status: 404)
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = MediaMetadataCache(directory: directory)
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials, metadataCache: cache)
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let started = ContinuousClock.now
+        _ = try await store.loadItem(item, useCache: true)
+        let warmStarted = ContinuousClock.now
+        for _ in 0..<2 { _ = try await store.loadItem(item, useCache: true) }
+        print("DETAIL_WARM_RETURNS elapsed=\(warmStarted.duration(to: .now)) reads=2 network_reads=0")
+        print("DETAIL_RETURN_BASELINE elapsed=\(started.duration(to: .now)) requests=\(calls.all.filter { $0.url?.path == "/Users/user-1/Items/movie-1" }.count)")
+        XCTAssertEqual(calls.all.filter { $0.url?.path == "/Users/user-1/Items/movie-1" }.count, 1,
+                       "Repeated detail visits must reuse fresh device metadata.")
+        // A recreated store/process reads the same bounded device snapshot, never credentials.
+        let restoredCache = MediaMetadataCache(directory: directory)
+        let restored = LuminaStore(client: LuminaClient(configuration: mockConfiguration()),
+                                   credentials: credentials, metadataCache: restoredCache)
+        await restored.restore()
+        _ = try await restored.loadItem(item, useCache: true)
+        XCTAssertEqual(calls.all.filter { $0.url?.path == "/Users/user-1/Items/movie-1" }.count, 1)
+        let active = try XCTUnwrap(restored.session)
+        let key = MediaMetadataCache.key("item/movie-1/0", session: active)
+        let otherMember = LuminaSession(serverURL: active.serverURL, accessToken: active.accessToken,
+            userID: "other-member", username: "Other", serverName: "Lumina", deviceID: active.deviceID)
+        let otherCredential = LuminaSession(serverURL: active.serverURL, accessToken: "rotated-token",
+            userID: active.userID, username: active.username, serverName: "Lumina", deviceID: active.deviceID)
+        let otherServer = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8766")!, accessToken: active.accessToken,
+            userID: active.userID, username: active.username, serverName: "Lumina", deviceID: active.deviceID)
+        for owner in [otherMember, otherCredential, otherServer] {
+            let leaked = await restoredCache.items(for: MediaMetadataCache.key("item/movie-1/0", session: owner))
+            XCTAssertNil(leaked, "Metadata must never cross a member, credential or server boundary.")
+        }
+        let expiredCache = MediaMetadataCache(directory: directory, now: { Date.distantFuture })
+        let expired = await expiredCache.items(for: key)
+        XCTAssertNil(expired, "Expired detail snapshots must require a fresh server read.")
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        XCTAssertFalse(files.isEmpty)
+        for file in files {
+            XCTAssertFalse(file.lastPathComponent.contains("test-token"))
+            XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("test-token"))
+        }
+        _ = try await restored.loadItem(item)
+        XCTAssertEqual(calls.all.filter { $0.url?.path == "/Users/user-1/Items/movie-1" }.count, 2,
+                       "An explicit fresh/default read must bypass the device cache.")
+        MockURLProtocol.handler = { request in response(request, status: 401) }
+        do { _ = try await restored.loadItem(item); XCTFail("Fresh authorization failures must remain actionable") }
+        catch { XCTAssertNil(restored.session) }
+        let cleared = await restoredCache.items(for: key)
+        XCTAssertNil(cleared, "Sign-out/revocation must synchronously invalidate resident and pending disk snapshots.")
+
+    }
+
+    func testDeviceSnapshotsRestoreHomeAndSeasonMetadataWithoutCrossingRefreshBoundaries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let credentials = TestCredentials()
+        credentials.stored = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
+            userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            calls.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume": return response(request, json: page(items: [movie(positionTicks: 80_000_000)]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": "next", "Name": "Next", "Type": "Episode"]]))
+            case "/Shows/show/Seasons": return response(request, json: page(items: [["Id": "season", "Name": "Season 1", "Type": "Season", "IndexNumber": 1]]))
+            default: return response(request, status: 404)
+            }
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials,
+                                metadataCache: MediaMetadataCache(directory: directory))
+        await store.restore()
+        let show = try JSONDecoder().decode(MediaItem.self, from: json(["Id": "show", "Name": "Show", "Type": "Series"]))
+        for _ in 0..<3 {
+            let seasons = try await store.loadChildren(of: show, useCache: true)
+            XCTAssertEqual(seasons.map(\.id), ["season"])
+        }
+        XCTAssertEqual(calls.all.filter { $0.url?.path == "/Shows/show/Seasons" }.count, 1)
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "member"]) }
+            return response(request, status: 503)
+        }
+        let restored = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials,
+                                   metadataCache: MediaMetadataCache(directory: directory))
+        await restored.restore()
+        XCTAssertNotNil(restored.session)
+        XCTAssertEqual(restored.recentItems.map(\.id), ["movie-1"])
+        XCTAssertEqual(restored.resumeItems.map(\.id), ["movie-1"])
+        XCTAssertEqual(restored.nextUpItems.map(\.id), ["next"])
+        let cachedSeasons = try await restored.loadChildren(of: show, useCache: true)
+        XCTAssertEqual(cachedSeasons.map(\.id), ["season"])
+        await restored.loadHome()
+        do {
+            _ = try await restored.loadChildren(of: show, useCache: true)
+            XCTFail("An explicit Home/activity refresh must invalidate old episode/member-state snapshots.")
+        } catch { XCTAssertNotNil(restored.session) }
+    }
+
     func testConnectLoadsLibraryAndSendsMediaBrowserCredentials() async throws {
         let credentials = TestCredentials()
         let client = LuminaClient(configuration: mockConfiguration())
@@ -202,6 +317,8 @@ final class LuminaCoreTests: XCTestCase {
         let posterEpisode = try JSONDecoder().decode(MediaItem.self, from: json(episodeWithStill))
         XCTAssertEqual(store.imageURL(for: posterEpisode)?.path, "/Items/movie-1/Images/Primary")
         XCTAssertEqual(store.posterURL(for: posterEpisode)?.path, "/Items/series-1/Images/Primary")
+        XCTAssertEqual(store.thumbnailURL(for: posterEpisode, poster: true)?.path, "/Items/series-1/Images/Primary",
+                       "Portrait Continue Watching/Next Up tiles must never stretch the episode still into a series poster.")
 
         var savedEpisode = episodeWithStill
         savedEpisode["Name"] = "Pilot"
@@ -217,8 +334,14 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(queuedEpisode.homeHeroSubtitle, "S2 · E1 · Pilot")
         XCTAssertEqual(queuedEpisode.id, posterEpisode.id, "Presentation must preserve the saved playable version.")
         XCTAssertEqual(store.imageURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Primary")
+        var matchedEpisode = savedEpisode
+        matchedEpisode["ParentPrimaryImageItemId"] = "catalog-series"
+        let catalogEpisode = try JSONDecoder().decode(MediaItem.self, from: json(matchedEpisode))
+        XCTAssertEqual(store.thumbnailURL(for: catalogEpisode, poster: true)?.path, "/Items/catalog-series/Images/Primary")
         XCTAssertEqual(store.logoURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Logo")
         XCTAssertEqual(store.backdropURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Backdrop/0")
+        XCTAssertEqual(store.thumbnailURL(for: queuedEpisode)?.path, "/Items/movie-1/Images/Primary",
+                       "Continue Watching and Next Up must use an episode's still, while the hero retains series artwork.")
 
         let seriesPoster = try XCTUnwrap(store.imageURL(for: episode, maxWidth: 0))
         XCTAssertEqual(seriesPoster.scheme, backdrop.scheme)

@@ -9,6 +9,7 @@ let tickScale = 10_000_000.0
         didSet {
             if oldValue?.serverURL != session?.serverURL || oldValue?.accessToken != session?.accessToken || oldValue?.userID != session?.userID {
                 ArtworkImageCache.shared.removeAll(includingDisk: oldValue != nil)
+                if oldValue != nil { metadataCache?.clear() }
                 readyArtworkFramings.removeAll()
                 readyArtworkFramingOrder.removeAll()
                 availableLibraryCategories = []
@@ -83,6 +84,7 @@ let tickScale = 10_000_000.0
     }
 
     private let client: LuminaClient
+    private let metadataCache: MediaMetadataCache?
     private let credentials: CredentialStore
     private let connectivity: LuminaConnectivity
     private struct LibraryQuery: Equatable {
@@ -139,6 +141,7 @@ let tickScale = 10_000_000.0
     public init(playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences(),
                 connectivity: LuminaConnectivity = LuminaConnectivity(),
                 offline: LuminaOfflineLibrary = LuminaOfflineLibrary()) {
+        metadataCache = MediaMetadataCache()
         credentials = KeychainCredentials()
         client = LuminaClient()
         self.connectivity = connectivity
@@ -148,11 +151,13 @@ let tickScale = 10_000_000.0
     }
 
     init(client: LuminaClient, credentials: CredentialStore,
+         metadataCache: MediaMetadataCache? = nil,
          playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences(),
          connectivity: LuminaConnectivity = LuminaConnectivity(),
          offline: LuminaOfflineLibrary = LuminaOfflineLibrary()) {
         self.client = client
         self.credentials = credentials
+        self.metadataCache = metadataCache
         self.connectivity = connectivity
         self.offline = offline
         self.playbackPreferences = playbackPreferences
@@ -725,6 +730,7 @@ let tickScale = 10_000_000.0
 
     private func loadHome(clearsError: Bool) async {
         guard !Task.isCancelled else { return }
+        if homeGeneration > 0 { metadataCache?.clear() }
         homeGeneration += 1
         let generation = homeGeneration
         homeTask?.cancel()
@@ -774,10 +780,14 @@ let tickScale = 10_000_000.0
     }
 
     private func loadHomeRecent(_ active: LuminaSession, generation: Int) async {
+        let cacheKey = MediaMetadataCache.key("home/recentItems", session: active)
+        if recentItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
+           !Task.isCancelled, generation == homeGeneration, isCurrent(active) { recentItems = cached }
         do {
             let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: "", start: 0, sort: .recentlyAdded)
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             recentItems = page.items.filter { $0.isPlayable && !$0.isAudio }
+            await metadataCache?.store(recentItems, for: cacheKey, lifetime: 24 * 60 * 60)
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             handleRequestFailure(error, for: active)
@@ -785,10 +795,14 @@ let tickScale = 10_000_000.0
     }
 
     private func loadHomeResume(_ active: LuminaSession, generation: Int) async {
+        let cacheKey = MediaMetadataCache.key("home/resumeItems", session: active)
+        if resumeItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
+           !Task.isCancelled, generation == homeGeneration, isCurrent(active) { resumeItems = cached }
         do {
             let items = try await client.resume(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             resumeItems = items.filter { $0.isPlayable && !$0.isAudio }
+            await metadataCache?.store(resumeItems, for: cacheKey, lifetime: 24 * 60 * 60)
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             handleRequestFailure(error, for: active)
@@ -796,10 +810,14 @@ let tickScale = 10_000_000.0
     }
 
     private func loadHomeNextUp(_ active: LuminaSession, generation: Int) async {
+        let cacheKey = MediaMetadataCache.key("home/nextUpItems", session: active)
+        if nextUpItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
+           !Task.isCancelled, generation == homeGeneration, isCurrent(active) { nextUpItems = cached }
         do {
             let items = try await client.nextUp(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             nextUpItems = items.filter { $0.type == "Episode" }
+            await metadataCache?.store(nextUpItems, for: cacheKey, lifetime: 24 * 60 * 60)
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             handleRequestFailure(error, for: active)
@@ -818,9 +836,12 @@ let tickScale = 10_000_000.0
         }
     }
 
-    public func loadChildren(of item: MediaItem) async throws -> [MediaItem] {
+    public func loadChildren(of item: MediaItem, useCache: Bool = false) async throws -> [MediaItem] {
         guard let active = session else { throw LuminaError.notSignedIn }
         guard item.isCollection else { return [] }
+        let cacheKey = MediaMetadataCache.key("children/\(item.id)/\(metadata.revision)", session: active)
+        if useCache, let cached = await metadataCache?.items(for: cacheKey), isCurrent(active) { return cached }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
         var result = [MediaItem]()
         var start = 0
         while true {
@@ -829,17 +850,26 @@ let tickScale = 10_000_000.0
             result.append(contentsOf: page.items.filter { item.type == "Series" ? $0.type == "Season" : $0.type == "Episode" })
             start += page.items.count
             if item.type == "Series" || page.items.isEmpty || start >= page.total {
-                return result.sorted { ($0.indexNumber ?? Int.max, $0.id) < ($1.indexNumber ?? Int.max, $1.id) }
+                let ordered = result.sorted { ($0.indexNumber ?? Int.max, $0.id) < ($1.indexNumber ?? Int.max, $1.id) }
+                if useCache { await metadataCache?.store(ordered, for: cacheKey) }
+                guard isCurrent(active) else { throw LuminaError.notSignedIn }
+                return ordered
             }
         }
     }
 
-    public func loadItem(_ item: MediaItem) async throws -> MediaItem {
+    public func loadItem(_ item: MediaItem, useCache: Bool = false) async throws -> MediaItem {
         guard let active = session else { throw LuminaError.notSignedIn }
+        let cacheKey = MediaMetadataCache.key("item/\(item.id)/\(metadata.revision)", session: active)
+        if useCache, let cached = await metadataCache?.items(for: cacheKey)?.first,
+           cached.id == item.id, cached.userData == item.userData, isCurrent(active) { return cached }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
         do {
             let fresh = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
             replaceCachedItem(fresh)
+            await metadataCache?.store([fresh], for: cacheKey)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
             return fresh
         } catch {
             if isCurrent(active), let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) { clearSession() }
@@ -848,11 +878,15 @@ let tickScale = 10_000_000.0
     }
 
     /// Resolves a Requests-provided vault title without replacing the active browse page.
-    public func libraryItem(id: String) async throws -> MediaItem {
+    public func libraryItem(id: String, useCache: Bool = false) async throws -> MediaItem {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LuminaError.malformedResponse
         }
         guard let active = session else { throw LuminaError.notSignedIn }
+        let cacheKey = MediaMetadataCache.key("item/\(canonicalItemID(id))/\(metadata.revision)", session: active)
+        if useCache, let cached = await metadataCache?.items(for: cacheKey)?.first,
+           canonicalItemID(cached.id) == canonicalItemID(id), isCurrent(active) { return cached }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
         do {
             let fresh = try await client.item(
                 origin: active.serverURL,
@@ -864,6 +898,8 @@ let tickScale = 10_000_000.0
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
             guard canonicalItemID(fresh.id) == canonicalItemID(id) else { throw LuminaError.malformedResponse }
             replaceCachedItem(fresh)
+            await metadataCache?.store([fresh], for: cacheKey)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
             return fresh
         } catch {
             if isCurrent(active), let failure = error as? LuminaError,
@@ -907,30 +943,10 @@ let tickScale = 10_000_000.0
     }
 
     /// Resolves the parent series for an episode without replacing the active browse page.
-    public func seriesCollection(id: String) async throws -> MediaItem {
-        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw LuminaError.malformedResponse
-        }
-        guard let active = session else { throw LuminaError.notSignedIn }
-        do {
-            let fresh = try await client.item(
-                origin: active.serverURL,
-                token: active.accessToken,
-                deviceID: active.deviceID,
-                id: id,
-                userID: active.userID
-            )
-            guard isCurrent(active) else { throw LuminaError.notSignedIn }
-            guard fresh.id == id, fresh.type == "Series" else { throw LuminaError.malformedResponse }
-            replaceCachedItem(fresh)
-            return fresh
-        } catch {
-            if isCurrent(active), let failure = error as? LuminaError,
-               failure == .http(401) || failure == .http(403) {
-                clearSession()
-            }
-            throw error
-        }
+    public func seriesCollection(id: String, useCache: Bool = false) async throws -> MediaItem {
+        let fresh = try await libraryItem(id: id, useCache: useCache)
+        guard fresh.id == id, fresh.type == "Series" else { throw LuminaError.malformedResponse }
+        return fresh
     }
 
     public func updateItemState(item: MediaItem, played: Bool? = nil, favorite: Bool? = nil) async throws -> MediaItem {
@@ -940,6 +956,7 @@ let tickScale = 10_000_000.0
                 try await client.updateItemState(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, userID: active.userID, id: item.id, played: played, favorite: favorite)
             }
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            metadataCache?.clear()
             return try await loadItem(item)
         } catch {
             if isCurrent(active), let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) { clearSession() }
@@ -1030,8 +1047,11 @@ let tickScale = 10_000_000.0
         }
     }
 
-    public func relatedItems(for item: MediaItem) async throws -> [MediaItem] {
+    public func relatedItems(for item: MediaItem, useCache: Bool = false) async throws -> [MediaItem] {
         guard let active = session else { throw LuminaError.notSignedIn }
+        let cacheKey = MediaMetadataCache.key("related/\(item.id)/\(metadata.revision)", session: active)
+        if useCache, let cached = await metadataCache?.items(for: cacheKey), isCurrent(active) { return cached }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
         let loaded = try await client.relatedItems(
             origin: active.serverURL,
             token: active.accessToken,
@@ -1040,9 +1060,12 @@ let tickScale = 10_000_000.0
         )
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
         var seen = Set<String>()
-        return loaded.filter { related in
+        let result = loaded.filter { related in
             related.id != item.id && seen.insert(related.id).inserted
         }.prefix(12).map { $0 }
+        if useCache { await metadataCache?.store(result, for: cacheKey) }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return result
     }
 
     public func clearError() { errorMessage = nil }
@@ -1059,6 +1082,9 @@ let tickScale = 10_000_000.0
     }
 
     public func posterURL(for item: MediaItem, maxWidth: Int = 400) -> URL? {
+        if item.parentPrimaryImageItemID != nil, item.parentPrimaryImageTag != nil {
+            return imageURL(for: item, maxWidth: maxWidth)
+        }
         guard ["Episode", "Season"].contains(item.type),
               let seriesID = item.seriesID, let tag = item.seriesPrimaryImageTag,
               let active = session else { return imageURL(for: item, maxWidth: maxWidth) }
@@ -1145,6 +1171,19 @@ let tickScale = 10_000_000.0
             URLQueryItem(name: "tag", value: tag),
             URLQueryItem(name: "ApiKey", value: active.accessToken),
         ])
+    }
+
+    /// Browse tile artwork, independently of hero presentation.
+    public func thumbnailURL(for item: MediaItem, poster: Bool = false, maxWidth: Int = 760) -> URL? {
+        if poster { return posterURL(for: item, maxWidth: maxWidth) }
+        if item.type == "Episode", let tag = item.imageTags?["Primary"], !tag.isEmpty, let active = session {
+            return client.url(origin: active.serverURL, path: "/Items/\(item.id)/Images/Primary", query: [
+                URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+                URLQueryItem(name: "tag", value: tag),
+                URLQueryItem(name: "ApiKey", value: active.accessToken),
+            ])
+        }
+        return backdropURL(for: item, maxWidth: maxWidth) ?? imageURL(for: item, maxWidth: maxWidth)
     }
 
     public func backdropURL(for item: MediaItem, maxWidth: Int = 1920) -> URL? {

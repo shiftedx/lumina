@@ -157,7 +157,7 @@ private struct TVEpisodeCollectionDestination: View {
                 return
             }
             do {
-                series = try await store.seriesCollection(id: seriesID)
+                series = try await store.seriesCollection(id: seriesID, useCache: true)
             } catch {
                 couldNotResolveSeries = true
             }
@@ -1212,7 +1212,12 @@ private struct TVHomeView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await layout.load(); await feed.load(); await store.refreshNavigationCategories() }
+                Task {
+                    async let savedLayout: Void = layout.load()
+                    async let rows: Void = feed.load()
+                    async let activity: Void = store.loadHome()
+                    _ = await (savedLayout, rows, activity)
+                }
             }
         }
         .onChange(of: store.resumeItems) { _, _ in
@@ -1819,6 +1824,8 @@ private struct TVRail: View {
     let onOpen: (MediaItem) -> Void
     var feed: LuminaHomeFeed? = nil
     var onHide: (String) -> Void = { _ in }
+    @FocusState private var focusedItemID: String?
+    @State private var movingForward = true
 
     private var captionPresentation: TVRailCaptionPresentation {
         TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
@@ -1836,12 +1843,14 @@ private struct TVRail: View {
                 LazyHStack(alignment: .top, spacing: 32) {
                     ForEach(items) { item in
                         TVRecommendationCard(item: item, feed: feed, onHide: onHide) {
-                            TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation) {
+                            TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation,
+                                        artworkWidth: presentsPosters ? 480 : 760) {
                                 if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
                                 onOpen(item)
                             }
                         }
                             .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : presentsPosters ? 220 : 400)
+                            .focused($focusedItemID, equals: item.id)
                             .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
                 }
@@ -1850,6 +1859,23 @@ private struct TVRail: View {
             .scrollClipDisabled()
         }
         .padding(.horizontal, 80)
+        .onChange(of: focusedItemID) { old, new in
+            guard let old, let new,
+                  let previous = items.firstIndex(where: { $0.id == old }),
+                  let current = items.firstIndex(where: { $0.id == new }) else { return }
+            movingForward = current >= previous
+        }
+        .task(id: "\(focusedItemID ?? "")-\(movingForward)", priority: .utility) {
+            // Only the focused shelf speculates; all rails share the four-load artwork budget.
+            guard let focusedItemID, let index = items.firstIndex(where: { $0.id == focusedItemID }) else { return }
+            let upcoming = movingForward ? Array(items.dropFirst(index + 1).prefix(8))
+                : Array(items.prefix(index).suffix(8).reversed())
+            let urls = upcoming.compactMap {
+                store.thumbnailURL(for: $0, poster: presentsPosters || $0.isAudio || $0.type.hasPrefix("Music"),
+                                   maxWidth: presentsPosters ? 480 : 760)
+            }
+            await ArtworkImageCache.shared.prefetch(urls, limit: 8)
+        }
     }
 }
 
@@ -2099,6 +2125,12 @@ struct TVArtwork: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 4))
+            #if LUMINA_UI_TESTING
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Artwork")
+            .accessibilityIdentifier("tvArtwork-\(item.id)")
+            .accessibilityValue(artworkURL?.path ?? "Missing artwork")
+            #endif
     }
 
     private var placeholder: some View {
@@ -2111,7 +2143,7 @@ struct TVArtwork: View {
     }
 
     private var artworkURL: URL? {
-        aspect > 1 ? store.backdropURL(for: item, maxWidth: maxWidth) ?? store.imageURL(for: item, maxWidth: maxWidth) : store.imageURL(for: item, maxWidth: maxWidth)
+        store.thumbnailURL(for: item, poster: aspect <= 1, maxWidth: maxWidth)
     }
 }
 

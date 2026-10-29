@@ -227,6 +227,11 @@ final class NativeTVBackDuringPlaybackPreparationTests: NativeProofJourney {
 final class NativeTVEpisodeFocusedCollectionTests: NativeProofJourney {
     func testTVEpisodeFocusedCollection() async throws { try await journeyTVEpisodeFocusedCollection() }
 }
+@MainActor
+final class NativeTVRemoteVideoStartTests: NativeProofJourney {
+    func testRemoteStartsVideoFromDetails() async throws { try await journeyTVRemoteStartsVideoFromDetails() }
+}
+
 #endif
 
 @MainActor
@@ -2866,6 +2871,7 @@ class NativeProofJourney: XCTestCase {
         let stillPaused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
         XCTAssertLessThanOrEqual(stillPaused, paused + 1)
         #endif
+        try attachPlaybackFrame(named: "Original MKV video frame")
         try closePlayer()
         let saved = try await waitForServerProgress(
             api, identity: identity, itemID: fixture.convertedItemID, minimum: 4
@@ -3269,7 +3275,14 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Video", screen: "libraryScreen")
+        XCTAssertTrue(waitUntil(timeout: 25) {
+            (self.element("libraryScreen").value as? String)?.contains("catalog=123 ") == true
+        }, "TV must finish loading the full lightweight catalog without paging through its posters.")
+        XCTAssertFalse(element("videoLoadMoreButton").exists)
         try exerciseTVLibraryAlphabet(using: fixture)
+        XCTAssertTrue(waitUntil(timeout: 25) {
+            (self.element("libraryScreen").value as? String)?.contains("catalog=123 ") == true
+        }, "Returning to name sort must reload the full catalog.")
         completed = true
     }
 
@@ -3313,7 +3326,9 @@ class NativeProofJourney: XCTestCase {
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(waitUntil(timeout: 20) {
             self.focusedElement()?.identifier.hasPrefix("libraryItem-") == true
-        }, "Selecting an alphabet letter must replace the page and focus its first matching title.")
+        }, "Selecting an alphabet letter must jump within the wall and focus its first matching title.")
+        XCTAssertTrue((element("libraryScreen").value as? String)?.contains("catalog=123 ") == true,
+                      "An alphabet jump must preserve all preloaded titles.")
 
         try activate(sortPicker)
         try activate(menuAction("Recently added"))
@@ -3392,6 +3407,28 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    func journeyTVRemoteStartsVideoFromDetails() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        try waitForExistence(element("playButton"), timeout: 20, named: "video detail Play action")
+        try waitForExistence(element("heroRottenTomatoesRating-\(fixture.directItemID)"), timeout: 15, named: "movie source ratings")
+        XCTAssertEqual(element("heroIMDbRating-\(fixture.directItemID)").label, "IMDb: 8.2 out of 10")
+        XCTAssertEqual(element("heroRottenTomatoesRating-\(fixture.directItemID)").label, "Rotten Tomatoes: 91.5 percent, Fresh")
+        XCTAssertEqual(element("heroMetacriticRating-\(fixture.directItemID)").label, "Metacritic: 73 out of 100, Favorable")
+        try attachFrame(named: "TV artwork-first movie detail with source ratings")
+        XCUIRemote.shared.press(.playPause)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "video started with Siri Remote")
+        let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 3 }
+        try attachPlaybackFrame(named: "Video started from detail with Siri Remote")
+        try closePlayer()
+        completed = true
+    }
+
     func journeyTVEpisodeFocusedCollection() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -3431,6 +3468,10 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(heroMetadata, timeout: 15, named: "selected episode hero metadata")
         try waitForExistence(heroSynopsis, timeout: 15, named: "selected episode hero synopsis")
         try waitForExistence(seasonSelector, timeout: 15, named: "inline season selector")
+        try waitForExistence(element("heroRottenTomatoesRating-\(fixture.showID)"), timeout: 15, named: "series source ratings")
+        XCTAssertEqual(element("heroIMDbRating-\(fixture.showID)").label, "IMDb: 6.4 out of 10")
+        XCTAssertEqual(element("heroRottenTomatoesRating-\(fixture.showID)").label, "Rotten Tomatoes: 0 percent, Rotten")
+        XCTAssertEqual(element("heroMetacriticRating-\(fixture.showID)").label, "Metacritic: 39.9 out of 100, Unfavorable")
         XCTAssertTrue(accessibilityText(heroTitle).contains(fixture.episodeTitle),
                       "The initial hero must select the first current or next unwatched episode.")
         XCTAssertTrue(accessibilityText(heroTitle).contains("S1") && accessibilityText(heroTitle).contains("E1"),
@@ -3439,8 +3480,12 @@ class NativeProofJourney: XCTestCase {
             !self.accessibilityText(self.element("collectionEpisodeMetadata"))
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }, "The initial hero must expose the selected episode's runtime or source facts.")
-        XCTAssertTrue(accessibilityText(heroSynopsis).contains("Synthetic episode."),
-                      "The initial hero must expose the selected episode synopsis.")
+        let expectedSynopsis = try XCTUnwrap(fixture.episodeAbout, "The fixture must provide its episode synopsis.")
+        guard waitUntil(timeout: 10, condition: {
+            self.accessibilityText(heroSynopsis).contains(expectedSynopsis)
+        }) else {
+            throw ProofFailure.ui("The initial hero must expose the selected episode synopsis.")
+        }
         let play = element("playButton")
         try waitForHittable(play, timeout: 15, named: "episode collection play action")
         let actionToSeasonGap = seasonSelector.frame.minY - play.frame.maxY
@@ -3516,6 +3561,12 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(resume, timeout: 15, named: "resumed episode collection play")
         XCTAssertTrue(accessibilityText(resume).contains("Resume"),
                       "The selected resumed episode must present a Resume action.")
+        XCUIRemote.shared.press(.playPause)
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode resumed with Siri Remote")
+        let resumedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 28 }
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= resumedAt + 2 }
+        try attachPlaybackFrame(named: "Episode resumed from collection with Siri Remote")
+        try closePlayer()
         completed = true
     }
 #endif
@@ -4804,7 +4855,7 @@ class NativeProofJourney: XCTestCase {
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
-        try launchAndResetSession(extraLaunchArguments: checksLayout ? ["--ui-testing-static-hero-artwork"] : [])
+        try launchAndResetSession(extraLaunchArguments: checksLayout ? ["--ui-testing-manual-hero-selection"] : [])
         try signIn(using: fixture, waitsForAccount: !checksLayout)
         if !checksLayout {
             try selectDestination("Account", screen: "accountScreen")
@@ -4831,6 +4882,15 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(element("heroIMDbRating-\(fixture.directItemID)").label, "IMDb: 8.2 out of 10")
         XCTAssertEqual(element("heroMetacriticRating-\(fixture.directItemID)").label, "Metacritic: 73 out of 100, Favorable")
         try attachFrame(named: "Home hero Resume button before artwork swipe")
+        if checksLayout {
+            let initialPixels = try heroPixels()
+            try await Task.sleep(for: .seconds(3))
+            let movedPixels = try heroPixels()
+            guard title.label == fixture.directItemTitle, initialPixels != movedPixels else {
+                throw ProofFailure.ui("Ambient artwork must keep moving while the selected hero and its layout stay fixed.")
+            }
+            try attachFrame(named: "Home ambient artwork after three seconds")
+        }
         let window = try applicationWindow()
         let artwork = application!.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@", "Featured titles,")
@@ -5600,19 +5660,41 @@ class NativeProofJourney: XCTestCase {
             try scrollLibrary(element("libraryScreen"), up: true)
             try scrollLibrary(element("libraryScreen"), up: false)
             #else
-            try await performancePhase("tv_library_focus_sweep") {
-                let fixtureMovie = element("libraryItem-\(fixture.directItemID)")
-                guard focus(fixtureMovie, timeout: 15) else {
-                    throw ProofFailure.ui("The TV movie grid could not focus the fixture title before the focus sweep.")
+            let rawSteps = ProcessInfo.processInfo.environment["LUMINA_PERF_TV_SCROLL_STEPS"] ?? "8"
+            guard let scrollSteps = Int(rawSteps), (1...80).contains(scrollSteps) else {
+                throw ProofFailure.ui("LUMINA_PERF_TV_SCROLL_STEPS must be from 1 through 80.")
+            }
+            if let expected = ProcessInfo.processInfo.environment["LUMINA_PERF_EXPECTED_CATALOG_COUNT"] {
+                guard let count = Int(expected), count > 0 else { throw ProofFailure.invalidFixture }
+                guard waitUntil(timeout: 25, condition: {
+                    (self.element("libraryScreen").value as? String)?.contains("catalog=\(count) ") == true
+                }) else { throw ProofFailure.ui("The complete stress catalog did not load before scrolling.") }
+            }
+            for cycle in 1...6 {
+                try await performancePhase("tv_library_focus_sweep_\(cycle)") {
+                    let fixtureMovie = element("libraryItem-\(fixture.directItemID)")
+                    guard focus(fixtureMovie, timeout: 15) else {
+                        throw ProofFailure.ui("The TV movie grid could not focus the fixture title before the focus sweep.")
+                    }
+                    for _ in 0..<scrollSteps { XCUIRemote.shared.press(.down) }
+                    for _ in 0..<8 { XCUIRemote.shared.press(.right) }
+                    for _ in 0..<8 { XCUIRemote.shared.press(.up) }
+                    for _ in 0..<8 { XCUIRemote.shared.press(.left) }
+                    try waitForPerformanceContainer(element("libraryScreen"), timeout: 10, named: "TV movie catalog after focus sweep")
+                    // The sweep deliberately scrolls the initial fixture out of the lazy grid.
+                    // Return through the public alphabet instead of steering toward an absent AX cell.
+                    let alphabet = element("libraryAlphabetIndex")
+                    guard focus(alphabet, timeout: 15) else {
+                        throw ProofFailure.ui("The TV alphabet was unreachable after the focus sweep.")
+                    }
+                    // Up at the first letter moves into Search; select the current letter directly.
+                    try activate(alphabet)
+                    try waitForExistence(fixtureMovie, timeout: 20, named: "first-page fixture after alphabet jump")
+                    guard focus(fixtureMovie, timeout: 20) else {
+                        throw ProofFailure.ui("The TV movie grid could not focus the fixture after an alphabet jump.")
+                    }
                 }
-                for _ in 0..<8 { XCUIRemote.shared.press(.down) }
-                for _ in 0..<8 { XCUIRemote.shared.press(.right) }
-                for _ in 0..<8 { XCUIRemote.shared.press(.up) }
-                for _ in 0..<8 { XCUIRemote.shared.press(.left) }
-                try waitForPerformanceContainer(element("libraryScreen"), timeout: 10, named: "TV movie catalog after focus sweep")
-                guard focus(fixtureMovie, timeout: 20) else {
-                    throw ProofFailure.ui("The TV movie grid could not restore focus to the fixture title after the focus sweep.")
-                }
+                try await performanceQuietPhase("library_catalog_cycle_\(cycle)_idle")
             }
             #endif
             }

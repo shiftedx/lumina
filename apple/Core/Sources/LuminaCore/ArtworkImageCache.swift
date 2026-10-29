@@ -38,7 +38,7 @@ public final class ArtworkImageCache {
     private let transport: BoundedArtworkTransport
     private let maximumDecodedBytes: Int
     private let maximumEncodedBytes: Int
-    private let decode: @Sendable (Data) -> CGImage?
+    private let decode: @Sendable (Data, URL) -> CGImage?
     private let diskCache: ArtworkDiskCache?
     private var diskGeneration: Int?
     private let images = NSCache<NSURL, CachedImage>()
@@ -66,7 +66,11 @@ public final class ArtworkImageCache {
         self.diskGeneration = diskCache?.currentGeneration
         encodedImages.totalCostLimit = max(1, maximumEncodedBytes)
         encodedImages.countLimit = 2_000
-        self.decode = BillboardArtworkPreparation.image(from:)
+        self.decode = { data, url in
+            let width = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name.caseInsensitiveCompare("maxWidth") == .orderedSame }?.value.flatMap(Int.init)
+            return BillboardArtworkPreparation.image(from: data, maximumWidth: width)
+        }
         images.totalCostLimit = max(1, maximumDecodedBytes)
         images.countLimit = max(1, imageCountLimit)
     }
@@ -86,7 +90,7 @@ public final class ArtworkImageCache {
         self.diskGeneration = diskCache?.currentGeneration
         encodedImages.totalCostLimit = max(1, maximumEncodedBytes)
         encodedImages.countLimit = 2_000
-        self.decode = decode
+        self.decode = { data, _ in decode(data) }
         images.totalCostLimit = max(1, maximumDecodedBytes)
         images.countLimit = max(1, imageCountLimit)
     }
@@ -196,7 +200,7 @@ public final class ArtworkImageCache {
                             let cached = await diskCache.data(for: url, generation: diskGeneration) {
                         guard !Task.isCancelled else { return nil }
                         if cached.count <= BillboardArtworkPreparation.maximumEncodedBytes,
-                           let image = decode(cached) {
+                           let image = decode(cached, url) {
                             guard !Task.isCancelled else { return nil }
                             return (image, cached)
                         }
@@ -209,7 +213,7 @@ public final class ArtworkImageCache {
                     else if url.isFileURL { data = try Data(contentsOf: url, options: .mappedIfSafe) }
                     else { data = try await transport.data(from: url, maximumBytes: BillboardArtworkPreparation.maximumEncodedBytes) }
                     guard !Task.isCancelled, data.count <= BillboardArtworkPreparation.maximumEncodedBytes,
-                          let image = decode(data), !Task.isCancelled else { return nil }
+                          let image = decode(data, url), !Task.isCancelled else { return nil }
                     return (image, data)
                 } catch { return nil }
             }

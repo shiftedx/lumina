@@ -3413,15 +3413,28 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
+        try waitForExistence(element("featuredTitleButton"), timeout: 25, named: "Home featured title")
+        try activate(element("featuredTitleButton"))
+        guard waitUntil(timeout: 25, condition: {
+            self.element("detailScreen").exists || self.element("videoCollectionScreen").exists
+        }) else {
+            throw ProofFailure.ui("Clicking the focused Home title must open its details.")
+        }
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after title selection")
         try openLibraryItem(id: fixture.directItemID)
         try waitForExistence(element("playButton"), timeout: 20, named: "video detail Play action")
         try waitForExistence(element("heroRottenTomatoesRating-\(fixture.directItemID)"), timeout: 15, named: "movie source ratings")
         XCTAssertEqual(element("heroIMDbRating-\(fixture.directItemID)").label, "IMDb: 8.2 out of 10")
         XCTAssertEqual(element("heroRottenTomatoesRating-\(fixture.directItemID)").label, "Rotten Tomatoes: 91.5 percent, Fresh")
         XCTAssertEqual(element("heroMetacriticRating-\(fixture.directItemID)").label, "Metacritic: 73 out of 100, Favorable")
+        let play = element("playButton")
+        guard waitUntil(timeout: 10, condition: { play.isEnabled }), focus(play, timeout: 20) else {
+            throw ProofFailure.ui("The movie Play action must be enabled and reachable with directional remote input.")
+        }
         try attachFrame(named: "TV artwork-first movie detail with source ratings")
-        XCUIRemote.shared.press(.playPause)
-        try waitForExistence(element("playbackScreen"), timeout: 25, named: "video started with Siri Remote")
+        XCUIRemote.shared.press(.select)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "video started by clicking focused Play")
         let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 3 }
         try attachPlaybackFrame(named: "Video started from detail with Siri Remote")

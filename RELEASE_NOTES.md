@@ -1,7 +1,18 @@
 # Release notes
 
-## Unreleased — security maintenance
+## Lumina 0.5.1
 
+- Cap OMDb at 950 requests in any rolling 24 hours, including failed lookups and connection tests. Persist the allowance, cached IMDb results and unfinished work across restarts.
+- Fetch ratings for newly added unscored titles first, then the older missing-score backlog and stale ratings. Reuse partial or empty responses across duplicate titles, independently of TMDB refreshes.
+
+**Upgrade:** schema 41, with an automatic pre-upgrade backup.
+
+## Lumina 0.5.0
+
+- Show IMDb user ratings, Rotten Tomatoes critic percentages, and Metacritic scores on title heroes with readable source logos and score-aware badges. Import named NFO ratings or optionally enrich TMDB-matched titles with an OMDb key; preserve household edits and source precedence.
+- Stabilize the watch-page accessibility fixture while retaining touch-target and keyboard-focus checks.
+- Keep native library metadata edits permission-aware, with shared lock/revert behavior and hidden-title protection.
+- Keep recommendation feedback available while removing explanatory captions and menu headers across web and native apps.
 - Bound request deadlines, remote metadata reads, and media-probe output; retain guarded streaming and provider credential isolation.
 - Enforce shared book/photo upload admission and encoding-independent XML declaration rejection.
 - Run one-operation photo and native book parsers behind a Linux filesystem/libseccomp boundary; preserve codec threads, deadlines and cancellation cleanup.
@@ -12,6 +23,8 @@
 - Preserve the current OAuth, single-use mobile QR pairing, durable photo previews and face-indexing features.
 
 **Operator requirement:** photo processing and native PDF/CBR reads require seccomp and either Landlock ABI 3 or the optional Bubblewrap namespace configuration. The namespace option supports hosts without Landlock while retaining filesystem isolation. Both modes fail closed on missing support. Retain the running image with `scripts/preserve-rollback.sh` before replacing it; see the [operator guide](docker/README.md#retaining-a-rollback-image).
+
+**Upgrade:** schema 40, with an automatic pre-upgrade backup. The optional OMDb key is write-only and omitted from backups. NFO and manual ratings work without OMDb; configure the key under **Manage Server → Connections → Metadata** and refresh metadata to populate existing matched titles.
 
 ## Lumina 0.4.0
 

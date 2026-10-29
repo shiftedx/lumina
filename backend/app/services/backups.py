@@ -95,6 +95,8 @@ def create_backup(kind: str = "manual") -> dict[str, Any]:
                     destination.execute("UPDATE app_settings SET ai_api_key = NULL")
                     if "tmdb_api_key" in columns:
                         destination.execute("UPDATE app_settings SET tmdb_api_key = NULL")
+                    if "omdb_api_key" in columns:
+                        destination.execute("UPDATE app_settings SET omdb_api_key = NULL")
                     if "smtp_password" in columns:  # 2.6.0 Requests: the SMTP password and Sonarr/Radarr keys too
                         destination.execute("UPDATE app_settings SET smtp_password = NULL")
                         destination.execute("UPDATE arr_servers SET api_key = NULL")

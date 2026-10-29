@@ -27,7 +27,7 @@ from app.models import AppSettings, MediaTitle, Person, User, utcnow
 from app.persistence import write_transaction
 from app.services.artwork import ArtworkNotFoundError, ArtworkResponse, ArtworkService
 from app.services.library import LibraryService
-from app.services.media_titles import MATCHABLE_TYPES, TITLE_COLUMNS, apply_field, parse_item_id, person_key
+from app.services.media_titles import MATCHABLE_TYPES, TITLE_COLUMNS, apply_field, clear_omdb_values, parse_item_id, person_key
 from app.services import cast_photos, library_search, tmdb
 from app.services.local_ai import AiConfig, LocalAiError, chat, effective_config
 from app.services.summaries import parse_model_json
@@ -285,6 +285,8 @@ def _store_provider_ids(title: MediaTitle, ids: dict[str, str]) -> None:
             return  # a user's dict is exact (a deleted Imdb id stays deleted); apply_field kept TMDB's for revert
         if missing := {key: value for key, value in ids.items() if key not in current}:
             title.provider_ids = {**current, **missing}  # the recorded source stays: no existing value changed
+    if current.get("Imdb") != (title.provider_ids or {}).get("Imdb"):
+        clear_omdb_values(title)
 
 
 def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
@@ -401,9 +403,7 @@ def _record_failure(title_id: str, now: datetime, expected_due: datetime | None)
             title.metadata_due_at = now + failure_delay(failures)
 
 
-def refresh_title(
-    title_id: str, client: tmdb.TmdbClient, ai: AiConfig, now: datetime | None = None,
-) -> Literal["matched", "unmatched", "failed", "skipped"]:
+def refresh_title(title_id: str, client: tmdb.TmdbClient, ai: AiConfig, now: datetime | None = None) -> Literal["matched", "unmatched", "failed", "skipped"]:
     """Refresh one series/movie title. A TMDB, AI or parse failure backs off this title only; it never raises."""
     now = now or utcnow()
     with session_scope() as db:
@@ -444,7 +444,7 @@ def clear_tmdb_values(title: MediaTitle) -> None:
         for child in (*seasons, *episodes):
             clear_tmdb_values(child)
     sources = dict(title.field_sources or {})
-    tmdb_fields = [name for name, source in sources.items() if source == "tmdb"]
+    tmdb_fields = [name for name, source in sources.items() if source in ("tmdb", "omdb")]
     images = dict(title.images or {})
     metadata = {key: value for key, value in (title.metadata_json or {}).items() if key != "match"}
     for name in tmdb_fields:
@@ -456,9 +456,9 @@ def clear_tmdb_values(title: MediaTitle) -> None:
         elif name not in TITLE_COLUMNS:
             metadata.pop(name, None)
     title.field_sources, title.images, title.metadata_json = sources, images, metadata
-    # a revert must not resurrect the wrong match's value: a kept tmdb value becomes "nothing kept"
+    # a revert must not resurrect the wrong match's value from either online source.
     title.source_values = {
-        field: {"source": None, "value": None} if entry.get("source") == "tmdb" else entry
+        field: {"source": None, "value": None} if entry.get("source") in ("tmdb", "omdb") else entry
         for field, entry in dict(title.source_values or {}).items()
     }
 

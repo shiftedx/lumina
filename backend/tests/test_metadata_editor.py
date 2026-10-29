@@ -22,6 +22,7 @@ VALID = [  # (type, field, input, normalised)
     ("movie", "premiered", "2020-03-01", "2020-03-01"), ("series", "end_date", "2024-01-31", "2024-01-31"),
     ("series", "status", "Ended", "Ended"), ("series", "air_days", ["Friday", "Monday", "Monday"], ["Monday", "Friday"]),
     ("series", "air_time", "21:30", "21:30"), ("movie", "community_rating", 7.5, 7.5), ("movie", "critic_rating", 88, 88),
+    ("movie", "imdb_rating", 8.2, 8.2), ("movie", "rotten_tomatoes_rating", 91.5, 91.5), ("movie", "metacritic_rating", 74.5, 74.5),
     ("movie", "genres", [" Drama ", "drama", "Noir"], ["Drama", "Noir"]), ("movie", "tags", ["kids"], ["kids"]),
     ("episode", "index_number", 0, 0), ("episode", "index_number_end", None, None),
     ("movie", "provider_ids", {"Tmdb": "603", "Imdb": "tt0133093", "Foo": "x"}, {"Tmdb": "603", "Imdb": "tt0133093", "Foo": "x"}),
@@ -31,7 +32,8 @@ INVALID = [  # (type, field, input)
     ("movie", "name", ""), ("movie", "name", None), ("movie", "name", "x" * 301), ("movie", "year", 1869), ("movie", "year", True),
     ("movie", "premiered", "20200301"), ("movie", "premiered", "2020-13-01"), ("series", "status", "Paused"),
     ("series", "air_time", "24:00"), ("series", "air_days", ["Funday"]), ("movie", "community_rating", 10.5),
-    ("movie", "community_rating", 7.55), ("movie", "critic_rating", 100.5), ("movie", "genres", ["a"] * 31 + ["b"]),
+    ("movie", "community_rating", 7.55), ("movie", "critic_rating", 100.5), ("movie", "imdb_rating", 10.1),
+    ("movie", "rotten_tomatoes_rating", 91.55), ("movie", "metacritic_rating", True), ("movie", "genres", ["a"] * 31 + ["b"]),
     ("movie", "tags", ["x" * 61]), ("movie", "overview", "x" * 20_001), ("movie", "runtime_minutes", 0),
     ("episode", "index_number", 10_000), ("movie", "index_number", 1),          # index_number is season/episode only
     ("season", "genres", ["Drama"]), ("movie", "end_date", "2024-01-01"),       # wrong type for this title type
@@ -124,6 +126,18 @@ def test_revert_restores_the_kept_value_and_source_with_no_network(world) -> Non
             assert me.revert_field(title, "overview", batch, utcnow(), owner=True) is False  # not locked: no-op
 
 
+def test_reverting_a_manual_critic_score_restores_omdb_and_wakes_refresh(world) -> None:  # noqa: ANN001
+    factory, _ = world
+    with factory() as db:
+        title = db.get(MediaTitle, MOVIE)
+        apply_field(title, "imdb_rating", 8.2, "omdb")
+        db.commit()
+        title, *_ = edit(db, MOVIE, "imdb_rating", 9.0)
+        with write_transaction(db, name="t"):
+            assert me.revert_field(title, "imdb_rating", me.Batch(db, "revert", ADMIN), utcnow(), owner=True)
+        assert me.read_field(title, "imdb_rating") == (8.2, "omdb") and title.metadata_due_at is not None
+
+
 def test_revert_with_nothing_kept_empties_a_meta_field_and_never_nulls_the_name(world) -> None:  # noqa: ANN001
     factory, _ = world
     with factory() as db:
@@ -152,14 +166,17 @@ def test_item_lock_and_unlock_apply_kept_values(world) -> None:  # noqa: ANN001
     factory, _ = world
     with factory() as db:
         title = db.get(MediaTitle, MOVIE)
+        apply_field(title, "imdb_rating", 8.2, "omdb")
         with write_transaction(db, name="t"):
             me.set_item_lock(title, True, me.Batch(db, "item_lock", ADMIN), utcnow())
         assert title.locked is True and title.metadata_due_at is None
         assert apply_field(title, "overview", "scan text", "tmdb") is False  # Blocked, kept
+        assert apply_field(title, "provider_ids", {"Tmdb": "603", "Imdb": "tt1111111"}, "nfo") is False
         with write_transaction(db, name="t"):
             me.set_item_lock(title, False, me.Batch(db, "item_lock", ADMIN), utcnow())
         assert title.locked is False and title.metadata_json["overview"] == "scan text" and "overview" not in title.source_values
         assert title.metadata_due_at is not None
+        assert title.provider_ids["Imdb"] == "tt1111111" and "imdb_rating" not in title.metadata_json
 
 
 def entry(title_id, **changes):  # noqa: ANN202
@@ -227,6 +244,22 @@ def test_member_cannot_change_tmdb_but_owner_identifies(world) -> None:  # noqa:
         assert title.provider_ids == {"Tmdb": "604", "Imdb": "tt0133093"} and title.metadata_due_at is not None
         row = db.scalar(select(TitleEdit).where(TitleEdit.field == "provider_ids"))
         assert row.before == {"Tmdb": "603", "Imdb": "tt0133093"}  # the history shows the id the title had, not identify's intermediate
+
+
+def test_editing_the_imdb_id_drops_only_cached_omdb_scores(world) -> None:  # noqa: ANN001
+    factory, _ = world
+    with factory() as db:
+        title = db.get(MediaTitle, MOVIE)
+        title.metadata_json = {**title.metadata_json, "imdb_rating": 8.2, "rotten_tomatoes_rating": 91}
+        title.field_sources = {**title.field_sources, "imdb_rating": "omdb", "rotten_tomatoes_rating": "user"}
+        title.source_values = {"rotten_tomatoes_rating": {"source": "omdb", "value": 90}}
+        db.commit()
+        me.save_edits(db, db.get(User, ADMIN), [entry(MOVIE, provider_ids=({"Tmdb": "603", "Imdb": "tt1111111"}, {"Tmdb": "603", "Imdb": "tt0133093"}))], owner=True)
+        title = db.get(MediaTitle, MOVIE)
+        assert "imdb_rating" not in title.metadata_json and "imdb_rating" not in title.field_sources
+        assert title.metadata_json["rotten_tomatoes_rating"] == 91 and title.field_sources["rotten_tomatoes_rating"] == "user"
+        assert title.source_values["rotten_tomatoes_rating"] == {"source": None, "value": None}
+        assert title.metadata_due_at is not None
 
 
 def test_item_lock_change_in_a_save(world) -> None:  # noqa: ANN001

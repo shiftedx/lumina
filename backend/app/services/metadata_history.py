@@ -14,7 +14,7 @@ from app.models import MediaTitle, TitleEdit, User, utcnow
 from app.persistence import write_transaction
 from app.services.metadata_editor import Batch, load_titles, read_field, set_item_lock
 from app.services.library import LibraryService
-from app.services.media_titles import TITLE_COLUMNS
+from app.services.media_titles import TITLE_COLUMNS, invalidate_omdb_for_imdb_change
 
 CUT, KEEP_PER_TITLE, KEEP_DAYS = 300, 200, 365
 
@@ -129,6 +129,7 @@ def undo(db: Session, user: User, batch_id: str, *, owner: bool) -> dict[str, An
             if read_field(title, row.field) != (row.after, row.after_source):
                 skipped.append({"title_id": title.id, "field": row.field, "reason": "changed_since"})
                 continue
+            old_imdb = (title.provider_ids or {}).get("Imdb") if row.field == "provider_ids" else None
             _write_raw(title, row.field, row.before, row.before_source)
             kept = dict(title.source_values or {})
             if row.before_source == "user" and row.after_source != "user":
@@ -136,6 +137,8 @@ def undo(db: Session, user: User, batch_id: str, *, owner: bool) -> dict[str, An
             elif row.before_source != "user":
                 kept.pop(row.field, None)
             title.source_values = kept
+            if row.field == "provider_ids":
+                invalidate_omdb_for_imdb_change(title, old_imdb, now)
             if row.field == "provider_ids" and (row.before or {}).get("Tmdb") != (row.after or {}).get("Tmdb"):
                 title.metadata_due_at = now
             batch.record(title, row.field, row.after, row.after_source, row.before, row.before_source)

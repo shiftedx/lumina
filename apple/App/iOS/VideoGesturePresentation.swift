@@ -21,7 +21,7 @@ final class VideoGesturePresentation {
     var previewTime: Double?
     var interacting = false
     private(set) var screen: UIScreen?
-    @ObservationIgnored private weak var attachedScreen: UIScreen?
+    @ObservationIgnored private var attachedScreen: UIScreen?
     private let owner = UUID()
     // Keep the native volume control installed while video is presented. Gestures
     // drive its UISlider; hardware buttons update that same system-owned value.
@@ -61,13 +61,15 @@ final class VideoGesturePresentation {
             systemVolumeView.removeFromSuperview()
             window?.addSubview(systemVolumeView)
         }
-        let next = window?.windowScene?.screen
+        let scene = window?.windowScene
+        let next = scene?.session.role == .windowApplication ? scene?.screen : nil
         guard attachedScreen !== next else { return }
         attachedScreen = next
         releaseBrightness()
-        // Brightness is defined only for the built-in display. Resolve the target
-        // through the window; main is used only as UIKit's capability identity.
-        screen = next === UIScreen.main ? next : nil
+        // UIKit supports brightness writes only through the main-screen control.
+        // A Duo app window can belong to the inner display instead; track that
+        // display for transitions, without treating it as a separate backlight API.
+        screen = next == nil ? nil : UIScreen.main
     }
 
     func cancel(playback: PlaybackModel, releaseBrightness: Bool) {

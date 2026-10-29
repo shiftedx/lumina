@@ -20,7 +20,7 @@ from app.config import settings
 from app.models import AppSettings, LibraryItem, MediaTitle, Person
 from app.persistence import write_transaction
 from app.security import get_current_user
-from app.services import title_metadata, tmdb
+from app.services import omdb, omdb_ratings, title_metadata, tmdb
 from app.services.local_ai import AiConfig, LocalAiError
 from app.services.media_titles import apply_field, jellyfin_id, synthetic_id
 from app.services.rate_limit import rate_limiter
@@ -587,6 +587,114 @@ def test_refresh_keeps_a_user_edited_provider_ids_dict_exactly(library) -> None:
     assert title.provider_ids == {"Tmdb": "603"}
 
 
+def test_omdb_queue_caches_one_lookup_for_duplicate_titles_and_preserves_precedence(library, monkeypatch) -> None:  # noqa: ANN001
+    first = add_title(provider_ids={"Imdb": "tt0133093"}, field_sources={"provider_ids": "nfo"}, added_at=NOW)
+    second = add_title(key="root:Movies/Matrix copy", provider_ids={"Imdb": "tt0133093"},
+                       metadata_json={"imdb_rating": 9.1}, field_sources={"provider_ids": "nfo", "imdb_rating": "nfo"})
+
+    class Scores:
+        calls: list[str] = []
+
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            self.calls.append(imdb_id)
+            return {"imdb_rating": 8.7, "rotten_tomatoes_rating": 87}
+
+    scores = Scores()
+    monkeypatch.setattr(omdb_ratings.omdb, "client_for", lambda _record: scores)
+    assert omdb_ratings.run_due_batch(NOW) is False
+    assert scores.calls == ["tt0133093"]
+    assert load(first).metadata_json["imdb_rating"] == 8.7
+    assert load(second).metadata_json["imdb_rating"] == 9.1
+    assert omdb_ratings.run_due_batch(NOW + timedelta(minutes=1)) is False and scores.calls == ["tt0133093"]
+
+
+def test_omdb_queue_accepts_a_user_supplied_imdb_id_without_a_tmdb_match(library, monkeypatch) -> None:  # noqa: ANN001
+    title_id = add_title(provider_ids={"Imdb": "tt0133093"}, field_sources={"provider_ids": "user"})
+
+    class Scores:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            assert imdb_id == "tt0133093"
+            return {"imdb_rating": 8.7}
+
+    monkeypatch.setattr(omdb_ratings.omdb, "client_for", lambda _record: Scores())
+    assert omdb_ratings.run_due_batch(NOW) is False
+    assert load(title_id).metadata_json["imdb_rating"] == 8.7
+
+
+def test_refresh_stores_omdb_scores_without_overriding_nfo_or_manual_values(library) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    title_id = add_title(
+        provider_ids=NFO_IDS["provider_ids"],
+        metadata_json={"imdb_rating": 9.1, "rotten_tomatoes_rating": 99},
+        field_sources={"provider_ids": "nfo", "imdb_rating": "nfo", "rotten_tomatoes_rating": "user"},
+    )
+
+    class Scores:
+        def __init__(self) -> None:
+            self.ids: list[str] = []
+
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            self.ids.append(imdb_id)
+            return {"imdb_rating": 8.7, "rotten_tomatoes_rating": 87, "metacritic_rating": 73}
+
+    scores = Scores()
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
+    title = load(title_id)
+    assert scores.ids == []  # TMDB refresh no longer calls OMDb directly.
+    assert title.metadata_json["imdb_rating"] == 9.1 and title.field_sources["imdb_rating"] == "nfo"
+    assert title.metadata_json["rotten_tomatoes_rating"] == 99 and title.field_sources["rotten_tomatoes_rating"] == "user"
+    assert "metacritic_rating" not in title.metadata_json
+
+
+def test_omdb_unavailable_does_not_fail_tmdb_or_erase_cached_scores(library) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    title_id = add_title(provider_ids={"Tmdb": "603", "Imdb": "tt0133093"}, metadata_json={"imdb_rating": 8.2},
+                         field_sources={"provider_ids": "nfo", "imdb_rating": "omdb"})
+
+    class Unavailable:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            assert imdb_id == "tt0133093"
+            raise omdb.OmdbError("unavailable")
+
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
+    title = load(title_id)
+    assert title.metadata_json["imdb_rating"] == 8.2 and title.field_sources["imdb_rating"] == "omdb"
+    assert title.metadata_json["overview"] and title.field_sources["overview"] == "tmdb"
+
+
+def test_refresh_without_an_effective_imdb_id_never_calls_omdb(library) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    title_id = add_title(provider_ids={"Tmdb": "603"}, field_sources={"provider_ids": "user"})
+
+    class MustNotCall:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            raise AssertionError(f"unexpected OMDb lookup for {imdb_id}")
+
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
+
+
+def test_stale_omdb_scores_are_rejected_when_the_identity_changes_mid_fetch(library) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    title_id = add_title(**NFO_IDS)
+
+    class Scores:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            assert imdb_id == "tt0133093"
+            return {"imdb_rating": 8.7}
+
+    with db_module.session_scope() as db:
+        current = db.get(MediaTitle, title_id)
+        snapshot = title_metadata.snapshot(db, current)
+    fetched = title_metadata.fetch(tmdb.TmdbClient(V3_KEY), snapshot, NO_AI, NOW.date())
+    with db_module.session_scope() as db, write_transaction(db, name="test_identity_change"):
+        current = db.get(MediaTitle, title_id)
+        current.provider_ids = {"Tmdb": "603", "Imdb": "tt9999999"}
+    with db_module.session_scope() as db, write_transaction(db, name="test_stale_store"):
+        assert not title_metadata.store(db, snapshot, fetched, NOW)
+    title = load(title_id)
+    assert "imdb_rating" not in title.metadata_json and title.provider_ids["Imdb"] == "tt9999999"
+
+
 def test_matched_refresh_reindexes_title_search(library, monkeypatch) -> None:  # noqa: ANN001
     from app.services import library_search
 
@@ -606,6 +714,20 @@ def test_exact_search_match_writes_provider_ids(library) -> None:  # noqa: ANN00
     title = load(title_id)
     assert title.provider_ids == {"Tmdb": "603", "Imdb": "tt0133093"} and title.field_sources["provider_ids"] == "tmdb"
     assert title.metadata_json["match"]["method"] == "search" and title.field_sources["name"] == "tmdb"
+
+
+def test_refresh_correcting_an_imdb_id_discards_the_previous_titles_cached_scores(library) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    title_id = add_title(
+        provider_ids={"Tmdb": "603", "Imdb": "tt9999999"},
+        metadata_json={"imdb_rating": 8.2, "rotten_tomatoes_rating": 91, "metacritic_rating": 74},
+        field_sources={"provider_ids": "tmdb", "imdb_rating": "omdb", "rotten_tomatoes_rating": "omdb", "metacritic_rating": "user"},
+    )
+    assert run(title_id) == "matched"
+    title = load(title_id)
+    assert title.provider_ids["Imdb"] == "tt0133093"
+    assert "imdb_rating" not in title.metadata_json and "rotten_tomatoes_rating" not in title.metadata_json
+    assert title.metadata_json["metacritic_rating"] == 74
 
 
 def test_ambiguous_title_stays_unmatched_for_30_days(library) -> None:  # noqa: ANN001
@@ -961,7 +1083,8 @@ def test_metadata_routes_are_admin_only_and_scope_titles(http) -> None:  # noqa:
     assert client.get(f"/api/admin/titles/{shared}/identify").json() == {"detail": "tmdb_not_configured"}
     current["user"] = USERS["alice"]
     for method, path in (("POST", f"/api/admin/titles/{shared}/refresh"), ("GET", "/api/admin/metadata/unmatched"),
-                         ("POST", "/api/admin/metadata/refresh-all"), ("POST", "/api/admin/media-server/tmdb-test")):
+                         ("POST", "/api/admin/metadata/refresh-all"), ("POST", "/api/admin/media-server/tmdb-test"),
+                         ("POST", "/api/admin/metadata/omdb-test")):
         assert client.request(method, path).status_code == 403
 
 
@@ -983,6 +1106,19 @@ def test_tmdb_test_and_the_key_never_reach_responses_or_logs(http, library, capl
     assert responses[-1].status_code == 502
     assert run(matrix) == "failed"  # logs the failure type
     assert all(V3_KEY not in response.text for response in responses) and V3_KEY not in caplog.text
+
+
+def test_omdb_test_uses_the_shared_connection_response_contract(http, monkeypatch) -> None:  # noqa: ANN001
+    client, _ = http
+    assert client.post("/api/admin/metadata/omdb-test").json() == {"ok": False, "error": "OMDb API key is not configured"}
+
+    class Healthy:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            assert imdb_id == "tt0133093"
+            return {"imdb_rating": 8.2}
+
+    monkeypatch.setattr(omdb, "client_for", lambda record: Healthy())
+    assert client.post("/api/admin/metadata/omdb-test").json() == {"ok": True, "error": None}
 
 
 def test_person_images_are_lazy_and_scoped_to_visible_titles(http, library, monkeypatch) -> None:  # noqa: ANN001

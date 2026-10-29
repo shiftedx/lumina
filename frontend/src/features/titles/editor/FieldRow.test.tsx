@@ -71,6 +71,10 @@ describe('FieldRow', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Overview' }), '!');
     expect(f.setField).toHaveBeenCalledWith('t1', 'overview', 'Old!', 'Old');
   });
+  it('uses the 100-point range for Rotten Tomatoes and Metacritic ratings', () => {
+    row('rotten_tomatoes_rating', fieldState(91, 'omdb'));
+    expect(screen.getByRole('spinbutton', { name: 'Rotten Tomatoes rating' }).getAttribute('max')).toBe('100');
+  });
   it('a blank name is refused with a message and the draft goes back to the loaded name', async () => {
     const f = row('name', fieldState('Dune', 'tmdb'));
     await userEvent.clear(screen.getByRole('textbox', { name: 'Name' }));

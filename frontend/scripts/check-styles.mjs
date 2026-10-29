@@ -17,8 +17,9 @@ const KB = 1024;
 // Photos adds its lazy justified timeline, people controls, and YARL viewer/plugin styles (~4.5 KB gzip).
 // Shared brand alignment also reaches the standalone offline entry (<0.1 KB gzip).
 // Responsive focus clearance, missing-art fallbacks and 44px player targets add <0.2 KB gzip.
-export const CSS_BUDGET = 75.8 * KB;
-export const CORE_BUDGET = 7.1 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
+// Source-identified rating marks add a compact wrapping row and Metascore status tokens.
+export const CSS_BUDGET = 76.1 * KB;
+export const CORE_BUDGET = 7.2 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
@@ -31,6 +32,7 @@ const RGB_FN = /rgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+
 const RETIRED_REDS = /#c0264a|rgba\(\s*105\s*,\s*30\s*,\s*22|rgba\(\s*255\s*,\s*132\s*,\s*107|rgba\(\s*192\s*,\s*38\s*,\s*74/gi;
 const RETIRED_LIVE = /\.(?:lifecycle-badge|watch-lifecycle-badge|playlist-lifecycle-badge|player-live-badge|player-live-dot|channel-live|live-provider)\b/g;
 const TS_LITERAL = /(?:['"`]|[:(,]\s*)(#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b|(?:rgba?|hsla?)\((?!\s*var\())/gi;
+const SOURCE_REQUIRED_RED_TOKEN = '--g-metascore-unfavorable';
 
 export const gzipSize = (text) => gzipSync(text, { level: 9 }).length;
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;
@@ -110,7 +112,7 @@ export function redHits(source, allowLegacyDanger = false) {
     for (const declaration of rule[2].split(';')) {
       const colon = declaration.indexOf(':');
       const prop = colon < 0 ? '' : declaration.slice(0, colon).trim().toLowerCase();
-      if (colon > 0 && !prop.startsWith('--g-danger')) {
+      if (colon > 0 && !prop.startsWith('--g-danger') && prop !== SOURCE_REQUIRED_RED_TOKEN) {
         const value = declaration.slice(colon + 1);
         const found = [];
         for (const match of value.matchAll(HEX)) if (hexIsRed(match[0])) found.push(match[0]);

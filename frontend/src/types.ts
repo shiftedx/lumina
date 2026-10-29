@@ -1182,7 +1182,7 @@ export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transc
 
 export type TitleType = 'series' | 'season' | 'episode' | 'movie' | 'boxset' | 'album' | 'artist';
 export type ExtraType = 'trailer' | 'featurette' | 'behindthescenes' | 'deletedscene' | 'interview' | 'scene' | 'short' | 'clip' | 'other';
-export type FieldSource = 'user' | 'nfo' | 'tmdb' | 'musicbrainz' | 'path';
+export type FieldSource = 'user' | 'nfo' | 'tmdb' | 'omdb' | 'musicbrainz' | 'path';
 export type ImageType = 'Primary' | 'Backdrop' | 'Logo' | 'Thumb' | 'Banner';
 export type MatchMethod = 'id' | 'find' | 'search' | 'llm' | 'user';
 export type TitleSort = 'name' | 'created' | 'year' | 'rating';
@@ -1252,6 +1252,9 @@ export interface TitleSummary {
   genres: string[];
   official_rating?: string | null;
   community_rating?: number | null;
+  imdb_rating?: number | null;
+  rotten_tomatoes_rating?: number | null;
+  metacritic_rating?: number | null;
   runtime_seconds?: number | null;
   poster_url?: string | null;
   backdrop_url?: string | null;
@@ -1630,6 +1633,7 @@ export interface MediaServerSettings {
   jellyfin_url?: string | null;
   jellyfin_public_url?: string | null;
   has_tmdb_key: boolean;
+  has_omdb_key?: boolean;
   metadata_language: string;
   introdb_enabled: boolean;
   hwaccel: HwaccelMode;
@@ -1646,6 +1650,7 @@ export interface MediaServerSettingsUpdate {
   jellyfin_enabled?: boolean | null;
   native_streaming_enabled?: boolean | null;
   tmdb_api_key?: string | null;
+  omdb_api_key?: string | null;
   metadata_language?: string | null;
   introdb_enabled?: boolean | null;
   hwaccel?: HwaccelMode | null;

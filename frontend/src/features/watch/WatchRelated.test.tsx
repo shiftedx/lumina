@@ -48,15 +48,13 @@ describe('WatchRelated', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('shows why each recommendation is relevant in its row without duplicating it in the menu', () => {
+  it('omits recommendation explanations while keeping Plays next and feedback', () => {
     const picks = [recoEntry('a', 0, { title: 'Actual next video' }, { reason: 'Because you finished Harbor walk at dawn' }), recoEntry('b', 1, { title: 'Second video' }, { reason: 'More from Channel b', reason_code: 'same_channel' })];
     render(provider(<WatchRelated {...props} items={picks} />));
     expect(screen.getByRole('button', { name: /^Actual next video/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Second video/ })).toBeTruthy();
-    expect(screen.getByText('Because you finished Harbor walk at dawn')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Actual next video/ }).getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('Because you finished Harbor walk at dawn').id);
-    expect(screen.getByText('More from Channel b')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Second video/ }).getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('More from Channel b').id);
+    expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
+    expect(screen.queryByText('More from Channel b')).toBeNull();
     expect(screen.getByText('Plays next')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Second video' }));
     const menu = screen.getByRole('menu');

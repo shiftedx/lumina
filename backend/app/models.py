@@ -711,6 +711,8 @@ class AppSettings(Base):
     jellyfin_server_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # NULL = env LUMINA_TMDB_API_KEY; nulled in backups next to ai_api_key.
     tmdb_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL = env LUMINA_OMDB_API_KEY; this optional supplement is never serialized.
+    omdb_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_language: Mapped[str] = mapped_column(String(16), default="en-US", server_default=text("'en-US'"), nullable=False)
     # NULL or "" = no external embedding model. A change re-indexes in the background. Only a switch between local
     # models keeps the old vectors serving until the new index is complete; the previous external model is no longer
@@ -1158,6 +1160,33 @@ class MediaTitle(Base):
     def arrived_at(self) -> datetime:
         """Recently added's date: when the files arrived, else when a scan first met the title."""
         return self.added_at or self.created_at
+
+
+class OmdbRatingCache(Base):
+    """One durable OMDb response state per IMDb identity, shared by every matching title."""
+
+    __tablename__ = "omdb_rating_cache"
+    __table_args__ = (Index("ix_omdb_rating_cache_due_lease", "next_attempt_at", "lease_until"),)
+
+    imdb_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    scores: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class OmdbRequestReservation(Base):
+    """Append-only rolling quota reservations; a crashed request remains spent."""
+
+    __tablename__ = "omdb_request_reservations"
+    __table_args__ = (Index("ix_omdb_request_reservations_requested_at", "requested_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    imdb_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class MusicLookup(Base):

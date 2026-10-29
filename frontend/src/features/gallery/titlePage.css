@@ -35,6 +35,14 @@
 .gallery.t-page .t-logo .g-art-image { width: auto; max-width: 100%; height: 100%; max-height: 160px; object-fit: contain; object-position: left bottom; }
 .gallery.t-page .t-meta { margin: 0 0 var(--g-space-4); color: var(--g-ink-2); font-variant-numeric: tabular-nums; }
 .t-meta-part { white-space: nowrap; }
+.t-ratings { display: flex; align-items: center; flex-wrap: wrap; gap: var(--g-space-2) var(--g-space-4); margin: 0 0 var(--g-space-4); font: var(--g-type-ui); font-variant-numeric: tabular-nums; }
+.t-ratings dd { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--g-ink); font-weight: 600; white-space: nowrap; }
+.t-rating-logo { display: block; width: 20px; height: 20px; object-fit: contain; }
+.t-rating-logo--imdb { width: 40px; }
+:root:not([data-theme='light']) .t-rating-logo--metacritic { filter: invert(1); }
+.t-metascore { display: inline-grid; min-width: 28px; height: 28px; place-items: center; padding: 0 4px; background: var(--g-metascore-mixed); color: var(--g-metascore-ink); font: 700 12px / 1 var(--g-sans); }
+.t-metascore--favorable { background: var(--g-metascore-favorable); }
+.t-metascore--unfavorable { background: var(--g-metascore-unfavorable); }
 .t-lede { margin: 0 0 var(--g-space-4); font: var(--g-type-lede); }
 /* Three lines tall at least, so the cap never hangs into the tagline or the actions. */
 .t-lede.has-dropcap { min-height: 4.5em; }

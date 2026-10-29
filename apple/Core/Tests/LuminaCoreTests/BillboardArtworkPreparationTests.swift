@@ -223,7 +223,7 @@ extension BillboardArtworkPreparationTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
         let cache = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: nil)
-        let upcoming = (0..<40).map { URL(string: "https://images.example/Items/\($0)/Images/Primary?tag=current")! }
+        let upcoming = (0..<100).map { URL(string: "https://images.example/Items/\($0)/Images/Primary?tag=current")! }
         await cache.prefetch(upcoming)
         XCTAssertEqual(recorder.requestCount, 16, "Lookahead must stop at a small window, not fetch the entire library")
         XCTAssertNotNil(cache.cachedImage(for: upcoming[0]), "The upcoming tile must mount with decoded artwork immediately available")
@@ -232,6 +232,10 @@ extension BillboardArtworkPreparationTests {
         XCTAssertEqual(recorder.requestCount, 16, "Displaying a prefetched tile must not request it again")
         cache.removeAll()
         XCTAssertNil(cache.cachedImage(for: upcoming[0]))
+        await cache.prefetch(upcoming, limit: 10_000)
+        XCTAssertEqual(recorder.requestCount, 16 + 72, "A fast-scrolling wall can warm several screens, with a hard 72-poster window")
+        XCTAssertNotNil(cache.cachedImage(for: upcoming[71]))
+        XCTAssertNil(cache.cachedImage(for: upcoming[72]), "Full catalog metadata must never cause full catalog artwork decoding")
     }
     @MainActor
     func testNewLookaheadReplacesQueuedArtworkAndSharesFourLoadLimit() async throws {

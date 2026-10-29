@@ -96,6 +96,61 @@ test('movie: a key scene opens the player at its moment', async ({ page }) => {
   await expect(page).toHaveURL(/\/watch\/library\/item-movie-4k$/);
 });
 
+test('source ratings stay readable in the title heading on desktop and phones', async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page, '/title/movie-1', {
+    ...movieOptions,
+    detail: { ...movieOptions.detail, imdb_rating: 8.2, rotten_tomatoes_rating: 91, metacritic_rating: 74 },
+  });
+  const ratings = page.locator('dl[aria-label="Ratings"]');
+  await expect(ratings.locator('dt')).toHaveText(['IMDb user rating', 'Rotten Tomatoes: Fresh', 'Metacritic: Favorable']);
+  await expect(ratings.locator('dd')).toHaveText(['8.2 / 10', '91%', '74 / 100']);
+  await expect(ratings.locator('img')).toHaveCount(3);
+  await expect.poll(() => ratings.locator('img').evaluateAll((logos) => logos.every((logo) => (logo as HTMLImageElement).complete && (logo as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  const imdb = ratings.locator('.t-rating-logo--imdb');
+  const imdbBox = await imdb.boundingBox();
+  expect(imdbBox!.width).toBeGreaterThan(imdbBox!.height);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(ratings).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const heading = await box(page, '.t-heading');
+    for (const entry of await ratings.locator(':scope > div').all()) {
+      const rect = await entry.boundingBox();
+      expect(rect!.x).toBeGreaterThanOrEqual(heading.x);
+      expect(rect!.x + rect!.width).toBeLessThanOrEqual(heading.x + heading.width + 1);
+    }
+    await page.screenshot({ path: `../output/title-ratings/ratings-${width}.png`, fullPage: true });
+    await page.locator('.t-heading').screenshot({ path: `../output/title-ratings/heading-${width}.png` });
+  }
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.locator('.t-heading').screenshot({ path: '../output/title-ratings/heading-dark-320.png' });
+  const results = await new AxeBuilder({ page }).include('.t-heading').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(results.violations.filter((violation) => ['moderate', 'serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+  for (const [score, status] of [[60, 'Fresh'], [59, 'Rotten']] as const) {
+    await mockGalleryTitle(page, { ...movieOptions, detail: { ...movieOptions.detail, rotten_tomatoes_rating: score } });
+    await page.reload();
+    await expect(ratings.locator('dt')).toHaveText([`Rotten Tomatoes: ${status}`]);
+    await expect(ratings.locator('dd')).toHaveText([`${score}%`]);
+    await expect(ratings.locator('img')).toHaveAttribute('src', `/ratings/rottentomatoes-${status.toLowerCase()}.svg`);
+    await expect.poll(() => ratings.locator('img').evaluate((logo) => (logo as HTMLImageElement).naturalWidth > 0)).toBe(true);
+    await page.locator('.t-heading').screenshot({ path: `../output/title-ratings/heading-${status.toLowerCase()}-320.png` });
+  }
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    for (const [score, status, color] of [[61, 'Favorable', 'rgb(102, 204, 51)'], [60, 'Mixed', 'rgb(255, 204, 51)'], [40, 'Mixed', 'rgb(255, 204, 51)'], [39, 'Unfavorable', 'rgb(255, 0, 0)']] as const) {
+      await mockGalleryTitle(page, { ...movieOptions, detail: { ...movieOptions.detail, imdb_rating: 8.2, rotten_tomatoes_rating: 91, metacritic_rating: score } });
+      await page.reload();
+      await expect(ratings.locator('dt').last()).toHaveText(`Metacritic: ${status}`);
+      await expect(ratings.locator('.t-metascore')).toHaveCSS('background-color', color);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+      const audit = await new AxeBuilder({ page }).include('.t-heading').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+      expect(audit.violations.filter((violation) => ['moderate', 'serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+      await page.locator('.t-heading').screenshot({ path: `../output/title-ratings/metacritic-${score}-${scheme}-320.png` });
+    }
+  }
+});
+
 test('AI failing: no AI section, no error and no page error, and the teasers still show', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

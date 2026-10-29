@@ -30,8 +30,7 @@ public struct VideoSeekSubmission: Equatable, Sendable {
     public let generation: Int
     public let revision: Int
     public let target: Double
-    /// The request's intended direction, retained when a coalesced target is
-    /// submitted after another seek completes.
+    /// The request's intended direction, retained when the live window changes.
     public let direction: VideoSeekDirection?
 }
 
@@ -39,31 +38,21 @@ public struct VideoSeekSubmission: Equatable, Sendable {
 public enum VideoSeekCompletion: Equatable, Sendable {
     /// A completion from a replaced item or superseded operation.
     case ignored
-    /// Submit this coalesced, newer target next.
-    case submit(VideoSeekSubmission)
     /// No newer target remains; reconcile the UI to this engine position.
     case settled(Double?)
 }
 
 /// One shared authority for timeline, button, and gesture video seeks.
 ///
-/// The authority intentionally has no AVFoundation dependency. It serializes
-/// requests, holds the optimistic target while a seek is in flight, and drops
-/// stale completions after the item changes.
+/// The authority intentionally has no AVFoundation dependency. A committed
+/// request supersedes older work, holds the optimistic target while seeking,
+/// and drops stale completions after another request or item change.
 public struct VideoSeekAuthority: Sendable {
-    private struct Pending: Sendable {
-        let generation: Int
-        let revision: Int
-        let target: Double
-        let direction: VideoSeekDirection
-    }
-
     public private(set) var optimisticTarget: Double?
     public private(set) var ranges: [VideoSeekRange] = []
     public private(set) var generation = 0
     public private(set) var revision = 0
     private var inFlight: VideoSeekSubmission?
-    private var latest: Pending?
 
     public init() { }
 
@@ -106,25 +95,23 @@ public struct VideoSeekAuthority: Sendable {
         return best?.time
     }
 
-    /// Accepts a desired target. A non-nil result must be issued to the engine;
-    /// otherwise an older seek is in flight and this target is coalesced.
+    /// Accepts a committed target. Cancel the obsolete engine seek before
+    /// issuing the returned submission; drag previews must stay outside here.
     public mutating func request(target candidate: Double, ranges input: [VideoSeekRange], direction: VideoSeekDirection) -> VideoSeekSubmission? {
         let normalized = Self.normalizedRanges(input)
         guard let target = Self.project(candidate, into: normalized, direction: direction) else { return nil }
         ranges = normalized
         revision += 1
         optimisticTarget = target
-        let pending = Pending(generation: generation, revision: revision, target: target, direction: direction)
-        guard inFlight == nil else {
-            latest = pending
-            return nil
-        }
-        return begin(pending)
+        let submission = VideoSeekSubmission(operationID: UUID(), generation: generation,
+                                             revision: revision, target: target, direction: direction)
+        inFlight = submission
+        return submission
     }
 
     /// Reprojects an operation immediately before the engine issues it. This is
-    /// necessary for DVR/live windows that may have moved since the request was
-    /// coalesced. The operation identity stays stable so a completion from the
+    /// necessary for DVR/live windows that may have moved since the request.
+    /// The operation identity stays stable so a completion from the
     /// pre-revalidated target cannot settle the newer target.
     public mutating func revalidatedSubmission(
         _ submission: VideoSeekSubmission,
@@ -139,9 +126,6 @@ public struct VideoSeekAuthority: Sendable {
         }
         ranges = normalized
 
-        // A newer target will be promoted when this submission completes. Do
-        // not let an old operation overwrite its optimistic position.
-        guard latest == nil else { return submission }
         guard let target = Self.project(submission.target, into: normalized,
                                         direction: submission.direction ?? fallbackDirection) else {
             invalidate()
@@ -159,15 +143,11 @@ public struct VideoSeekAuthority: Sendable {
         return revalidated
     }
 
-    /// Resolves only the current operation. Newer requests are emitted before
-    /// settling, so an old completion can never snap the optimistic UI backward.
+    /// Resolves only the current operation, so an obsolete completion can never
+    /// snap the optimistic UI backward.
     public mutating func complete(_ submission: VideoSeekSubmission, actualTime: Double?) -> VideoSeekCompletion {
         guard inFlight == submission, submission.generation == generation else { return .ignored }
         inFlight = nil
-        if let latest {
-            self.latest = nil
-            return .submit(begin(latest))
-        }
         optimisticTarget = nil
         return .settled(actualTime?.isFinite == true ? actualTime : nil)
     }
@@ -178,17 +158,8 @@ public struct VideoSeekAuthority: Sendable {
         generation += 1
         revision += 1
         inFlight = nil
-        latest = nil
         optimisticTarget = nil
         ranges = []
-    }
-
-    private mutating func begin(_ pending: Pending) -> VideoSeekSubmission {
-        let submission = VideoSeekSubmission(operationID: UUID(), generation: pending.generation,
-                                             revision: pending.revision, target: pending.target,
-                                             direction: pending.direction)
-        inFlight = submission
-        return submission
     }
 }
 

@@ -2,7 +2,7 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from '
 import { createPortal } from 'react-dom';
 import { Copy, PlugZap, RefreshCw, Stethoscope } from '../../../luminaIcons';
 
-import { getMediaServerSettings, listUnmatchedTitles, refreshAllMetadata, runTranscodeDiagnostics, testTmdbKey, updateMediaServerSettings } from '../../../api';
+import { getMediaServerSettings, listUnmatchedTitles, refreshAllMetadata, runTranscodeDiagnostics, testOmdbKey, testTmdbKey, updateMediaServerSettings } from '../../../api';
 import type { HwaccelMode, MediaServerSettings, MediaServerSettingsUpdate, TitleSummary, TranscodeDiagnostics } from '../../../types';
 import { Button, Checkbox, Field, fieldProps, Input, PasswordInput, Select, StatusText } from '../../../ui';
 import { errorMessage, formatBytes } from '../../../utils';
@@ -15,7 +15,7 @@ import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
 
 export type MediaServerDraft = {
-  tmdb_api_key: string; clear_tmdb_key: boolean; metadata_language: string; introdb_enabled: boolean; jellyfin_enabled: boolean;
+  tmdb_api_key: string; clear_tmdb_key: boolean; omdb_api_key: string; clear_omdb_key: boolean; metadata_language: string; introdb_enabled: boolean; jellyfin_enabled: boolean;
   native_streaming_enabled: boolean;
   hwaccel: HwaccelMode; max_playback_sessions: string; transcode_cache_gb: string; jellyfin_import_url: string; plex_import_url: string;
 };
@@ -23,7 +23,7 @@ const HWACCEL: Array<[HwaccelMode, string]> = [['auto', 'Automatic'], ['qsv', 'I
 const ACTIVE_LABELS: Record<TranscodeDiagnostics['active'], string> = { qsv: 'Intel Quick Sync', vaapi: 'Intel / AMD VA-API', nvenc: 'NVIDIA NVENC', videotoolbox: 'Apple VideoToolbox', amf: 'AMD AMF', rkmpp: 'Rockchip MPP', none: 'Software only' };
 
 export const draftOf = (settings: MediaServerSettings): MediaServerDraft => ({
-  tmdb_api_key: '', clear_tmdb_key: false, metadata_language: settings.metadata_language, introdb_enabled: settings.introdb_enabled, jellyfin_enabled: settings.jellyfin_enabled,
+  tmdb_api_key: '', clear_tmdb_key: false, omdb_api_key: '', clear_omdb_key: false, metadata_language: settings.metadata_language, introdb_enabled: settings.introdb_enabled, jellyfin_enabled: settings.jellyfin_enabled,
   native_streaming_enabled: settings.native_streaming_enabled,
   hwaccel: settings.hwaccel, max_playback_sessions: String(settings.max_playback_sessions), transcode_cache_gb: String(settings.transcode_cache_gb),
   jellyfin_import_url: settings.jellyfin_import_url ?? '',
@@ -35,6 +35,8 @@ export function mediaServerChanges(settings: MediaServerSettings, draft: MediaSe
   const update: MediaServerSettingsUpdate = {};
   if (draft.clear_tmdb_key) update.tmdb_api_key = '';
   else if (draft.tmdb_api_key.trim()) update.tmdb_api_key = draft.tmdb_api_key.trim();
+  if (draft.clear_omdb_key) update.omdb_api_key = '';
+  else if (draft.omdb_api_key.trim()) update.omdb_api_key = draft.omdb_api_key.trim();
   if (draft.metadata_language.trim() !== settings.metadata_language) update.metadata_language = draft.metadata_language.trim();
   for (const key of ['introdb_enabled', 'jellyfin_enabled', 'native_streaming_enabled'] as const) if (draft[key] !== settings[key]) update[key] = draft[key];
   if (draft.hwaccel !== settings.hwaccel) update.hwaccel = draft.hwaccel;
@@ -87,7 +89,7 @@ function mediaServerForm(label: string, saveLabel: string) {
 
     return (
       <MediaFormContext.Provider value={{ settings, draft, set }}>
-        <SectionForm saveSettings={['media.tmdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.native-streaming', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
+        <SectionForm saveSettings={['media.tmdb-key', 'media.omdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.native-streaming', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
       </MediaFormContext.Provider>
     );
   };
@@ -122,6 +124,41 @@ function TmdbKey() {
         <Button disabled={testing || !settings.has_tmdb_key} icon={<PlugZap />} onClick={() => { void test(); }}>{testing ? 'Testing…' : 'Test key'}</Button>
       </div>
       <p className="admin-note">{TMDB_ATTRIBUTION}</p>
+    </div>
+  );
+}
+
+function OmdbKey() {
+  const { settings, draft, set } = useMediaForm();
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [testTone, setTestTone] = useState<'ok' | 'danger'>('ok');
+  const hasKey = Boolean(settings.has_omdb_key);
+  async function test() {
+    setTesting(true);
+    try {
+      const outcome = await testOmdbKey();
+      setTestTone(outcome.ok ? 'ok' : 'danger');
+      setResult(outcome.ok ? 'The key works.' : outcome.error || 'OMDb did not accept the key.');
+    } catch (error) {
+      setTestTone('danger');
+      setResult(errorMessage(error, 'The test could not run.'));
+    } finally {
+      setTesting(false);
+    }
+  }
+  return (
+    <div className="g-subrows">
+      <Field hint={hasKey ? 'A key is saved. Type a new one to replace it.' : undefined} label="OMDb API key">
+        {(ids) => <PasswordInput {...fieldProps(ids)} autoComplete="new-password" disabled={draft.clear_omdb_key} maxLength={512} onChange={(event) => set('omdb_api_key', event.target.value)} placeholder={hasKey ? 'Saved key hidden' : 'None'} value={draft.omdb_api_key} />}
+      </Field>
+      {hasKey ? <Checkbox checked={draft.clear_omdb_key} label="Remove the saved OMDb key" onChange={(event) => set('clear_omdb_key', event.target.checked)} /> : null}
+      <div className="g-actions">
+        {result ? <div role="status"><StatusText tone={testTone}>{result}</StatusText></div> : null}
+        <Button disabled={testing || !hasKey} icon={<PlugZap />} onClick={() => { void test(); }}>{testing ? 'Testing…' : 'Test key'}</Button>
+      </div>
+      <p className="admin-note">Scores fill automatically for known IMDb IDs, prioritizing new unscored titles. Lumina uses at most 950 requests per 24 hours and resumes after a restart.</p>
+      <p className="admin-note">Data from <a href="https://www.omdbapi.com/" rel="noreferrer noopener" target="_blank">OMDb</a>, licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/" rel="noreferrer noopener" target="_blank">CC BY-NC 4.0</a>.</p>
     </div>
   );
 }
@@ -285,6 +322,7 @@ export const MEDIA_SECTIONS: readonly SettingsSectionDef[] = [
     Provider: mediaServerForm('Media server', 'Save media server settings'),
     entries: [
       { id: 'media.tmdb-key', label: 'TMDB key', layout: 'block', keywords: ['tmdb api key', 'the movie database', 'metadata', 'artwork', 'test key', 'remove the saved tmdb key'], info: 'Lets Lumina fill in missing movie and show details and artwork from TMDB; a key is free from themoviedb.org. Once saved, the key is never shown again, and NFO files or edits made here are never overwritten. Affects everyone on this server.', Control: TmdbKey },
+      { id: 'media.omdb-key', label: 'OMDb key', layout: 'block', keywords: ['omdb api key', 'imdb rating', 'rotten tomatoes', 'metacritic', 'critic ratings', 'test key', 'remove the saved omdb key'], info: 'Lets Lumina add IMDb user ratings, Rotten Tomatoes and Metacritic scores from OMDb. Once saved, the key is never shown again. Affects everyone on this server.', Control: OmdbKey },
       { id: 'media.language', label: 'Metadata language', advanced: true, keywords: ['details language', 'language', 'locale', 'en-us', 'de-de'], info: 'The language Lumina asks TMDB to use for titles, overviews and artwork, as a tag such as en-US or de-DE. It applies to details fetched after you save. Affects everyone on this server.', Control: MetadataLanguage },
       { id: 'media.introdb', label: 'Intro and credits times', layout: 'switch', advanced: true, description: 'Looked up on TheIntroDB.', keywords: ['theintrodb', 'skip intro', 'segments', 'privacy', 'lookup'], info: 'Looks up where intros and credits start on TheIntroDB, so Skip buttons appear on more episodes. It is off by default because each lookup tells TheIntroDB which episodes this household owns. Affects everyone on this server.', Control: IntroDb },
       { id: 'media.refresh-all', label: 'Refresh all details', keywords: ['refresh all metadata', 'metadata', 'update artwork', 'rescan details'], info: 'Fetches details and artwork again for every movie and show, in the background. It needs a saved TMDB key and never overwrites NFO files or your edits. Affects everyone on this server.', Control: RefreshAll },

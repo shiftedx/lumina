@@ -4,16 +4,16 @@ import XCTest
 final class VideoPlaybackGestureStateTests: XCTestCase {
     private let range = VideoSeekRange(0, 180)!
 
-    func testSeekAuthorityCoalescesRelativeTargetsFromOptimisticTime() {
+    func testSeekAuthorityImmediatelySupersedesRelativeTargetsFromOptimisticTime() {
         var authority = VideoSeekAuthority()
         let first = try! XCTUnwrap(authority.request(target: 70, ranges: [range], direction: .forward))
         XCTAssertEqual(authority.optimisticTarget, 70)
-        XCTAssertNil(authority.request(target: 80, ranges: [range], direction: .forward))
-        XCTAssertNil(authority.request(target: 90, ranges: [range], direction: .forward))
-
-        guard case let .submit(latest) = authority.complete(first, actualTime: 70) else {
-            return XCTFail("The latest coalesced target must be submitted after the first completion")
-        }
+        let middle = try! XCTUnwrap(authority.request(target: 80, ranges: [range], direction: .forward))
+        let latest = try! XCTUnwrap(authority.request(target: 90, ranges: [range], direction: .forward))
+        XCTAssertEqual(authority.complete(first, actualTime: 70), .ignored)
+        XCTAssertEqual(authority.complete(middle, actualTime: 80), .ignored)
+        XCTAssertNil(authority.revalidatedSubmission(first, ranges: [range], direction: .forward))
+        XCTAssertNil(authority.request(target: .nan, ranges: [range], direction: .forward))
         XCTAssertEqual(latest.target, 90)
         XCTAssertEqual(authority.optimisticTarget, 90)
         XCTAssertEqual(authority.complete(latest, actualTime: 90), .settled(90))
@@ -31,24 +31,22 @@ final class VideoPlaybackGestureStateTests: XCTestCase {
         XCTAssertEqual(authority.complete(fresh, actualTime: 120), .settled(120))
     }
 
-    func testRevalidationClampsCoalescedDVRTargetAndIgnoresPreRevalidatedCompletion() {
+    func testRevalidationClampsLatestDVRTargetAndIgnoresPreRevalidatedCompletion() {
         var authority = VideoSeekAuthority()
         let first = try! XCTUnwrap(authority.request(target: 40, ranges: [VideoSeekRange(0, 100)!], direction: .forward))
-        XCTAssertNil(authority.request(target: 90, ranges: [VideoSeekRange(0, 100)!], direction: .forward))
-        guard case let .submit(coalesced) = authority.complete(first, actualTime: 40) else {
-            return XCTFail("The queued target must be promoted after the older seek completes")
-        }
+        let latest = try! XCTUnwrap(authority.request(target: 90, ranges: [VideoSeekRange(0, 100)!], direction: .forward))
+        XCTAssertEqual(authority.complete(first, actualTime: 40), .ignored)
 
         let revalidated = try! XCTUnwrap(authority.revalidatedSubmission(
-            coalesced, ranges: [VideoSeekRange(50, 80)!], direction: .backward
+            latest, ranges: [VideoSeekRange(50, 80)!], direction: .backward
         ))
-        XCTAssertEqual(revalidated.operationID, coalesced.operationID)
-        XCTAssertEqual(revalidated.generation, coalesced.generation)
-        XCTAssertEqual(revalidated.revision, coalesced.revision)
+        XCTAssertEqual(revalidated.operationID, latest.operationID)
+        XCTAssertEqual(revalidated.generation, latest.generation)
+        XCTAssertEqual(revalidated.revision, latest.revision)
         XCTAssertEqual(revalidated.target, 80)
         XCTAssertEqual(authority.optimisticTarget, 80)
 
-        XCTAssertEqual(authority.complete(coalesced, actualTime: 40), .ignored)
+        XCTAssertEqual(authority.complete(latest, actualTime: 40), .ignored)
         XCTAssertEqual(authority.optimisticTarget, 80)
         XCTAssertEqual(authority.complete(revalidated, actualTime: 80), .settled(80))
     }

@@ -175,7 +175,7 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       const isYear = fieldKey === 'year' || fieldKey === 'original_year';
       const attrs = {
         int: { type: 'number', step: 1, min: isYear ? 1870 : fieldKey === 'runtime_minutes' ? 1 : 0, max: isYear ? 2100 : fieldKey === 'runtime_minutes' ? 2000 : 9999 },
-        decimal: { type: 'number', step: 0.1, min: 0, max: fieldKey === 'critic_rating' ? 100 : 10 },
+        decimal: { type: 'number', step: 0.1, min: 0, max: ['critic_rating', 'rotten_tomatoes_rating', 'metacritic_rating'].includes(fieldKey) ? 100 : 10 },
         date: { type: 'date' }, time: { type: 'time' }, datetime: { type: 'datetime-local', max: toText('datetime', new Date().toISOString()) },
         text: { type: 'text', maxLength: meta.max },
       }[meta.kind as 'int' | 'decimal' | 'date' | 'time' | 'datetime' | 'text'];

@@ -15,7 +15,7 @@ from app.services.local_ai import validate_endpoint_url
 
 TitleType = Literal["series", "season", "episode", "movie", "boxset", "album", "artist"]
 ExtraType = Literal["trailer", "featurette", "behindthescenes", "deletedscene", "interview", "scene", "short", "clip", "other"]
-FieldSource = Literal["user", "nfo", "tmdb", "musicbrainz", "path"]
+FieldSource = Literal["user", "nfo", "tmdb", "omdb", "musicbrainz", "path"]
 ImageType = Literal["Primary", "Backdrop", "Logo", "Thumb", "Banner"]
 MatchMethod = Literal["id", "find", "search", "llm", "user"]
 TitleSort = Literal["name", "created", "year", "rating"]
@@ -173,6 +173,9 @@ class TitleSummary(BaseModel):
     genres: list[str] = Field(default_factory=list)
     official_rating: str | None = None
     community_rating: float | None = None
+    imdb_rating: float | None = Field(default=None, ge=0, le=10)
+    rotten_tomatoes_rating: float | None = Field(default=None, ge=0, le=100)
+    metacritic_rating: float | None = Field(default=None, ge=0, le=100)
     runtime_seconds: int | None = None
     poster_url: str | None = None  # /api/titles/{id}/images/Primary?tag=…
     backdrop_url: str | None = None
@@ -552,6 +555,7 @@ class MediaServerSettings(BaseModel):
     jellyfin_url: str | None = None  # the local address, else the app public URL (the API is served at the root); None without either
     jellyfin_public_url: str | None = None  # the public address, for apps away from home
     has_tmdb_key: bool
+    has_omdb_key: bool = False
     metadata_language: str
     introdb_enabled: bool
     hwaccel: HwaccelMode
@@ -565,11 +569,12 @@ class MediaServerSettings(BaseModel):
 
 
 class MediaServerSettingsUpdate(_Body):
-    """Omitted fields are unchanged; ``tmdb_api_key: ""`` removes the key (write-only)."""
+    """Omitted fields are unchanged; an empty API key removes its saved value (write-only)."""
 
     jellyfin_enabled: bool | None = None
     native_streaming_enabled: bool | None = None
     tmdb_api_key: str | None = Field(default=None, max_length=512)
+    omdb_api_key: str | None = Field(default=None, max_length=512)
     metadata_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
     introdb_enabled: bool | None = None
     hwaccel: HwaccelMode | None = None

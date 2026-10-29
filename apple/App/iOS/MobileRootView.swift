@@ -74,6 +74,7 @@ struct MobileRootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 ArtworkImageCache.shared.setBackgrounded(false)
+                store.setCatalogBackgrounded(false)
                 audioSession.resumeAfterActivation()
                 Task {
                     await store.refreshConnectivity()
@@ -86,6 +87,7 @@ struct MobileRootView: View {
                 }
             } else if phase == .background {
                 ArtworkImageCache.shared.setBackgrounded(true)
+                store.setCatalogBackgrounded(true)
                 audioSession.enterBackground()
                 Task { await audioSession.flushCheckpoint() }
             }
@@ -1981,6 +1983,7 @@ private struct VideoLibraryView: View {
                             .accessibilityIdentifier("videoSearchCancelButton")
                         }
                         .padding(.trailing, geometry.safeAreaInsets.trailing)
+                        .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                         .frame(height: 56)
                     }
 
@@ -2023,18 +2026,17 @@ private struct VideoLibraryView: View {
                                     if store.isBusy {
                                         ProgressView()
                                     }
-                                    Text("Load more")
+                                    Text(store.isCatalogLoading ? "Loading library…" : "Load more")
                                 }
                                 .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(LuminaQuietActionStyle())
                             .controlSize(.large)
-                            .disabled(store.isBusy)
+                            .disabled(store.isBusy || store.isCatalogLoading)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                 .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -2295,7 +2297,7 @@ private struct VideoLibraryView: View {
     private func loadInitialContent() async {
         guard store.session != nil else { return }
         let scopeKey = alphabetScopeKey
-        await store.loadLibrary(search: searchText, kind: kind, sort: sort, filters: filters)
+        await store.loadLibrary(search: searchText, kind: kind, sort: sort, filters: filters, preloadCatalog: true)
         guard scopeKey == alphabetScopeKey else { return }
         alphabetAnchorsScopeKey = scopeKey
     }
@@ -2308,7 +2310,7 @@ private struct VideoLibraryView: View {
         let kind = kind, sort = sort, filters = filters
         queryTask = Task {
             guard !Task.isCancelled else { return }
-            await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters, forceRefresh: true)
+            await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters, forceRefresh: true, preloadCatalog: true)
             guard scopeKey == alphabetScopeKey else { return }
             alphabetAnchorsScopeKey = scopeKey
         }
@@ -3138,7 +3140,6 @@ private struct AudioLibraryView: View {
                     }
                 } else {
                     MusicGrid(items: store.audioItems, store: store, identifierPrefix: "audioItem")
-                        .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                     if store.audioHasMore {
                         Button {
                             Task { await store.loadMoreAudio() }
@@ -3680,65 +3681,60 @@ private struct VideoPosterWall: View {
     @ScaledMetric(relativeTo: .body) private var posterGap: CGFloat = 10
     @State private var availableWidth: CGFloat = 0
     @State private var lastVisibleItemID: String?
-    @State private var preparedItems: [MediaItem]
-    @State private var artworkPreparationTask: Task<Void, Never>?
+    @State private var lastVisibleIndex = 0
+    @State private var movingForward = true
+    @State private var preparedArtwork: [URL]
 
     init(items: [MediaItem], store: LuminaStore) {
         self.items = items
         self.store = store
         let firstScreen = items.prefix(36).compactMap { store.imageURL(for: $0) }
-        _preparedItems = State(initialValue: firstScreen.allSatisfy {
+        _preparedArtwork = State(initialValue: firstScreen.allSatisfy {
             ArtworkImageCache.shared.cachedImage(for: $0) != nil
-        } ? items : [])
+        } ? firstScreen : [])
     }
 
     var body: some View {
         Group {
-            if !items.isEmpty && (preparedItems.isEmpty || !retainsPreparedPrefix) {
+            if !items.isEmpty && preparedArtwork != firstScreenArtwork {
                 LibraryLoadingView()
             } else {
                 wall(width: availableWidth)
             }
         }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .onChange(of: items, initial: true) { _, items in
-                artworkPreparationTask?.cancel()
-                let previous = Set(preparedItems.compactMap { store.imageURL(for: $0) })
-                let urls = Array(items.compactMap { store.imageURL(for: $0) }
-                    .filter { !previous.contains($0) }.prefix(36))
-                // Keep staging alive across a transient NavigationStack disappearance.
-                // A new item set cancels this work before it can publish an old wall.
-                artworkPreparationTask = Task {
-                    await withTaskGroup(of: Void.self) { group in
-                        for url in urls {
-                            group.addTask { _ = await ArtworkImageCache.shared.image(for: url) }
-                        }
+            .task(id: firstScreenArtwork) {
+                let urls = firstScreenArtwork
+                await withTaskGroup(of: Void.self) { group in
+                    for url in urls {
+                        group.addTask { _ = await ArtworkImageCache.shared.image(for: url) }
                     }
-                    guard !Task.isCancelled else { return }
-                    preparedItems = items
                 }
+                guard !Task.isCancelled else { return }
+                preparedArtwork = urls
             }
             #if LUMINA_UI_TESTING
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("libraryArtworkReadiness")
-            .accessibilityValue("ready=\(preparedItems.count) total=\(items.count)")
+            .accessibilityValue("ready=\(preparedArtwork == firstScreenArtwork ? firstScreenArtwork.count : 0) total=\(firstScreenArtwork.count) catalog=\(items.count)")
             #endif
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
-            .task(id: lastVisibleItemID, priority: .utility) {
-                await store.prefetchArtwork(after: lastVisibleItemID, in: items)
+            .task(id: "\(lastVisibleItemID ?? "")-\(items.count)", priority: .utility) {
+                await store.prefetchArtwork(after: lastVisibleItemID, in: items, count: 72, movingForward: movingForward)
             }
     }
 
-    private var retainsPreparedPrefix: Bool {
-        preparedItems.count <= items.count
-            && zip(items, preparedItems).allSatisfy { $0.id == $1.id }
+    // Only the initial viewport gates a new wall. Appending catalog metadata must
+    // never wait for another batch of artwork or copy/scan the entire library.
+    private var firstScreenArtwork: [URL] {
+        items.prefix(36).compactMap { store.imageURL(for: $0) }
     }
 
     @ViewBuilder
     private func wall(width: CGFloat) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
             LazyVStack(alignment: .leading, spacing: posterGap) {
-                ForEach(preparedItems) { item in
+                ForEach(items) { item in
                     posterLink(item)
                         .frame(width: min(width, 220), alignment: .leading)
                 }
@@ -3749,7 +3745,7 @@ private struct VideoPosterWall: View {
                 alignment: .leading,
                 spacing: posterGap
             ) {
-                ForEach(preparedItems) { item in
+                ForEach(items) { item in
                     posterLink(item)
                 }
             }
@@ -3775,10 +3771,15 @@ private struct VideoPosterWall: View {
         .accessibilityIdentifier("libraryItem-\(item.id)")
         .id(item.id)
         .onAppear {
-            lastVisibleItemID = item.id
-            if store.hasMore && item.id == items.suffix(6).first?.id {
+            if store.hasMore, !store.isCatalogLoading, item.id == items.suffix(6).first?.id {
                 Task { await store.loadMore() }
             }
+        }
+        .onScrollVisibilityChange(threshold: 0.01) { visible in
+            guard visible, let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+            movingForward = index >= lastVisibleIndex
+            lastVisibleIndex = index
+            lastVisibleItemID = item.id
         }
         .contextMenu { NativeMetadataActions(item: item) }
     }

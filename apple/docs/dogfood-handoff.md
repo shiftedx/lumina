@@ -1,5 +1,9 @@
 # Lumina native dogfood handoff
 
+For the next app dogfood request, read the [current continuation handoff](../../docs/design/dogfood-next-handoff.md) first. It supplies the current workflow, testing constraints, release state and remaining issues. The dated material below is historical; its old base/build and verification instructions are superseded by that continuation handoff.
+
+## Historical integration record
+
 This handoff covers the accumulated native dogfood integration so a fresh agent can begin larger Books and Music updates from main. Start from current main in a clean worktree; the original checkout contains unrelated uncommitted work and must not be reset or cleaned. No Books/Music redesign requirements have been supplied yet. Package another native release only after an explicit owner request.
 
 ## Start here

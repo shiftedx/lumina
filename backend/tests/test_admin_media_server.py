@@ -16,7 +16,7 @@ from app.services.yt_dlp_service import YtDlpService
 from support import make_user
 
 DEFAULTS = {
-    "jellyfin_enabled": False, "native_streaming_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "metadata_language": "en-US",
+    "jellyfin_enabled": False, "native_streaming_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "has_omdb_key": False, "metadata_language": "en-US",
     "introdb_enabled": False, "hwaccel": "auto", "max_playback_sessions": 2, "transcode_cache_gb": 10,
     "jellyfin_import_url": None, "plex_import_url": None, "anime_folders": ["Anime"], "recategorising": False,
     "members_edit_metadata": False,
@@ -27,6 +27,7 @@ DEFAULTS = {
 def admin(db_factory, api_client, monkeypatch):
     monkeypatch.setattr(settings, "app_public_url", None)
     monkeypatch.setattr(settings, "tmdb_api_key", "")
+    monkeypatch.setattr(settings, "omdb_api_key", "")
     owner, member = make_user("owner", role="admin"), make_user("member")
     with db_factory.begin() as db:
         db.add_all([owner, member])
@@ -44,22 +45,24 @@ def test_fresh_database_serves_defaults(admin) -> None:
 def test_update_persists_fields_and_keeps_the_tmdb_key_write_only(admin) -> None:
     client, _, _, factory = admin
     saved = client.put("/api/admin/media-server", json={
-        "jellyfin_enabled": True, "native_streaming_enabled": True, "tmdb_api_key": "  tmdb-secret-123 ", "metadata_language": "de-DE",
+        "jellyfin_enabled": True, "native_streaming_enabled": True, "tmdb_api_key": "  tmdb-secret-123 ", "omdb_api_key": " omdb-secret-456 ", "metadata_language": "de-DE",
         "introdb_enabled": True, "hwaccel": "qsv", "max_playback_sessions": 4, "transcode_cache_gb": 50,
     })
     assert saved.status_code == 200, saved.text
-    assert saved.json() == {**DEFAULTS, "jellyfin_enabled": True, "native_streaming_enabled": True, "has_tmdb_key": True, "metadata_language": "de-DE",
+    assert saved.json() == {**DEFAULTS, "jellyfin_enabled": True, "native_streaming_enabled": True, "has_tmdb_key": True, "has_omdb_key": True, "metadata_language": "de-DE",
                             "introdb_enabled": True, "hwaccel": "qsv", "max_playback_sessions": 4, "transcode_cache_gb": 50}
-    assert "tmdb-secret-123" not in saved.text and "tmdb-secret-123" not in client.get("/api/admin/media-server").text
+    assert "tmdb-secret-123" not in saved.text and "omdb-secret-456" not in saved.text and "tmdb-secret-123" not in client.get("/api/admin/media-server").text
     with factory() as db:
         assert db.get(AppSettings, 1).tmdb_api_key == "tmdb-secret-123"
+        assert db.get(AppSettings, 1).omdb_api_key == "omdb-secret-456"
         assert db.get(AppSettings, 1).native_streaming_enabled is True
 
     assert client.put("/api/admin/media-server", json={}).json()["has_tmdb_key"] is True  # omitted = unchanged
     assert client.put("/api/admin/media-server", json={"tmdb_api_key": None}).json()["has_tmdb_key"] is True
     assert client.put("/api/admin/media-server", json={"tmdb_api_key": ""}).json()["has_tmdb_key"] is False
+    assert client.put("/api/admin/media-server", json={"omdb_api_key": ""}).json()["has_omdb_key"] is False
     with factory() as db:
-        assert db.get(AppSettings, 1).tmdb_api_key is None
+        assert db.get(AppSettings, 1).tmdb_api_key is None and db.get(AppSettings, 1).omdb_api_key is None
 
 
 def test_env_key_and_public_url_are_reported(admin, monkeypatch) -> None:
@@ -84,7 +87,7 @@ def test_hardware_vendor_setting_survives_a_database_reload(admin, mode) -> None
 
 @pytest.mark.parametrize("payload", [
     {"hwaccel": "cuda"}, {"metadata_language": "english"}, {"transcode_cache_gb": 0},
-    {"max_playback_sessions": 17}, {"jellyfin_server_key": "ab" * 32}, {"tmdb_api_key": "k" * 513},
+    {"max_playback_sessions": 17}, {"jellyfin_server_key": "ab" * 32}, {"tmdb_api_key": "k" * 513}, {"omdb_api_key": "k" * 513},
     {"jellyfin_import_url": "ftp://jf.lan"}, {"jellyfin_import_url": "http://alice:pw@jf.lan:8096"},
     {"jellyfin_import_url": "http://jf.lan:8096/?api_key=x"}, {"jellyfin_import_url": "jf.lan:8096"},
     {"plex_import_url": "ftp://plex.lan"}, {"plex_import_url": "http://alice:token@plex.lan:32400"},
@@ -118,19 +121,20 @@ def test_members_cannot_read_or_change_media_server_settings(admin) -> None:
     assert client.put("/api/admin/media-server", json={"native_streaming_enabled": True}).status_code == 403
 
 
-def test_backups_null_the_tmdb_key_but_keep_the_server_identity() -> None:
+def test_backups_null_the_metadata_keys_but_keep_the_server_identity() -> None:
     init_db()
     with db_module.SessionLocal.begin() as db:
         record = YtDlpService(db).ensure_app_settings()
-        record.tmdb_api_key, record.jellyfin_server_key = "tmdb-secret-147", "ab" * 32
+        record.tmdb_api_key, record.omdb_api_key, record.jellyfin_server_key = "tmdb-secret-147", "omdb-secret-258", "ab" * 32
 
     manifest = backups.create_backup()
 
     path = backups.backup_root() / f"{manifest['name']}.db"
     assert b"tmdb-secret-147" not in path.read_bytes()
+    assert b"omdb-secret-258" not in path.read_bytes()
     copy = sqlite3.connect(path)
     try:
-        assert copy.execute("SELECT tmdb_api_key, jellyfin_server_key FROM app_settings").fetchall() == [(None, "ab" * 32)]
+        assert copy.execute("SELECT tmdb_api_key, omdb_api_key, jellyfin_server_key FROM app_settings").fetchall() == [(None, None, "ab" * 32)]
     finally:
         copy.close()
 

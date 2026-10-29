@@ -967,6 +967,7 @@ export const unmatchTitle = (id: string): Promise<MetadataRefreshResponse> => po
 export const refreshTitleMetadata = (id: string): Promise<MetadataRefreshResponse> => post(`/api/admin/titles/${enc(id)}/refresh`);
 export const refreshAllMetadata = (): Promise<MetadataBulkRefreshResponse> => post('/api/admin/metadata/refresh-all');
 export const testTmdbKey = (): Promise<ConnectionTestResponse> => post('/api/admin/media-server/tmdb-test', undefined, { timeoutMs: 30000 });
+export const testOmdbKey = (): Promise<ConnectionTestResponse> => post('/api/admin/metadata/omdb-test', undefined, { timeoutMs: 30000 });
 
 export const listConnectedApps = (): Promise<ConnectedApp[]> => requestJson('/api/connected-apps');
 export const createAgentToken = (payload: ConnectedAppCreateRequest): Promise<ConnectedAppCreated> => post('/api/connected-apps', payload);

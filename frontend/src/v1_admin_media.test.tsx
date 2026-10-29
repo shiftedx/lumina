@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ConnectedApp, MediaServerSettings } from './types';
 
 const api = vi.hoisted(() => ({
-  getMediaServerSettings: vi.fn(), updateMediaServerSettings: vi.fn(), testTmdbKey: vi.fn(), refreshAllMetadata: vi.fn(), listUnmatchedTitles: vi.fn(),
+  getMediaServerSettings: vi.fn(), updateMediaServerSettings: vi.fn(), testTmdbKey: vi.fn(), testOmdbKey: vi.fn(), refreshAllMetadata: vi.fn(), listUnmatchedTitles: vi.fn(),
   runTranscodeDiagnostics: vi.fn(), searchTitleMatches: vi.fn(), identifyTitle: vi.fn(), unmatchTitle: vi.fn(), refreshTitleMetadata: vi.fn(),
   listConnectedApps: vi.fn(), createAgentToken: vi.fn(), revokeConnectedApp: vi.fn(),
 }));
@@ -24,8 +24,8 @@ beforeAll(() => {
 });
 afterEach(() => vi.resetAllMocks());
 
-const settings: MediaServerSettings = { jellyfin_enabled: false, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
-const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, native_streaming_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
+const settings: MediaServerSettings = { jellyfin_enabled: false, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, has_omdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
+const draft = { tmdb_api_key: '', clear_tmdb_key: false, omdb_api_key: '', clear_omdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, native_streaming_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
 const user = { id: 'admin', username: 'owner', role: 'admin', is_active: true } as never;
 const connectedApp: ConnectedApp = { id: 'agent-1', user_id: 'admin', owner_display_name: 'Owner', kind: 'agent', scope: 'read', device_name: 'Home Assistant', client: null, client_version: null, created_at: '2026-10-22T00:00:00Z', last_seen_at: null };
 
@@ -40,6 +40,8 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(mediaServerChanges(settings, draft)).toEqual({});
     expect(mediaServerChanges(settings, { ...draft, tmdb_api_key: 'abc123', max_playback_sessions: '2', jellyfin_enabled: true, native_streaming_enabled: true })).toEqual({ tmdb_api_key: 'abc123', max_playback_sessions: 2, jellyfin_enabled: true, native_streaming_enabled: true });
     expect(mediaServerChanges(settings, { ...draft, tmdb_api_key: 'ignored', clear_tmdb_key: true })).toEqual({ tmdb_api_key: '' });
+    expect(mediaServerChanges(settings, { ...draft, omdb_api_key: 'abc123' })).toEqual({ omdb_api_key: 'abc123' });
+    expect(mediaServerChanges(settings, { ...draft, omdb_api_key: 'ignored', clear_omdb_key: true })).toEqual({ omdb_api_key: '' });
     expect(mediaServerChanges(settings, { ...draft, metadata_language: ' de-DE ', hwaccel: 'qsv', transcode_cache_gb: '25' })).toEqual({ metadata_language: 'de-DE', hwaccel: 'qsv', transcode_cache_gb: 25 });
   });
 
@@ -74,9 +76,25 @@ describe('Media server and Playback & transcoding sections', () => {
     await userEvent.click(save);
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ tmdb_api_key: 'abc123' }));
     expect(((await screen.findByLabelText(/^TMDB API key/)) as HTMLInputElement).value).toBe('');
-    await userEvent.click(screen.getByRole('button', { name: 'Test key' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Test key' }).at(0)!);
     expect(await screen.findByText('The key works.')).toBeTruthy();
     expect(screen.getByText(TMDB_ATTRIBUTION)).toBeTruthy();
+  });
+
+  it('saves a new OMDb key, clears the field and tests it', async () => {
+    setup('media');
+    api.updateMediaServerSettings.mockResolvedValue(settings);
+    api.testOmdbKey.mockResolvedValue({ ok: true });
+    const key = await screen.findByLabelText(/^OMDb API key/) as HTMLInputElement;
+    await userEvent.type(key, 'abc123');
+    await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
+    await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ omdb_api_key: 'abc123' }));
+    expect(((await screen.findByLabelText(/^OMDb API key/)) as HTMLInputElement).value).toBe('');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Test key' }).at(1)!);
+    expect(await screen.findByText('The key works.')).toBeTruthy();
+    expect(screen.getByText(/scores fill automatically.*prioritizing new unscored titles.*950 requests per 24 hours.*resumes after a restart/i)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'OMDb' }).getAttribute('href')).toBe('https://www.omdbapi.com/');
+    expect(screen.getByRole('link', { name: 'CC BY-NC 4.0' }).getAttribute('href')).toBe('https://creativecommons.org/licenses/by-nc/4.0/');
   });
 
   it('turns on apps like Infuse and shows the address and the steps', async () => {

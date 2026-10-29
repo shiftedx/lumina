@@ -120,6 +120,7 @@
    "min_free_disk_mb",
    "model_threads",
    "native_streaming_enabled",
+   "omdb_api_key",
    "plex_import_url",
    "public_address",
    "recording_keep_days",
@@ -774,6 +775,21 @@
    "tmdb_path",
    "updated_at"
   ],
+  "omdb_rating_cache": [
+   "fetched_at",
+   "imdb_id",
+   "lease_token",
+   "lease_until",
+   "next_attempt_at",
+   "scores",
+   "updated_at"
+  ],
+  "omdb_request_reservations": [
+   "blocked_until",
+   "id",
+   "imdb_id",
+   "requested_at"
+  ],
   "people": [
    "id",
    "name",
@@ -1347,5 +1363,5 @@
    "user_id"
   ]
  },
- "version": 39
+ "version": 41
 }

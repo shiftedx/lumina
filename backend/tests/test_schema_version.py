@@ -59,6 +59,7 @@ NEW_TABLES = {
     36: ("photo_preview_assets", "photo_preview_storage"),
     37: ("photo_face_index_snapshots", "photo_face_index_changes", "photo_face_index_vectors"),
     38: ("mobile_pairings",),
+    41: ("omdb_rating_cache", "omdb_request_reservations"),
     28: ("media_cast_tickets",),
     27: ("listening_export_connections", "listening_play_events"),
     26: ("service_connectors", "music_acquisitions"),
@@ -161,7 +162,7 @@ def test_v3_adds_the_media_vault_schema(tmp_path, monkeypatch) -> None:  # noqa:
     assert "dismissed_at" in columns["playback_progress"]
     assert "rules" in columns["household_collections"]
     assert {
-        "jellyfin_enabled", "jellyfin_server_key", "tmdb_api_key", "metadata_language",
+        "jellyfin_enabled", "jellyfin_server_key", "tmdb_api_key", "omdb_api_key", "metadata_language",
         "ai_embedding_model", "ai_features_disabled", "introdb_enabled", "hwaccel", "transcode_cache_gb",
     } <= set(columns["app_settings"])
 

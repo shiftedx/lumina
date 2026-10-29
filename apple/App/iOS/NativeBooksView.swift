@@ -191,7 +191,6 @@ struct NativeBooksView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, LuminaTheme.contentGutter)
             .padding(.vertical, 24)
-            .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .scrollClipDisabled()

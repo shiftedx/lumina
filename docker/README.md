@@ -34,12 +34,12 @@ until those books are no longer needed. No schema migration is required.
 
 ## Install
 
-The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.5.0` for amd64 and arm64. It pulls the published image; it does not build on the host.
+The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.5.1` for amd64 and arm64. It pulls the published image; it does not build on the host.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.0/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.0/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 cat > .env <<EOF
 LUMINA_RUNTIME_UID=$(id -u)
@@ -52,7 +52,7 @@ docker compose ps          # lumina must report "healthy"
 
 Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 lumina`.
 
-To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.5.0 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
+To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.5.1 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
 
 ### Build from source
 
@@ -75,9 +75,9 @@ For hosts without Landlock, append `-f docker-compose.parser-namespace.yml` to t
 For a downloaded release, retrieve and verify both optional files beside the existing Compose configuration:
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.0/docker-compose.parser-namespace.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.parser-namespace.yml
 mkdir -p docker
-curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.5.0/parser-namespace-seccomp.json -o docker/parser-namespace-seccomp.json
+curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.5.1/parser-namespace-seccomp.json -o docker/parser-namespace-seccomp.json
 grep 'docker-compose.parser-namespace.yml$' SHA256SUMS | shasum -a 256 -c -
 (cd docker && grep 'parser-namespace-seccomp.json$' ../SHA256SUMS | shasum -a 256 -c -)
 ```
@@ -112,7 +112,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
-| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.5.0` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
+| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.5.1` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
 
 AI and ASR values are only defaults: an admin can change or clear them under **Manage Server → AI features** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
 
@@ -468,7 +468,7 @@ To update, set or replace the image line in `.env` with the exact release you wa
 Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
 
 ```dotenv
-LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.5.0
+LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.5.1
 ```
 
 ```bash
@@ -476,7 +476,7 @@ docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-For a checkout-based install, first update the Compose file with `git fetch origin tag v0.5.0 && git checkout --detach v0.5.0`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
+For a checkout-based install, first update the Compose file with `git fetch origin tag v0.5.1 && git checkout --detach v0.5.1`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
 ### Retaining a rollback image
 
@@ -514,6 +514,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before the durable OMDb budget (schema 40) | `UPDATE app_settings SET omdb_api_key = NULL; PRAGMA user_version = 40` (also remove `LUMINA_OMDB_API_KEY` from the older container's environment: 0.5.0 has no request cap. Keep `omdb_rating_cache` and `omdb_request_reservations` so upgrading again retains cache, retry and budget history.) |
 | Before OMDb critic scores (schema 39) | `UPDATE app_settings SET omdb_api_key = NULL; UPDATE media_titles SET field_sources = json_set(field_sources, '$.imdb_rating', 'tmdb') WHERE json_extract(field_sources, '$.imdb_rating') = 'omdb'; UPDATE media_titles SET field_sources = json_set(field_sources, '$.rotten_tomatoes_rating', 'tmdb') WHERE json_extract(field_sources, '$.rotten_tomatoes_rating') = 'omdb'; UPDATE media_titles SET field_sources = json_set(field_sources, '$.metacritic_rating', 'tmdb') WHERE json_extract(field_sources, '$.metacritic_rating') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.imdb_rating.source', 'tmdb') WHERE json_extract(source_values, '$.imdb_rating.source') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.rotten_tomatoes_rating.source', 'tmdb') WHERE json_extract(source_values, '$.rotten_tomatoes_rating.source') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.metacritic_rating.source', 'tmdb') WHERE json_extract(source_values, '$.metacritic_rating.source') = 'omdb'; UPDATE title_edits SET before_source = 'tmdb' WHERE before_source = 'omdb'; UPDATE title_edits SET after_source = 'tmdb' WHERE after_source = 'omdb'; PRAGMA user_version = 39` (keep the additive column and score values; remapping OMDb provenance lets the older editor read them.) |
 | Before device-bound native Chromecast tickets (schema 38) | `DELETE FROM media_cast_tickets; DROP TABLE music_receiver_tickets; DROP INDEX IF EXISTS ix_media_cast_tickets_issuer_device_id; ALTER TABLE media_cast_tickets DROP COLUMN audio_index; ALTER TABLE media_cast_tickets DROP COLUMN playback_session_id; ALTER TABLE media_cast_tickets DROP COLUMN issuer_device_id; PRAGMA user_version = 38` (revoke receiver access and stop related in-memory conversions before rolling back) |
 | Before mobile app pairing (schema 37) | `DROP TABLE mobile_pairings; PRAGMA user_version = 37` (all unclaimed pairing codes are revoked; already connected mobile apps keep their separate app passwords) |
@@ -699,7 +700,7 @@ at it instead of running the `asr` service.
 On a Linux host with an Intel GPU, add the override so the container gets `/dev/dri` and the host's render group:
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.0/docker-compose.qsv.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.qsv.yml
 echo "LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d --no-build
 ```
@@ -715,9 +716,9 @@ Direct LAN HTTP responses compress text assets and JSON when the client accepts 
 Keep port 8765 on loopback. The only supported remote topology is one TLS-terminating Caddy proxy in front of Lumina (`docker-compose.https.example.yml` + `docker/Caddyfile.example`). Create the first administrator over loopback first: remote mode refuses to start on an empty database.
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.0/docker-compose.https.example.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.https.example.yml
 mkdir -p docker
-curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.5.0/Caddyfile.example -o docker/Caddyfile.example
+curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.5.1/Caddyfile.example -o docker/Caddyfile.example
 echo LUMINA_HOSTNAME=vault.example.com >> .env
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml pull
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml up -d --no-build
@@ -891,7 +892,9 @@ Tokens live only for the request and are never saved or logged. Lumina does not 
 
 Local NFO files and folder names are always read. For titles without an NFO, Lumina can fetch posters, overviews, cast and ratings from [TMDB](https://www.themoviedb.org/). Create a free TMDB account, request an API key under **Settings → API**, and paste either the v3 key or the v4 read access token into **Manage Server → Connections → Metadata** (write-only; **Test** checks it), or set `LUMINA_TMDB_API_KEY`. **Metadata language** sets one language for the whole library. TMDB never overwrites NFO values or your own edits. Titles it cannot match confidently are listed under **Unmatched** for **Fix match**. Like the AI key, the TMDB key is left out of backups; enter it again after a restore. Lumina uses the TMDB API but is not endorsed or certified by TMDB (attribution is shown in About).
 
-With both a TMDB key and an optional OMDb key, Lumina additionally records the IMDb user rating (0–10) plus Rotten Tomatoes (0–100) and Metacritic (0–100) critic scores only when OMDb returns the exact effective IMDb id for the matched title. It does not scrape those sites or run another scheduler: OMDb is requested during the normal TMDB refresh, so adding a key needs **Refresh all** to populate existing titles. NFO and manual score edits remain higher priority. OMDb availability and individual scores vary; a missing key, quota response or failed lookup leaves TMDB metadata and existing scores intact. OMDb attribution is required and its free plan allows 1,000 daily requests under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+With an optional OMDb key, Lumina additionally records the IMDb user rating (0–10) plus Rotten Tomatoes (0–100) and Metacritic (0–100) critic scores only when OMDb returns the exact IMDb id for the title. Known IMDb ids can receive scores without a TMDB key; TMDB matching supplies ids for titles that do not already have them. The existing metadata loop processes ratings separately: new unscored titles first, then the older missing-score backlog, then stale scores. Adding a key starts this work automatically; **Refresh all** does not bypass the ratings cache or budget. NFO and manual score edits remain higher priority. OMDb availability and individual scores vary; a missing key, quota response or failed lookup leaves TMDB metadata and existing scores intact. OMDb attribution is required and its free plan allows 1,000 daily requests under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+
+Lumina reserves at most **950 OMDb requests in any rolling 24-hour window**, including connection tests and failed requests. The request ledger, retry times and IMDb-id cache live in SQLite, so restarting the server neither resets the allowance nor loses pending work. Duplicate titles reuse a cached response. Successful partial or empty responses are cached for 90 days rather than repeatedly spending requests on unavailable scores. Once the budget is exhausted, work waits for slots to expire; a provider quota response pauses requests for 24 hours. The 50-request margin does not account for other apps sharing the same key.
 
 Kodi NFOs may supply these values in `<ratings>` using only named `<rating>` entries: `imdb`, `tomatometer`, `tomatometerallcritics`, `rottentomatoes` and `metacritic`. Lumina accepts either direct text or Kodi's nested `<value>`, normalizes a declared 10- or 100-point scale, and ignores audience or ambiguous legacy ratings. Under **Manage Server → Metadata**, each of the three named values can also be edited or cleared manually; that edit stays locked until reverted, just like other title metadata.
 

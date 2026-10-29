@@ -36,7 +36,7 @@ from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, jellyfin_auth, mobile_connect, oauth as oauth_routes
 from app.routers import two_factor as two_factor_routes
 from app.routers import household_transfer, jellyfin_history, plex_history
-from app.services import title_metadata  # TMDB metadata worker
+from app.services import omdb_ratings, title_metadata  # metadata workers
 from app.services import member_access, provider_budget
 from app.services import resource_policy
 from app.services.storage_roots import mount_parents
@@ -881,17 +881,22 @@ METADATA_BUSY_PAUSE_SECONDS = 0
 
 
 async def metadata_loop() -> None:
-    """TMDB refresh: drain due titles; a full batch goes again immediately.
+    """Drain independent TMDB metadata and quota-limited OMDb ratings batches.
 
-    No pause on a full batch: the due column is the whole queue, so looping immediately just
-    drains it faster. An idle 30 s wait follows once a batch comes back short.
+    Full batches continue immediately; idle or quota-exhausted work waits 30 seconds.
     """
     while True:
         try:
-            full = await asyncio.to_thread(title_metadata.run_due_batch)
+            tmdb_full = await asyncio.to_thread(title_metadata.run_due_batch)
         except Exception as exc:  # noqa: BLE001 - the type only; the next interval retries
             logger.warning("TMDB metadata batch failed; retrying next interval: %s", type(exc).__name__)
-            full = False
+            tmdb_full = False
+        try:
+            omdb_full = await asyncio.to_thread(omdb_ratings.run_due_batch)
+        except Exception as exc:  # noqa: BLE001 - the type only; the next interval retries
+            logger.warning("OMDb ratings batch failed; retrying next interval: %s", type(exc).__name__)
+            omdb_full = False
+        full = tmdb_full or omdb_full
         await asyncio.sleep(METADATA_BUSY_PAUSE_SECONDS if full else METADATA_IDLE_SECONDS)
 
 

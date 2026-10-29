@@ -775,6 +775,21 @@
    "tmdb_path",
    "updated_at"
   ],
+  "omdb_rating_cache": [
+   "fetched_at",
+   "imdb_id",
+   "lease_token",
+   "lease_until",
+   "next_attempt_at",
+   "scores",
+   "updated_at"
+  ],
+  "omdb_request_reservations": [
+   "blocked_until",
+   "id",
+   "imdb_id",
+   "requested_at"
+  ],
   "people": [
    "id",
    "name",
@@ -1348,5 +1363,5 @@
    "user_id"
   ]
  },
- "version": 40
+ "version": 41
 }

@@ -25,7 +25,7 @@ from app.models import MediaTitle, User, utcnow
 from app.persistence import write_transaction
 from app.routers import admin_media_server  # Owns /api/admin/media-server; siblings register under its URL
 from app.security import get_admin_user, get_current_user
-from app.services import omdb, title_metadata, tmdb
+from app.services import omdb, omdb_ratings, title_metadata, tmdb
 from app.services.artwork import ArtworkError, ArtworkNotFoundError, ArtworkResponse, ArtworkService
 from app.services.library import LibraryService
 from app.services.media_titles import parse_item_id
@@ -174,7 +174,7 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
             return ConnectionTestResponse(ok=False, error="OMDb API key is not configured")
         try:
             # OMDb has no key-only health endpoint; this stable public IMDb id proves the key and response contract.
-            client.ratings("tt0133093")
+            omdb_ratings.test_key(client)
         except omdb.OmdbError as exc:
             return ConnectionTestResponse(ok=False, error=str(exc))
         return ConnectionTestResponse(ok=True)

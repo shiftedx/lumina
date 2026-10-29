@@ -157,7 +157,7 @@ function OmdbKey() {
         {result ? <div role="status"><StatusText tone={testTone}>{result}</StatusText></div> : null}
         <Button disabled={testing || !hasKey} icon={<PlugZap />} onClick={() => { void test(); }}>{testing ? 'Testing…' : 'Test key'}</Button>
       </div>
-      <p className="admin-note">Uses IMDb IDs from TMDB matches. Save the key, then refresh all metadata to fill existing titles.</p>
+      <p className="admin-note">Scores fill automatically for known IMDb IDs, prioritizing new unscored titles. Lumina uses at most 950 requests per 24 hours and resumes after a restart.</p>
       <p className="admin-note">Data from <a href="https://www.omdbapi.com/" rel="noreferrer noopener" target="_blank">OMDb</a>, licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/" rel="noreferrer noopener" target="_blank">CC BY-NC 4.0</a>.</p>
     </div>
   );

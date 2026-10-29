@@ -59,6 +59,7 @@ NEW_TABLES = {
     36: ("photo_preview_assets", "photo_preview_storage"),
     37: ("photo_face_index_snapshots", "photo_face_index_changes", "photo_face_index_vectors"),
     38: ("mobile_pairings",),
+    41: ("omdb_rating_cache", "omdb_request_reservations"),
     28: ("media_cast_tickets",),
     27: ("listening_export_connections", "listening_play_events"),
     26: ("service_connectors", "music_acquisitions"),

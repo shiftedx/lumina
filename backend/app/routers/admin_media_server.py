@@ -14,6 +14,7 @@ from app.models import AppSettings
 from app.persistence import queue_after_commit, write_transaction
 from app.security import get_admin_user
 from app.services import categories, public_address
+from app.services import autoplay_presence
 from app.services.yt_dlp_service import YtDlpService
 
 URL = "/api/admin/media-server"
@@ -25,6 +26,7 @@ def serialize_media_server(record: AppSettings) -> MediaServerSettings:
     return MediaServerSettings(
         jellyfin_enabled=bool(record.jellyfin_enabled),
         native_streaming_enabled=bool(record.native_streaming_enabled),
+        autoplay_presence=autoplay_presence.serialize(record),
         jellyfin_url=public_address.local_origin() or public_url or None,
         jellyfin_public_url=public_address.origin(),
         has_tmdb_key=bool(record.tmdb_api_key or settings.tmdb_api_key),
@@ -51,6 +53,10 @@ def update_media_server_settings(payload: MediaServerSettingsUpdate, db: Session
         record = YtDlpService(db).ensure_app_settings()
         folders = list(record.anime_folders) if record.anime_folders is not None else list(categories.DEFAULT_FOLDERS)
         for field, value in payload.model_dump(exclude_unset=True).items():
+            if field == "autoplay_presence":
+                if payload.autoplay_presence is not None:  # the request schema rejects explicit null
+                    autoplay_presence.update(record, payload.autoplay_presence)
+                continue
             if field in ("tmdb_api_key", "omdb_api_key") and value is not None:
                 value = value.strip() or None  # "" removes the saved key; the env default applies again
             elif value is None:

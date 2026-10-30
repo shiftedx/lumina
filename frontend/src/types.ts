@@ -1645,7 +1645,17 @@ export interface MediaServerSettings {
   anime_folders?: string[];
   recategorising?: boolean;
   members_edit_metadata?: boolean;
+  autoplay_presence?: AutoplayPresencePolicy;
 }
+
+/** Household autoplay-presence configuration returned by media-server settings. */
+export interface AutoplayPresencePolicy {
+  enabled: boolean;
+  episode_limit: number;
+  timeout_seconds: number;
+}
+/** Read-only member playback policy. This is deliberately the same server contract. */
+export type PlaybackPresencePolicy = AutoplayPresencePolicy;
 
 export interface MediaServerSettingsUpdate {
   jellyfin_enabled?: boolean | null;
@@ -1661,6 +1671,7 @@ export interface MediaServerSettingsUpdate {
   plex_import_url?: string | null;
   anime_folders?: string[] | null;
   members_edit_metadata?: boolean | null;
+  autoplay_presence?: AutoplayPresencePolicy | null;
 }
 
 export interface ConnectionTestResponse {

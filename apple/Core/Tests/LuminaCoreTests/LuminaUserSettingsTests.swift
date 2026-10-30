@@ -30,17 +30,20 @@ final class LuminaUserSettingsTests: XCTestCase {
         XCTAssertTrue(settings.hasLoaded)
         XCTAssertNil(settings.errorMessage)
         XCTAssertEqual(settings.theme, "dark")
+        XCTAssertTrue(settings.autoplayUpNext)
+        XCTAssertEqual(settings.autoplayPresencePolicy, .init(enabled: false, episodeLimit: 6, timeoutSeconds: 900))
         XCTAssertEqual(settings.document["ui_prefs"]?["density"]?.stringValue, "compact")
         XCTAssertEqual(settings.document["remote_playback_cache"]?["enabled"]?.boolValue, true)
         XCTAssertTrue(settings.streamingEnabled)
         XCTAssertTrue(settings.youtubeSessionEnabled)
 
         let patch: [String: SettingsValue] = [
-            "ui_prefs": .object(["theme": .string("light")]),
+            "ui_prefs": .object(["theme": .string("light"), "autoplay_up_next": .bool(false)]),
         ]
         let didUpdate = await settings.update(patch)
         XCTAssertTrue(didUpdate)
         XCTAssertEqual(settings.theme, "light")
+        XCTAssertFalse(settings.autoplayUpNext)
         XCTAssertEqual(settings.document["ui_prefs"]?["density"]?.stringValue, "compact")
 
         let action = try await settings.action("connected-apps/refresh", method: "POST", body: ["enabled": .bool(true)], reauth: "one-use-proof")
@@ -245,12 +248,15 @@ private final class UserSettingsReplies: @unchecked Sendable {
             value = settingsDocument(theme: "dark")
         case ("GET", "/Lumina/Settings/capabilities"):
             status = 200
-            value = ["streaming_enabled": true, "youtube_session_enabled": true]
+            value = ["streaming_enabled": true, "youtube_session_enabled": true,
+                     "autoplay_presence": ["enabled": false, "episode_limit": 6, "timeout_seconds": 900]]
         case ("PUT", "/Lumina/Settings"):
             putCount += 1
             if putCount == 1 {
                 status = 200
-                value = settingsDocument(theme: "light")
+                var updated = settingsDocument(theme: "light")
+                updated["ui_prefs"] = ["theme": "light", "density": "compact", "autoplay_up_next": false]
+                value = updated
             } else {
                 status = 503
                 value = ["detail": "temporarily_unavailable"]

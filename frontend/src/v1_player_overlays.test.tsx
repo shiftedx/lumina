@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PlayerOverlays, SKIP_NOTICE_MS, UP_NEXT_COUNTDOWN_SECONDS } from './features/watch/PlayerOverlays';
+import { PlayerOverlays, SKIP_NOTICE_MS, STILL_WATCHING_TIMEOUT_MS, UP_NEXT_COUNTDOWN_SECONDS } from './features/watch/PlayerOverlays';
 import type { MediaSegment, RecapResponse } from './types';
 
 afterEach(() => vi.useRealTimers());
@@ -14,7 +14,7 @@ const next = (label: string, onPlay = vi.fn(), extra = {}) => ({ label, action: 
 function overlays(props: Partial<Parameters<typeof PlayerOverlays>[0]> = {}) {
   const all = { currentTime: 0, duration: 1320, segments, autoSkip: noSkip, upNext: null, autoplay: true, recap: null, onSeek: vi.fn(), onCancelUpNext: vi.fn(), ...props };
   const view = render(<PlayerOverlays {...all} />);
-  return { ...all, rerender: (next: Partial<typeof all>) => view.rerender(<PlayerOverlays {...all} {...next} />) };
+  return { ...all, rerender: (next: Partial<typeof all>) => view.rerender(<PlayerOverlays {...all} {...next} />), unmount: view.unmount };
 }
 
 describe('PlayerOverlays', () => {
@@ -97,6 +97,58 @@ describe('PlayerOverlays', () => {
     expect(onPlay).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Play now' }));
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds a completed three-episode run for confirmation, then returns home at the wall-clock deadline', () => {
+    vi.useFakeTimers();
+    const onContinue = vi.fn();
+    const onGoHome = vi.fn();
+    const onPlay = vi.fn();
+    overlays({
+      currentTime: 1251,
+      upNext: next('S1 · E4 · Return', onPlay, { autoplay: false }),
+      stillWatching: { deadlineAt: null, onDeadline: vi.fn(), onContinue, onGoHome },
+    });
+    expect(screen.queryByRole('region', { name: 'Next episode' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Still watching' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Continue watching' }));
+    act(() => { vi.advanceTimersByTime(STILL_WATCHING_TIMEOUT_MS - 1); });
+    expect(onGoHome).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(onGoHome).toHaveBeenCalledTimes(1);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original still-watching deadline through an overlay remount', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const onGoHome = vi.fn();
+    const stillWatching = { deadlineAt: STILL_WATCHING_TIMEOUT_MS, onDeadline: vi.fn(), onContinue: vi.fn(), onGoHome };
+    const props = { currentTime: 1251, upNext: next('S1 · E4 · Return', vi.fn(), { autoplay: false }), stillWatching };
+    const first = overlays(props);
+    first.unmount();
+    act(() => { vi.advanceTimersByTime(STILL_WATCHING_TIMEOUT_MS); });
+    overlays(props);
+    fireEvent(document, new Event('visibilitychange'));
+    expect(onGoHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a stale Continue click home without starting another episode', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const onContinue = vi.fn();
+    const onGoHome = vi.fn();
+    overlays({
+      currentTime: 1251,
+      upNext: next('S1 · E4 · Return', vi.fn(), { autoplay: false }),
+      stillWatching: { deadlineAt: STILL_WATCHING_TIMEOUT_MS, onDeadline: vi.fn(), onContinue, onGoHome },
+    });
+    // Simulates a suspended tab waking after the deadline before its interval can run.
+    vi.setSystemTime(STILL_WATCHING_TIMEOUT_MS);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue watching' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue watching' }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(onGoHome).toHaveBeenCalledTimes(1);
   });
 
   it('offers a dismissible "Previously on" card at the start of a later episode', () => {

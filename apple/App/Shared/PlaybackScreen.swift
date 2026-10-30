@@ -9,6 +9,10 @@ import MediaPlayer
 import UIKit
 #endif
 
+extension EnvironmentValues {
+    @Entry var returnToLuminaHome: () -> Void = {}
+}
+
 extension QueuePresentationRow where Item == MediaItem {
     var accessibilityID: String { "audioQueueItem-\(item.id)" + (duplicated ? "-\(id.uuidString)" : "") }
 }
@@ -60,6 +64,7 @@ private struct NativePlaybackPresentation: ViewModifier {
     @Binding var request: PlaybackRequest?
     let store: LuminaStore
     let onDismiss: () -> Void
+    @Environment(\.returnToLuminaHome) private var returnHome
     @Environment(NativeVideoSession.self) private var videoSession
     @Environment(NativeAudioSession.self) private var audioSession
 
@@ -74,7 +79,7 @@ private struct NativePlaybackPresentation: ViewModifier {
         .onChange(of: audioPresented.wrappedValue) { _, presented in if !presented { onDismiss() } }
         .onChange(of: request?.id, initial: true) { _, _ in
             guard let request, !request.item.isAudio else { return }
-            videoSession.present(request: request, store: store, audioSession: audioSession) {
+            videoSession.present(request: request, store: store, audioSession: audioSession, onReturnHome: returnHome) {
                 self.request = nil
                 onDismiss()
             }
@@ -88,6 +93,7 @@ final class NativeVideoSession {
     struct Presentation: Identifiable {
         let id = UUID()
         let playback: PlaybackModel
+        let returnHome: () -> Void
     }
     private(set) var presentation: Presentation?
     let casting = NativeVideoCasting()
@@ -95,14 +101,14 @@ final class NativeVideoSession {
     @ObservationIgnored private var onDismiss: (() -> Void)?
 
     func present(request: PlaybackRequest, store: LuminaStore, audioSession: NativeAudioSession,
-                 onDismiss: @escaping () -> Void) {
+                 onReturnHome: @escaping () -> Void = {}, onDismiss: @escaping () -> Void) {
         guard presentation == nil else { return }
         audioSession.stop()
         let model = PlaybackModel(request: request, store: store, queue: [])
         casting.attach(model)
         model.setActive(UIApplication.shared.applicationState == .active)
         self.onDismiss = onDismiss
-        presentation = Presentation(playback: model)
+        presentation = Presentation(playback: model, returnHome: onReturnHome)
         startup = Task { await model.start() }
     }
 
@@ -132,7 +138,8 @@ struct NativeVideoPlayerPresentation: ViewModifier {
             set: { if $0 == nil, let presentationID { session.dismiss(id: presentationID) } }
         )) { presentation in
             PlaybackScreen(playback: presentation.playback, store: store,
-                           onVideoDismiss: { session.dismiss(id: presentation.id) })
+                           onVideoDismiss: { session.dismiss(id: presentation.id) },
+                           onReturnHome: presentation.returnHome)
                 #if LUMINA_UI_TESTING
                 .id(videoPresentationGeneration)
                 #endif
@@ -243,16 +250,21 @@ struct PlaybackScreen: View {
     #endif
     private let store: LuminaStore
     private let onVideoDismiss: (() -> Void)?
+    private let onReturnHome: () -> Void
 
-    init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem] = [], queueIndex: Int? = nil) {
+    init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem] = [], queueIndex: Int? = nil,
+         onReturnHome: @escaping () -> Void = {}) {
         self.store = store
         onVideoDismiss = nil
+        self.onReturnHome = onReturnHome
         _requestedPlayback = State(initialValue: PlaybackModel(request: request, store: store, queue: queue, queueIndex: queueIndex))
     }
 
-    init(playback: PlaybackModel, store: LuminaStore, onVideoDismiss: (() -> Void)? = nil) {
+    init(playback: PlaybackModel, store: LuminaStore, onVideoDismiss: (() -> Void)? = nil,
+         onReturnHome: @escaping () -> Void = {}) {
         self.store = store
         self.onVideoDismiss = onVideoDismiss
+        self.onReturnHome = onReturnHome
         _requestedPlayback = State(initialValue: playback)
     }
 
@@ -413,7 +425,39 @@ struct PlaybackScreen: View {
         .task(id: playback.request.id) {
             await playback.refreshVideoActions()
         }
+        .alert("Still watching?", isPresented: Binding(
+            get: { playback.episodeAutoplay.confirmationDeadline != nil },
+            set: { _ in }
+        )) {
+            Button("Continue watching") {
+                Task {
+                    if playback.episodeAutoplay.confirmationExpired() { finishAndReturnHome(); return }
+                    guard playback.confirmEpisodeAutoplay() else { return }
+                    await playback.playNextEpisode(automatically: true)
+                }
+            }
+            Button("Go Home", role: .cancel) { finishAndReturnHome() }
+        } message: {
+            Text("Continue watching, or Lumina will return Home after \(Duration.seconds(playback.episodeAutoplay.policy.timeoutSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))) without a response.")
+        }
+        .task(id: playback.episodeAutoplay.confirmationDeadline) {
+            guard let deadline = playback.episodeAutoplay.confirmationDeadline else { return }
+            while !Task.isCancelled {
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining <= 0 {
+                    guard playback.episodeAutoplay.confirmationExpired() else { return }
+                    finishAndReturnHome()
+                    return
+                }
+                do { try await Task.sleep(for: .seconds(remaining)) }
+                catch { return }
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .active, playback.episodeAutoplay.confirmationExpired() {
+                finishAndReturnHome()
+                return
+            }
             playback.traceContinuity("scene=\(String(describing: phase))")
             playback.setActive(phase == .active || pictureInPictureContinuing)
             #if os(iOS)
@@ -2264,6 +2308,12 @@ struct PlaybackScreen: View {
         dismiss()
     }
 
+    private func finishAndReturnHome() {
+        playback.close()
+        finish()
+        onReturnHome()
+    }
+
     private func stopAudio() {
         audioSession.stop()
         dismiss()
@@ -2562,6 +2612,10 @@ final class PlaybackModel {
     private var pendingVideoPlayer: AVPlayer?
     private var episodeTask: Task<Void, Never>?
     private var actionsGeneration = UUID()
+    private(set) var episodeAutoplay = EpisodeAutoplaySession()
+    private var automaticAdvanceRequestID: String?
+    private let episodeSettings = LuminaUserSettings()
+    private var episodePreferencesRequestID: String?
     var canUseVideoActions: Bool { !isCasting && didSeek && !closed && !isSwitchingVideoStream && !isSeekingChapter && !isReplaying }
     var canAdjustSubtitleTiming: Bool { request.usesClientDemux || attachedVideoSubtitle != nil }
     var subtitlesExplicitlyOff = false
@@ -3012,6 +3066,7 @@ final class PlaybackModel {
         traceContinuity("active=\(active)")
         guard isActive != active else { return }
         isActive = active
+        if active { advanceCompletedEpisodeIfNeeded() }
         #if os(tvOS)
         // TV video remains paused when returning until the user presses Play.
         if !request.item.isAudio { pause() }
@@ -3206,6 +3261,7 @@ final class PlaybackModel {
         playbackMarkers = []
         nextEpisode = nil
         videoActionsError = nil
+        async let preferences: Void = refreshEpisodePreferences(for: current, generation: generation)
         async let markers = store.playbackMarkers(for: current)
         async let following = store.nextEpisode(after: current.item)
         do {
@@ -3220,9 +3276,39 @@ final class PlaybackModel {
             let result = try await following
             guard !closed, request.id == current.id, actionsGeneration == generation, !Task.isCancelled else { return }
             nextEpisode = result
+            advanceCompletedEpisodeIfNeeded()
         } catch {
             guard !closed, request.id == current.id, actionsGeneration == generation, !Task.isCancelled else { return }
             videoActionsError = "Some playback actions could not load. Try again."
+        }
+        await preferences
+        advanceCompletedEpisodeIfNeeded()
+    }
+
+    private func refreshEpisodePreferences(for current: PlaybackRequest, generation: UUID) async {
+        guard current.item.type == "Episode", episodePreferencesRequestID != current.id else { return }
+        episodeSettings.configure(session: store.session)
+        await episodeSettings.load()
+        guard !closed, request.id == current.id, actionsGeneration == generation, !Task.isCancelled else { return }
+        episodePreferencesRequestID = current.id
+        episodeAutoplay.updatePolicy(episodeSettings.autoplayPresencePolicy)
+    }
+
+    func confirmEpisodeAutoplay() -> Bool {
+        guard !closed else { return false }
+        return episodeAutoplay.confirm()
+    }
+
+    private func advanceCompletedEpisodeIfNeeded() {
+        guard !closed, hasFinished, isActive, !isCasting, request.item.type == "Episode",
+              episodePreferencesRequestID == request.id, episodeSettings.autoplayUpNext,
+              nextEpisode != nil, automaticAdvanceRequestID != request.id else { return }
+        automaticAdvanceRequestID = request.id
+        switch episodeAutoplay.episodeEnded(hasNextEpisode: true) {
+        case .playNext:
+            Task { await playNextEpisode(automatically: true) }
+        case .confirmPresence, .stop:
+            break
         }
     }
 
@@ -3261,7 +3347,7 @@ final class PlaybackModel {
         }
     }
 
-    func playNextEpisode() async {
+    func playNextEpisode(automatically: Bool = false) async {
         guard episodeTask == nil else {
             #if os(iOS) && LUMINA_UI_TESTING
             recordNextEpisodeDiagnostic("busy")
@@ -3277,13 +3363,13 @@ final class PlaybackModel {
         #if os(iOS) && LUMINA_UI_TESTING
         recordNextEpisodeDiagnostic("requested")
         #endif
-        let task = Task { await advanceToNextEpisode() }
+        let task = Task { await advanceToNextEpisode(automatically: automatically) }
         episodeTask = task
         await task.value
         episodeTask = nil
     }
 
-    private func advanceToNextEpisode() async {
+    private func advanceToNextEpisode(automatically: Bool) async {
         guard canUseVideoActions, !request.item.isAudio, let episode = nextEpisode else {
             #if os(iOS) && LUMINA_UI_TESTING
             recordNextEpisodeDiagnostic("rejected")
@@ -3356,6 +3442,7 @@ final class PlaybackModel {
             guard !closed else { throw CancellationError() }
             if !didReportCompletion { enqueue(.stop, paused: true, for: previousRequest, position: previousPosition) }
             request = next
+            episodeAutoplay.didStartNextEpisode(automatically: automatically)
             #if os(iOS) && LUMINA_UI_TESTING
             recordNextEpisodeDiagnostic("committed")
             #endif
@@ -3858,6 +3945,7 @@ final class PlaybackModel {
             return
         }
         request = newRequest
+        if newRequest.item.type == "Episode" { episodeAutoplay = EpisodeAutoplaySession(policy: episodeAutoplay.policy) }
         elapsedSeconds = newRequest.startPositionSeconds
         didReportCompletion = false
         do {
@@ -4036,6 +4124,7 @@ final class PlaybackModel {
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
         closed = true
+        episodeAutoplay = EpisodeAutoplaySession()
         episodeTask?.cancel()
         episodeTask = nil
         pendingVideoPlayer?.replaceCurrentItem(with: nil)
@@ -4099,6 +4188,8 @@ final class PlaybackModel {
             if repeatMode == .one { Task { await replay() } }
             else if hasNext { Task { await playQueued(offset: 1) } }
             else if repeatMode == .all && !queue.isEmpty { Task { await playQueued(offset: -queueIndex) } }
+        } else {
+            advanceCompletedEpisodeIfNeeded()
         }
     }
 

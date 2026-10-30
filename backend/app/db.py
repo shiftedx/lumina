@@ -293,6 +293,9 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE app_settings ADD COLUMN omdb_api_key TEXT",
     ),  # Optional public critic-score supplement; rollback NULLs/ignores the additive column.
     41: (),  # Durable OMDb score cache/request ledger come from create_all; rollback retains both tables and disables the older uncapped client.
+    42: (
+        "ALTER TABLE app_settings ADD COLUMN autoplay_presence JSON NOT NULL DEFAULT '{}'",
+    ),  # Household episode-autoplay presence policy; rollback keeps the additive JSON column.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

@@ -32,6 +32,7 @@ from app.media_schemas import MediaSegment, MediaSegmentInput
 from app.models import AppSettings, LibraryItem, MediaArtifact, MediaTitle, utcnow
 from app.persistence import write_transaction
 from app.services.artwork import PublicArtworkFetcher
+from app.services.chapters import normalize_chapters
 from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_probe import LOCAL_INPUT_ARGS, MediaProbeService, media_tool
 from app.services.media_probe import _fingerprint as file_fingerprint  # the probe cache's size:mtime key
@@ -85,7 +86,31 @@ def _model(segment: dict[str, Any]) -> MediaSegment:
 
 def segments_for(db: Session, item_id: str) -> list[MediaSegment]:
     current = current_analysis(db, item_id)
-    return [_model(segment) for segment in effective(current[2])] if current else []
+    if current is None:
+        return []
+    artifact, fingerprint, analysis = current
+    segments = [_model(segment) for segment in effective(analysis)]
+    # Explicit edits (including an empty list) and detected ranges win. Only
+    # cached chapters for this exact file may fill missing segment types; never
+    # guess that an unlabeled first chapter is an opening.
+    probe = artifact.probe or {}
+    if analysis.get("user_edited") or probe.get("fingerprint") != fingerprint:
+        return segments
+    chapters = normalize_chapters(
+        provider_chapters=probe.get("chapters"), description=None, duration=probe.get("duration"),
+    )["chapters"]
+    recorded_types = {segment.type for segment in segments}
+    for chapter in chapters:
+        label = chapter["title"].strip().casefold()
+        kind = None
+        if label in {"intro", "opening", "opening credits", "opening theme"} or re.fullmatch(r"op\s*\d*", label):
+            kind = "intro"
+        elif label in {"credits", "ending", "ending credits", "end credits", "ending theme"} or re.fullmatch(r"ed\s*\d*", label):
+            kind = "credits"
+        if kind is not None and kind not in recorded_types and chapter["end_time"] is not None:
+            segments.append(MediaSegment(type=kind, start_seconds=chapter["start_time"],
+                                         end_seconds=chapter["end_time"], source="heuristic", confidence=0.5))
+    return sorted(segments, key=lambda segment: (segment.start_seconds, segment.type))[:50]
 
 
 def credits_start_seconds(db: Session, item_id: str) -> float | None:

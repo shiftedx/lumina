@@ -2196,6 +2196,7 @@ final class LuminaCoreTests: XCTestCase {
         currentPayload["Id"] = "episode-1"
         currentPayload["Type"] = "Episode"
         currentPayload["SeriesId"] = "series-1"
+        currentPayload["RunTimeTicks"] = 14_000_000_000
         let current = currentPayload
         var followingPayload = current
         followingPayload["Id"] = "episode-2"
@@ -2208,8 +2209,8 @@ final class LuminaCoreTests: XCTestCase {
             case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
             case "/MediaSegments/source-episode":
                 return response(request, json: ["Items": [
-                    ["Type": "Intro", "StartTicks": 0, "EndTicks": 100_000_000],
-                    ["Type": "Outro", "StartTicks": 100_000_000, "EndTicks": 120_000_000],
+                    ["Type": "Intro", "StartTicks": 104_700_000, "EndTicks": 1_005_640_000],
+                    ["Type": "Outro", "StartTicks": 13_305_800_000, "EndTicks": 13_906_530_000],
                     ["Type": "Unknown", "StartTicks": 20, "EndTicks": 30],
                     ["Type": "Recap", "StartTicks": 50, "EndTicks": 50],
                     NSNull(),
@@ -2228,7 +2229,8 @@ final class LuminaCoreTests: XCTestCase {
         let next = try await store.nextEpisode(after: item)
 
         XCTAssertEqual(markers.map(\.kind), [.intro, .credits])
-        XCTAssertEqual(markers.map(\.startSeconds), [0, 10])
+        XCTAssertEqual(markers.map(\.startSeconds), [10.47, 1330.58])
+        XCTAssertEqual(markers.map(\.endSeconds), [100.564, 1390.653])
         XCTAssertEqual(next?.id, "episode-2")
         XCTAssertTrue(requests.all.contains { $0.url?.path == "/MediaSegments/source-episode" })
         let nextEpisodeRequest = try XCTUnwrap(requests.all.first { $0.url?.path == "/Shows/series-1/Episodes" })

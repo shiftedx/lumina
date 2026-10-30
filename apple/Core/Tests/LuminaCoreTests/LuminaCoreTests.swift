@@ -2000,6 +2000,12 @@ final class LuminaCoreTests: XCTestCase {
         )
         let authorization = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.contentIsNotAuthorized.rawValue)
         let network = URLError(.cannotConnectToHost)
+        let rejectedMaster = NSError(domain: "CoreMediaErrorDomain", code: -12927)
+        let rejectedMasterNetwork = NSError(domain: "CoreMediaErrorDomain", code: -12927,
+                                             userInfo: [NSUnderlyingErrorKey: URLError(.cannotConnectToHost)])
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(rejectedMaster))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(NSError(domain: "CoreMediaErrorDomain", code: -1)))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(rejectedMasterNetwork))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(format))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(decoder))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(unsupported))
@@ -2007,6 +2013,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(failedToParse))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(NativeVideoSource.SelectionError.unsupportedAudioStream(2)))
         XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(dolbyVisionConversion))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(NativeVideoSource.SelectionError.subtitleMasterUnavailable))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(authorization))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(network))
         XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(nestedNetwork))
@@ -2017,6 +2024,10 @@ final class LuminaCoreTests: XCTestCase {
         let request = PlaybackRequest(id: "play", item: item, url: URL(string: "https://lumina.example/hls")!,
                                       startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: false, methodLabel: "Direct")
         XCTAssertTrue(request.canRetryCompatibleVideo(after: format))
+        XCTAssertTrue(request.canRetryCompatibleVideo(after: rejectedMaster))
+        XCTAssertFalse(request.canRetryCompatibleVideo(after: rejectedMaster, hasAdvanced: true))
+        XCTAssertTrue(request.canRetryCompatibleVideo(after: NativeVideoSource.SelectionError.subtitleMasterUnavailable))
+        XCTAssertFalse(request.canRetryCompatibleVideo(after: NativeVideoSource.SelectionError.subtitleMasterUnavailable, hasAdvanced: true))
         XCTAssertFalse(request.canRetryCompatibleVideo(after: network))
         XCTAssertTrue(request.canRetryCompatibleVideo(after: dolbyVisionConversion, hasAdvanced: true))
         XCTAssertFalse(request.canRetryCompatibleVideo(after: format, hasAdvanced: true))
@@ -2025,6 +2036,8 @@ final class LuminaCoreTests: XCTestCase {
                                          startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: true,
                                          methodLabel: "HLS", usesCompatibleVideo: true)
         XCTAssertFalse(compatible.canRetryCompatibleVideo(after: format))
+        XCTAssertFalse(compatible.canRetryCompatibleVideo(after: rejectedMaster))
+        XCTAssertFalse(compatible.canRetryCompatibleVideo(after: NativeVideoSource.SelectionError.subtitleMasterUnavailable))
         XCTAssertFalse(compatible.canRetryCompatibleVideo(after: dolbyVisionConversion, hasAdvanced: true))
     }
 

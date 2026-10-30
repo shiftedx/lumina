@@ -1269,6 +1269,81 @@ Source/URL binding, malformed responses, explicit authorization errors and pendi
 cancellation have focused native contract coverage. No full repository/Core/UI
 suite or physical HDR/HDMI qualification ran for this change.
 
+### Real-original native playback regression (2026-10-30)
+
+`RealMediaPlaybackTests.testConfiguredAssetRendersAndSeeks` is an opt-in check
+against operator-selected original bytes, streamed through a localhost-only
+Range proxy. Keep the private manifest outside the repository, with mode 0600;
+it contains the proxy URL, technical expectations and source stream indices.
+Do not commit original media, library identifiers, titles, paths, credentials or
+raw logs. The qualification does not create production playback sessions or
+write watch progress.
+
+```bash
+LUMINA_REAL_MEDIA_MANIFEST=/absolute/path/to/private-manifest.json \
+  mise exec -- swift test --package-path apple/Core \
+  --filter RealMediaPlaybackTests.testConfiguredAssetRendersAndSeeks
+```
+
+The manifest specifies an alias, `proxyURL`, `usesClientDemux: true`, `strictPair`,
+`audioStreamIndex`, optional `selectedSubtitleStreamIndex`, `startSeconds`,
+`deepSeekSeconds`, `nearEndSeconds`, and `expected` dimensions, codec/audio FourCCs
+and HDR label. Each run checks the unselected-audio control, app-matched source
+audio selection, a fresh player's deep resume, and a near-end seek. It requires
+actual decoded frame presentation times, with independent 30-second startup/seek
+budgets. Master declarations are checked when present; media-direct delivery is
+checked through AVPlayerItem format descriptions after the first decoded frame.
+An explicit subtitle must remain selectable on a genuine master or request the
+narrow compatible fallback when only media-direct delivery is eligible.
+
+A real 4K HEVC Main10/P8.1 PQ original with E-AC-3 5.1 reproduced a startup
+`CoreMediaErrorDomain(-12927)` on the local Mac, both with the latest uploaded
+build's pinned engine and the new engine. Removing subtitle declarations did not
+fix it; its media playlist decoded while Lumina's added master failed. The engine
+had intentionally chosen media-direct playback for this host. Lumina now retains
+that route instead of bypassing its display gate. The app-matched test additionally
+caught a guard that required an alternate-audio group for already-muxed audio;
+the engine's verified exact stream-copy selection is sufficient on that route.
+The original now passes startup, fresh resume and near-end decode. Selected
+subtitles request compatible delivery without being silently dropped. The exact
+observed startup error can use the existing one-shot compatible retry; network,
+authorization, cancellation, unrelated CoreMedia codes and post-advance failures
+retain their established handling.
+
+Representative production originals exercised by the opt-in workflow:
+
+| Source video | Content range | Source audio | Local result |
+| --- | --- | --- | --- |
+| 1080p H.264 in Matroska | SDR / BT.709 | AAC stereo | Startup, app audio, fresh midpoint resume and near-end decode pass |
+| 4K HEVC Main10 in Matroska | Dolby Vision P8.1 / PQ base | E-AC-3 5.1 | Startup, app audio, fresh resume, near-end decode and selected-subtitle fallback pass |
+| 4K HEVC Main10 in Matroska | HDR10 / BT.2020 PQ | E-AC-3 5.1 | Startup, app audio, metadata and fresh resume pass; near-end decode passes with a latency outlier under investigation |
+
+The HDR10 near-end check took 42.809 seconds in one run, exceeding the retained
+30-second budget. An instrumented repeat passed at 28.329 seconds, almost entirely
+inside AVPlayer's seek completion; first-frame delivery then took under 1 ms.
+The repeat used the same strict budget plus an explicit seek-cancellation watchdog.
+This does not erase the earlier miss or establish reliable cold-tail latency.
+Range instrumentation found 29 near-end requests capped at 1 MiB, each launching
+a fresh SSH/container reader. Median first-byte latency was 1.365 seconds and
+semaphore queue time was zero; the near-end ranges summed to 39.04 seconds of
+reader time, with overlap. This identifies a material test-transport cost rather
+than a frame-decoding delay. A shared-SSH control retained the same byte geometry
+and strict watchdog, passing at 24.553 seconds for the near-end seek. Median
+first-byte latency improved only to 1.250 seconds: handshake reuse alone does not
+remove per-range container/Python startup. No engine or budget change was used
+for the control. The earlier miss remains in the record, and reliable cold-tail
+latency through this test transport is not fully qualified.
+
+The P8.1 source is checked as its PQ base on this host; the result does not claim
+Dolby Vision display activation. Physical and additional-format qualification,
+including real P5/P7, HLG, HDR10+ and AV1 paths, remains separate from this matrix.
+
+These are original-byte/native packaging tests on macOS, not proof of physical
+iOS/tvOS output, Dolby Vision panel activation, Atmos/HDMI passthrough, or the full
+production authentication/negotiation path. The owner reports failure on the
+latest app build across devices; local success does not establish a device fix
+until an updated app is tested there. No archive, upload or deployment occurred.
+
 
 ## Episode autoplay and server-owned presence policy — October 30, 2026
 

@@ -2831,7 +2831,7 @@ final class PlaybackModel {
     #endif
 
     private func awaitInitialPlayback(positionSeconds: Double) async throws {
-        try await NativeVideoSource.waitUntilReady(player)
+        try await NativeVideoSource.waitUntilReady(player, seekingTo: positionSeconds)
         try Task.checkCancellation()
         guard !closed, let item = player.currentItem else { throw CancellationError() }
         if positionSeconds > 0 {
@@ -3690,7 +3690,7 @@ final class PlaybackModel {
             let nextItem = try await prepareVideoItem(next, source: candidateSource, externalSubtitle: externalSubtitle,
                                                       subtitleDelay: subtitleDelay)
             candidatePlayer.replaceCurrentItem(with: AVPlayerItem(asset: nextItem.asset))
-            try await NativeVideoSource.waitUntilReady(candidatePlayer)
+            try await NativeVideoSource.waitUntilReady(candidatePlayer, seekingTo: commitPosition)
             // Carry a deliberate caption choice across a repackaged audio track.
             if selectsExternalSubtitle {
                 guard let group = try await nextItem.asset.loadMediaSelectionGroup(for: .legible) else {
@@ -3750,7 +3750,7 @@ final class PlaybackModel {
             candidatePlayer.replaceCurrentItem(with: nil)
             replaceNativeItem(nextItem)
             replacementInstalled = true
-            try await NativeVideoSource.waitUntilReady(player)
+            try await NativeVideoSource.waitUntilReady(player, seekingTo: position.seconds)
             guard await seekNativePlayer(to: position, toleranceBefore: .zero, toleranceAfter: .zero),
                   nextItem.status == .readyToPlay else { throw POSIXError(.EIO) }
             try Task.checkCancellation()

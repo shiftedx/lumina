@@ -223,6 +223,8 @@ final class NativeVideoSourceTests: XCTestCase {
         let empty = AVPlayer()
         do { try await NativeVideoSource.waitUntilReady(empty); XCTFail("Missing items cannot become ready") }
         catch is CancellationError { }
+        do { try await NativeVideoSource.waitUntilReady(empty, seekingTo: .nan); XCTFail("Invalid seek target must fail") }
+        catch let error as POSIXError { XCTAssertEqual(error.code, .EINVAL) }
         let cancelled = Task { try await NativeVideoSource.waitUntilReady(empty) }
         cancelled.cancel()
         do { try await cancelled.value; XCTFail("Cancelled preparation must terminate") }
@@ -273,10 +275,10 @@ final class NativeVideoSourceTests: XCTestCase {
         item.add(frames)
         let player = AVPlayer(playerItem: item)
         player.volume = 0
-        try await NativeVideoSource.waitUntilReady(player)
+        try await NativeVideoSource.waitUntilReady(player, seekingTo: 6)
         XCTAssertEqual(item.status, .readyToPlay)
-        // An already-ready item must also complete; no future KVO change is required.
-        try await NativeVideoSource.waitUntilReady(player)
+        // Zero remains status-only: it must not wait for a positive-target timeline.
+        try await NativeVideoSource.waitUntilReady(player, seekingTo: 0)
         player.play()
         var decoded = false
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))
@@ -308,6 +310,13 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertTrue(master.contains("#EXT-X-INDEPENDENT-SEGMENTS"))
         XCTAssertTrue(master.contains("RESOLUTION=160x90"),
                       "A video-bearing subtitle master must retain Prism's declared resolution.")
+
+        do {
+            try await NativeVideoSource.waitUntilReady(player, seekingTo: 99, timeout: .milliseconds(100))
+            XCTFail("A future seek target must not become ready from a short timeline")
+        } catch let error as POSIXError {
+            XCTAssertEqual(error.code, .ETIMEDOUT)
+        }
         XCTAssertTrue(master.contains("CODECS=\""),
                       "A video-bearing subtitle master must retain Prism's declared codecs.")
         XCTAssertTrue(master.contains("CLOSED-CAPTIONS=NONE"),
@@ -346,7 +355,15 @@ final class NativeVideoSourceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(400))
         XCTAssertGreaterThan(item.currentTime().seconds, 6.1)
         player.pause()
+        let replaced = Task { @MainActor in
+            try await NativeVideoSource.waitUntilReady(player, seekingTo: 99, timeout: .seconds(2))
+        }
+        await Task.yield()
         player.replaceCurrentItem(with: nil)
+        do {
+            try await replaced.value
+            XCTFail("Replacing an item must cancel its readiness wait")
+        } catch is CancellationError { }
         await owner.stop().value
         XCTAssertNil(owner.activeAudioStreamIndex)
         var check = URLRequest(url: playlist)

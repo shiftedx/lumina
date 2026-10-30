@@ -666,23 +666,54 @@ public final class NativeVideoSource {
         try? FileManager.default.removeItem(at: master.directory)
     }
 
+    private enum ReadinessEvent: Sendable, Equatable {
+        case pending
+        case ready
+        case failed
+    }
+
     /// Resume on readiness, failure, item replacement or cancellation without a recurring timer.
-    public static func waitUntilReady(_ player: AVPlayer, timeout: Duration = .seconds(30)) async throws {
+    ///
+    /// A ready HLS item can still be ingesting its initial manifest. A positive
+    /// seek waits for that manifest to describe the target, not for media bytes
+    /// to be buffered there.
+    public static func waitUntilReady(
+        _ player: AVPlayer,
+        seekingTo targetSeconds: Double? = nil,
+        timeout: Duration = .seconds(30)
+    ) async throws {
         try Task.checkCancellation()
+        if let targetSeconds, (!targetSeconds.isFinite || targetSeconds < 0) {
+            throw POSIXError(.EINVAL)
+        }
         guard let item = player.currentItem else { throw CancellationError() }
-        let (statuses, continuation) = AsyncStream.makeStream(of: AVPlayerItem.Status.self, bufferingPolicy: .bufferingNewest(1))
+
+        let (events, continuation) = AsyncStream.makeStream(of: ReadinessEvent.self, bufferingPolicy: .bufferingNewest(1))
         let observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
-            continuation.yield(item.status)
+            continuation.yield(Self.readinessEvent(for: item, targetSeconds: targetSeconds))
         }
-        let replacement = player.observe(\.currentItem, options: [.new]) { player, _ in
+        let duration = item.observe(\.duration, options: [.initial, .new]) { _, _ in
+            continuation.yield(Self.readinessEvent(for: item, targetSeconds: targetSeconds))
+        }
+        let seekable = item.observe(\.seekableTimeRanges, options: [.initial, .new]) { _, _ in
+            continuation.yield(Self.readinessEvent(for: item, targetSeconds: targetSeconds))
+        }
+        let replacement = player.observe(\.currentItem, options: [.initial, .new]) { player, _ in
             if player.currentItem !== item { continuation.finish() }
+            else { continuation.yield(Self.readinessEvent(for: item, targetSeconds: targetSeconds)) }
         }
-        defer { observation.invalidate(); replacement.invalidate(); continuation.finish() }
-        let status = try await withThrowingTaskGroup(of: AVPlayerItem.Status.self) { group in
+        defer {
+            observation.invalidate()
+            duration.invalidate()
+            seekable.invalidate()
+            replacement.invalidate()
+            continuation.finish()
+        }
+        let event = try await withThrowingTaskGroup(of: ReadinessEvent.self) { group in
             group.addTask {
-                for await status in statuses {
+                for await event in events {
                     try Task.checkCancellation()
-                    if status == .readyToPlay || status == .failed { return status }
+                    if event != .pending { return event }
                 }
                 throw CancellationError()
             }
@@ -695,7 +726,31 @@ public final class NativeVideoSource {
         }
         try Task.checkCancellation()
         guard player.currentItem === item else { throw CancellationError() }
-        if status == .failed { throw item.error ?? POSIXError(.EIO) }
+        if event == .failed { throw item.error ?? POSIXError(.EIO) }
+    }
+
+    private nonisolated static func readinessEvent(
+        for item: AVPlayerItem,
+        targetSeconds: Double?
+    ) -> ReadinessEvent {
+        switch item.status {
+        case .failed:
+            return .failed
+        case .readyToPlay:
+            guard let targetSeconds, targetSeconds > 0 else { return .ready }
+            let duration = item.duration
+            if duration.isNumeric, duration.seconds.isFinite, duration.seconds > targetSeconds {
+                return .ready
+            }
+            let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+            return item.seekableTimeRanges.contains {
+                CMTimeRangeContainsTime($0.timeRangeValue, time: target)
+            } ? .ready : .pending
+        case .unknown:
+            return .pending
+        @unknown default:
+            return .pending
+        }
     }
 
     @discardableResult

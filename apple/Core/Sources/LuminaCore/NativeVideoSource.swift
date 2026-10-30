@@ -218,10 +218,14 @@ public final class NativeVideoSource {
             // Prism owns the display/codec eligibility of its master. A
             // media-direct result must stay media-direct: wrapping it here
             // would bypass that gate and omit its codec/HDR declarations.
-            let mediaPlaylist = try await prismMediaVariant(for: playlist)
+            let hasMaster: Bool
+            if preferredAudioStreamIndex != nil || preferredSubtitleStreamIndex != nil || !externalSubtitles.isEmpty {
+                hasMaster = try await prismMediaVariant(for: playlist) != playlist
+            } else {
+                hasMaster = false
+            }
             try Task.checkCancellation()
             guard demux === session else { throw CancellationError() }
-            let hasMaster = mediaPlaylist != playlist
             if !hasMaster,
                preferredSubtitleStreamIndex != nil || !externalSubtitles.isEmpty {
                 throw SelectionError.subtitleMasterUnavailable

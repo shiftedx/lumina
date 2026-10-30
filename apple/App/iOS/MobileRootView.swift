@@ -895,9 +895,11 @@ private struct LibraryShellView: View {
                 }
             }
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
-                destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                 usesPortraitRail: stacksCategoryHeader) {
                     if let session = store.session {
-                        NativeRequestsView(store: store, session: session, isActive: destination == .requests)
+                        NativeRequestsView(store: store, session: session, isActive: destination == .requests,
+                                           usesPortraitNavigationRail: stacksCategoryHeader)
                             .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                     }
                 }
@@ -1857,7 +1859,7 @@ private struct LibraryStableNavigationBar: ViewModifier {
     }
 }
 
-private struct HomeHeroScrollEdge: ViewModifier {
+struct HomeHeroScrollEdge: ViewModifier {
     var isEnabled: Bool
 
     func body(content: Content) -> some View {

@@ -28,6 +28,7 @@ SMOKE_CLASSES = [
     "NativeNativePlaybackReportsResumeAndConversionProgressTests",
 ]
 IOS_SPECIAL_LANES = {
+    "NativeOpenDuoRequestsHeaderTests/testRequestsArtworkAndActionsClearPortraitStatus": "Duo",
     "NativeBookCurlTests/testCompactReaderDefaultsToOnePage": "iPhone",
     "NativeVideoSettingsLayoutTests/testClosedDuoSettingsPanelKeepsControlsUsable": "Duo",
     "NativeStandardPhoneEpisodeChromeTests/testEpisodeCollectionUsesSafeHeaderAndNativeLeadingEdgeBack": "iPhone",

@@ -2427,6 +2427,52 @@ final class LuminaCoreTests: XCTestCase {
         }
     }
 
+    func testStartOverReusesPreparedOriginalWithoutWaitingForServer() async throws {
+        let saved = syntheticKeychainSession()
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie(positionTicks: 60_000_000))
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "prepared-original", "MediaSources": [[
+                    "Id": "movie-1", "Container": "mkv", "Bitrate": 24_000_000,
+                    "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                    "DefaultAudioStreamIndex": 1, "DefaultSubtitleStreamIndex": -1,
+                    "MediaStreams": [["Index": 1, "Type": "Audio", "Codec": "aac", "Channels": 2]],
+                    "Chapters": [["StartPositionTicks": 60_000_000, "Name": "Opening"]],
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let prepared = try await store.preparePlayback(for: item)
+        XCTAssertEqual(prepared.startPositionSeconds, 6)
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            throw URLError(.timedOut)
+        }
+
+        let restarted = try await store.preparePlaybackFromBeginning(after: prepared)
+
+        XCTAssertTrue(requests.all.isEmpty, "Start Over must not wait for another metadata or playback decision for an already prepared original.")
+        XCTAssertEqual(restarted.startPositionSeconds, 0)
+        XCTAssertEqual(restarted.item, prepared.item, "The chooser must leave saved progress untouched until playback begins.")
+        XCTAssertEqual(restarted.url, prepared.url)
+        XCTAssertEqual(restarted.id, prepared.id)
+        XCTAssertEqual(restarted.mediaSourceID, prepared.mediaSourceID)
+        XCTAssertEqual(restarted.audioStreamIndex, prepared.audioStreamIndex)
+        XCTAssertEqual(restarted.subtitleStreamIndex, prepared.subtitleStreamIndex)
+        XCTAssertEqual(restarted.chapters, prepared.chapters)
+        XCTAssertEqual(restarted.resolvedQuality, prepared.resolvedQuality)
+        XCTAssertTrue(restarted.usesClientDemux)
+        XCTAssertEqual(restarted.bitRate, prepared.bitRate)
+        XCTAssertEqual(restarted.sourceContainer, prepared.sourceContainer)
+    }
+
     func testPreparePlaybackSendsTrackSelectionSourceAndReplacementPosition() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
@@ -2477,6 +2523,19 @@ final class LuminaCoreTests: XCTestCase {
                 "Property": "Height", "Condition": "LessThanEqual", "Value": "720",
             ]) == true)
         }
+
+        let restarted = try await store.preparePlaybackFromBeginning(after: request)
+        XCTAssertTrue(restarted.isTranscoding)
+        XCTAssertEqual(restarted.startPositionSeconds, 0)
+        let negotiations = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
+        XCTAssertEqual(negotiations.count, 2, "HLS must obtain a fresh zero-position server session.")
+        let restartBody = try body(try XCTUnwrap(negotiations.last))
+        XCTAssertEqual(restartBody["StartTimeTicks"] as? Int64, 0)
+        XCTAssertEqual(restartBody["EnableDirectPlay"] as? Bool, false)
+        XCTAssertEqual(restartBody["AudioStreamIndex"] as? Int, 3)
+        XCTAssertEqual(restartBody["SubtitleStreamIndex"] as? Int, -1)
+        XCTAssertEqual(restartBody["MediaSourceId"] as? String, "source-2")
+        XCTAssertEqual(restarted.resolvedQuality, .upTo720p)
     }
 
     func testPrepareCompatiblePlaybackPreservesSelectionAndRequiresServerHLS() async throws {

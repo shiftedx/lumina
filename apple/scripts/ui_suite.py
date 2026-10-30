@@ -39,6 +39,8 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
         return {"LUMINA_NATIVE_AUTOPLAY_SERIES": "1"}
     if test_class == "NativeEpisodeSkipActionsAndNextEpisodeTests":
         return {"LUMINA_NATIVE_AUTOPLAY_DISABLED": "1"}
+    if test_class == "NativePlaybackResumeChoiceTests":
+        return {PLAYBACK_PREPARATION_DELAY_ENV: "5"}
     if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
     if test_class == "NativeAudioFormatRecoveryTests":

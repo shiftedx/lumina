@@ -1649,10 +1649,6 @@ struct PlaybackScreen: View {
         #else
         VStack(spacing: 24) {
             HStack(spacing: 12) {
-                Button("Close player", glyph: .close) { finish() }
-                    .labelStyle(.iconOnly)
-                    .accessibilityIdentifier("closePlayerButton")
-                    .focused($focusedVideoControl, equals: "closePlayerButton")
                 Spacer(minLength: 0)
                 #if os(iOS)
                 videoPictureInPictureButton

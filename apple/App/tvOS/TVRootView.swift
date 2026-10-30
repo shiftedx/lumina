@@ -730,69 +730,58 @@ private struct TVLibraryView: View {
     @FocusState private var accountFocused: Bool
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Group {
-                switch destination {
-                case .home:
-                    if homeSessionScope == TVHomeSessionScope(store.session) {
-                        TVHomeView(
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                Group {
+                    switch destination {
+                    case .home:
+                        if homeSessionScope == TVHomeSessionScope(store.session) {
+                            TVHomeView(
+                                store: store,
+                                layout: homeLayout,
+                                feed: homeFeed,
+                                heroSelection: $homeHeroID,
+                                category: $homeCategory,
+                                onOpen: onOpen,
+                                onPlayback: onPlayback,
+                                focusRequest: contentFocusRequest,
+                                header: { navigationHeader(topInset: max(geometry.safeAreaInsets.top, geometry.frame(in: .global).minY)) }
+                            )
+                        } else {
+                            ProgressView("Loading Home…")
+                        }
+                    case .library:
+                        if libraryCategory == .music {
+                            TVAudioView(
+                                store: store,
+                                onOpen: onOpen,
+                                browse: $audioBrowse,
+                                focusRequest: contentFocusRequest,
+                                restoreFocusRequest: restorationDestination == .library ? restorationRequest : nil,
+                                onRequestHeaderFocus: { focusedPrimaryCategory = .music }
+                            )
+                        } else {
+                            TVVideoView(
+                                store: store,
+                                onOpen: onOpen,
+                                browse: $videoBrowse,
+                                focusRequest: contentFocusRequest,
+                                restoreFocusRequest: restorationDestination == .library ? restorationRequest : nil
+                            )
+                        }
+                    case .requests:
+                        TVRequestsView(
                             store: store,
-                            layout: homeLayout,
-                            feed: homeFeed,
-                            heroSelection: $homeHeroID,
-                            category: $homeCategory,
+                            focusRequest: contentFocusRequest,
                             onOpen: onOpen,
                             onPlayback: onPlayback,
-                            focusRequest: contentFocusRequest
-                        )
-                    } else {
-                        ProgressView("Loading Home…")
-                    }
-                case .library:
-                    if libraryCategory == .music {
-                        TVAudioView(
-                            store: store,
-                            onOpen: onOpen,
-                            browse: $audioBrowse,
-                            focusRequest: contentFocusRequest,
-                            restoreFocusRequest: restorationDestination == .library ? restorationRequest : nil,
-                            onRequestHeaderFocus: { focusedPrimaryCategory = .music }
-                        )
-                    } else {
-                        TVVideoView(
-                            store: store,
-                            onOpen: onOpen,
-                            browse: $videoBrowse,
-                            focusRequest: contentFocusRequest,
-                            restoreFocusRequest: restorationDestination == .library ? restorationRequest : nil
+                            onOpenVault: { id in try await store.libraryItem(id: id) }
                         )
                     }
-                case .requests:
-                    TVRequestsView(
-                        store: store,
-                        focusRequest: contentFocusRequest,
-                        onOpen: onOpen,
-                        onPlayback: onPlayback,
-                        onOpenVault: { id in try await store.libraryItem(id: id) }
-                    )
                 }
+                .padding(.top, contentTopPadding)
+                if destination != .home { navigationHeader() }
             }
-            .padding(.top, contentTopPadding)
-            header
-                .focusedValue(\.tvHeroRegion, true)
-                .padding(.horizontal, 80)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-                .background {
-                    LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
-                        .ignoresSafeArea(.container, edges: [.top, .horizontal])
-                        .allowsHitTesting(false)
-                }
-                .focusSection()
-                .onMoveCommand { direction in
-                    if direction == .down, destination == .requests { contentFocusRequest += 1 }
-                }
-                .ignoresSafeArea(.container, edges: .horizontal)
         }
         .background(LuminaTheme.theater.ignoresSafeArea())
         .sheet(isPresented: $homeSearchPresented) {
@@ -825,6 +814,29 @@ private struct TVLibraryView: View {
             }
         }
         .onExitCommand(perform: backAction)
+    }
+
+    private func navigationHeader(topInset: CGFloat = 0) -> some View {
+        header
+            .focusedValue(\.tvHeroRegion, true)
+            .padding(.horizontal, 80)
+            .padding(.top, 12 + topInset)
+            .padding(.bottom, 12)
+            .background {
+                LinearGradient(stops: [
+                    .init(color: .black.opacity(0.75), location: 0),
+                    .init(color: .black.opacity(0.5), location: 0.65),
+                    .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                    .padding(.bottom, -32)
+                    .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                    .allowsHitTesting(false)
+            }
+            .focusSection()
+            .onMoveCommand { direction in
+                if direction == .down, destination == .requests { contentFocusRequest += 1 }
+            }
+            .ignoresSafeArea(.container, edges: .horizontal)
     }
 
     private var backAction: (() -> Void)? {
@@ -1103,7 +1115,7 @@ private struct TVHomeSearchView: View {
     }
 }
 
-private struct TVHomeView: View {
+private struct TVHomeView<Header: View>: View {
     let store: LuminaStore
     let layout: LuminaHomeLayout
     let feed: LuminaHomeFeed
@@ -1112,6 +1124,7 @@ private struct TVHomeView: View {
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let focusRequest: Int
+    @ViewBuilder let header: Header
     @Environment(\.scenePhase) private var scenePhase
     #if LUMINA_UI_TESTING
     @Environment(NativeAudioSession.self) private var audioSession
@@ -1154,14 +1167,14 @@ private struct TVHomeView: View {
                         Text("No watchlist titles are available. Choose Home or add something to your watchlist.")
                             .foregroundStyle(LuminaTheme.muted)
                             .padding(.horizontal, 80)
-                            .padding(.top, 112)
+                            .padding(.top, geometry.safeAreaInsets.top + 112)
                     } else if store.isHomeBusy {
                         ProgressView("Loading Home…").frame(maxWidth: .infinity, minHeight: 650)
                     } else {
                         TVMessageView(title: "Your next great watch starts here", message: store.errorMessage ?? "Add media to Lumina to fill Home with your household library.", actionTitle: "Refresh") {
                             Task { await store.loadHome() }
                         }
-                        .padding(.top, 112)
+                        .padding(.top, geometry.safeAreaInsets.top + 112)
                     }
                     if feed.hasLoaded {
                         ForEach(shelves.filter(\.visible)) { shelf in
@@ -1186,6 +1199,9 @@ private struct TVHomeView: View {
                     }
                 }
                 .padding(.bottom, 80)
+                .overlay(alignment: .top) {
+                    header
+                }
             }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .top])

@@ -1047,3 +1047,40 @@ were inspected on both layouts. Results and source hashes are retained in
 ignored `output/episode-thumbnail-fix/` (`ipad-r8.xcresult`, `phone-r8.xcresult`).
 No full suite, new distribution package or upload was performed; signed build 35
 remains unchanged and predates this correction.
+
+
+## Home header scrolling and TV remote-only video controls — October 29, 2026
+
+On tvOS and iPad, the Home header is now part of the scroll content: logo,
+categories and actions leave the viewport with the top of the page. Library
+headers remain pinned. tvOS adds a bounded top gradient for readable categories
+over bright hero artwork and preserves its safe-area clearance. The regular
+TV video overlay no longer exposes a close icon; remote Back retains dismissal,
+exit and episode-focus restoration. The existing Duo navigation paths and iOS
+video close controls remain in place.
+
+Three focused Release simulator workflows passed:
+
+- Apple TV 4K (2nd generation), tvOS 27.0:
+  `NativeTVLibraryAlphabetTests/testHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned`
+  checks that Home's header disappears over shelves, Up restores it, category
+  selection opens Library, and Library categories stay fixed during real poster
+  scrolling. Result: `output/home-navigation-scroll/tvOS/proof-r3.xcresult`.
+- The same TV's
+  `NativeTVEpisodeRemoteNavigationTests/testEpisodeCardSelectStartsPlayback`
+  verifies decoded playback beyond three seconds, pauses to keep the controls
+  visible, asserts no close icon, and exits using remote Back. Server progress
+  and restored episode focus pass. Result: `tvOS/proof-r5.xcresult` in that folder.
+- iPad Pro 11-inch (M5), iOS 27.0:
+  `NativeLibraryCatalogScrollingTests/testIPadHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned`
+  verifies Home's header scrolls away, category taps still open Library, and the
+  Library row remains fixed while the original poster scrolls out of view.
+  Result: `iOS/proof-r5.xcresult` in that folder. This layout workflow uses the
+  existing test-only static-animation switch to avoid animated sign-in idle
+  waits; shipping animations are unchanged.
+
+Both builds passed. Home, scrolled Library and visible TV controls screenshots
+were inspected, including the top gradient over bright synthetic artwork.
+Source hashes and attachments are retained beside the results. No full suite,
+physical-device qualification, new distribution package or upload was performed.
+These source changes postdate the signed build-35 packages.

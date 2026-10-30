@@ -310,6 +310,15 @@ base picture bytes and omits enhancement pictures. Structural, decoded-frame
 and seek checks qualify this extension locally; physical HDR output, FEL
 reconstruction and device energy/thermal measurements remain unqualified.
 
+Cold M2TS seeking is measured separately from the indexed MKV routes below.
+A synthetic 96.02-second / 46.8-MiB M2TS source places the late anchor 36.5 MiB
+into the transport. The local native workflow exposed the full range before
+playback and rendered the first 75-second seek in 0.352 seconds with 0.57 MiB
+of origin reads. The byte assertion rules out linear prefix replay; forward,
+backward and repeated seeks also rendered. The origin was paced at 2 ms per
+64-KiB chunk. These short local measurements do not qualify arbitrary remote
+networks, large-title latency, HDR display output or device energy.
+
 #### Measured results
 
 Three fresh processes per route/case, alternating order on the same M4 Max/macOS 27.0.1 host with optimized Swift 6 compilation. Three synthetic **60-second** 720p/24 fps fixtures use H.264+24-bit FLAC stereo/5.1 at 48 kHz and HEVC 10-bit+24-bit FLAC 7.1 at 96 kHz. Both paths use the current client binary, probed facts and production decision/FFmpeg builder; the baseline removes MKV from direct profiles. Its HLS is prepared before client timing, while the new first-frame/CPU window includes on-device preparation. First-frame timing therefore does not compare complete server startup/API/network latency. CPU is process CPU time, not a percentage of one core; client CPU covers preparation through one playback second, server CPU covers packaging the entire short fixture.

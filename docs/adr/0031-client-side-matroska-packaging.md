@@ -104,16 +104,29 @@ ADTS packets are normalized to ASC for fMP4. The selected audio must remain
 stream-copyable, and external text sidecars retain the local master. The
 range exception applies only to this direct candidate, never HLS fallback.
 MPEG-TS's demuxer index can contain PCR seek anchors that are not picture
-keyframes. The qualified route therefore starts with the existing sequential
-EVENT playlist and harvests actual base-packet keyframes into a separate cache
-namespace. Only those maps enable the planned VOD/reanchor path on replay;
-demuxer-index maps are neither reused nor persisted as that proof. On a cold,
-unindexed first play, seeking is limited to the produced range rather than
-arbitrary deep positions in a long title. This is a remaining seek-parity gap.
-Cached reanchors currently rewind to the head and discard to the verified PTS,
-so their read cost grows with the seek distance; long-title seek latency is
-not qualified by the short structural fixtures.
-<!-- ponytail: M2TS reanchors scan from the head; persist verified packet byte offsets before claiming fast deep seeks. -->
+keyframes. The qualified route instead scouts a contiguous head prefix of
+actual BL HEVC IRAP access units, bounded to two seconds and 64 MiB of AVIO
+reads. A witnessed prefix seeds the existing partial-map VOD planner: its
+prefix has observed boundaries and its unseen tail follows the existing
+GOP-cadence inference. It does not claim a verified whole-file index. Without
+enough safe evidence the existing sequential EVENT behavior remains available;
+source/cancellation failures retain their ordinary classification.
+
+A deep reanchor uses FFmpeg timestamp seeking only as a locality hint. Before
+publishing video it must find an actual BL IRAP at/after the planned target
+and its exact-PTS valid EL/RPU. Separate search/candidate/verified states keep
+post-keyframe BL pictures while metadata is still arriving. Earlier BL/EL
+pre-roll is discarded at the actual accepted IRAP PTS; decode order remains
+unchanged. Missing or malformed pairs and exhausted locality bounds fail
+closed. EOF does not forgive unmatched future enhancement metadata.
+
+Head resets use the proven BL stream rather than the first/default video
+stream, which can be EL. Only normal producer harvesting persists actual
+packet keys; the startup scout is ephemeral. Cache namespace v2 isolates the
+new head-selection semantics from earlier maps. Unsupported/unseekable sources
+and an inadequate bounded prefix retain limited produced-range seeking;
+arbitrary changes in unseen tail GOP cadence are still an inferred-plan
+qualification boundary, not proof that PCR anchors are keyframes.
 Generic TS/MTS, unmarked HDMV layouts and offline M2TS downloads do not gain
 this capability. Probe cache version 7 invalidates older facts; no SQL schema
 migration is needed.

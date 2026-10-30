@@ -36,6 +36,7 @@ from generate_dv7_fixtures import (
     hevc_stream_bytes,
     mode2_rpus,
     scene_refreshed_rpus,
+    vcl_nals,
 )
 
 
@@ -48,6 +49,12 @@ PRIVATE_PES_STREAM_TYPE = 0x06
 REGISTRATION_DESCRIPTOR = b"\x05\x04DOVI"
 HEVC_DESCRIPTOR_TAG = 0x38
 DOVI_DESCRIPTOR_TAG = 0xB0
+COLD_SEEK_DURATION_SECONDS = 96
+COLD_SEEK_TARGET_SECONDS = 75
+# This is bits per second, as required by FFmpeg's MPEG-TS muxer. It makes the
+# optional long fixture large enough that its bounded 4 MiB transport scan ends
+# well before the 75-second seek anchor without increasing encoder complexity.
+COLD_SEEK_MUX_RATE_BITS_PER_SECOND = 4_000_000
 
 
 @dataclass(frozen=True)
@@ -413,6 +420,50 @@ def packet_times(path: Path, pid: int) -> list[tuple[int, int]]:
     return result
 
 
+def keyframe_pts(path: Path, pid: int) -> list[int]:
+    all_streams = streams(path)
+    stream_index = next(index for index, stream in enumerate(all_streams) if int(str(stream["id"]), 0) == pid)
+    frames = json.loads(run(["ffprobe", "-v", "error", "-show_frames", "-of", "json", str(path)]))["frames"]
+    result = []
+    for frame in frames:
+        if int(frame.get("stream_index", -1)) != stream_index or frame.get("key_frame") != 1:
+            continue
+        timestamp = frame.get("best_effort_timestamp")
+        if timestamp is None:
+            raise ValueError("Video keyframe has no presentation timestamp")
+        result.append(int(timestamp))
+    if not result:
+        raise ValueError("M2TS base layer has no keyframes")
+    return result
+
+
+def pes_pts_offsets(path: Path, pid: int) -> dict[int, int]:
+    """Map unique video PTS values to their M2TS byte offsets."""
+    offsets: dict[int, int] = {}
+    for index, packet in enumerate(m2ts_packets(path.read_bytes())):
+        ts = packet[M2TS_PREFIX_SIZE:]
+        actual_pid, pusi, payload_offset = ts_payload(ts)
+        payload = ts[payload_offset:]
+        if actual_pid != pid or not pusi or len(payload) < 14 or payload[:4] != b"\0\0\1\xe0":
+            continue
+        if payload[7] >> 6 not in {0b10, 0b11} or payload[8] < 5:
+            raise ValueError("Video PES does not carry a bounded PTS header")
+        encoded = payload[9:14]
+        if len(encoded) != 5 or encoded[0] & 1 != 1 or encoded[2] & 1 != 1 or encoded[4] & 1 != 1:
+            raise ValueError("Video PES PTS marker bits are malformed")
+        pts = (
+            ((encoded[0] >> 1) & 0x07) << 30
+            | encoded[1] << 22
+            | ((encoded[2] >> 1) & 0x7F) << 15
+            | encoded[3] << 7
+            | (encoded[4] >> 1)
+        )
+        if pts in offsets:
+            raise ValueError("M2TS video PES repeats a presentation timestamp")
+        offsets[pts] = index * M2TS_PACKET_SIZE
+    return offsets
+
+
 def verify_pes_access_units(path: Path, pair: Pair, frames: int) -> None:
     packets = m2ts_packets(path.read_bytes())
     for pid in (pair.base_pid, pair.enhancement_pid):
@@ -456,6 +507,8 @@ def source_pair(
     source_rpu: bytes,
     *,
     frames: int = FRAMES,
+    scene_frames: tuple[int, ...] | None = None,
+    base_keyint_frames: int = 24,
     malformed_final_rpu: bool = False,
 ) -> tuple[Path, Path, Path, bytes]:
     """Build a B-frame BL and presentation-order EL/RPU source pair."""
@@ -466,10 +519,16 @@ def source_pair(
     rpus = temporary / "p7-source.rpu"
     duration = frames / FRAME_RATE
     encode_timed_layer_mp4(
-        base_mp4, f"testsrc2=size=128x72:rate={FRAME_RATE}:duration={duration}", frames, bframes=2,
+        base_mp4,
+        f"testsrc2=size=128x72:rate={FRAME_RATE}:duration={duration}",
+        frames,
+        bframes=2,
+        keyint=base_keyint_frames,
     )
     encode_layer(enhancement, f"testsrc=size=128x72:rate={FRAME_RATE}:duration={duration}", frames)
-    sequence = scene_refreshed_rpus(temporary, tool, source_rpu, frames)
+    sequence = scene_refreshed_rpus(
+        temporary, tool, source_rpu, frames, scene_frames=scene_frames,
+    )
     rpus.write_bytes(sequence)
     run([tool, "inject-rpu", "-i", str(enhancement), "--rpu-in", str(rpus), "-o", str(injected)])
     if malformed_final_rpu:
@@ -479,16 +538,28 @@ def source_pair(
     return base_mp4, el_mp4, injected, sequence
 
 
-def mux_m2ts(path: Path, base_mp4: Path, el_mp4: Path, pair: Pair, *, el_offset: float = 0) -> None:
+def mux_m2ts(
+    path: Path,
+    base_mp4: Path,
+    el_mp4: Path,
+    pair: Pair,
+    *,
+    frames: int = FRAMES,
+    el_offset: float = 0,
+    mux_rate_bits_per_second: int | None = None,
+) -> None:
     command = ["ffmpeg", "-v", "error", "-y", "-copyts", "-i", str(base_mp4)]
     if el_offset:
         command.extend(["-itsoffset", str(el_offset)])
-    command.extend(["-i", str(el_mp4), "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={FRAMES / FRAME_RATE}"])
+    command.extend(["-i", str(el_mp4), "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={frames / FRAME_RATE}"])
     command.extend([
         "-map", "0:v:0", "-map", "1:v:0", "-map", "2:a:0", "-c:v", "copy", "-c:a", "aac", "-ac", "2",
         "-shortest", "-muxpreload", "0", "-muxdelay", "0", "-mpegts_copyts", "1", "-mpegts_m2ts_mode", "1",
-        "-streamid", f"0:{pair.base_pid}", "-streamid", f"1:{pair.enhancement_pid}", "-streamid", f"2:{pair.audio_pid}", str(path),
+        "-streamid", f"0:{pair.base_pid}", "-streamid", f"1:{pair.enhancement_pid}", "-streamid", f"2:{pair.audio_pid}",
     ])
+    if mux_rate_bits_per_second is not None:
+        command.extend(["-muxrate", str(mux_rate_bits_per_second)])
+    command.append(str(path))
     run(command)
 
 
@@ -504,11 +575,14 @@ def verify_positive(
     *,
     kind: str,
     el_first: bool,
+    frames: int = FRAMES,
+    cold_seek_target_seconds: int | None = None,
+    cold_seek_requires_preroll: bool = False,
 ) -> dict[str, object]:
     signalling = patch_positive(path, pair, base_mp4, el_mp4, el_first=el_first)
     base_times = packet_times(path, pair.base_pid)
     enhancement_times = packet_times(path, pair.enhancement_pid)
-    if len(base_times) != FRAMES or len(enhancement_times) != FRAMES:
+    if len(base_times) != frames or len(enhancement_times) != frames:
         raise ValueError("M2TS source did not retain all video packets")
     if base_times[0][0] != enhancement_times[0][0]:
         raise ValueError("Dual PID initial PTS values do not align")
@@ -516,7 +590,7 @@ def verify_positive(
         raise ValueError("Dual PID tracks do not retain identical PTS sets")
     if not any(pts != dts for pts, dts in base_times) or any(pts != dts for pts, dts in enhancement_times):
         raise ValueError("Expected B-frame BL and presentation-order EL timestamps")
-    verify_pes_access_units(path, pair, FRAMES)
+    verify_pes_access_units(path, pair, frames)
     with tempfile.TemporaryDirectory(prefix="lumina-m2ts-verify-") as temporary_name:
         temporary = Path(temporary_name)
         el_ordinal = video_ordinal_for_pid(path, pair.enhancement_pid)
@@ -525,6 +599,11 @@ def verify_positive(
         if delivered_rpus != source_sequence:
             raise ValueError("M2TS remux changed the EL decode-order source RPU sequence")
         _, output_rpus = expected_output_rpus(temporary, tool, injected, path, pair)
+        base_ordinal = video_ordinal_for_pid(path, pair.base_pid)
+        base_vcls = vcl_nals(hevc_stream_bytes(path, base_ordinal, temporary / "delivered-base.hevc"))
+    output_units = annexb_units(output_rpus)
+    if len(output_units) != frames or len(base_vcls) != frames:
+        raise ValueError("M2TS source did not retain one expected RPU and base VCL per frame")
     source_path = output / f"p7-m2ts-{kind}.rpu"
     expected_path = output / f"p81-m2ts-{kind}.rpu"
     source_path.write_bytes(source_sequence)
@@ -532,10 +611,10 @@ def verify_positive(
     audio = next(stream for stream in streams(path) if stream.get("codec_type") == "audio")
     if audio.get("codec_name") != "aac" or audio.get("channels") != 2:
         raise ValueError("M2TS source lost its stereo AAC stream")
-    return {
+    result: dict[str, object] = {
         "container": path.name,
         "kind": kind,
-        "frames": FRAMES,
+        "frames": frames,
         "sourceRPU": {"file": source_path.name, "sha256": hashlib.sha256(source_sequence).hexdigest(), "order": "EL decode order"},
         "expectedP81": {"file": expected_path.name, "sha256": hashlib.sha256(output_rpus).hexdigest(), "order": "BL decode order matched by PTS"},
         "pair": signalling,
@@ -544,15 +623,74 @@ def verify_positive(
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "structuralOnly": True,
     }
+    if cold_seek_target_seconds is not None:
+        target_frame = cold_seek_target_seconds * FRAME_RATE
+        if not 0 < target_frame < frames:
+            raise ValueError("Cold seek target is outside the generated fixture")
+        presentation_pts = sorted(pts for pts, _ in base_times)[target_frame]
+        decode_index = next(index for index, (pts, _) in enumerate(base_times) if pts == presentation_pts)
+        byte_offset = pes_pts_offsets(path, pair.base_pid).get(presentation_pts)
+        if byte_offset is None:
+            raise ValueError("Cold seek target lacks a base-layer PES byte offset")
+        keyframes = keyframe_pts(path, pair.base_pid)
+        irap_floor = max((pts for pts in keyframes if pts <= presentation_pts), default=None)
+        if irap_floor is None:
+            raise ValueError("Cold seek target has no preceding base-layer IRAP")
+        irap_floor_frame = sorted(pts for pts, _ in base_times).index(irap_floor)
+        if cold_seek_requires_preroll and irap_floor == presentation_pts:
+            raise ValueError("Cold seek target unexpectedly lands on an IRAP")
+        result["coldSeek"] = {
+            "targetSeconds": cold_seek_target_seconds,
+            "targetFrame": target_frame,
+            "presentationPTS": presentation_pts,
+            "basePESByteOffset": byte_offset,
+            "expectedP81RPUIndex": decode_index,
+            "expectedP81RPUSHA256": hashlib.sha256(output_units[decode_index]).hexdigest(),
+            "expectedBaseVCLSHA256": hashlib.sha256(base_vcls[decode_index]).hexdigest(),
+            "baseIRAPFloorPTS": irap_floor,
+            "baseIRAPFloorFrame": irap_floor_frame,
+            "baseIRAPPrerollFrames": target_frame - irap_floor_frame,
+            "sourceBytes": path.stat().st_size,
+        }
+    return result
 
 
-def generate_positive(output: Path, tool: str, kind: str, source_rpu: bytes, pair: Pair, *, el_first: bool = False) -> dict[str, object]:
+def generate_positive(
+    output: Path,
+    tool: str,
+    kind: str,
+    source_rpu: bytes,
+    pair: Pair,
+    *,
+    el_first: bool = False,
+    frames: int = FRAMES,
+    scene_frames: tuple[int, ...] | None = None,
+    mux_rate_bits_per_second: int | None = None,
+    cold_seek_target_seconds: int | None = None,
+    base_keyint_frames: int = 24,
+    cold_seek_requires_preroll: bool = False,
+) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"lumina-m2ts-{kind}-") as name:
         temporary = Path(name)
-        base_mp4, el_mp4, injected, sequence = source_pair(temporary, tool, source_rpu)
+        base_mp4, el_mp4, injected, sequence = source_pair(
+            temporary,
+            tool,
+            source_rpu,
+            frames=frames,
+            scene_frames=scene_frames,
+            base_keyint_frames=base_keyint_frames,
+        )
         media = output / f"p7-m2ts-{kind}.m2ts"
-        mux_m2ts(media, base_mp4, el_mp4, pair)
-        return verify_positive(media, tool, pair, base_mp4, el_mp4, injected, sequence, output, kind=kind, el_first=el_first)
+        mux_m2ts(
+            media, base_mp4, el_mp4, pair, frames=frames,
+            mux_rate_bits_per_second=mux_rate_bits_per_second,
+        )
+        return verify_positive(
+            media, tool, pair, base_mp4, el_mp4, injected, sequence, output,
+            kind=kind, el_first=el_first, frames=frames,
+            cold_seek_target_seconds=cold_seek_target_seconds,
+            cold_seek_requires_preroll=cold_seek_requires_preroll,
+        )
 
 
 def mutate_pmt(path: Path, destination: Path, mutation: Callable[[bytes, int], bytes]) -> None:
@@ -760,7 +898,47 @@ def generate_negatives(output: Path, positive: Path, pair: Pair, tool: str, sour
     ]
 
 
-def generate(output: Path, tool: str, *, positives_only: bool) -> None:
+def generate_cold_seek_positive(
+    output: Path,
+    tool: str,
+    source_rpu: bytes,
+    duration_seconds: int,
+    *,
+    gop_frames: int,
+) -> dict[str, object]:
+    if duration_seconds < COLD_SEEK_DURATION_SECONDS:
+        raise ValueError(
+            f"Cold seek duration must be at least {COLD_SEEK_DURATION_SECONDS} seconds"
+        )
+    frames = duration_seconds * FRAME_RATE
+    if not 0 < gop_frames <= frames:
+        raise ValueError("Cold seek base GOP length must be within the fixture frame count")
+    return generate_positive(
+        output,
+        tool,
+        "cold-seek-mel",
+        source_rpu,
+        NONCONVENTIONAL_PAIR,
+        el_first=True,
+        frames=frames,
+        # The RPU refresh cadence continues across the 75-second anchor; an
+        # anchor fragment can therefore prove ordering rather than only count.
+        scene_frames=tuple(range(0, frames, FRAME_RATE)),
+        mux_rate_bits_per_second=COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+        cold_seek_target_seconds=COLD_SEEK_TARGET_SECONDS,
+        base_keyint_frames=gop_frames,
+        cold_seek_requires_preroll=gop_frames > FRAME_RATE,
+    )
+
+
+def generate(
+    output: Path,
+    tool: str,
+    *,
+    positives_only: bool,
+    cold_seek_duration_seconds: int | None = None,
+    cold_seek_gop_frames: int = 24,
+) -> None:
     output.mkdir(parents=True, exist_ok=True)
     sources = {kind: download(details["source"], details["source_sha256"]) for kind, details in P7_VECTORS.items()}
     positives = [
@@ -770,6 +948,16 @@ def generate(output: Path, tool: str, *, positives_only: bool) -> None:
     ]
     negatives = [] if positives_only else generate_negatives(
         output, output / "p7-m2ts-mel.m2ts", CONVENTIONAL_PAIR, tool, sources["mel"],
+    )
+    cold_seek = (
+        generate_cold_seek_positive(
+            output,
+            tool,
+            sources["mel"],
+            cold_seek_duration_seconds,
+            gop_frames=cold_seek_gop_frames,
+        )
+        if cold_seek_duration_seconds is not None else None
     )
     manifest = {
         "purpose": "Structural dual-PID Profile 7 MPEG-TS/M2TS signalling and pairing; not Dolby colour, FEL residual, or player certification",
@@ -783,6 +971,18 @@ def generate(output: Path, tool: str, *, positives_only: bool) -> None:
             "The PMT writer is bounded to one-packet PAT/PMT sections and verifies CRCs after every rewrite.",
         ],
     }
+    if cold_seek is not None:
+        manifest["coldSeek"] = {
+            "fixture": cold_seek,
+            "durationSeconds": cold_seek_duration_seconds,
+            "muxRateBitsPerSecond": COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+            "baseGOPFrames": cold_seek_gop_frames,
+            "producerLeadSeconds": 30,
+            "purpose": (
+                "Opt-in cold-seek transport regression: a fresh session seeks "
+                "before prefix playback to a verified late anchor."
+            ),
+        }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
@@ -791,5 +991,25 @@ if __name__ == "__main__":
     parser.add_argument("--dovi-tool", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--positives-only", action="store_true")
+    parser.add_argument(
+        "--cold-seek-duration-seconds",
+        type=int,
+        help=(
+            "Also generate a long, constant-mux-rate p7-m2ts-cold-seek-mel.m2ts "
+            f"fixture (minimum {COLD_SEEK_DURATION_SECONDS}s; defaults remain unchanged)."
+        ),
+    )
+    parser.add_argument(
+        "--cold-seek-gop-frames",
+        type=int,
+        default=24,
+        help="Base-layer GOP length for the optional cold-seek fixture (default: 24).",
+    )
     arguments = parser.parse_args()
-    generate(arguments.output, arguments.dovi_tool, positives_only=arguments.positives_only)
+    generate(
+        arguments.output,
+        arguments.dovi_tool,
+        positives_only=arguments.positives_only,
+        cold_seek_duration_seconds=arguments.cold_seek_duration_seconds,
+        cold_seek_gop_frames=arguments.cold_seek_gop_frames,
+    )

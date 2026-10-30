@@ -134,13 +134,22 @@ def encode_layer(destination: Path, pattern: str, frames: int) -> None:
     ])
 
 
-def encode_timed_layer_mp4(destination: Path, pattern: str, frames: int, *, bframes: int) -> None:
+def encode_timed_layer_mp4(
+    destination: Path,
+    pattern: str,
+    frames: int,
+    *,
+    bframes: int,
+    keyint: int = 24,
+) -> None:
     """Encode directly into MP4 so its distinct decode/presentation order survives."""
+    if keyint <= 0:
+        raise ValueError("Timed HEVC keyframe interval must be positive")
     run([
         "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", pattern,
         "-frames:v", str(frames), "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast",
         "-x265-params",
-        f"pools=1:frame-threads=1:bframes={bframes}:b-adapt=0:keyint=24:min-keyint=24:scenecut=0:repeat-headers=1",
+        f"pools=1:frame-threads=1:bframes={bframes}:b-adapt=0:keyint={keyint}:min-keyint={keyint}:scenecut=0:repeat-headers=1",
         "-tag:v", "hvc1", str(destination),
     ])
 
@@ -343,14 +352,26 @@ def expect_reordered_pair(media: Path, temporary: Path, tool: str, base_elementa
         raise ValueError("Reordered fixture AAC DTS is not monotonic")
 
 
-def scene_refreshed_rpus(temporary: Path, tool: str, source_rpu: bytes, frames: int) -> bytes:
+def scene_refreshed_rpus(
+    temporary: Path,
+    tool: str,
+    source_rpu: bytes,
+    frames: int,
+    *,
+    scene_frames: tuple[int, ...] | None = None,
+) -> bytes:
     """Use dovi_tool's pinned editor grammar to make frame association observable."""
     original = temporary / "rpus-original.bin"
     configuration = temporary / "scene-cuts.json"
     edited = temporary / "rpus-varied.bin"
     scenes = temporary / "scene-cuts.txt"
     original.write_bytes(source_rpu * frames)
-    scene_frames = [frame for frame in SEPARATE_SCENE_REFRESH_FRAMES if frame < frames]
+    # Keep the existing short-fixture cadence byte-for-byte unchanged unless a
+    # caller explicitly asks for a longer observable sequence.
+    selected_scene_frames = (
+        SEPARATE_SCENE_REFRESH_FRAMES if scene_frames is None else scene_frames
+    )
+    scene_frames = [frame for frame in selected_scene_frames if 0 <= frame < frames]
     configuration.write_text(json.dumps({
         "scene_cuts": {"all": False, **{f"{frame}-{frame}": True for frame in scene_frames}},
     }))

@@ -344,6 +344,16 @@ final class LuminaClient: @unchecked Sendable {
                 "EnhancementLayerDisposition": $0.enhancementLayerDisposition,
             ]
         }
+        let transportDolbyVisionPackagingConversions: [[String: Any]] = capabilities.transportDolbyVisionPackagingConversions.map {
+            [
+                "SourceProfile": $0.sourceProfile,
+                "SourceCompatibilityIDs": $0.sourceCompatibilityIDs,
+                "TargetProfile": $0.targetProfile,
+                "TargetCompatibilityID": $0.targetCompatibilityID,
+                "MaxLevel": $0.maxLevel,
+                "EnhancementLayerDisposition": $0.enhancementLayerDisposition,
+            ]
+        }
         // The pinned PrismCore engine's qualified Matroska packaging retains the complete
         // P5/P8 configuration and RPU sequence, including subtitle masters.
         // This independent delivery policy does not authorize server HLS DV.
@@ -359,6 +369,18 @@ final class LuminaClient: @unchecked Sendable {
                 "LuminaDolbyVisionSeparateTrackPackaging": matroska.contains(.hevc) && !dolbyVisionPackagingConversions.isEmpty,
             ],
         ]
+        var profile: [String: Any] = ["DirectPlayProfiles": directProfiles]
+        // This custom top-level declaration is intentionally not an ordinary
+        // M2TS DirectPlayProfile: old servers ignore it rather than widening
+        // generic HEVC/M2TS direct playback without pair validation.
+        if !forceCompatibleVideo, !transportDolbyVisionPackagingConversions.isEmpty {
+            profile["LuminaDolbyVisionTransportProfiles"] = [[
+                "Type": "Video", "Container": "m2ts", "VideoCodec": "hevc", "AudioCodec": "aac,ac3,eac3",
+                "LuminaDolbyVisionProfiles": [],
+                "LuminaDolbyVisionPackagingConversions": transportDolbyVisionPackagingConversions,
+                "LuminaDolbyVisionM2TSPairing": true,
+            ]]
+        }
         var videoProfiles = [[String: Any]]()
         for codec in ordered {
             let directRanges = capabilities.ranges(for: codec, delivery: .directMP4)
@@ -416,12 +438,12 @@ final class LuminaClient: @unchecked Sendable {
                 "Conditions": [["Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"]],
             ])
         }
-        return [
-            "DirectPlayProfiles": directProfiles,
+        profile.merge([
             "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": codecList(hls), "AudioCodec": "aac"]],
             "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
             "CodecProfiles": videoProfiles,
-        ]
+        ], uniquingKeysWith: { _, new in new })
+        return profile
     }
 
     func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo,
@@ -457,7 +479,10 @@ final class LuminaClient: @unchecked Sendable {
             ]), sameOrigin(origin, direct) else { throw LuminaError.unsafeURL }
             return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
-                                   usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()),
+                                   usesClientDemux: !item.isAudio && (
+                                       ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased())
+                                       || (source.container?.lowercased() == "m2ts" && source.clientPackaging == "p7_m2ts_to_p81_drop_el")
+                                   ),
                                    usesCompatibleVideo: usesCompatibleVideo,
                                    bitRate: source.bitRate, sourceContainer: source.container,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
@@ -872,6 +897,7 @@ struct MediaSource: Decodable {
     let bitRate: Int?
     let supportsTranscoding: Bool
     let transcodingURL: String?
+    let clientPackaging: String?
     let mediaStreams: [MediaStream]
     let defaultAudioStreamIndex: Int?
     let defaultSubtitleStreamIndex: Int?
@@ -881,7 +907,7 @@ struct MediaSource: Decodable {
     let chapters: [PlaybackChapter]?
     enum CodingKeys: String, CodingKey {
         case container = "Container", bitRate = "Bitrate"
-        case id = "Id", supportsDirectPlay = "SupportsDirectPlay", supportsTranscoding = "SupportsTranscoding", transcodingURL = "TranscodingUrl"
+        case id = "Id", supportsDirectPlay = "SupportsDirectPlay", supportsTranscoding = "SupportsTranscoding", transcodingURL = "TranscodingUrl", clientPackaging = "LuminaClientPackaging"
         case mediaStreams = "MediaStreams", defaultAudioStreamIndex = "DefaultAudioStreamIndex", defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
         case runTimeTicks = "RunTimeTicks", chapters = "Chapters"
     }
@@ -895,6 +921,7 @@ struct MediaSource: Decodable {
         bitRate = rawBitRate.flatMap { (1...1_000_000_000).contains($0) ? $0 : nil }
         supportsTranscoding = try values.decodeIfPresent(Bool.self, forKey: .supportsTranscoding) ?? false
         transcodingURL = try values.decodeIfPresent(String.self, forKey: .transcodingURL)
+        clientPackaging = try values.decodeIfPresent(String.self, forKey: .clientPackaging)
         mediaStreams = try values.decodeIfPresent([MediaStream].self, forKey: .mediaStreams) ?? []
         defaultAudioStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultAudioStreamIndex)
         defaultSubtitleStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultSubtitleStreamIndex)

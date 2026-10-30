@@ -129,6 +129,11 @@ def test_transcoding_fields_direct_and_hls() -> None:
     item, psid = "ab" * 16, "c" * 32
     direct = transcoding_fields(SimpleNamespace(mode="direct", height=None, reasons=()), item_id=item, play_session_id=psid, api_key="tok", audio_index=None, subtitle_index=None)
     assert direct == {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
+    paired_m2ts = transcoding_fields(
+        SimpleNamespace(mode="direct", height=None, reasons=(), client_packaging="p7_m2ts_to_p81_drop_el"),
+        item_id=item, play_session_id=psid, api_key="tok", audio_index=None, subtitle_index=None,
+    )
+    assert paired_m2ts["LuminaClientPackaging"] == "p7_m2ts_to_p81_drop_el"
     hls = transcoding_fields(
         SimpleNamespace(mode="transcode", video="encode", video_codec="h264", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported")),
         item_id=item, play_session_id=psid, api_key="t/k", audio_index=1, subtitle_index=None,

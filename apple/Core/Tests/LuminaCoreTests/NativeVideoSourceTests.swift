@@ -501,6 +501,22 @@ final class NativeVideoSourceTests: XCTestCase {
         }
     }
 
+    func testM2TSProfile7PairsConvertToProfile81() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUMINA_DV7_M2TS_DIRECTORY"], !path.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_M2TS_DIRECTORY to the generated M2TS corpus")
+        }
+        let directory = URL(fileURLWithPath: path)
+        for kind in ["mel", "fel"] {
+            let fixture = directory.appendingPathComponent("p7-m2ts-\(kind).m2ts")
+            let expected = directory.appendingPathComponent("p81-m2ts-\(kind).rpu")
+            for subtitles in [false, true] {
+                try await assertProfile7Conversion(fixture, expectedRPU: expected,
+                                                  withExternalSubtitle: subtitles, separateTracks: true,
+                                                  transportPairing: true)
+            }
+        }
+    }
+
     func testDolbyVisionConversionSnapshotRejectsIncompleteConversionEvidence() {
         let noConvertedRPUs = NativeVideoSource.DolbyVisionConversionSnapshot(
             convertedRPUs: 0, failedRPUs: 0, droppedEnhancementLayerNALs: 1,
@@ -597,9 +613,56 @@ final class NativeVideoSourceTests: XCTestCase {
         if let path = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_REORDERED_FIXTURE"], !path.isEmpty {
             fixtures.append(URL(fileURLWithPath: path))
         }
+        try await assertBasePlaybackAdvancesAndSeeks(fixtures)
+    }
+
+    func testM2TSRequiredPairingRejectsInvalidTransportOrPackets() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUMINA_DV7_M2TS_DIRECTORY"], !path.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_M2TS_DIRECTORY to the generated M2TS corpus")
+        }
+        let directory = URL(fileURLWithPath: path)
+        for name in ["p7-m2ts-invalid-no-dovi.m2ts", "p7-m2ts-invalid-dependency.m2ts",
+                     "p7-m2ts-invalid-ambiguous-el.m2ts", "p7-m2ts-invalid-missing-el-au.m2ts",
+                     "p7-m2ts-invalid-shifted-el-pts.m2ts", "p7-m2ts-invalid-final-rpu.m2ts"] {
+            let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+            defer { owner.stop() }
+            do {
+                _ = try await owner.prepare(url: directory.appendingPathComponent(name), usesClientDemux: true,
+                                            requireDolbyVisionTransportPairing: true)
+                // Packet-level corruption can arrive after the initial item.
+                // These bounded fixtures finish inside the producer lead window.
+                let deadline = ContinuousClock.now + .seconds(5)
+                while ContinuousClock.now < deadline {
+                    if await owner.dolbyVisionConversion?.hasFailure == true { break }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                try await owner.validateDolbyVisionConversion()
+                XCTFail("Required pairing must reject invalid transport or packets: \(name)")
+            } catch let error as NativeVideoSource.SelectionError {
+                XCTAssertEqual(error, .invalidDolbyVisionConversion, name)
+            }
+        }
+    }
+
+    func testM2TSProfile7BasePlaybackAdvancesAndSeeks() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUMINA_DV7_M2TS_DIRECTORY"], !path.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_M2TS_DIRECTORY for local M2TS base-picture playback")
+        }
+        let directory = URL(fileURLWithPath: path)
+        let fixtures = ["p7-m2ts-mel.m2ts", "p7-m2ts-fel.m2ts", "p7-m2ts-nonconventional-mel.m2ts"]
+            .map { directory.appendingPathComponent($0) }
+        try await assertBasePlaybackAdvancesAndSeeks(fixtures, transportPairing: true)
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixtures[0]), mime: "video/mp2t", delay: 0)
+        let remote = try await server.start().deletingLastPathComponent().appendingPathComponent("paired.m2ts")
+        defer { server.stop() }
+        try await assertBasePlaybackAdvancesAndSeeks([remote], transportPairing: true)
+    }
+
+    private func assertBasePlaybackAdvancesAndSeeks(_ fixtures: [URL], transportPairing: Bool = false) async throws {
         for fixture in fixtures {
             let owner = NativeVideoSource()
-            let item = try await owner.prepare(url: fixture, usesClientDemux: true)
+            let item = try await owner.prepare(url: fixture, usesClientDemux: true,
+                                               requireDolbyVisionTransportPairing: transportPairing)
             let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
             ])
@@ -635,7 +698,7 @@ final class NativeVideoSourceTests: XCTestCase {
                     }
                     try await Task.sleep(for: .milliseconds(20))
                 }
-                XCTAssertTrue(decodedTarget, "Separate-track seek must render \(target)s: \(fixture.lastPathComponent)")
+                XCTAssertTrue(decodedTarget, "Paired-stream seek must render \(target)s: \(fixture.lastPathComponent)")
             }
             try await owner.validateDolbyVisionConversion()
         }
@@ -697,17 +760,22 @@ final class NativeVideoSourceTests: XCTestCase {
     }
 
     private func assertProfile7Conversion(
-        _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool, separateTracks: Bool = false
+        _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool, separateTracks: Bool = false,
+        transportPairing: Bool = false
     ) async throws {
         guard FileManager.default.isReadableFile(atPath: fixture.path),
               FileManager.default.isReadableFile(atPath: expectedRPU.path) else {
             throw XCTSkip("Missing generated Profile 7 conversion fixture")
         }
-        XCTAssertEqual(try doviConfiguration(in: fixture), [
-            "dv_profile": "7", "dv_level": "6", "rpu_present_flag": separateTracks ? "0" : "1",
-            "el_present_flag": separateTracks ? "0" : "1", "bl_present_flag": "1",
-            "dv_bl_signal_compatibility_id": "6"
-        ])
+        // A transport BL correctly has no DOVI configuration; its role comes
+        // from the explicit PMT dependency, not an invented BL record.
+        if !transportPairing {
+            XCTAssertEqual(try doviConfiguration(in: fixture), [
+                "dv_profile": "7", "dv_level": "6", "rpu_present_flag": separateTracks ? "0" : "1",
+                "el_present_flag": separateTracks ? "0" : "1", "bl_present_flag": "1",
+                "dv_bl_signal_compatibility_id": "6"
+            ])
+        }
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -721,6 +789,7 @@ final class NativeVideoSourceTests: XCTestCase {
         let item = try await owner.prepare(
             url: fixture,
             usesClientDemux: true,
+            requireDolbyVisionTransportPairing: transportPairing,
             externalSubtitles: withExternalSubtitle
                 ? [.init(fileURL: subtitle, language: "en", name: "P7 fixture")]
                 : []
@@ -733,7 +802,7 @@ final class NativeVideoSourceTests: XCTestCase {
         if withExternalSubtitle { XCTAssertTrue(master.contains("SUBTITLES=")) }
 
         let mediaURL = try hlsVariant(master, relativeTo: masterURL)
-        let media = try await text(at: mediaURL)
+        let media = try await completeMediaPlaylist(at: mediaURL)
         let initialization = try await bytes(at: hlsMap(media, relativeTo: mediaURL))
         XCTAssertTrue(contains(initialization, Data("hvc1".utf8)))
         XCTAssertTrue(contains(initialization, Data("dvvC".utf8)))
@@ -786,7 +855,7 @@ final class NativeVideoSourceTests: XCTestCase {
         if separateTracks {
             if deliveredAudioDTS.isEmpty {
                 let audioURL = try hlsAudioPlaylist(master, relativeTo: masterURL)
-                let audio = try await text(at: audioURL)
+                let audio = try await completeMediaPlaylist(at: audioURL)
                 let audioInitialization = try await bytes(at: hlsMap(audio, relativeTo: audioURL))
                 for (index, segment) in try hlsSegments(audio, relativeTo: audioURL).enumerated() {
                     let fragment = try await bytes(at: segment)
@@ -881,6 +950,17 @@ final class NativeVideoSourceTests: XCTestCase {
         }
         XCTAssertEqual(deliveredRPUs, sourceRPUs,
                        "The complete HLS delivery changed, dropped, or reordered a Dolby Vision RPU")
+    }
+
+    private func completeMediaPlaylist(at url: URL) async throws -> String {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while ContinuousClock.now < deadline {
+            let playlist = try await text(at: url)
+            if playlist.contains("#EXT-X-ENDLIST") { return playlist }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw NSError(domain: "NativeVideoSourceTests", code: 11,
+                      userInfo: [NSLocalizedDescriptionKey: "The bounded fixture did not publish its complete playlist"])
     }
 
     private func text(at url: URL) async throws -> String {

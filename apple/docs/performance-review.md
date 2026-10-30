@@ -298,9 +298,17 @@ Focused validation passed: 152 backend cases across playback decisions, Jellyfin
 
 ### 2e. Video: original MKV delivery with on-device stream copy
 
-The native client now advertises MKV only when it can feed the original into the new `NativeVideoSource` adapter. Exactly pinned PrismCore 3.8.1 plus Lumina's final-segment statistics and separate-track Dolby Vision packaging patches demuxes and packages compatible streams on demand; the existing AVPlayer/AVKit UI still decodes, renders, seeks and reports progress. The public fork source and the shipping immutable revision are recorded in the bundled notices and Swift Package Manager lockfiles. This is **direct original delivery with local remuxing**, not native AVFoundation Matroska demuxing and not zero client work. No server remux process is started for qualified MKV. The initial native-only reproduction failed with AVFoundation `-11828`, unsupported format.
+The native client now advertises MKV only when it can feed the original into the new `NativeVideoSource` adapter. Exactly pinned PrismCore 3.8.1 plus Lumina's final-segment statistics and explicitly paired Dolby Vision packaging patches demuxes and packages compatible streams on demand; the existing AVPlayer/AVKit UI still decodes, renders, seeks and reports progress. The public fork source and the shipping immutable revision are recorded in the bundled notices and Swift Package Manager lockfiles. This is **direct original delivery with local remuxing**, not native AVFoundation Matroska demuxing and not zero client work. No server remux process is started for qualified MKV. The initial native-only reproduction failed with AVFoundation `-11828`, unsupported format.
 
 The adapter uses loopback-only delivery, coordinated range reads, one selected stream-copyable audio track (which can be a separate HLS rendition), a 64 MiB segment retention budget and a four-second forward-buffer preference. Stop/cancellation/replay invalidate session ownership. The workflow regression requires real frames, enabled audio, advancing playback, seek, listener shutdown, canceled startup and a fresh replay URL. The real backend fixture test additionally negotiates MKV direct delivery and saves playback progress, then checks the explicit forced-HLS fallback. See [ADR 0031](../../docs/adr/0031-client-side-matroska-packaging.md).
+
+The M2TS Dolby Vision extension uses the same native decoder and bounded local
+packaging session, but requires an explicit PMT dependency-PID association.
+It adds a bounded four-MiB header scan and AAC ADTS normalization; the MKV
+measurements below do not measure those costs. Its P7-to-P8.1 path retains
+base picture bytes and omits enhancement pictures. Structural, decoded-frame
+and seek checks qualify this extension locally; physical HDR output, FEL
+reconstruction and device energy/thermal measurements remain unqualified.
 
 #### Measured results
 

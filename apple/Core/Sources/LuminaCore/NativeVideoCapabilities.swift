@@ -45,17 +45,22 @@ struct NativeVideoCapabilities: Equatable, Sendable {
     let hlsBitDepth: [Codec: Int]
     let directMP4DolbyVisionProfiles: [DolbyVisionProfile]
     let matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion]
+    /// M2TS pair conversion is a separately qualified transport path. It is
+    /// never inferred from the Matroska declaration at the protocol boundary.
+    let transportDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion]
 
     init(directMP4: [Codec: Set<Range>], directMP4BitDepth: [Codec: Int],
          hls: [Codec: Set<Range>], hlsBitDepth: [Codec: Int],
          directMP4DolbyVisionProfiles: [DolbyVisionProfile] = [],
-         matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = []) {
+         matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = [],
+         transportDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = []) {
         self.directMP4 = directMP4
         self.directMP4BitDepth = directMP4BitDepth
         self.hls = hls
         self.hlsBitDepth = hlsBitDepth
         self.directMP4DolbyVisionProfiles = directMP4DolbyVisionProfiles
         self.matroskaDolbyVisionPackagingConversions = matroskaDolbyVisionPackagingConversions
+        self.transportDolbyVisionPackagingConversions = transportDolbyVisionPackagingConversions
     }
 
     /// The established compatibility request never relies on a modern decoder
@@ -66,7 +71,8 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         hls: [.h264: [.sdr]],
         hlsBitDepth: [.h264: 8],
         directMP4DolbyVisionProfiles: [],
-        matroskaDolbyVisionPackagingConversions: []
+        matroskaDolbyVisionPackagingConversions: [],
+        transportDolbyVisionPackagingConversions: []
     )
 
     static func current() -> Self {
@@ -160,7 +166,8 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         }
         return Self(directMP4: direct, directMP4BitDepth: directBitDepth, hls: hls,
                     hlsBitDepth: hlsBitDepth, directMP4DolbyVisionProfiles: dolbyVisionProfiles,
-                    matroskaDolbyVisionPackagingConversions: matroskaConversions)
+                    matroskaDolbyVisionPackagingConversions: matroskaConversions,
+                    transportDolbyVisionPackagingConversions: matroskaConversions)
     }
 
     func ranges(for codec: Codec, delivery: Delivery) -> Set<Range> {

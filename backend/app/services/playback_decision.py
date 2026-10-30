@@ -54,6 +54,10 @@ class DirectProfile:
     # A separate-track Profile 7 carriage needs an additional client/engine
     # qualification; ordinary P7 conversion capability does not imply it.
     profile7_separate_track_packaging: bool = False
+    # MPEG-TS has a distinct, explicitly validated two-PID carriage.  It is
+    # declared outside Jellyfin's normal DirectPlayProfiles so older servers do
+    # not mistake a generic HEVC/M2TS row for this lossy conversion route.
+    profile7_m2ts_pair_packaging: bool = False
 
 
 @dataclass(frozen=True)
@@ -277,6 +281,86 @@ def _is_profile7_packaging_direct_candidate(
     return any(_profile_can_package_profile7(profile, tokens, video, audio, videos) for profile in profiles)
 
 
+_M2TS_PAIR_KEYS = {
+    "packet_size", "program_number", "pmt_pid", "base_pid", "enhancement_pid",
+    "base_stream_index", "enhancement_stream_index", "dv_profile", "dv_level", "dv_compat",
+}
+
+
+def _m2ts_pair_base(facts: Mapping[str, Any], videos: list[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """Return only a complete, probe-validated P7 M2TS base track.
+
+    Facts are persisted/untrusted input, so repeat the small structural check
+    here rather than treating a cache marker as an authorization by itself.
+    """
+    pair = facts.get("dv_transport_pair")
+    if (
+        facts.get("m2ts_suffix") is not True
+        or str(facts.get("container") or "").split(",") != ["mpegts"]
+        or not isinstance(pair, dict)
+        or set(pair) != _M2TS_PAIR_KEYS
+    ):
+        return None
+    required = {
+        "packet_size": 192, "dv_profile": 7, "dv_compat": 6,
+    }
+    if any(pair.get(key) != value or type(pair.get(key)) is not int for key, value in required.items()):
+        return None
+    if type(pair.get("dv_level")) is not int or not 1 <= pair["dv_level"] <= 9:
+        return None
+    for key in ("program_number", "pmt_pid", "base_pid", "enhancement_pid", "base_stream_index", "enhancement_stream_index"):
+        if type(pair.get(key)) is not int:
+            return None
+    if pair["base_pid"] == pair["enhancement_pid"] or pair["base_stream_index"] == pair["enhancement_stream_index"]:
+        return None
+    if len(videos) != 2:
+        return None
+    by_index = {stream.get("index"): stream for stream in videos}
+    base, enhancement = by_index.get(pair["base_stream_index"]), by_index.get(pair["enhancement_stream_index"])
+    if base is None or enhancement is None:
+        return None
+    if any(stream.get("codec") != "hevc" or bit_depth(stream) != 10 or stream.get("program_number") != pair["program_number"] for stream in (base, enhancement)):
+        return None
+    if base.get("ts_pid") != pair["base_pid"] or enhancement.get("ts_pid") != pair["enhancement_pid"]:
+        return None
+    expected = {
+        "dv_profile": 7, "dv_compat": 6, "dv_level": pair["dv_level"],
+        "dv_rpu_present": True, "dv_el_present": True, "dv_bl_present": False,
+    }
+    if any(enhancement.get(key) is not None and enhancement.get(key) != value for key, value in expected.items()):
+        return None
+    rates = (base.get("frame_rate"), enhancement.get("frame_rate"))
+    if any(rate is not None and (type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0) for rate in rates):
+        return None
+    if rates[0] is not None and rates[1] is not None and rates[0] != rates[1]:
+        return None
+    return base
+
+
+def _profile_can_package_m2ts_profile7(
+    profile: DirectProfile, tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+    facts: Mapping[str, Any], videos: list[Mapping[str, Any]],
+) -> bool:
+    base = _m2ts_pair_base(facts, videos)
+    pair = facts.get("dv_transport_pair")
+    pair_level = pair.get("dv_level") if isinstance(pair, dict) else None
+    return (
+        profile.profile7_m2ts_pair_packaging
+        and profile.profile7_to_81_max_level is not None
+        and profile.containers == frozenset({"m2ts"})
+        and base is not None and video is base
+        and _profile_matches(profile, tokens, base.get("codec"), audio and audio.get("codec"))
+        and pair_level <= profile.profile7_to_81_max_level
+    ) if type(pair_level) is int else False
+
+
+def _is_m2ts_profile7_packaging_direct_candidate(
+    profiles: Iterable[DirectProfile], tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+    facts: Mapping[str, Any], videos: list[Mapping[str, Any]],
+) -> bool:
+    return any(_profile_can_package_m2ts_profile7(profile, tokens, video, audio, facts, videos) for profile in profiles)
+
+
 def _height_for_bitrate(cap: int | None) -> int | None:
     if not cap:
         return None
@@ -352,7 +436,9 @@ def _encoded_video_choice(client: ClientCaps, limits: Limits, video: Mapping[str
 def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits(), audio_index: int | None = None, subtitle_index: int | None = None) -> Decision:
     streams = [s for s in facts.get("streams") or [] if isinstance(s, dict)]
     videos = [s for s in streams if s.get("type") == "video"]
-    video = next(iter(videos), None)
+    # A validated M2TS marker identifies the base PID; never infer it from
+    # ffprobe stream ordering (the EL may be listed first).
+    video = _m2ts_pair_base(facts, videos) or next(iter(videos), None)
     audios = [s for s in streams if s.get("type") == "audio"]
     default_audio = next((s for s in audios if s.get("default")), audios[0] if audios else None)
     audio = next((s for s in audios if s.get("index") == audio_index), default_audio)
@@ -398,9 +484,13 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     tokens = _container_tokens(facts)
     direct_dovi = _is_dolby_vision_direct_candidate(client.direct, tokens, video, audio)
     profile7_packaging = _is_profile7_packaging_direct_candidate(client.direct, tokens, video, audio, videos)
+    m2ts_profile7_packaging = _is_m2ts_profile7_packaging_direct_candidate(client.direct, tokens, video, audio, facts, videos)
     playable = any(
-        _profile_matches(profile, tokens, video and video.get("codec"), audio and audio.get("codec"))
-        and (_dolby_vision_matches(profile, video) or _profile_can_package_profile7(profile, tokens, video, audio, videos))
+        _profile_can_package_m2ts_profile7(profile, tokens, video, audio, facts, videos)
+        if profile.profile7_m2ts_pair_packaging else (
+            _profile_matches(profile, tokens, video and video.get("codec"), audio and audio.get("codec"))
+            and (_dolby_vision_matches(profile, video) or _profile_can_package_profile7(profile, tokens, video, audio, videos))
+        )
         for profile in client.direct
     )
     indexes = {"video_index": video.get("index") if video else None, "audio_index": audio.get("index") if audio else None}
@@ -409,11 +499,17 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     # An explicit Dolby Vision row authorizes only its direct candidate. Its
     # range exception must not escape into an HLS/remux fallback after another
     # constraint (audio, subtitle, or selected track) rejects direct play.
-    direct_reasons = [reason for reason in reasons if not (direct_dovi and reason == "VideoRangeTypeNotSupported")]
+    direct_reasons = [
+        reason for reason in reasons
+        if not ((direct_dovi or m2ts_profile7_packaging) and reason == "VideoRangeTypeNotSupported")
+    ]
     if not direct_reasons and playable:
         return Decision(
             "direct", video="copy" if video else None, audio="copy" if audio else None,
-            client_packaging="p7_to_p81_drop_el" if profile7_packaging else None, **indexes,
+            client_packaging=(
+                "p7_m2ts_to_p81_drop_el" if m2ts_profile7_packaging
+                else "p7_to_p81_drop_el" if profile7_packaging else None
+            ), **indexes,
         )
     if not reasons:
         reasons.append("ContainerNotSupported")
@@ -591,6 +687,25 @@ def _profile7_to_81_max_level(value: Any) -> int | None:
     ) else None
 
 
+def _m2ts_transport_profile(entry: dict[str, Any]) -> DirectProfile | None:
+    """Read one custom transport row; ordinary direct rows can never opt in."""
+    required = {
+        "Type", "Container", "VideoCodec", "AudioCodec", "LuminaDolbyVisionProfiles", "LuminaDolbyVisionM2TSPairing",
+        "LuminaDolbyVisionPackagingConversions",
+    }
+    if (
+        set(entry) != required or entry.get("Type") != "Video"
+        or entry.get("LuminaDolbyVisionProfiles") != []
+        or entry.get("LuminaDolbyVisionM2TSPairing") is not True
+    ):
+        return None
+    containers, video, audio = _tokens(entry.get("Container")), _tokens(entry.get("VideoCodec")), _tokens(entry.get("AudioCodec"))
+    level = _profile7_to_81_max_level(entry.get("LuminaDolbyVisionPackagingConversions"))
+    if containers != frozenset({"m2ts"}) or video != frozenset({"hevc"}) or not audio or level is None:
+        return None
+    return DirectProfile(containers, video, audio, profile7_to_81_max_level=level, profile7_m2ts_pair_packaging=True)
+
+
 _CAP_FIELDS = {"Width": "max_width", "Height": "max_height", "VideoBitDepth": "max_bit_depth"}
 
 
@@ -624,6 +739,12 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         direct.append(DirectProfile(containers, vids, auds, dovi, profile7_to_81, separate_track_p7))
         video_codecs |= vids
         audio |= auds
+    transport_rows = [_m2ts_transport_profile(entry) for entry in _dicts(profile.get("LuminaDolbyVisionTransportProfiles"))]
+    valid_transport_rows = [entry for entry in transport_rows if entry is not None]
+    # A malformed or ambiguous custom list must not result in a best-effort
+    # direct route. The new row is separate so legacy servers ignore it wholly.
+    if len(transport_rows) == 1 and len(valid_transport_rows) == 1:
+        direct.append(valid_transport_rows[0])
     transcode_video: set[str] = set()
     fmp4_hls_video: set[str] = set()
     has_hls_video_profile = False

@@ -11,6 +11,7 @@ import pytest
 
 from app.services import media_probe
 from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, run_ffprobe
+from app.services.mpegts_dolby_vision import parse_m2ts_dolby_vision_pair
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
@@ -37,6 +38,167 @@ RAW = {
         "not-a-dict",
     ],
 }
+
+
+def _mpeg_crc(section: bytes) -> bytes:
+    crc = 0xFFFFFFFF
+    for byte in section:
+        crc ^= byte << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7) & 0xFFFFFFFF if crc & 0x80000000 else (crc << 1) & 0xFFFFFFFF
+    return crc.to_bytes(4, "big")
+
+
+def _section(table: int, body: bytes) -> bytes:
+    payload = bytes([table, 0xB0 | ((len(body) + 4) >> 8), (len(body) + 4) & 0xFF]) + body
+    return payload + _mpeg_crc(payload)
+
+
+def _psi_packet(pid: int, section: bytes, *, continuity: int = 0) -> bytes:
+    ts = bytes([0x47, 0x40 | (pid >> 8), pid & 0xFF, 0x10 | continuity, 0]) + section
+    return b"\0\0\0\0" + ts.ljust(188, b"\xff")
+
+
+def _payload_packet(pid: int, payload: bytes, *, continuity: int, starts: bool) -> bytes:
+    """One M2TS packet whose adaptation field bounds this exact payload."""
+    if len(payload) > 184:
+        raise ValueError("payload exceeds one TS packet")
+    header = bytes([0x47, (0x40 if starts else 0) | (pid >> 8), pid & 0xFF])
+    if len(payload) == 184:
+        return b"\0\0\0\0" + header + bytes([0x10 | continuity]) + payload
+    adaptation_length = 183 - len(payload)
+    return b"\0\0\0\0" + header + bytes([0x30 | continuity, adaptation_length]) + b"\0" * adaptation_length + payload
+
+
+def _null_packet(*, continuity: int = 0) -> bytes:
+    return b"\0\0\0\0" + bytes([0x47, 0x1F, 0xFF, 0x10 | continuity]) + b"\xff" * 184
+
+
+def _bad_adaptation_packet(pid: int) -> bytes:
+    # The 184-byte adaptation field exceeds the TS payload by one byte.
+    return b"\0\0\0\0" + bytes([0x47, pid >> 8, pid & 0xFF, 0x30, 184]) + b"\0" * 183
+
+
+def _dovi_m2ts(*, corrupt_crc: bool = False, discontinuity: bool = False, bad_dependency: bool = False, null_packets: bool = False) -> bytes:
+    pmt_pid, base, enhancement = 0x1000, 0x1011, 0x102f
+    pat = _section(0, b"\0\x01\xc1\0\0\0\x01" + bytes([0xE0 | (pmt_pid >> 8), pmt_pid & 0xFF]))
+    hevc = b"\x38\x0d" + b"\0" * 13
+    dependency = (base + (1 if bad_dependency else 0)) << 3 | 7
+    dovi = b"\xb0\x07\x01\0\x0e\x36" + dependency.to_bytes(2, "big") + b"\x6f"
+    entries = (
+        bytes([0x24, 0xE0 | (base >> 8), base & 0xFF, 0xF0, len(hevc)]) + hevc
+        + bytes([0x06, 0xE0 | (enhancement >> 8), enhancement & 0xFF, 0xF0, 6 + len(hevc) + len(dovi)])
+        + b"\x05\x04DOVI" + hevc + dovi
+    )
+    pmt = _section(2, b"\0\x01\xc1\0\0" + bytes([0xE0 | (base >> 8), base & 0xFF, 0xF0, 0]) + entries)
+    if corrupt_crc:
+        pmt = pmt[:-1] + bytes([pmt[-1] ^ 1])
+    packets = _psi_packet(0, pat) + _psi_packet(pmt_pid, pmt)
+    if discontinuity:
+        packets += _psi_packet(0, pat, continuity=2)
+    if null_packets:
+        # Null PID continuity is explicitly unconstrained by MPEG-TS.
+        packets += _null_packet(continuity=0) + _null_packet(continuity=0)
+    return packets
+
+
+@pytest.mark.parametrize("invalid", ["corrupt_crc", "discontinuity", "bad_dependency"])
+def test_m2ts_dolby_vision_pair_requires_crc_continuity_and_explicit_dependency(invalid: str) -> None:
+    kwargs = {invalid: True}
+    assert parse_m2ts_dolby_vision_pair(_dovi_m2ts(**kwargs)) is None
+
+
+def test_m2ts_dolby_vision_pair_reads_nonadjacent_explicit_pids() -> None:
+    pair = parse_m2ts_dolby_vision_pair(_dovi_m2ts())
+
+    assert pair is not None
+    assert (pair.program_number, pair.pmt_pid, pair.base_pid, pair.enhancement_pid, pair.dv_profile, pair.dv_level, pair.dv_compat) == (1, 0x1000, 0x1011, 0x102f, 7, 6, 6)
+
+
+def test_m2ts_dolby_vision_pair_accepts_legal_null_counters_and_delivers_a_pmt_completed_at_pointer() -> None:
+    source = _dovi_m2ts(null_packets=True)
+    pat = source[:192]
+    pmt_packet = source[192:384]
+    section_start = 4 + 4 + 1  # M2TS prefix, TS header, PSI pointer
+    pmt_length = 3 + ((pmt_packet[section_start + 1] & 0x0F) << 8 | pmt_packet[section_start + 2])
+    pmt = pmt_packet[section_start:section_start + pmt_length]
+    cut = 11
+    pmt_pid = 0x1000
+    split = (
+        _payload_packet(pmt_pid, b"\0" + pmt[:cut], continuity=0, starts=True)
+        + _payload_packet(pmt_pid, bytes([len(pmt) - cut]) + pmt[cut:], continuity=1, starts=True)
+    )
+
+    pair = parse_m2ts_dolby_vision_pair(pat + split + source[384:])
+
+    assert pair is not None
+    assert (pair.base_pid, pair.enhancement_pid) == (0x1011, 0x102F)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda source: source[:192 + 5] + bytes([source[192 + 5] | 0x80]) + source[192 + 6:],
+    lambda source: source + _bad_adaptation_packet(0x102F),
+])
+def test_m2ts_dolby_vision_pair_rejects_transport_error_and_bad_adaptation_outside_psi(mutate) -> None:
+    assert parse_m2ts_dolby_vision_pair(mutate(_dovi_m2ts())) is None
+
+
+def _m2ts_probe_raw(*, el_first: bool = False) -> dict[str, object]:
+    base = {"index": 1 if el_first else 0, "id": "0x1011", "codec_type": "video", "codec_name": "hevc", "pix_fmt": "yuv420p10le", "width": 1920, "height": 1080}
+    enhancement = {"index": 0 if el_first else 1, "id": "0x102f", "codec_type": "video", "codec_name": "hevc", "pix_fmt": "yuv420p10le", "width": 640, "height": 360, "side_data_list": [{
+        "side_data_type": "DOVI configuration record", "dv_profile": 7, "dv_level": 6,
+        "dv_bl_signal_compatibility_id": 6, "rpu_present_flag": 1, "el_present_flag": 1, "bl_present_flag": 0,
+    }]}
+    return {
+        "format": {"format_name": "mpegts"},
+        "programs": [{"program_id": 1, "streams": [{"index": 0}, {"index": 1}, {"index": 2}]}],
+        "streams": [enhancement, base, {"index": 2, "id": "0x1100", "codec_type": "audio", "codec_name": "aac", "channels": 2}]
+        if el_first else [base, enhancement, {"index": 2, "id": "0x1100", "codec_type": "audio", "codec_name": "aac", "channels": 2}],
+    }
+
+
+def test_m2ts_public_probe_marks_only_complete_signalled_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Database:
+        def get(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(media_probe, "media_tool", lambda *_args: "ffprobe")
+    monkeypatch.setattr(media_probe, "run_ffprobe", lambda _tool, path: _m2ts_probe_raw(el_first=path.stem == "el-first"))
+    valid = tmp_path / "pair.m2ts"
+    valid.write_bytes(_dovi_m2ts(null_packets=True))
+    el_first = tmp_path / "el-first.m2ts"
+    el_first.write_bytes(valid.read_bytes())
+    truncated = tmp_path / "truncated.m2ts"
+    truncated.write_bytes(valid.read_bytes()[:-1])
+    service = media_probe.MediaProbeService(Database())  # type: ignore[arg-type]
+
+    facts = service._probe(valid)
+    assert facts["dv_transport_pair"] == {
+        "packet_size": 192, "program_number": 1, "pmt_pid": 0x1000,
+        "base_pid": 0x1011, "enhancement_pid": 0x102F,
+        "base_stream_index": 0, "enhancement_stream_index": 1,
+        "dv_profile": 7, "dv_level": 6, "dv_compat": 6,
+    }
+    el_first_facts = service._probe(el_first)
+    assert (el_first_facts["dv_transport_pair"]["base_stream_index"], el_first_facts["video_codec"], el_first_facts["width"], el_first_facts["height"]) == (1, "hevc", 1920, 1080)
+    assert "dv_transport_pair" not in service._probe(truncated)
+
+
+def test_m2ts_normalization_retains_only_valid_stream_pid_and_program_membership() -> None:
+    facts = normalize({
+        "format": {"format_name": "mpegts"},
+        "programs": [{"program_id": 1, "streams": [{"index": 4}, {"index": 5}]}],
+        "streams": [
+            {"index": 4, "id": "0x1011", "codec_type": "video", "codec_name": "hevc"},
+            {"index": 5, "id": "0x1015", "codec_type": "video", "codec_name": "hevc"},
+            {"index": 6, "id": "not-a-pid", "codec_type": "audio", "codec_name": "aac"},
+        ],
+    }, "pair.m2ts")
+
+    assert facts["m2ts_suffix"] is True
+    assert [(stream["index"], stream.get("ts_pid"), stream.get("program_number")) for stream in facts["streams"]] == [
+        (4, 0x1011, 1), (5, 0x1015, 1), (6, None, None),
+    ]
 
 
 def test_every_real_stream_is_listed_with_normalized_facts() -> None:

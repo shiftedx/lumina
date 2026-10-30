@@ -86,7 +86,10 @@ def transcoding_fields(
     """MediaSourceInfo fields for one decision. ``item_id`` is the Jellyfin hex of the version item."""
     if decision.mode == "direct":
         # Android TV requires TranscodingUrl when SupportsDirectStream is true.
-        return {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
+        fields = {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
+        if getattr(decision, "client_packaging", None) == "p7_m2ts_to_p81_drop_el":
+            fields["LuminaClientPackaging"] = "p7_m2ts_to_p81_drop_el"
+        return fields
     if decision.mode == "unavailable":  # the decision's reasons aren't Jellyfin TranscodeReasons; offer nothing new
         return {"SupportsTranscoding": False}
     codec = video_codec or (getattr(decision, "video_codec", "h264") if getattr(decision, "video", None) == "encode" else None)

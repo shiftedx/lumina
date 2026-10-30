@@ -10,7 +10,7 @@ AVPlayer rejects original Matroska files even when their compressed video and au
 ## Decision
 
 Use exactly pinned PrismCore 3.8.1 plus Lumina's final-segment
-conversion-statistics and separate-track Profile 7 packaging patches through
+conversion-statistics and explicitly paired Profile 7 packaging patches through
 Swift Package Manager. The fork's immutable revision and public source are
 recorded in the package pin and bundled notices. Its LGPL MPVKit 1.0.1
 dependency supplies FFmpeg demux/mux libraries. This is a necessary native
@@ -78,12 +78,45 @@ input fails with a typed conversion error. The EL pictures are discarded and
 only the converted RPU is appended to the untouched base pictures.
 
 This is structural support for explicitly signaled legacy MKV, not a new
-Matroska mapping or full enhancement-layer decoding. MPEG-TS/M2TS remains on
-its existing server fallback: the pinned FFmpeg API does not expose the Dolby
-dependency-PID association needed to qualify its separate streams. Dolby's
-[transport-stream specification](https://professional.dolby.com/siteassets/pdfs/dolby-vision-bitstreams-in-mpeg-2-transport-stream-multiplex-v1.2.pdf)
-describes separate BL and EL/RPU streams and their timestamp relationship;
-that relationship must not be inferred from stream order alone.
+Matroska mapping or full enhancement-layer decoding.
+
+For 192-byte M2TS, a separate top-level `LuminaDolbyVisionTransportProfiles`
+capability opts into P7-to-P8.1 packaging. It is never an ordinary M2TS direct
+row: older servers ignore the whole extension and retain their HLS decision.
+The new server requires a local `.m2ts` original, MPEG-TS probe facts, exactly
+two Main 10 HEVC streams in one program and a validated dependency marker.
+A bounded four-MiB PAT/PMT scan verifies CRCs, section/packet framing, stable
+program metadata and an explicit DOVI EL descriptor naming the HEVC BL PID.
+The BL need not carry a Dolby configuration record. Stream order, adjacent
+PIDs and conventional HDMV PID values are insufficient evidence. The
+[Dolby transport-stream specification](https://professional.dolby.com/siteassets/pdfs/dolby-vision-bitstreams-in-mpeg-2-transport-stream-multiplex-v1.2.pdf)
+defines that dependency and the presentation-timestamp relationship.
+
+Only the qualified direct response carries
+`LuminaClientPackaging: p7_m2ts_to_p81_drop_el`. Native M2TS demuxing requires
+both that marker and the explicit source container. It also enables the
+engine's required-pairing option: the engine independently validates the
+transport, stream IDs, codec configuration and timestamp pairing before
+publishing converted output. Missing or invalid association cannot silently
+become plain HDR10 playback. Annex-B base pictures remain unchanged; converted
+RPUs are appended before FFmpeg normalizes the MP4 framing. Selected AAC
+ADTS packets are normalized to ASC for fMP4. The selected audio must remain
+stream-copyable, and external text sidecars retain the local master. The
+range exception applies only to this direct candidate, never HLS fallback.
+MPEG-TS's demuxer index can contain PCR seek anchors that are not picture
+keyframes. The qualified route therefore starts with the existing sequential
+EVENT playlist and harvests actual base-packet keyframes into a separate cache
+namespace. Only those maps enable the planned VOD/reanchor path on replay;
+demuxer-index maps are neither reused nor persisted as that proof. On a cold,
+unindexed first play, seeking is limited to the produced range rather than
+arbitrary deep positions in a long title. This is a remaining seek-parity gap.
+Cached reanchors currently rewind to the head and discard to the verified PTS,
+so their read cost grows with the seek distance; long-title seek latency is
+not qualified by the short structural fixtures.
+<!-- ponytail: M2TS reanchors scan from the head; persist verified packet byte offsets before claiming fast deep seeks. -->
+Generic TS/MTS, unmarked HDMV layouts and offline M2TS downloads do not gain
+this capability. Probe cache version 7 invalidates older facts; no SQL schema
+migration is needed.
 
 Prism's mode-2 conversion rewrites P7 RPUs to single-layer P8.1, removes EL
 NALs and copies the base pictures. It does not distinguish MEL from FEL; FEL

@@ -355,6 +355,60 @@ qualify unmarked/ambiguous second-video layouts, M2TS dependency-PID pairing,
 physical Dolby Vision/HDMI/receiver output, reference color or FEL residual
 reconstruction. P7-to-P8.1 still omits enhancement pictures.
 
+### Explicit M2TS Profile 7 pairing, 2026-10-29
+
+The M2TS route requires the separate top-level transport capability and exact
+server packaging marker. It accepts 192-byte framing and a CRC-validated PMT
+with an explicit DOVI enhancement-to-base PID dependency. No ordinary direct
+M2TS row, generic TS/MTS permission or guessed HDMV PID association is added.
+Probe cache version 7 rebuilds the new facts. An EL-first PMT uses the proven
+base stream for both playback and compact catalog resolution metadata.
+
+Generate the synthetic corpus with `dovi_tool` 2.3.4:
+
+```sh
+mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-dv7-m2ts-fixtures
+```
+
+The generated MEL/FEL and nonconventional EL-first cases use distinguishable
+RPUs and a B-frame base stream. Backend qualification runs the real probe
+service and decision boundary. Structural descriptor/dependency, CRC,
+continuity, scrambling, ambiguity and framing failures have no pair marker;
+missing access units, shifted PTS and a malformed final RPU retain signaling
+evidence for the engine's packet-level validation.
+
+Native fixture contracts use `LUMINA_DV7_M2TS_DIRECTORY` for generated corpus
+paths. They inspect normal and sidecar masters, P8.1 initialization records,
+every independent fragment, unchanged base VCL, the ordered converted RPU
+sequence and the declared AAC rendition. Separate AVPlayer contracts require
+decoded base frames, advancement and forward/backward seeks for all three
+positive files, plus a range-served HTTP source. Required pairing refuses
+unmarked, dangling-dependency and ambiguous sources before publishing an item.
+MPEG-TS PCR seek anchors are not used as video cut points. A first run uses
+an EVENT playlist and harvests actual BL packet keyframes; a separately
+namespaced cached map enables planned replay and forced cache reanchor.
+Cold first-play deep seeks beyond the produced range remain unsupported by
+this route and need a later seek-planning improvement. Cached reanchor
+correctness uses a head scan plus verified PTS floor; its cost grows with the
+seek distance, so these short fixtures do not qualify long-title latency.
+These are structural and base-playback checks, not reference Dolby color,
+physical HDR/HDMI/receiver output or full FEL reconstruction.
+
+The immutable engine revision is
+`a2b6c460775f11201dc39ced66a207013ba47de0`
+([source](https://github.com/shiftedx/PrismCore/commit/a2b6c460775f11201dc39ced66a207013ba47de0)).
+Its focused checks passed six M2TS session/PMT/cache tests, three live AVIO
+failure/state tests, fuzz smoke and existing separate-track MKV MEL/FEL plus
+reordered-B-frame regressions. The final Lumina Core run passed 265 checks
+with five unconfigured fixture-server skips and no failures; all P5/P8/P7
+and M2TS media fixtures were enabled with no media-fixture skips. The full
+`mise exec -- make check` passed 5,810 backend tests, 2,754 frontend tests and
+all 656 browser cases (1,107.964 seconds for the browser tier). A final backend
+rerun after the compact BL metadata correction passed 5,814 tests with 20 skips.
+Generic iOS and tvOS Simulator builds also passed against the exact pinned
+revision, with signing disabled and no deployment or upload.
+
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 
 The native clients open on Home, with separate Video and Audio destinations. Home uses a cinematic artwork hero with an eight-second idle rotation, manual previous/next and title selection, horizontal swiping on iOS, and an explicit Pause control. Automatic rotation stops for Reduce Motion, VoiceOver, an inactive scene, or TV focus interaction. Continue watching, Next up, and recent-video shelves use the authenticated server catalog. The recent shelf can contain movies or episodes; its first visible card is not a fixed fixture item. Authenticated artwork requests support inherited series backdrops while preserving own-art precedence.

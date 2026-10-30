@@ -1822,6 +1822,13 @@ final class LuminaCoreTests: XCTestCase {
                     targetProfile: 8, targetCompatibilityID: 1,
                     maxLevel: 8, enhancementLayerDisposition: "dropped"
                 ),
+            ],
+            transportDolbyVisionPackagingConversions: [
+                .init(
+                    sourceProfile: 7, sourceCompatibilityIDs: [6],
+                    targetProfile: 8, targetCompatibilityID: 1,
+                    maxLevel: 8, enhancementLayerDisposition: "dropped"
+                ),
             ]
         )
         let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: { capabilities })
@@ -1865,6 +1872,21 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(packagingConversions[0]["MaxLevel"] as? Int, 8)
         XCTAssertEqual(packagingConversions[0]["EnhancementLayerDisposition"] as? String, "dropped")
         XCTAssertEqual(direct[1]["LuminaDolbyVisionSeparateTrackPackaging"] as? Bool, true)
+        let transportProfiles = try XCTUnwrap(modern["LuminaDolbyVisionTransportProfiles"] as? [[String: Any]])
+        XCTAssertEqual(transportProfiles.count, 1)
+        let transport = transportProfiles[0]
+        XCTAssertEqual(transport["Type"] as? String, "Video")
+        XCTAssertEqual(transport["Container"] as? String, "m2ts")
+        XCTAssertEqual(transport["VideoCodec"] as? String, "hevc")
+        XCTAssertEqual(transport["AudioCodec"] as? String, "aac,ac3,eac3")
+        XCTAssertEqual((transport["LuminaDolbyVisionProfiles"] as? [[String: Any]])?.isEmpty, true)
+        XCTAssertEqual(transport["LuminaDolbyVisionM2TSPairing"] as? Bool, true)
+        let transportConversions = try XCTUnwrap(transport["LuminaDolbyVisionPackagingConversions"] as? [[String: Any]])
+        XCTAssertEqual(transportConversions.count, 1)
+        XCTAssertEqual(transportConversions[0]["SourceProfile"] as? Int, 7)
+        XCTAssertEqual(transportConversions[0]["TargetProfile"] as? Int, 8)
+        XCTAssertEqual(transportConversions[0]["TargetCompatibilityID"] as? Int, 1)
+        XCTAssertEqual(transportConversions[0]["EnhancementLayerDisposition"] as? String, "dropped")
         let hls = try XCTUnwrap(modern["TranscodingProfiles"] as? [[String: Any]])
         XCTAssertEqual(hls[0]["VideoCodec"] as? String, "h264,hevc,av1")
         XCTAssertNil(hls[0]["LuminaDolbyVisionProfiles"], "Original Dolby Vision delivery must not broaden server HLS.")
@@ -1894,6 +1916,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(fallbackDirect.allSatisfy { ($0["LuminaDolbyVisionProfiles"] as? [[String: Any]])?.isEmpty == true })
         XCTAssertTrue(fallbackDirect.allSatisfy { (($0["LuminaDolbyVisionPackagingConversions"] as? [[String: Any]]) ?? []).isEmpty })
         XCTAssertTrue(fallbackDirect.allSatisfy { ($0["LuminaDolbyVisionSeparateTrackPackaging"] as? Bool) != true })
+        XCTAssertNil(fallback["LuminaDolbyVisionTransportProfiles"], "Forced compatibility must not advertise a transport conversion route.")
         let aac = try XCTUnwrap(fallbackProfiles.first { $0["Codec"] as? String == "aac" })
         XCTAssertEqual(aac["Type"] as? String, "VideoAudio")
         XCTAssertEqual(aac["Conditions"] as? [[String: String]], [
@@ -1945,6 +1968,11 @@ final class LuminaCoreTests: XCTestCase {
                 maxLevel: 7, enhancementLayerDisposition: "dropped"
             ),
         ])
+        XCTAssertEqual(
+            capabilities(p81: true, converter: true, codecs: baselineCodecs.union([p5, p8])).transportDolbyVisionPackagingConversions,
+            capabilities(p81: true, converter: true, codecs: baselineCodecs.union([p5, p8])).matroskaDolbyVisionPackagingConversions,
+            "M2TS conversion cannot be advertised before the same P8.1/converter gates pass."
+        )
     }
 
     func testOnlyNarrowAVFoundationCodecFailuresCanRetryCompatibility() throws {
@@ -2675,6 +2703,66 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertNil(compatibleHLS["MaxStreamingBitrate"], "Original quality remains uncapped when the server can remux it into HLS.")
     }
 
+    func testPreparePlaybackKeepsMarkedM2TSExternalSubtitleDirectAndUnmarkedFallsBackToHLS() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        for (marked, expectedRequests) in [(true, 1), (false, 2)] {
+            let defaultsName = "LuminaCoreTests.m2ts-external-subtitle.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+            defer { defaults.removePersistentDomain(forName: defaultsName) }
+            let preferences = NativePlaybackPreferences(defaults: defaults)
+            preferences.preferredSubtitleLanguages = ["es"]
+            preferences.subtitleMode = .always
+            let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved), playbackPreferences: preferences)
+            let requests = RequestRecorder()
+            MockURLProtocol.handler = { request in
+                requests.append(request)
+                switch request.url!.path {
+                case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+                case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+                case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+                case "/Items/movie-1/PlaybackInfo":
+                    let selectedSource = try body(request)["MediaSourceId"] as? String
+                    let streams: [[String: Any]] = [
+                        ["Index": 0, "Type": "Video", "Height": 2160],
+                        ["Index": 3, "Type": "Subtitle", "Codec": "vtt", "Language": "spa", "IsExternal": true,
+                         "DeliveryMethod": "External", "DeliveryUrl": "/Videos/movie-1/Subtitles/3/0/Stream.vtt?ApiKey=test-token"],
+                    ]
+                    if selectedSource == nil {
+                        var source: [String: Any] = [
+                            "Id": "source-m2ts", "Container": "m2ts", "Bitrate": 24_000_000,
+                            "SupportsDirectPlay": true, "SupportsTranscoding": true,
+                            "DefaultSubtitleStreamIndex": 3, "MediaStreams": streams,
+                        ]
+                        if marked { source["LuminaClientPackaging"] = "p7_m2ts_to_p81_drop_el" }
+                        return response(request, json: ["PlaySessionId": "m2ts", "MediaSources": [source]])
+                    }
+                    return response(request, json: ["PlaySessionId": "server-hls", "MediaSources": [[
+                        "Id": "source-m2ts", "Container": "m2ts", "Bitrate": 24_000_000,
+                        "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                        "TranscodingUrl": "/Videos/source-m2ts/master.m3u8?ApiKey=test-token", "MediaStreams": streams,
+                    ]]])
+                default: return response(request, status: 404)
+                }
+            }
+            await store.restore()
+            let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+            let playback = try await store.preparePlayback(for: item)
+            let playbackInfo = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
+            XCTAssertEqual(playbackInfo.count, expectedRequests, "marked=\(marked)")
+            XCTAssertEqual(playback.subtitleStreamIndex, 3, "The preferred external subtitle remains selected.")
+            XCTAssertTrue(playback.mediaStreams.contains { $0.index == 3 && $0.hasExternalSubtitle })
+            XCTAssertEqual(playback.usesClientDemux, marked)
+            XCTAssertEqual(playback.isTranscoding, !marked)
+            if !marked {
+                let fallback = try body(try XCTUnwrap(playbackInfo.last))
+                XCTAssertEqual(fallback["EnableDirectPlay"] as? Bool, false)
+                XCTAssertEqual(fallback["MediaSourceId"] as? String, "source-m2ts")
+                XCTAssertEqual(fallback["SubtitleStreamIndex"] as? Int, 3)
+            }
+        }
+    }
+
     func testPlaybackRefreshesAStaleDetailItemBeforePreparing() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
@@ -2720,6 +2808,27 @@ final class LuminaCoreTests: XCTestCase {
         let fallback = try client.playbackRequest(origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: hls)
         XCTAssertFalse(fallback.usesClientDemux)
         XCTAssertTrue(fallback.isTranscoding)
+    }
+
+    func testDirectM2TSDolbyVisionPairRequiresTheExactServerPackagingMarker() throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        func request(container: String, packaging: String?) throws -> PlaybackRequest {
+            var source: [String: Any] = [
+                "Id": "source", "Container": container,
+                "SupportsDirectPlay": true, "SupportsTranscoding": false,
+            ]
+            if let packaging { source["LuminaClientPackaging"] = packaging }
+            let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+                "PlaySessionId": "m2ts", "MediaSources": [source],
+            ]))
+            return try client.playbackRequest(origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info)
+        }
+
+        XCTAssertTrue(try request(container: "m2ts", packaging: "p7_m2ts_to_p81_drop_el").usesClientDemux)
+        XCTAssertFalse(try request(container: "m2ts", packaging: nil).usesClientDemux)
+        XCTAssertFalse(try request(container: "m2ts", packaging: "p7_to_p81_drop_el").usesClientDemux)
+        XCTAssertFalse(try request(container: "mts", packaging: "p7_m2ts_to_p81_drop_el").usesClientDemux)
     }
 
     func testRefusesCrossOriginPlaybackURL() throws {

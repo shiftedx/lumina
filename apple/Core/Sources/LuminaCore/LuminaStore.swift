@@ -1240,10 +1240,11 @@ let tickScale = 10_000_000.0
             index >= 0 ? streams.first { $0.index == index && $0.hasExternalSubtitle } : nil
         }
         // AVFoundation cannot append a sidecar legible group to a progressive MP4. Preserve
-        // Matroska's local packaging route, but ask the server for its compatible HLS decision
+        // the qualified local packaging route, but ask the server for its compatible HLS decision
         // before handing a direct MP4 sidecar to the playback layer.
-        let isMatroska = ["mkv", "matroska"].contains((source.container ?? current.container ?? "").lowercased())
-        let requiresServerHLS = selectedExternalSubtitle != nil && source.supportsDirectPlay && !isMatroska
+        let usesClientPackaging = ["mkv", "matroska"].contains((source.container ?? current.container ?? "").lowercased())
+            || (source.container?.lowercased() == "m2ts" && source.clientPackaging == "p7_m2ts_to_p81_drop_el")
+        let requiresServerHLS = selectedExternalSubtitle != nil && source.supportsDirectPlay && !usesClientPackaging
         let needsSelectionRequest = (audioStreamIndex == nil && preferredAudio != nil && preferredAudio != source.defaultAudioStreamIndex)
             || (subtitleStreamIndex == nil && preferredSubtitle != nil && preferredSubtitle != source.defaultSubtitleStreamIndex)
             || requiresServerHLS

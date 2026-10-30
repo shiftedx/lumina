@@ -158,7 +158,7 @@ def p7_packaging_client(
 ):
     return caps_from_device_profile({
         "DirectPlayProfiles": [{
-            "Type": "Video", "Container": container, "VideoCodec": "hevc", "AudioCodec": "aac",
+            "Type": "Video", "Container": container, "VideoCodec": "hevc", "AudioCodec": "aac,ac3,eac3",
             "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": conversions,
             "LuminaDolbyVisionSeparateTrackPackaging": separate_tracks,
         }],
@@ -167,6 +167,72 @@ def p7_packaging_client(
             {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": range_},
         ]}],
     })
+
+
+def m2ts_pair_client(*, pairing: object = True, container: str = "m2ts"):
+    return caps_from_device_profile({
+        "DirectPlayProfiles": [{
+            "Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+            "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": P7_TO_81,
+        }],
+        "LuminaDolbyVisionTransportProfiles": [{
+            "Type": "Video", "Container": container, "VideoCodec": "hevc", "AudioCodec": "aac",
+            "LuminaDolbyVisionProfiles": [],
+            "LuminaDolbyVisionM2TSPairing": pairing,
+            "LuminaDolbyVisionPackagingConversions": P7_TO_81,
+        }],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"},
+        ]}],
+    })
+
+
+def m2ts_pair_facts(*, el_first: bool = False, marker: bool = True):
+    base = v("hevc", pix_fmt="yuv420p10le", index=8)
+    base.update(ts_pid=0x1011, program_number=1, frame_rate=23.976)
+    enhancement = dovi_source(7, 6, rpu=True, el=True, bl=False)
+    enhancement.update(index=2, ts_pid=0x1015, program_number=1, frame_rate=23.976)
+    streams = [enhancement, a(), base] if el_first else [base, a(), enhancement]
+    result = facts("mpegts", *streams)
+    result["m2ts_suffix"] = True
+    if marker:
+        result["dv_transport_pair"] = {
+            "packet_size": 192, "program_number": 1, "pmt_pid": 0x1000,
+            "base_pid": 0x1011, "enhancement_pid": 0x1015,
+            "base_stream_index": 8, "enhancement_stream_index": 2,
+            "dv_profile": 7, "dv_level": 9, "dv_compat": 6,
+        }
+    return result
+
+
+def test_profile_seven_m2ts_pairing_is_explicit_and_selects_the_marked_base_even_when_el_is_first() -> None:
+    decision = decide(m2ts_pair_client(), m2ts_pair_facts(el_first=True))
+
+    assert (decision.mode, decision.video, decision.audio, decision.video_index) == ("direct", "copy", "copy", 8)
+    assert decision.client_packaging == "p7_m2ts_to_p81_drop_el"
+
+
+@pytest.mark.parametrize(("client", "source"), [
+    (m2ts_pair_client(pairing=False), m2ts_pair_facts()),
+    (m2ts_pair_client(container="ts"), m2ts_pair_facts()),
+    (m2ts_pair_client(), m2ts_pair_facts(marker=False)),
+    (m2ts_pair_client(), {**m2ts_pair_facts(), "m2ts_suffix": False}),
+])
+def test_profile_seven_m2ts_pairing_fails_closed_without_its_exact_capability_and_marker(client, source) -> None:
+    decision = decide(client, source)
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+def test_profile_seven_m2ts_pairing_never_leaks_to_hls_when_audio_rejects_direct_play() -> None:
+    source = m2ts_pair_facts()
+    source["streams"][1] = a("aac", 8)
+    decision = decide(replace(m2ts_pair_client(), max_channels=2), source)
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
 
 
 def test_profile_seven_mkv_packaging_is_explicit_and_reports_its_lossy_route() -> None:

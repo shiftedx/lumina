@@ -141,9 +141,12 @@ public final class NativeVideoSource {
 
     /// When attaching sidecars without client demux, `url` must be a resolved muxed
     /// HLS media playlist. Resolve server masters through LuminaStore first.
+    /// A server-qualified M2TS Dolby Vision route must require transport pairing;
+    /// failure to prove that pair must not silently publish base-only HDR playback.
     public func prepare(
         url: URL,
         usesClientDemux: Bool,
+        requireDolbyVisionTransportPairing: Bool = false,
         preferredAudioStreamIndex: Int? = nil,
         preferredSubtitleStreamIndex: Int? = nil,
         externalSubtitles: [ExternalSubtitle] = [],
@@ -152,6 +155,9 @@ public final class NativeVideoSource {
         subtitleDelaySeconds: Double = 0
     ) async throws -> AVPlayerItem {
         stop()
+        guard usesClientDemux || !requireDolbyVisionTransportPairing else {
+            throw SelectionError.invalidDolbyVisionConversion
+        }
         self.subtitleDelaySeconds = Self.normalizedSubtitleDelay(subtitleDelaySeconds)
         try validate(externalSubtitles)
         guard usesClientDemux || !externalSubtitles.isEmpty || self.subtitleDelaySeconds == 0 else {
@@ -170,7 +176,8 @@ public final class NativeVideoSource {
                                           preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,
                                           coordinatedHTTP: true,
                                           // No host overlay needs cue replay; packaged subtitle files are independent.
-                                          subtitleCueHistory: .bounded(maxCues: 1, maxBytes: 1))
+                                          subtitleCueHistory: .bounded(maxCues: 1, maxBytes: 1),
+                                          requireDolbyVisionTransportPairing: requireDolbyVisionTransportPairing)
         do {
             let retainedSubtitles = try retainExternalSubtitles(externalSubtitles)
             externalSubtitleDirectory = retainedSubtitles.directory

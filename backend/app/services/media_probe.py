@@ -22,13 +22,15 @@ from app.models import AppSettings, LibraryItem, MediaArtifact
 from app.services.chapters import normalize_chapters
 from app.persistence import write_transaction
 from app.services.media_artifacts import MediaArtifactService
-from app.services.playback_decision import BROWSER_DEFAULT, decide
+from app.services.mpegts_dolby_vision import M2TS_PACKET_SIZE, parse_m2ts_dolby_vision_pair
+from app.services.playback_decision import BROWSER_DEFAULT, bit_depth, decide
 from app.services.yt_dlp_service import YtDlpService
 
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
 PROBE_TERMINATE_GRACE_SECONDS = 0.25
-PROBE_CACHE_VERSION = 6
+PROBE_CACHE_VERSION = 7
+M2TS_DOVI_SCAN_BYTES = 4 * 1024 * 1024
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
@@ -194,7 +196,7 @@ def _hdr_side_data(stream: dict[str, Any]) -> dict[str, bool]:
 def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     """ffprobe JSON for one file; bounded time and output, no shell."""
     result = _run_bounded_process(
-        [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "--", str(path)],
+        [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_programs", "-show_streams", "-show_chapters", "--", str(path)],
     )
     if result.returncode != 0:
         raise ProbeError("probe_failed")
@@ -307,13 +309,46 @@ def _text(value: Any, limit: int) -> str | None:
     return str(value)[:limit] if isinstance(value, str) and value.strip() else None
 
 
-def _stream(raw: dict[str, Any]) -> dict[str, Any]:
+def _ts_pid(value: Any) -> int | None:
+    if type(value) is int:
+        return value if 0 < value < 0x1FFF else None
+    if not isinstance(value, str):
+        return None
+    try:
+        pid = int(value, 16 if value.lower().startswith("0x") else 10)
+    except ValueError:
+        return None
+    return pid if 0 < pid < 0x1FFF else None
+
+
+def _program_membership(raw: dict[str, Any]) -> dict[int, int]:
+    memberships: dict[int, int] = {}
+    ambiguous: set[int] = set()
+    for program in raw.get("programs") or []:
+        if not isinstance(program, dict) or type(program.get("program_id")) is not int:
+            continue
+        number = program["program_id"]
+        if not 0 < number <= 0xFFFF or not isinstance(program.get("streams"), list):
+            continue
+        for stream in program["streams"]:
+            if not isinstance(stream, dict) or type(stream.get("index")) is not int:
+                continue
+            index = stream["index"]
+            if index in memberships and memberships[index] != number:
+                ambiguous.add(index)
+            else:
+                memberships[index] = number
+    return {index: number for index, number in memberships.items() if index not in ambiguous}
+
+
+def _stream(raw: dict[str, Any], program_numbers: dict[int, int]) -> dict[str, Any]:
     tags = raw.get("tags") if isinstance(raw.get("tags"), dict) else {}
     disposition = raw.get("disposition") if isinstance(raw.get("disposition"), dict) else {}
     dovi = next((d for d in raw.get("side_data_list") or [] if isinstance(d, dict) and "dv_profile" in d), {})
     language = (_text(tags.get("language"), 16) or "").lower()
-    return {
-        "index": _int(raw.get("index")),
+    index = _int(raw.get("index"))
+    normalized = {
+        "index": index,
         "type": raw.get("codec_type"),
         "codec": _text(raw.get("codec_name"), 40),
         "profile": _text(raw.get("profile"), 60),
@@ -344,6 +379,11 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
         "dv_bl_present": _dovi_flag(dovi.get("bl_present_flag")),
         **_hdr_side_data(raw),
     }
+    if (pid := _ts_pid(raw.get("id"))) is not None:
+        normalized["ts_pid"] = pid
+    if index is not None and index in program_numbers:
+        normalized["program_number"] = program_numbers[index]
+    return normalized
 
 
 def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
@@ -356,8 +396,9 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
         duration = float(fmt.get("duration")) if fmt.get("duration") is not None else None
     except (TypeError, ValueError):
         duration = None
+    programs = _program_membership(raw)
     listed = [
-        _stream(s) for s in streams
+        _stream(s, programs) for s in streams
         if s.get("codec_type") in _STREAM_TYPES and _int(s.get("index")) is not None
         and not (s.get("codec_type") == "video" and _attached_picture(s))
     ]
@@ -379,6 +420,7 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
         "container": str(fmt.get("format_name") or ""),
         # Matroska and WebM share one ffprobe format name; the served suffix decides the browser MIME type.
         "webm_suffix": filename.lower().endswith(".webm"),
+        "m2ts_suffix": filename.lower().endswith(".m2ts"),
         "video_codec": video.get("codec_name") if video else None,
         "audio_codec": audio.get("codec_name") if audio else None,
         "width": video.get("width") if video else None,
@@ -390,6 +432,51 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
         "streams": listed,
         "chapters": chapters,
     }
+
+
+def _m2ts_transport_pair(facts: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Attach only a fully cross-checked, local M2TS P7 transport association."""
+    if facts.get("m2ts_suffix") is not True or str(facts.get("container") or "").split(",") != ["mpegts"]:
+        return facts
+    try:
+        # The parser intentionally permits a partial final packet in its bounded
+        # scan window. The actual local file itself must still be complete M2TS.
+        if path.stat().st_size % M2TS_PACKET_SIZE:
+            return facts
+        with path.open("rb") as source:
+            pair = parse_m2ts_dolby_vision_pair(source.read(M2TS_DOVI_SCAN_BYTES))
+    except OSError:
+        return facts
+    if pair is None:
+        return facts
+    videos = [stream for stream in facts.get("streams") or [] if isinstance(stream, dict) and stream.get("type") == "video"]
+    if len(videos) != 2:
+        return facts
+    by_pid = {stream.get("ts_pid"): stream for stream in videos}
+    base, enhancement = by_pid.get(pair.base_pid), by_pid.get(pair.enhancement_pid)
+    if base is None or enhancement is None or base is enhancement:
+        return facts
+    if any(stream.get("codec") != "hevc" or bit_depth(stream) != 10 or stream.get("program_number") != pair.program_number for stream in (base, enhancement)):
+        return facts
+    # ffprobe can omit one or more EL DOVI fields.  When it does report one,
+    # it must agree with the independently CRC-validated PMT descriptor.
+    expected = {
+        "dv_profile": pair.dv_profile, "dv_compat": pair.dv_compat, "dv_level": pair.dv_level,
+        "dv_rpu_present": True, "dv_el_present": True, "dv_bl_present": False,
+    }
+    if any(enhancement.get(key) is not None and enhancement.get(key) != value for key, value in expected.items()):
+        return facts
+    facts["dv_transport_pair"] = {
+        "packet_size": pair.packet_size, "program_number": pair.program_number, "pmt_pid": pair.pmt_pid,
+        "base_pid": pair.base_pid, "enhancement_pid": pair.enhancement_pid,
+        "base_stream_index": base.get("index"), "enhancement_stream_index": enhancement.get("index"),
+        "dv_profile": pair.dv_profile, "dv_level": pair.dv_level, "dv_compat": pair.dv_compat,
+    }
+    # `normalize` summaries normally describe the first video stream. A
+    # valid transport PMT can declare the EL before its proven base, so keep
+    # title/catalogue metadata aligned with the stream playback actually uses.
+    facts.update(video_codec=base.get("codec"), width=base.get("width"), height=base.get("height"))
+    return facts
 
 
 def playback_mode(facts: dict[str, Any]) -> tuple[str, str | None]:
@@ -483,6 +570,6 @@ class MediaProbeService:
             return {"error": "ffprobe_unavailable"}
         with _probe_slots:
             try:
-                return normalize(run_ffprobe(ffprobe, path), path.name)
+                return _m2ts_transport_pair(normalize(run_ffprobe(ffprobe, path), path.name), path)
             except ProbeError as exc:
                 return {"error": str(exc)}

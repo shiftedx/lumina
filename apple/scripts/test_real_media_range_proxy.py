@@ -154,6 +154,31 @@ class RangeProxyTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertTrue(all(reader.process is None for reader in created[0].pool.readers))
 
+    def test_shutdown_waits_for_failed_reader_restart_and_closes_its_new_process(self) -> None:
+        self.proxy = proxy.RangeProxy(self.identity, self.factory)
+        reader = self.proxy.pool.acquire()
+        original_start = reader.start
+        entered = threading.Event()
+        continue_start = threading.Event()
+
+        def delayed_start() -> None:
+            entered.set()
+            self.assertTrue(continue_start.wait(timeout=3))
+            original_start()
+
+        with mock.patch.object(reader, 'start', side_effect=delayed_start):
+            release = threading.Thread(target=self.proxy.pool.release, args=(reader, False))
+            release.start()
+            self.assertTrue(entered.wait(timeout=3))
+            closing = threading.Thread(target=self.proxy.pool.close)
+            closing.start()
+            continue_start.set()
+            release.join(timeout=5)
+            closing.join(timeout=5)
+        self.assertFalse(release.is_alive())
+        self.assertFalse(closing.is_alive())
+        self.assertIsNone(reader.process)
+
     def test_private_config_requires_owner_only_permissions(self) -> None:
         config = self.root / 'config.json'
         config.write_text(json.dumps({'sshHost': 'fixture-host', 'container': 'fixture-container', 'artifactID': 'fixture'}))

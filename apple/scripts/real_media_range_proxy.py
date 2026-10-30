@@ -345,15 +345,16 @@ class ReaderPool:
 
     def release(self, reader: PersistentReader, healthy: bool) -> None:
         with self.lock:
-            stopping = self.stopping
-        if not healthy and not stopping:
-            reader.close()
-            try:
-                reader.start()
-            except BaseException:
+            if self.stopping:
                 reader.close()
-        with self.lock:
-            if reader.process is not None and not self.stopping:
+                return
+            if not healthy:
+                reader.close()
+                try:
+                    reader.start()
+                except BaseException:
+                    reader.close()
+            if reader.process is not None:
                 self.available.put(reader)
 
     def close(self) -> None:

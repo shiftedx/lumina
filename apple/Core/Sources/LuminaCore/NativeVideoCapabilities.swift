@@ -247,7 +247,7 @@ struct NativeVideoCapabilities: Equatable, Sendable {
     static func isFormatFailure(_ error: Error) -> Bool {
         if let selection = error as? NativeVideoSource.SelectionError {
             switch selection {
-            case .unsupportedAudioStream, .invalidDolbyVisionConversion:
+            case .unsupportedAudioStream, .invalidDolbyVisionConversion, .subtitleMasterUnavailable:
                 return true
             default:
                 return false
@@ -266,6 +266,12 @@ struct NativeVideoCapabilities: Equatable, Sendable {
                     AVError.Code.contentIsProtected.rawValue,
                 ].contains(node.code)) {
                 return false
+            }
+            // Observed when AVPlayer rejects a locally packaged HLS master
+            // before its first frame. Keep this exact code narrow; unrelated
+            // CoreMedia failures must not become compatibility retries.
+            if node.domain == "CoreMediaErrorDomain", node.code == -12927 {
+                foundFormatFailure = true
             }
             if node.domain == AVFoundationErrorDomain {
                 let formatCodes = [

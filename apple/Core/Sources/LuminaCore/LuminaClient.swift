@@ -477,6 +477,20 @@ final class LuminaClient: @unchecked Sendable {
                 URLQueryItem(name: "Static", value: "true"),
                 URLQueryItem(name: "ApiKey", value: token),
             ]), sameOrigin(origin, direct) else { throw LuminaError.unsafeURL }
+            var seekIndex: M2TSSeekIndexReference?
+            if source.container?.lowercased() == "m2ts", source.clientPackaging == "p7_m2ts_to_p81_drop_el",
+               let raw = source.m2tsSeekIndexURL,
+               let endpoint = URL(string: raw, relativeTo: origin)?.absoluteURL,
+               sameOrigin(origin, endpoint), endpoint.user == nil, endpoint.password == nil,
+               endpoint.path.lowercased().hasSuffix("/lumina-m2ts-irap-index"),
+               var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) {
+                components.queryItems = [
+                    URLQueryItem(name: "MediaSourceId", value: source.id),
+                    URLQueryItem(name: "ApiKey", value: token),
+                ]
+                components.fragment = nil
+                if let target = components.url { seekIndex = .init(url: target, sourceID: source.id) }
+            }
             return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
                                    usesClientDemux: !item.isAudio && (
@@ -484,7 +498,7 @@ final class LuminaClient: @unchecked Sendable {
                                        || (source.container?.lowercased() == "m2ts" && source.clientPackaging == "p7_m2ts_to_p81_drop_el")
                                    ),
                                    usesCompatibleVideo: usesCompatibleVideo,
-                                   bitRate: source.bitRate, sourceContainer: source.container,
+                                   bitRate: source.bitRate, sourceContainer: source.container, m2tsSeekIndex: seekIndex,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                    subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
                                    resolvedQuality: quality)
@@ -898,6 +912,7 @@ struct MediaSource: Decodable {
     let supportsTranscoding: Bool
     let transcodingURL: String?
     let clientPackaging: String?
+    let m2tsSeekIndexURL: String?
     let mediaStreams: [MediaStream]
     let defaultAudioStreamIndex: Int?
     let defaultSubtitleStreamIndex: Int?
@@ -908,6 +923,7 @@ struct MediaSource: Decodable {
     enum CodingKeys: String, CodingKey {
         case container = "Container", bitRate = "Bitrate"
         case id = "Id", supportsDirectPlay = "SupportsDirectPlay", supportsTranscoding = "SupportsTranscoding", transcodingURL = "TranscodingUrl", clientPackaging = "LuminaClientPackaging"
+        case m2tsSeekIndexURL = "LuminaM2TSIRAPIndexUrl"
         case mediaStreams = "MediaStreams", defaultAudioStreamIndex = "DefaultAudioStreamIndex", defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
         case runTimeTicks = "RunTimeTicks", chapters = "Chapters"
     }
@@ -922,6 +938,7 @@ struct MediaSource: Decodable {
         supportsTranscoding = try values.decodeIfPresent(Bool.self, forKey: .supportsTranscoding) ?? false
         transcodingURL = try values.decodeIfPresent(String.self, forKey: .transcodingURL)
         clientPackaging = try values.decodeIfPresent(String.self, forKey: .clientPackaging)
+        m2tsSeekIndexURL = try? values.decodeIfPresent(String.self, forKey: .m2tsSeekIndexURL)
         mediaStreams = try values.decodeIfPresent([MediaStream].self, forKey: .mediaStreams) ?? []
         defaultAudioStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultAudioStreamIndex)
         defaultSubtitleStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultSubtitleStreamIndex)

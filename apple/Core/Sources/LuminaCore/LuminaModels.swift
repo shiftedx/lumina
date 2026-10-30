@@ -416,6 +416,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
     public let bitRate: Int?
     /// Original container of the selected source, distinct from its HLS delivery format.
     public let sourceContainer: String?
+    public let m2tsSeekIndex: M2TSSeekIndexReference?
     /// Server-reported streams for the selected media source. Delivery URLs stay private to the client.
     public let mediaStreams: [PlaybackStream]
     /// The server-resolved audio stream index, or nil when the source has no audio stream.
@@ -432,6 +433,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
                 isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false,
                 usesCompatibleVideo: Bool = false,
                 bitRate: Int? = nil, sourceContainer: String? = nil,
+                m2tsSeekIndex: M2TSSeekIndexReference? = nil,
                 mediaStreams: [PlaybackStream] = [], audioStreamIndex: Int? = nil,
                 subtitleStreamIndex: Int? = nil, chapters: [PlaybackChapter] = [],
                 resolvedQuality: PlaybackQuality = .automatic) {
@@ -446,6 +448,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.usesClientDemux = usesClientDemux
         self.bitRate = bitRate
         self.sourceContainer = sourceContainer
+        self.m2tsSeekIndex = m2tsSeekIndex
         self.mediaStreams = mediaStreams
         self.audioStreamIndex = audioStreamIndex
         self.subtitleStreamIndex = subtitleStreamIndex

@@ -3807,6 +3807,7 @@ final class PlaybackModel {
         let item = try await source.prepare(
             url: videoURL, usesClientDemux: next.usesClientDemux,
             requireDolbyVisionTransportPairing: next.usesClientDemux && next.sourceContainer?.lowercased() == "m2ts",
+            m2tsSeekIndex: next.m2tsSeekIndex,
             preferredAudioStreamIndex: next.audioStreamIndex,
             preferredSubtitleStreamIndex: externalSubtitle == nil
                 ? next.subtitleStreamIndex.flatMap { $0 >= 0 ? $0 : nil } : nil,

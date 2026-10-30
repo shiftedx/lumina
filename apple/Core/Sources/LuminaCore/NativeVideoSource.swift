@@ -15,6 +15,9 @@ public final class NativeVideoSource {
         case externalSubtitleRequiresHLS
         case externalSubtitleTooLarge
         case subtitleDelayUnavailable
+        /// The engine chose media-direct delivery because it could not publish
+        /// an eligible master for this display. Selected subtitles need server delivery.
+        case subtitleMasterUnavailable
         case externalSubtitleUnsupportedTiming
         /// A Profile 7 conversion emitted an RPU or packet that cannot match
         /// the advertised single-layer Profile 8.1 route.
@@ -147,6 +150,7 @@ public final class NativeVideoSource {
         url: URL,
         usesClientDemux: Bool,
         requireDolbyVisionTransportPairing: Bool = false,
+        m2tsSeekIndex: M2TSSeekIndexReference? = nil,
         preferredAudioStreamIndex: Int? = nil,
         preferredSubtitleStreamIndex: Int? = nil,
         externalSubtitles: [ExternalSubtitle] = [],
@@ -170,8 +174,12 @@ public final class NativeVideoSource {
                 bandwidth: bandwidth
             )
         }
+        let sourceOpenHints = requireDolbyVisionTransportPairing
+            ? try await m2tsSeekIndex?.sourceOpenHints(for: url) : nil
+        try Task.checkCancellation()
         let session = try PrismCoreSession(url: url, display: injectedDisplay ?? .current(),
                                           segmentCacheBytes: 64 << 20,
+                                          sourceOpenHints: sourceOpenHints,
                                           preferredAudioStreamIndex: preferredAudioStreamIndex,
                                           preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,
                                           coordinatedHTTP: true,
@@ -207,42 +215,33 @@ public final class NativeVideoSource {
             }
             activeAudioStreamIndex = preferredAudioStreamIndex ?? activeAudioStreamIndex
             requestedSubtitleStreamIndex = preferredSubtitleStreamIndex
-            let renditions = enableSubtitleRenditions ? await session.subtitleRenditions : []
-            let playableURL: URL
-            if renditions.isEmpty {
-                playableURL = playlist
+            // Prism owns the display/codec eligibility of its master. A
+            // media-direct result must stay media-direct: wrapping it here
+            // would bypass that gate and omit its codec/HDR declarations.
+            let hasMaster: Bool
+            if preferredAudioStreamIndex != nil || preferredSubtitleStreamIndex != nil || !externalSubtitles.isEmpty {
+                hasMaster = try await prismMediaVariant(for: playlist) != playlist
             } else {
-                // Prism's ordinary session owns a complete master, including video
-                // metadata and its subtitle rendition paths. Only a muxed fallback
-                // lacks that master and needs Lumina's local wrapper.
-                let mediaPlaylist = try await prismMediaVariant(for: playlist)
-                if mediaPlaylist == playlist {
-                    let master = try await makeSubtitleMaster(
-                        variantURL: mediaPlaylist,
-                        prismRenditions: renditions,
-                        externalSubtitles: [],
-                        bandwidth: bandwidth
-                    )
-                    guard demux === session else {
-                        await Self.stop(master)
-                        throw CancellationError()
-                    }
-                    subtitleMaster = master
-                    playableURL = master.playlistURL
-                } else {
-                    playableURL = playlist
-                }
-                hasSelectableExternalSubtitles = !externalSubtitles.isEmpty
-                externalSubtitleDisplayName = externalSubtitles.first.map { hlsValue($0.name ?? $0.language ?? "Subtitle 1") }
+                hasMaster = false
             }
-            let item = AVPlayerItem(url: playableURL)
-            if let preferredAudioStreamIndex {
+            try Task.checkCancellation()
+            guard demux === session else { throw CancellationError() }
+            if !hasMaster,
+               preferredSubtitleStreamIndex != nil || !externalSubtitles.isEmpty {
+                throw SelectionError.subtitleMasterUnavailable
+            }
+            hasSelectableExternalSubtitles = enableSubtitleRenditions && hasMaster && !externalSubtitles.isEmpty
+            externalSubtitleDisplayName = externalSubtitles.first.map { hlsValue($0.name ?? $0.language ?? "Subtitle 1") }
+            let item = AVPlayerItem(url: playlist)
+            if let preferredAudioStreamIndex, hasMaster {
                 guard let audioGroup = try await item.asset.loadMediaSelectionGroup(for: .audible),
                       let selectedAudio = audioGroup.defaultOption else {
                     throw SelectionError.unsupportedAudioStream(preferredAudioStreamIndex)
                 }
                 item.select(selectedAudio, in: audioGroup)
             }
+            // A muxed media playlist has no alternate-audio group. The exact
+            // requested stream was already verified as stream-copied above.
             item.preferredForwardBufferDuration = 4
             statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 guard item.status == .failed else { return }
@@ -435,10 +434,8 @@ public final class NativeVideoSource {
         }
     }
 
-    /// Resolves the one video variant produced by Lumina's own Prism loopback session before
-    /// a second master wraps its subtitle renditions. This never follows a server URL or accepts
-    /// a non-loopback redirect: Prism owns the input listener and the wrapper only needs its
-    /// generated HLS manifest.
+    /// Identifies the master/media shape produced by Lumina's own Prism session.
+    /// This never follows a server URL or accepts a non-loopback redirect.
     private func prismMediaVariant(for playlistURL: URL) async throws -> URL {
         guard isPrismLoopbackURL(playlistURL) else { throw URLError(.badURL) }
         let guardDelegate = PrismLoopbackRedirectGuard(origin: playlistURL)
@@ -642,10 +639,9 @@ public final class NativeVideoSource {
                 "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\(hlsQuoted(groupID)),NAME=\(hlsQuoted(rendition.name)),LANGUAGE=\(hlsQuoted(rendition.language)),DEFAULT=\(rendition.isDefault ? "YES" : "NO"),AUTOSELECT=\(rendition.isDefault ? "YES" : "NO"),FORCED=\(rendition.isForced ? "YES" : "NO"),URI=\(hlsQuoted(rendition.uri))"
             )
         }
-        // PrismCore intentionally keeps codec/display signalling private when
-        // `forceMuxedShape` is active, so this wrapper must not invent it. The
-        // server's source bitrate is preferred; the fallback only overstates a
-        // fixed variant's scheduling budget rather than claiming a false codec.
+        // This wraps an already selected server media playlist. Prefer its
+        // source bitrate or a conservative fixed-variant scheduling budget;
+        // the wrapper cannot invent codec/display signalling.
         let declaredBandwidth = bandwidth.flatMap { $0 > 0 ? $0 : nil } ?? 50_000_000
         lines.append("#EXT-X-STREAM-INF:BANDWIDTH=\(declaredBandwidth),SUBTITLES=\(hlsQuoted(groupID))")
         lines.append(variantURL.absoluteString)

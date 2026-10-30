@@ -19,7 +19,7 @@ or enable its software player, dialogue processing or object-audio renderer in
 this slice. The selected audio track must be
 stream-copyable; a bridgeable selection uses the server fallback.
 
-`NativeVideoSource` owns one session and supplies an AVPlayerItem using a random loopback-only HLS URL. Input is the server's same-origin authenticated static original-file URL. The session packages compressed streams on demand on the device. Use coordinated HTTP range input, one selected stream-copyable audio choice, a 64 MiB segment-cache budget and a four-second AVPlayer forward-buffer preference. The complete master can carry audio as a separate HLS rendition rather than muxing it into the video fragments. A requested source audio-stream index uses a separate native candidate. Lumina accepts it only when PrismCore confirms that exact stream is stream-copied; a bridgeable or unavailable selection fails so the caller can retain the current item and use its server fallback. Retain Prism's complete master when supplied, including Dolby signaling and declared audio/subtitle renditions. When only a muxed variant is available, a short-lived loopback subtitle wrapper declares the existing variant and subtitle playlists. That wrapper uses the source bitrate or a conservative 50 Mb/s scheduling ceiling; it does not invent codec capabilities. A selected external sidecar is first fetched and URL-validated by the client into a bounded local SRT/VTT file. For a Prism source it is registered before start and appears in that master. For a server HLS stream, one bounded local WebVTT sidecar is copied into the same private wrapper with a VOD playlist and an `X-TIMESTAMP-MAP`; progressive MP4 cannot receive an appended AVFoundation legible group, so the client explicitly requests compatible server HLS for that selection. The library's cache budget is a retention budget, not a hard cap on process RSS or on all buffered data. Bound the separate host subtitle-cue replay history to one byte (live-only): Lumina uses AVKit and registers no host cue overlay. Packaged WebVTT production remains intact. A future host overlay must explicitly choose its own replay window rather than restoring lifetime retention by default.
+`NativeVideoSource` owns one session and supplies an AVPlayerItem using a random loopback-only HLS URL. Input is the server's same-origin authenticated static original-file URL. The session packages compressed streams on demand on the device. Use coordinated HTTP range input, one selected stream-copyable audio choice, a 64 MiB segment-cache budget and a four-second AVPlayer forward-buffer preference. The complete master can carry audio as a separate HLS rendition rather than muxing it into the video fragments. A requested source audio-stream index uses a separate native candidate. Lumina accepts it only when PrismCore confirms that exact stream is stream-copied; a bridgeable or unavailable selection fails so the caller can retain the current item and use its server fallback. Retain Prism's complete master when supplied, including Dolby signaling and declared audio/subtitle renditions. When Prism supplies media-direct delivery, retain it without constructing a new master: the engine may have deliberately declined a master for the current display. An explicitly requested subtitle on that route reports a narrow selection failure and uses the existing one-shot compatible server delivery; unselected embedded subtitle tracks must not turn otherwise playable video into an invalid master. Genuine engine masters retain their complete audio/subtitle and HDR declarations. The local subtitle wrapper remains for selected server-HLS WebVTT sidecars, using the source bitrate or a conservative 50 Mb/s scheduling ceiling. A selected external sidecar is first fetched and URL-validated by the client into a bounded local SRT/VTT file. For a Prism source it is registered before start and appears in that master. For a server HLS stream, one bounded local WebVTT sidecar is copied into the same private wrapper with a VOD playlist and an `X-TIMESTAMP-MAP`; progressive MP4 cannot receive an appended AVFoundation legible group, so the client explicitly requests compatible server HLS for that selection. The library's cache budget is a retention budget, not a hard cap on process RSS or on all buffered data. Bound the separate host subtitle-cue replay history to one byte (live-only): Lumina uses AVKit and registers no host cue overlay. Packaged WebVTT production remains intact. A future host overlay must explicitly choose its own replay window rather than restoring lifetime retention by default.
 
 Advertise MKV only with eligible H.264/HEVC and AAC/AC-3/E-AC-3/ALAC/FLAC. Existing video-depth, FLAC-depth and channel restrictions still apply. MKV+MP3 retains the previous server remux because this library's local audio policy would bridge it instead of copying it. AV1 MKV also uses server HLS stream copy when the native AV1 HLS capability is present; it is not advertised as qualified Prism packaging. DTS/TrueHD, unsupported video and subtitle burn-in retain existing server fallback decisions. An initial codec/container failure can request H.264/SDR HLS once, retaining source, quality, track selections and position. The same guard covers rejection just after readiness but before playback advances. Authorization, network, cancellation and transient-resource failures do not trigger this retry; an already-compatible request cannot retry again. This does not recursively start another local session.
 
@@ -118,8 +118,29 @@ The scout shares a total two-second / 64-MiB AVIO budget across its seeks and
 reads. An incomplete proof retains sequential EVENT playback and its produced
 seek range. Source and cancellation failures keep their ordinary classification.
 A complete producer-harvested map can still supply full seeking on a later
-session. These limits deliberately bound startup work instead of promising
-full cold seeking for every large or slow source.
+session. These limits deliberately bound client startup reads.
+
+For larger or slower originals, the server can prepare a complete index locally
+before native playback opens the source. Only the marked direct M2TS candidate
+receives `LuminaM2TSIRAPIndexUrl`. The authenticated endpoint is bound to the
+selected visible source, returns pending/unsupported/complete, and shares the
+original-file authorization and screen-time checks. A single bounded worker
+scans the full transport file, verifies stable PAT/PMT association and continuity,
+records actual BL IRAPs with exact-PTS EL partners, and publishes atomically only
+after EOF and unchanged size/mtime. Each byte offset starts at the earliest BL
+or matching EL PES, including EL-first layouts. Ordinary non-IRAP pairs are
+retired as they match, so pairing memory does not grow with runtime.
+
+The native client polls pending preparation cancellably. A complete response
+carries the original HTTP strong ETag, size, stream/timebase, base/enhancement
+PIDs, actual keyframe PTS, and aligned monotonic packet offsets. The engine
+accepts it only after matching source representation and program metadata;
+reopens repeat that validation. Missing, malformed, stale, or unsupported maps
+retain the bounded scout behavior. Authorization and cancellation remain errors.
+A supplied map never becomes locally harvested proof. Deep seeks still verify
+the actual BL IRAP and matching valid EL/RPU after byte reanchoring; the map
+cannot bypass conversion validation. The index cache is additive filesystem
+state, invalidated with the original fingerprint; no database migration is needed.
 
 A deep reanchor uses FFmpeg timestamp seeking only as a locality hint. Before
 publishing video it must locate the planned real BL IRAP and its exact-PTS

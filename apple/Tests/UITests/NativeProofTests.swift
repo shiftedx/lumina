@@ -233,6 +233,7 @@ final class NativeTVEpisodeRemoteNavigationTests: NativeProofJourney {
 }
 @MainActor
 final class NativeTVLibraryAlphabetTests: NativeProofJourney {
+    func testHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
     func testTVLibraryAlphabetSortAndJump() throws { try journeyTVLibraryAlphabetSortAndJump() }
 }
 @MainActor
@@ -273,6 +274,7 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
+    func testIPadHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
     func testCompleteCatalogSupportsFastPosterScrolling() throws {
         try journeyCompleteCatalogSupportsFastPosterScrolling()
     }
@@ -3293,8 +3295,14 @@ class NativeProofJourney: XCTestCase {
         }, "Focus must preview the episode before Select.")
         XCUIRemote.shared.press(.select)
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "playback directly from episode Select")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
-        try attachPlaybackFrame(named: "TV episode Select starts the focused episode")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
+        XCUIRemote.shared.press(.playPause)
+        let chrome = element("videoPlaybackChrome")
+        if !hasVisibleFrame(chrome) { XCUIRemote.shared.press(.select) }
+        try waitForExistence(chrome, timeout: 10, named: "TV video controls overlay")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("videoPlayPauseButton").label == "Play" })
+        XCTAssertFalse(element("closePlayerButton").exists, "TV video controls must use remote Back instead of a close icon.")
+        try attachPlaybackFrame(named: "TV remote-only playback controls without a close icon")
         try closePlayer()
         _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.secondEpisodeID)
         try waitForExistence(episode, timeout: 15, named: "episode after playback Back")
@@ -6715,10 +6723,8 @@ class NativeProofJourney: XCTestCase {
         try revealDetailElement(selectedEpisode, in: collection, named: "direct episode", requiresHittable: true)
         try activate(selectedEpisode)
 
-        let title = element("collectionEpisodeTitle")
-        try waitForExistence(title, timeout: 20, named: "selected episode header")
-        XCTAssertTrue(accessibilityText(title).contains(fixture.secondEpisodeTitle),
-                      "Direct episode selection must keep the parent show open with the selected episode in its header.")
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "tapped episode playback")
+        try closePlayer()
         XCTAssertTrue(waitUntil(timeout: 10) {
             self.hasVisibleFrame(selectedEpisode) && selectedEpisode.isHittable
                 && (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected"
@@ -6849,8 +6855,8 @@ class NativeProofJourney: XCTestCase {
             let episode = element("videoEpisode-\(fixture.secondEpisodeID)")
             try revealDetailElement(episode, in: collection, named: "selected episode in \(appearance) appearance", requiresHittable: true)
             try activate(episode)
-            try waitForExistence(element("collectionEpisodeTitle"), timeout: 15,
-                                  named: "selected episode title in \(appearance) appearance")
+            try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode playback in \(appearance) appearance")
+            try closePlayer()
             XCTAssertTrue(waitUntil(timeout: 10) {
                 self.hasVisibleFrame(episode) && episode.isHittable
                     && (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected"
@@ -6895,52 +6901,53 @@ class NativeProofJourney: XCTestCase {
         defer { session.invalidateAndCancel() }
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 8)
+        try await api.seedProgress(identity: identity, itemID: fixture.secondEpisodeID, seconds: 8)
         let otherEpisode = try XCTUnwrap(fixture.secondSeasonEpisodeID)
         try await api.seedProgress(identity: identity, itemID: otherEpisode, seconds: 0)
         try launchAndResetSession()
         try signIn(using: fixture, waitsForAccount: false)
-        if usesStandardPhonePushedChrome {
-            try selectLibraryCategory("tv", screen: "libraryScreen")
-        } else {
-            destinationControl("Library").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            let category = element("libraryCategory-tv")
-            try waitForExistence(category, timeout: 20, named: "TV library category")
-            category.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
-        let show = try revealLibraryItem(id: fixture.showID, named: "show with contextual episode playback")
-        show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let resume = element("resumeItem-\(fixture.secondEpisodeID)")
+        try revealDetailElement(resume, in: element("homeScreen"), named: "saved episode on Home", requiresHittable: false)
+        resume.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.3)).tap()
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
-        let play = element("selectedEpisodePlayButton")
-        try revealDetailElement(play, in: collection, named: "Play beside the selected episode", requiresHittable: false)
-        XCTAssertTrue(play.label.contains("Resume"), "The selected saved episode must offer Resume beside its card.")
         let selector = element("videoSeasonSelector")
         try revealDetailElement(selector, in: collection, named: "season controls", requiresHittable: false)
-        let controls = [selector, element("downloadEpisodesButton"), element("collectionEpisodeTitle"), play]
         let viewport = try applicationViewport()
-        let rightEdge = viewport.maxX - (usesStandardPhonePushedChrome ? 20 : 96)
-        for control in controls {
+        let rightEdge = viewport.maxX - (UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome ? 20 : 96)
+        for control in [selector, element("downloadEpisodesButton")] {
             XCTAssertGreaterThanOrEqual(control.frame.minX, viewport.minX + 19)
-            XCTAssertLessThanOrEqual(control.frame.maxX, rightEdge + 1,
-                                     "Episode controls must clear the floating trailing rail.")
+            XCTAssertLessThanOrEqual(control.frame.maxX, rightEdge + 1)
         }
         XCTAssertFalse(selector.frame.intersects(element("downloadEpisodesButton").frame))
-        XCTAssertFalse(play.frame.intersects(element("collectionEpisodeTitle").frame))
-        try attachFrame(named: "Episode heading season download and contextual Resume alignment")
+        XCTAssertFalse(element("selectedEpisodePlayButton").exists)
+        XCTAssertFalse(element("collectionEpisodeTitle").exists)
+        let savedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
+        try revealDetailElement(savedEpisode, in: collection, named: "saved episode thumbnail", requiresHittable: false)
+        let aboutHeading = element("episodeAboutHeading")
+        try waitForExistence(aboutHeading, timeout: 10, named: "episode About heading")
+        let episodesHeading = application!.staticTexts["Episodes"].firstMatch
+        for text in [episodesHeading, selector, aboutHeading] {
+            XCTAssertEqual(savedEpisode.frame.minX, text.frame.minX, accuracy: 2,
+                           "The artwork card's outer edge must align with text above and below it.")
+        }
+        try attachFrame(named: "Episode thumbnail aligned with About and no duplicate title or Resume block")
+        savedEpisode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "thumbnail resumes saved episode")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 25) { $0 >= 8 }
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.secondEpisodeID, minimum: 8)
+        try closePlayer()
+        try revealDetailElement(selector, in: collection, named: "season controls after playback", requiresHittable: false)
         selector.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try activate(menuAction("Season 2"))
-        try waitForExistence(element("videoEpisode-\(otherEpisode)"), timeout: 20, named: "other season episode")
-        XCTAssertTrue(waitUntil(timeout: 15) { play.isEnabled && play.label == "Play" })
-        try revealDetailElement(play, in: collection, named: "selected season episode Play", requiresHittable: false)
-        XCTAssertTrue(element("collectionHero").frame.minY < viewport.minY,
-                      "Contextual playback must be reachable after scrolling away from the hero.")
-        try attachFrame(named: "Selected season episode Play without returning to hero")
-        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        try waitForExistence(element("playbackScreen"), timeout: 30, named: "contextual episode playback")
+        let thumbnail = element("videoEpisode-\(otherEpisode)")
+        try revealDetailElement(thumbnail, in: collection, named: "other season episode thumbnail", requiresHittable: false)
+        XCTAssertTrue(element("collectionHero").frame.minY < viewport.minY)
+        thumbnail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "thumbnail starts tapped season episode")
         _ = try await waitForServerProgress(api, identity: identity, itemID: otherEpisode, minimum: 1)
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
-        try attachPlaybackFrame(named: "Contextual Play targets the selected season episode")
+        try attachPlaybackFrame(named: "Tapped thumbnail plays the exact episode")
         try closePlayer()
         completed = true
     }
@@ -7011,17 +7018,16 @@ class NativeProofJourney: XCTestCase {
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(selectedEpisode, in: collection, named: "episode to open in its show", requiresHittable: true)
         try activate(selectedEpisode)
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "selected episode playback")
+        try closePlayer()
 
         try waitForExistence(collection, timeout: 20, named: "parent show after selecting an episode")
         XCTAssertFalse(element("detailScreen").exists,
                        "Selecting an episode must keep browsing in the parent show rather than open a standalone detail.")
-        let episodeTitle = element("collectionEpisodeTitle")
-        try waitForExistence(episodeTitle, timeout: 20, named: "selected episode in the show header")
+        XCTAssertFalse(element("collectionEpisodeTitle").exists)
         XCTAssertTrue(waitUntil(timeout: 10) {
             self.hasVisibleFrame(selectedEpisode) && selectedEpisode.isHittable
-        }, "Opening an episode must show its selected card without manual scrolling.")
-        XCTAssertTrue(accessibilityText(episodeTitle).contains(fixture.secondEpisodeTitle),
-                      "The show header must identify the episode that was selected.")
+        }, "Playback return must retain the selected episode card.")
         XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoSeasonSelector").value as? String) == "Season 1" },
                       "The episode's season must remain selected in the show.")
         XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected" },
@@ -7093,9 +7099,10 @@ class NativeProofJourney: XCTestCase {
         let siblingEpisode = element("videoEpisode-\(fixture.episodeID)")
         try revealDetailElement(siblingEpisode, in: collection, named: "another episode in the selected season", requiresHittable: true)
         try activate(siblingEpisode)
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "sibling episode playback")
+        try closePlayer()
         XCTAssertTrue(waitUntil(timeout: 10) {
-            self.accessibilityText(self.element("collectionEpisodeTitle")).contains(fixture.episodeTitle)
-                && (self.element("videoEpisode-\(fixture.episodeID)").value as? String) == "Selected"
+            (self.element("videoEpisode-\(fixture.episodeID)").value as? String) == "Selected"
         }, "Selecting another episode must stay in the show and update its selected playback target.")
 
         let siblingEpisodeAbout = element("episodeAbout")
@@ -7187,18 +7194,12 @@ class NativeProofJourney: XCTestCase {
         let protectedTop = usesStandardPhonePushedChrome
             ? try standardPhoneNavigationViewport().minY
             : try protectedStatusBarBottom()
-        let headerItems = [
-            element("collectionEpisodeTitle"),
-            element("playButton"),
-        ]
+        let headerItems = [element("playButton"), element("videoWatchlistButton")]
         for item in headerItems {
             try waitForExistence(item, timeout: 15, named: "collection header item during \(phase)")
-            let clearOfHeader = hasVisibleFrame(item) && item.frame.minY >= protectedTop - 1
-            if requiresVisibleHeader, item.identifier == "collectionEpisodeTitle" {
-                XCTAssertTrue(hasVisibleFrame(item),
-                              "\(item.identifier) must be visible in the initial selected-episode header.")
-            }
-            guard clearOfHeader else { continue }
+        }
+        if requiresVisibleHeader {
+            XCTAssertTrue(element("videoSeasonSelector").exists, "The show must retain season navigation after playback.")
         }
         let visibleHeaderItems = headerItems.filter {
             hasVisibleFrame($0) && $0.frame.minY >= protectedTop - 1
@@ -9258,6 +9259,69 @@ class NativeProofJourney: XCTestCase {
         throw ProofFailure.ui("A connection field could not be revealed: field=\(field.frame), viewport=\(viewport).")
     }
     #endif
+
+    func journeyHomeHeaderScrolling() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        #if os(iOS)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        #else
+        try launchAndResetSession()
+        #endif
+        try signIn(using: fixture, waitsForAccount: false)
+        let home = element("homeScreen")
+        try waitForExistence(home, timeout: 30, named: "Home before scrolling")
+        #if os(tvOS)
+        let movies = element("homeBrowse-movies")
+        #else
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("This workflow targets iPad navigation.") }
+        let movies = element("iPadCategory-movies")
+        #endif
+        try waitForExistence(movies, timeout: 20, named: "Home categories at the top")
+        XCTAssertTrue(hasVisibleFrame(movies))
+        try attachFrame(named: "Home categories over bright hero artwork")
+        #if os(tvOS)
+        let resume = element("resumeItem-\(fixture.directItemID)")
+        for _ in 0..<12 where !hasVisibleFrame(resume) { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(focus(resume, timeout: 20), "The remote must reach a shelf below the Home hero.")
+        #else
+        home.swipeUp()
+        home.swipeUp()
+        #endif
+        XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(movies) },
+                      "Home categories must scroll away rather than cover the shelves.")
+        XCTAssertFalse(hasVisibleFrame(element("homeMasthead")))
+        try attachFrame(named: "Home shelves without an overlapping navigation header")
+        #if os(tvOS)
+        for _ in 0..<12 where !hasVisibleFrame(movies) { XCUIRemote.shared.press(.up) }
+        try activate(movies)
+        #else
+        for _ in 0..<8 where !hasVisibleFrame(movies) { home.swipeDown() }
+        movies.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        #endif
+        let library = element("libraryScreen")
+        try waitForExistence(library, timeout: 25, named: "Movies Library")
+        try waitForExistence(movies, timeout: 10, named: "pinned Library categories")
+        let headerY = movies.frame.minY
+        let first = application!.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-")
+        ).firstMatch
+        try waitForExistence(first, timeout: 20, named: "first Library poster")
+        let firstID = first.identifier
+        #if os(tvOS)
+        XCTAssertTrue(focus(first, timeout: 20))
+        for _ in 0..<8 { XCUIRemote.shared.press(.down) }
+        #else
+        library.swipeUp()
+        library.swipeUp()
+        #endif
+        XCTAssertFalse(hasVisibleFrame(element(firstID)), "The Library must actually scroll through its posters.")
+        XCTAssertTrue(hasVisibleFrame(movies), "Library categories must remain pinned while browsing.")
+        XCTAssertEqual(movies.frame.minY, headerY, accuracy: 2)
+        try attachFrame(named: "Library posters beneath pinned categories")
+        completed = true
+    }
 
     private func closePlayer() throws {
         #if os(tvOS)

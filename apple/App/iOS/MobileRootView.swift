@@ -745,6 +745,7 @@ private enum LibraryCategory: String, CaseIterable {
 @MainActor
 private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var destination: LibraryDestination = .home
     @State private var homeNavigationID = UUID()
     #if LUMINA_UI_TESTING
@@ -828,7 +829,9 @@ private struct LibraryShellView: View {
                                         stacksCategoryHeader: stacksCategoryHeader,
                                         usesClosedCategoryRow: usesClosedCategoryRow,
                                         showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
-                                        uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue
+                                        uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue,
+                                        scrollsHeader: usesIPadHeaderNavigation,
+                                        header: { if usesIPadHeaderNavigation { iPadHomeHeader } }
                         ) { selected in
                             openLibrary(selected, fromHome: true)
                         }
@@ -973,6 +976,36 @@ private struct LibraryShellView: View {
         .accessibilityIdentifier("libraryCategories")
     }
 
+    private var iPadHomeHeader: some View {
+        HStack(spacing: 12) {
+            HomeHeroChrome().fixedSize()
+            unifiedCategories.frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                    NavigationLink {
+                        NativeOfflineLibraryView(store: store)
+                            .environment(\.colorScheme, colorScheme)
+                            .toolbarVisibility(.visible, for: .navigationBar)
+                    } label: { Label("Downloads", glyph: .download).labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(.rect) }
+                        .accessibilityIdentifier("homeDownloadsButton")
+                }
+                NavigationLink {
+                    HomeSearchView(store: store)
+                        .environment(\.colorScheme, colorScheme)
+                        .toolbarVisibility(.visible, for: .navigationBar)
+                        .toolbar { NativeNowPlayingToolbar(store: store) }
+                } label: { Label("Search", glyph: .search).labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(.rect) }
+                    .accessibilityIdentifier("homeSearchButton")
+                NativeNowPlayingControls(store: store)
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+        }
+        .frame(height: 44)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
     private var unifiedCategorySelection: String? {
         switch destination {
         case .home: homeCategory == .watchlist ? HomeBrowsingDestination.watchlist.rawValue : HomeBrowsingDestination.all.rawValue
@@ -1044,7 +1077,7 @@ private struct LibraryShellView: View {
                                                          @ViewBuilder content: () -> Content) -> some View {
             content()
                 .toolbar {
-                    if usesIPadHeaderNavigation, owner == destination {
+                    if usesIPadHeaderNavigation, owner == destination, owner != .home {
                         ToolbarItem(placement: .principal) {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
@@ -1077,7 +1110,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("compactBrowseMenu")
                         }
                     }
-                    if owner == .home, destination == .home, !usesPortraitRail {
+                    if owner == .home, destination == .home, !usesPortraitRail, !usesIPadHeaderNavigation {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
@@ -1094,7 +1127,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("homeSearchButton")
                         }
                     }
-                    if !usesPortraitRail { NativeNowPlayingToolbar(store: store) }
+                    if !usesPortraitRail, owner != .home || !usesIPadHeaderNavigation { NativeNowPlayingToolbar(store: store) }
                 }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
@@ -1210,7 +1243,7 @@ private struct MobileHomeSessionScope: Hashable {
 }
 
 @MainActor
-private struct HomeLibraryView: View {
+private struct HomeLibraryView<Header: View>: View {
     let store: LuminaStore
     let homeLayout: LuminaHomeLayout
     let feed: LuminaHomeFeed
@@ -1221,11 +1254,14 @@ private struct HomeLibraryView: View {
     let usesClosedCategoryRow: Bool
     let showsBrowsingRow: Bool
     let uiTestingNavigationDiagnostics: String?
+    let scrollsHeader: Bool
+    @ViewBuilder let header: Header
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
     #if LUMINA_UI_TESTING
     @State private var uiTestingHomeRefreshCount = 0
     #endif
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -1286,6 +1322,12 @@ private struct HomeLibraryView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
+            .padding(.top, scrollsHeader && snapshot.items.isEmpty ? geometry.safeAreaInsets.top + 76 : 0)
+            .overlay(alignment: .top) {
+                header
+                    .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
+                    .padding(.top, geometry.safeAreaInsets.top)
+            }
         }
         .ignoresSafeArea(edges: snapshot.items.isEmpty ? [] : .top)
         .modifier(HomeHeroScrollEdge(isEnabled: !snapshot.items.isEmpty))
@@ -1304,11 +1346,11 @@ private struct HomeLibraryView: View {
 
         .navigationBarTitleDisplayMode(.inline)
         .background(LuminaTheme.paper)
-        .toolbarVisibility(.visible, for: .navigationBar)
+        .toolbarVisibility(scrollsHeader ? .hidden : .visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if !stacksCategoryHeader {
+            if !stacksCategoryHeader && !scrollsHeader {
                 if showsBrowsingRow, usesClosedCategoryRow {
                     let header = HStack(spacing: 12) {
                         HomeHeroChrome().fixedSize()
@@ -2573,7 +2615,8 @@ struct VideoCollectionView: View {
     @State private var selectedEpisodeID: String?
     @State private var isLoadingSelectedSeason = false
     @State private var hasPositionedInitialEpisode = false
-    @State private var hasCenteredInitialEpisode = false
+    @State private var hasAlignedInitialEpisode = false
+    @State private var episodeRailWidth: CGFloat = 0
     @State private var detailItem: MediaItem?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -2652,23 +2695,10 @@ struct VideoCollectionView: View {
                             .id(collectionSectionID)
                             if isSeriesCollection {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
-                                        ViewThatFits(in: .horizontal) {
-                                            HStack(alignment: .center, spacing: 20) {
-                                                selectedEpisodeHeading(selectedEpisode)
-                                                Spacer(minLength: 0)
-                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
-                                            }
-                                            VStack(alignment: .leading, spacing: 12) {
-                                                selectedEpisodeHeading(selectedEpisode)
-                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
-                                            }
-                                        }
-                                        if let playbackError {
-                                            Text(playbackError)
-                                                .font(.callout).foregroundStyle(LuminaTheme.accentInk)
-                                                .accessibilityIdentifier("selectedEpisodePlaybackError")
-                                        }
+                                    if let playbackError {
+                                        Text(playbackError)
+                                            .font(.callout).foregroundStyle(LuminaTheme.accentInk)
+                                            .accessibilityIdentifier("selectedEpisodePlaybackError")
                                     }
                                     if isLoadingSelectedSeason {
                                         ProgressView("Loading episodes…")
@@ -2860,29 +2890,26 @@ struct VideoCollectionView: View {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(episodes) { episode in
                             episodeLink(episode)
-                                .containerRelativeFrame(.horizontal) { width, _ in
-                                    min(max(340, width * 0.30), width * 0.86)
-                                }
+                                .frame(width: episodeCardWidth)
                         }
                     }
                     .scrollTargetLayout()
                 }
-                .onAppear { centerInitialEpisode(using: proxy) }
+                .onAppear { alignInitialEpisode(using: proxy) }
+                .onChange(of: episodeRailWidth) { alignInitialEpisode(using: proxy) }
                 .scrollTargetBehavior(.viewAligned)
-                .modifier(LuminaCarouselEdges())
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { episodeRailWidth = $0 }
+                // Leave room for the final card to settle at the same content gutter.
+                .contentMargins(.trailing, max(0, episodeRailWidth - episodeCardWidth - episodeRailInset), for: .scrollContent)
+                .modifier(LuminaCarouselEdges(inset: episodeRailInset))
             }
         }
     }
 
-    private func selectedEpisodeHeading(_ episode: MediaItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(episode.name).font(.headline)
-                .accessibilityIdentifier("collectionEpisodeTitle")
-            if !episode.displaySubtitle.isEmpty {
-                Text(episode.displaySubtitle).font(.subheadline).foregroundStyle(LuminaTheme.muted)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
+    private var episodeRailInset: CGFloat { LuminaTheme.contentGutter }
+    private var episodeCardWidth: CGFloat {
+        let width = max(0, episodeRailWidth - 2 * episodeRailInset)
+        return width > 0 ? min(max(340, width * 0.30), width * 0.86) : 340
     }
 
     private func collectionPlayButton(identifier: String) -> some View {
@@ -2907,21 +2934,20 @@ struct VideoCollectionView: View {
     }
 
     private func episodeLink(_ episode: MediaItem) -> some View {
-        Group {
-            if isSeriesCollection {
-                Button { selectedEpisodeID = episode.id } label: {
-                    episodeCard(episode, selected: episode.id == selectedEpisodeID)
-                }
-            } else {
-                NavigationLink(value: episode) {
-                    episodeCard(episode)
-                }
-            }
+        Button {
+            guard !isPreparingPlayback else { return }
+            selectedEpisodeID = episode.id
+            preparePlayback(for: episode)
+        } label: {
+            episodeCard(episode, selected: episode.id == selectedEpisodeID)
         }
         .buttonStyle(.plain)
+        .disabled(isPreparingPlayback || isLoading || isLoadingSelectedSeason)
         .contextMenu { NativeMetadataActions(item: episode) }
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
+        .accessibilityHint(episode.resumeSeconds > 5 && episode.userData?.played != true ? "Resumes this episode" : "Plays this episode")
         .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
         .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
         .accessibilityIdentifier("videoEpisode-\(episode.id)")
@@ -2935,6 +2961,7 @@ struct VideoCollectionView: View {
                let episode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
                 Text("About this episode")
                     .font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("episodeAboutHeading")
                 if let overview = episode.overview, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     NativeMediaAbout(overview: MediaOverview(overview))
                         .id(episode.id)
@@ -3087,25 +3114,26 @@ struct VideoCollectionView: View {
         }
     }
 
-    private func centerInitialEpisode(using proxy: ScrollViewProxy) {
-        guard isSeriesCollection, initialEpisodeID != nil, !hasCenteredInitialEpisode,
+    private func alignInitialEpisode(using proxy: ScrollViewProxy) {
+        guard isSeriesCollection, initialEpisodeID != nil, episodeRailWidth > 0, !hasAlignedInitialEpisode,
               let selectedEpisodeID,
               selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
-        hasCenteredInitialEpisode = true
+        hasAlignedInitialEpisode = true
         DispatchQueue.main.async {
-            proxy.scrollTo(episodeScrollID(selectedEpisodeID), anchor: .center)
+            proxy.scrollTo(episodeScrollID(selectedEpisodeID), anchor: .leading)
         }
     }
 
-    private func preparePlayback() {
+    private func preparePlayback(for episode: MediaItem? = nil) {
         guard !isPreparingPlayback else { return }
         isPreparingPlayback = true
         playbackError = nil
         Task {
             defer { isPreparingPlayback = false }
             do {
-                let episode = try await playableEpisode()
-                playbackRequest = try await store.preparePlayback(for: episode)
+                let target: MediaItem
+                if let episode { target = episode } else { target = try await playableEpisode() }
+                playbackRequest = try await store.preparePlayback(for: target)
             } catch {
                 playbackError = (error as? LocalizedError)?.errorDescription ?? "No playable episode is available yet. Check the collection and try again."
             }

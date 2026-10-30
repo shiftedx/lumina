@@ -1488,3 +1488,68 @@ workflows passed (22 tests, including 14 unavailable optional-fixture skips), an
 the local source-provenance contract passed. Both iOS and tvOS unsigned Debug
 simulator builds passed with the target-aware readiness API and main's autoplay/
 carousel work retained. Owned source bridges and their readers were stopped.
+
+## Branded Resume / Start Over chooser — October 30, 2026
+
+Explicit video playback with positive saved progress now offers Resume, Start
+Over and Cancel before a player starts. The shared native presentation boundary
+covers heroes, movie details, episode thumbnails and downloaded playback. Its
+Lumina chooser uses the approved sunrise mark, Newsreader title, adaptive
+paper/ink surfaces and existing neutral button styles. Resume receives default
+remote focus; TV Back cancels. A scrollable panel accommodates shorter screens
+and larger text. The player is presented only after the chooser dismisses.
+Start Over requests a zero-position stream with the same source, quality,
+audio/subtitle selection and compatibility mode. Cancelling leaves history
+untouched; cancelled or superseded restart tasks cannot open another player.
+
+Web explicit movie/episode entries use fresh progress, retain the themed Dialog
+and add the approved mark, editorial title and saved-time context. Item/history
+fetches remain parallel. Unplayed conversions can still adopt a warmed session;
+Start Over waits for obsolete speculative work to stop. Unavailable history
+leaves browsing intact with a retry message. Automatic episode transitions,
+music and explicit web timestamps retain their existing behavior.
+
+The new native workflow first failed on baseline because the saved episode
+started without a choice. Both TV movie/episode workflows then passed through
+the final branded chooser: Cancel preserves the seeded 24-second position,
+Resume plays from that position with advancing time, Start Over advances from
+zero and reports the restarted timeline, and fresh server progress bypasses the
+chooser even when the detail's displayed metadata is older. Final results:
+`output/playback-resume-choice/tvos-branded.xcresult`. Both simulator test builds
+passed. The TV three-episode autoplay/presence workflow also passed during this
+feature (`tvos-autoplay.xcresult`). Web routing and warm-up checks passed 120
+cases across two focused files; affected resume workflows passed again after
+visual polish, and TypeScript passed. Web desktop dark/phone light and native
+TV chooser screenshots were inspected.
+
+Evidence is retained in ignored `output/playback-resume-choice/`, plus the web
+screenshots `output/resume-web-desktop.png` and `output/resume-web-phone.png`.
+The iPad journey uses the existing test-only static-animation flag and real
+coordinate taps for visible playback controls; this avoids AX hittability and
+chrome-hide races while retaining public user input. No full suite, physical
+hardware qualification, packaging, upload or deployment was performed. This
+feature requires updated app/web clients; it adds no backend API or schema.
+The previously uploaded build 36 does not include it.
+
+
+The final iPad Pro 11-inch (M5/iOS 27.0) branded movie and episode workflows
+passed in `output/playback-resume-choice/ipad-qualified.xcresult`, including the
+public reveal/close gestures. After incorporating the newer real-media startup,
+audio and M2TS seek work from main, both simulator targets built and the TV
+movie workflow passed again (`tvos-final.xcresult`). Earlier iPad failures were
+traced to the test checking close-button existence just before chrome auto-hide;
+the qualified journey starts from hidden chrome before revealing and tapping.
+
+## Mobile Connect form centering — October 30, 2026
+
+The existing connection form now centers as a group on iPad and standard
+phones. Its internal leading alignment, 420-point maximum width, QR/manual/help
+controls, and keyboard scrolling are retained. The established standard-phone
+predicate keeps Duo's previous wide-leading/narrow-bottom placement and its
+left artwork shade. Centered layouts retain the full-screen vertical gradient.
+`NativeConnectionFormCenteringTests/testConnectionFormCentersInViewport` checks
+horizontal centering, vertical centering within system safe areas, and visible
+manual/help actions. The iPad check passed in `ipad-qualified.xcresult`; the
+standard iPhone 17 Pro check passed in `phone-centered.xcresult` in the
+same evidence directory. No physical Duo qualification or distribution build
+was performed.

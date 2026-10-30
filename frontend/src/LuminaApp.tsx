@@ -28,7 +28,9 @@ import { type BooksRoute } from './features/books/routes';
 import { AppShell } from './app/AppShell';
 import { onCommand, openMemberPicker, PALETTE_EVENT, type PaletteMode, type PaletteRequest } from './app/commands';
 import type { PaletteContext } from './features/palette/actions';
-import { EmptyState, Skeleton, useToast } from './ui';
+import { BrandMark, Button, Dialog, EmptyState, Skeleton, useToast } from './ui';
+import { formatDuration } from './utils';
+import './features/watch/resumeChoice.css';
 import { usePolledSnapshot } from './app/usePolledSnapshot';
 import { forgetHomeCache } from './features/home/homeCache';
 import { normalizeHomeShelves, type HomeShelfPref } from './features/home/homeShelves';
@@ -325,6 +327,9 @@ export default function LuminaApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [activePlayback, setActivePlayback] = useState<PlaybackProgress | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
+  const resumeButtonRef = useRef<HTMLButtonElement>(null);
+  const [resumeChoice, setResumeChoice] = useState<{ item: LibraryItem; progress: PlaybackProgress; request: number; token: ReturnType<typeof workspace.captureSessionToken>; stopped: Promise<void>; confirmed: boolean; preserveRemoteChain: boolean } | null>(null);
+  const choiceRequestRef = useRef(0);
   const [watchStart, setWatchStart] = useState<{ libraryId: string; seconds: number; nonce: number } | null>(null); // the watch link's `t`
   const [curationTags, setCurationTags] = useState<UserTag[]>([]);
   const [curationBusy, setCurationBusy] = useState(false);
@@ -436,7 +441,7 @@ export default function LuminaApp() {
   }, [state.currentUser?.id]);
   // Stable references for the callbacks passed into memoized list rows, so a
   // realtime progress redraw of the root never re-renders every card.
-  const openLibraryStable = useStableCallback((item: LibraryItem) => openLibrary(item));
+  const openLibraryStable = useStableCallback((item: LibraryItem) => { if (item.kind === 'movie' || item.kind === 'episode') openRoute({ surface: 'watch', libraryId: item.id }); else void openLibrary(item); });
   const openRemoteStable = useStableCallback((item: YouTubeSearchResult) => { void openRemote(item); });
   const openQueuedStable = useStableCallback((entry: WatchQueueEntry) => { if (entry.ref.library_item_id) openRoute({ surface: 'watch', libraryId: entry.ref.library_item_id }); else void openRemote(queuedAsRemote(entry)); });
   // acquisition.queue is a new reference every render (its deps include the fresh
@@ -793,6 +798,7 @@ export default function LuminaApp() {
 
   /** Everything per-member the next member must not inherit (the workspace, acquisition, refs, surface, search). */
   function resetMemberState() {
+    choiceRequestRef.current += 1; setResumeChoice(null);
     offlineToasted.current = null; toast.clear(); // the leaving member's toasts and their Undo must not reach the next member
     ++memberInterestsRequestRef.current;
     setMemberInterests(null); setMemberInterestsLoading(true); setMemberInterestsError(null);
@@ -860,13 +866,19 @@ export default function LuminaApp() {
   const navigationMarked = useRef<string | null>(null);
   // Every exit from Settings that does not go through navigate asks about unsaved edits first.
   const leaveSettingsOk = () => confirmLeaveSettings();
-  function resetWatch(preserveEpisodeAutoplayRun = false) { playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; if (!preserveEpisodeAutoplayRun) episodeAutoplayRunRef.current = { itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null }; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
+  function resetWatch(preserveEpisodeAutoplayRun = false) { choiceRequestRef.current += 1; setResumeChoice(null); playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; if (!preserveEpisodeAutoplayRun) episodeAutoplayRunRef.current = { itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null }; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
-  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
+  function navigate(next: Surface, confirmed = false) { choiceRequestRef.current += 1; setResumeChoice(null); navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
   function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
-  function openRoute(route: AppRoute, confirmed = false, preserveRemoteChain = false, preserveEpisodeAutoplayRun = false) {
+  function restoreBrowsingAddress() {
+    const path = currentPath ?? '/';
+    if (locationPath() !== path) window.history.replaceState(null, '', path);
+    syncedPathRef.current = path;
+  }
+
+  function openRoute(route: AppRoute, confirmed = false, preserveRemoteChain = false, preserveEpisodeAutoplayRun = false, preflight?: { item: LibraryItem; progress: Promise<PlaybackProgress | null> }, warmupStopped = false) {
     route = canonicalRoute(route);
     navigationMarked.current = null; // a poster click's mark is for its own navigation only
     if (route.surface === 'streaming') {
@@ -899,6 +911,50 @@ export default function LuminaApp() {
       return;
     }
     if ('url' in route) { if (watchSelection?.kind === 'remote' && watchSelection.item.webpage_url === route.url) navigate('watch'); else void openRemote({ title: 'Loading video…', webpage_url: route.url }); return; }
+    if (!preflight && route.startSeconds !== undefined && !warmupStopped) {
+      if (!confirmed && !leaveSettingsOk()) return;
+      const request = ++choiceRequestRef.current;
+      setResumeChoice(null);
+      const token = workspace.captureSessionToken();
+      void cancelSpeculativeStart().then(() => {
+        if (request === choiceRequestRef.current && workspace.isSessionTokenCurrent(token)) openRoute(route, true, preserveRemoteChain, preserveEpisodeAutoplayRun, undefined, true);
+      });
+      return;
+    }
+    if (!preflight && route.startSeconds === undefined && libraryWatchItem?.id !== route.libraryId && !preserveEpisodeAutoplayRun && !preserveRemoteChain) {
+      if (!confirmed && !leaveSettingsOk()) return;
+      const request = ++choiceRequestRef.current;
+      setResumeChoice(null);
+      const token = workspace.captureSessionToken();
+      const known = state.library.find((item) => item.id === route.libraryId);
+      const itemPromise = known?.kind ? Promise.resolve(known) : getLibraryItem(route.libraryId);
+      const progressPromise = getPlaybackProgress(route.libraryId);
+      // Keep a rejection handled while item details load, including when navigation supersedes this request.
+      const progressResult = progressPromise.then((progress) => ({ ok: true as const, progress }), () => ({ ok: false as const }));
+      void itemPromise.then(async (item) => {
+        if (request !== choiceRequestRef.current || !workspace.isSessionTokenCurrent(token)) return;
+        if (item.kind !== 'movie' && item.kind !== 'episode') {
+          openRoute(route, true, preserveRemoteChain, preserveEpisodeAutoplayRun, { item, progress: progressPromise });
+          return;
+        }
+        const result = await progressResult;
+        if (request !== choiceRequestRef.current || !workspace.isSessionTokenCurrent(token)) return;
+        if (!result.ok) {
+          void cancelSpeculativeStart();
+          restoreBrowsingAddress();
+          setError('Playback history could not be loaded. Try playing again.');
+          return;
+        }
+        if (result.progress && result.progress.position_seconds > 0) {
+          const stopped = cancelSpeculativeStart();
+          setResumeChoice({ item, progress: result.progress, request, token, stopped, confirmed: true, preserveRemoteChain });
+        } else openRoute(route, true, preserveRemoteChain, preserveEpisodeAutoplayRun, { item, progress: Promise.resolve(result.progress) });
+      }).catch(() => {
+        if (request === choiceRequestRef.current && workspace.isSessionTokenCurrent(token)) { restoreBrowsingAddress(); setError('That Library item is unavailable.'); }
+      });
+      return;
+    }
+    choiceRequestRef.current += 1; setResumeChoice(null);
     const start = route.startSeconds === undefined ? null : { libraryId: route.libraryId, seconds: route.startSeconds, nonce: performance.now() };
     if (libraryWatchItem?.id === route.libraryId) {
       if (!navigate('watch', confirmed)) return;
@@ -913,21 +969,30 @@ export default function LuminaApp() {
     // the resume point is useless for a `t`, and so is one for another item: any unclaimed one stops now), and the
     // decision loads beside the item.
     notePlayIntent();
-    if (start) cancelSpeculativeStart(); else claimSpeculativeStart(route.libraryId);
+    if (!start) claimSpeculativeStart(route.libraryId);
     prefetchPlaybackOptions(route.libraryId);
     resetWatch(preserveEpisodeAutoplayRun); if (surface !== 'watch') setPreviousSurface(surface); setSurface('watch'); closePalette();
     const request = playbackLoadRequestRef.current;
     const token = workspace.captureSessionToken();
     // The resume point is fetched beside the item, not after it: the player mounts one round trip sooner.
-    const progress = getPlaybackProgress(route.libraryId);
+    const progress = preflight?.progress ?? getPlaybackProgress(route.libraryId);
     progress.catch(() => undefined); // openLibrary reports a failure; a Play that never gets that far must not leave it unhandled
-    void getLibraryItem(route.libraryId).then((item) => {
+    void (preflight ? Promise.resolve(preflight.item) : getLibraryItem(route.libraryId)).then((item) => {
       if (request === playbackLoadRequestRef.current && workspace.isSessionTokenCurrent(token)) void openLibrary(item, true, progress, route.startSeconds, preserveRemoteChain);
     }).catch(() => {
       if (request !== playbackLoadRequestRef.current || !workspace.isSessionTokenCurrent(token)) return;
       takePlayIntent(); // a failed Play must not time the next one's first frame
       setError('That Library item is unavailable.');
       navigate('home');
+    });
+  }
+  function chooseResume(resume: boolean) {
+    const choice = resumeChoice;
+    if (!choice) return;
+    setResumeChoice(null);
+    void choice.stopped.then(() => {
+      if (choice.request !== choiceRequestRef.current || !workspace.isSessionTokenCurrent(choice.token)) return;
+      openRoute({ surface: 'watch', libraryId: choice.item.id, startSeconds: resume ? choice.progress.position_seconds : 0 }, choice.confirmed, choice.preserveRemoteChain, false, { item: choice.item, progress: Promise.resolve(choice.progress) });
     });
   }
   const openRouteStable = useStableCallback(openRoute);
@@ -1301,11 +1366,13 @@ export default function LuminaApp() {
   // Only openRoute's own load keeps the link time it just set; every other Play starts from the saved position.
   /** `early`: the item's progress, already requested beside a full item (openRoute), so neither is fetched again here. */
   async function openLibrary(item: LibraryItem, keepStart = false, early?: Promise<PlaybackProgress | null>, requestedStartSeconds?: number, preserveRemoteChain = false) {
+    choiceRequestRef.current += 1; setResumeChoice(null);
     if (state.currentUser && (item.kind === 'track' || item.kind === 'audio')) {
       const preserveAudioLocation = surface === 'audio';
       resetWatch();
       setSurface('audio');
       if (!preserveAudioLocation) setLibraryLocation(item.title_id ? { titleId: item.title_id } : { view: 'music' });
+      else restoreBrowsingAddress();
       const queued = albumQueue();
       startForegroundMusic(state.currentUser.id, playMusic(
         state.currentUser.id,
@@ -1359,6 +1426,7 @@ export default function LuminaApp() {
   }
 
   async function openRemote(item: YouTubeSearchResult, autoplayFrom?: string | null) {
+    choiceRequestRef.current += 1; setResumeChoice(null);
     if (item.reco) recordRecoOpen(item.reco);
     if (!leaveSettingsOk()) return;
     if (autoplayFrom === undefined) recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] };
@@ -1681,6 +1749,12 @@ export default function LuminaApp() {
           {watchSelection && !gate ? <TimeLeftNotice minutes={access?.remaining_minutes ?? null} /> : null}
         </ArtActionsProvider>
       </RecoFeedbackProvider>
+      <Dialog className="resume-choice" hideTitle initialFocus={resumeButtonRef} open={Boolean(resumeChoice)} onClose={() => { choiceRequestRef.current += 1; setResumeChoice(null); restoreBrowsingAddress(); }} size="sm" title="Resume playback?" footer={<><Button variant="quiet" onClick={() => { choiceRequestRef.current += 1; setResumeChoice(null); restoreBrowsingAddress(); }}>Cancel</Button><Button variant="secondary" onClick={() => chooseResume(false)}>Start Over</Button><Button ref={resumeButtonRef} variant="primary" onClick={() => chooseResume(true)}>Resume</Button></>}>
+        <div className="resume-choice-content">
+          <span aria-hidden="true"><BrandMark compact size="hero" /></span>
+          {resumeChoice ? <><h3>{resumeChoice.item.title}</h3><p>Resume playback from {formatDuration(resumeChoice.progress.position_seconds)}?</p></> : null}
+        </div>
+      </Dialog>
       <MemberPickerHost beforeChange={prepareMemberChange} currentUser={state.currentUser} onSwitched={() => void handleSwitched()} />
       {palette.open && paletteContext ? (
         <Suspense fallback={null}>

@@ -352,3 +352,35 @@ Three focused Core checks and both signing/framework packaging safeguards passed
 No full suite, physical-device qualification, upload or tester assignment occurred.
 Organizer now also shows the previous tvOS build 33 uploaded on October 29 at
 09:50 America/Chicago; this was observed, not performed by this packaging work.
+
+### Internal dogfood package 36, 2026-10-29 — iOS and tvOS uploaded
+
+**iOS and tvOS 0.1.0 (36) uploaded to Apple**, confirmed independently by
+Xcode's completion screens and successful distribution logs. Both were built
+from clean main `052c2070b2f76f008ed0ac42c7b9ab43237858e4`. This includes
+thumbnail activation of the exact episode, removal of the duplicate episode
+title/Resume block, artwork edges aligned with the surrounding text gutter,
+Home headers that scroll away on iPad/tvOS, pinned Library navigation, the short
+tvOS header gradient, and removal of the normal TV player's touch-only X.
+All earlier reader, downloads/theme, ratings, caching and native playback work
+remains included; the source also includes paired M2TS Dolby Vision changes.
+
+Xcode used cloud-managed automatic distribution signing, preserved build 36,
+included symbols and enabled **TestFlight Internal Only** for both platforms.
+The original device archives, exact submitted signed IPAs in `upload-iOS/` and
+`upload-tvOS/`, matching-symbol signed Organizer references, source snapshot/input
+hashes, validation logs, upload confirmations, successful distribution logs and
+checksums are retained in ignored `apple/Distribution/0.1.0-36/`.
+
+Focused iPhone/iPad episode activation/alignment, iPad/TV Home-versus-Library
+scrolling and TV playback/Back workflows passed before packaging. The iPad
+header workflow used the existing test-only static-animation option; other
+listed workflows used normal animations. Both packaging safeguards, device
+archives, submitted IPAs and signed reference validations passed, with matching
+executable/dSYM UUIDs. No full suite or new physical-device qualification ran.
+
+Build 36 is consumed on both platforms; do not upload it again. Apple processing
+and tester assignment remain unverified. No server deployment occurred during
+this release; production remains at the separately verified source `283eede5`.
+Organizer also showed both prior build-35 packages uploaded by the owner; those
+uploads were observed, not performed during this operation.

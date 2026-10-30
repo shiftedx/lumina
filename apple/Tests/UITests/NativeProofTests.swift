@@ -221,6 +221,7 @@ final class NativeTVNavigationArtworkAndVideoCategoriesTests: NativeProofJourney
 }
 @MainActor
 final class NativeTVHomeNavigationPreservesSelectionTests: NativeProofJourney {
+    func testNewHomeCarouselsEnterAtLeadingCard() async throws { try await journeyTVLeadingCarouselEntry() }
     func testHomeArtworkAndCachedDetailReturns() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: false) }
     func testNextUpArtworkAndCachedPlayback() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: true) }
     func testTVHomeNavigationPreservesSelection() async throws { try await journeyTVHomeNavigationPreservesSelection() }
@@ -3474,6 +3475,61 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
         try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback")
         try closePlayer()
+        completed = true
+    }
+
+    func journeyTVLeadingCarouselEntry() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        for id in [fixture.directItemID, fixture.convertedItemID, fixture.matrixItemID] {
+            try await api.seedProgress(identity: identity, itemID: id, seconds: 12)
+        }
+        _ = try await api.saveHomeLayout(identity: identity, shelves: [
+            ProofHomeShelf(id: "continue", visible: true),
+            ProofHomeShelf(id: "new_in_library", visible: true),
+            ProofHomeShelf(id: "next_up", visible: false),
+        ])
+        let rows = try await api.homeRows(identity: identity)
+        let resumeRow = try XCTUnwrap(rows.first { $0.shelf_id == "continue" })
+        let recentRow = try XCTUnwrap(rows.first { $0.shelf_id == "new_in_library" })
+        XCTAssertGreaterThanOrEqual(resumeRow.items.count, 3)
+        XCTAssertGreaterThanOrEqual(recentRow.items.count, 3)
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        try waitForExistence(element("featuredWatchlistButton"), timeout: 25, named: "hero's right-hand action")
+        XCTAssertTrue(focus(element("featuredWatchlistButton"), timeout: 20))
+        let firstResume = element("resumeItem-\(resumeRow.items[0].Id)")
+        for _ in 0..<4 {
+            XCUIRemote.shared.press(.down)
+            if resumeRow.items.contains(where: { element("resumeItem-\($0.Id)").hasFocus }) { break }
+        }
+        guard waitUntil(timeout: 8, condition: { firstResume.hasFocus }) else {
+            throw ProofFailure.ui("Down from the hero must enter the leftmost Continue watching card, regardless of the hero action's horizontal position.")
+        }
+        XCUIRemote.shared.press(.right)
+        XCUIRemote.shared.press(.right)
+        let visited = element("resumeItem-\(resumeRow.items[2].Id)")
+        XCTAssertTrue(waitUntil(timeout: 8) { visited.hasFocus }, "Horizontal navigation must remain within the row.")
+        let recentPrefix = "homeRow-\(recentRow.id)"
+        let firstRecent = element("\(recentPrefix)-\(recentRow.items[0].Id)")
+        for _ in 0..<4 {
+            XCUIRemote.shared.press(.down)
+            if recentRow.items.contains(where: { element("\(recentPrefix)-\($0.Id)").hasFocus }) { break }
+        }
+        XCTAssertTrue(waitUntil(timeout: 8) { firstRecent.hasFocus }, "Down from a right-hand card must enter a new carousel at its leftmost card.")
+        try attachFrame(named: "New Home carousel enters at its left edge")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitUntil(timeout: 8) { visited.hasFocus }, "Returning to a visited row must restore the member's last card.")
+        try activate(visited)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "movie from the visited carousel")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 12) { visited.hasFocus }, "Back from detail must restore the same carousel card.")
         completed = true
     }
 
@@ -10220,6 +10276,13 @@ private struct ProofHomeShelf: Codable, Equatable {
     let visible: Bool
 }
 
+private struct ProofHomeRow: Decodable {
+    struct Item: Decodable { let Id: String }
+    let id: String
+    let shelf_id: String
+    let items: [Item]
+}
+
 private struct ProofHomeLayout: Decodable {
     let shelves: [ProofHomeShelf]?
 }
@@ -10292,6 +10355,13 @@ private struct ProofAPI {
             throw ProofAPIError.malformedResponse
         }
         return object
+    }
+
+    func homeRows(identity: APIIdentity) async throws -> [ProofHomeRow] {
+        struct Response: Decodable { let rows: [ProofHomeRow] }
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Home/rows"))
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        return try JSONDecoder().decode(Response.self, from: await send(request)).rows
     }
 
     func homeLayout(identity: APIIdentity) async throws -> [ProofHomeShelf]? {

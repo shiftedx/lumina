@@ -68,14 +68,25 @@ class _PES:
     def __init__(self) -> None:
         self.header = bytearray()
         self.pts: int | None = None
+        self.offset: int | None = None
         self.ready = False
+        self.invalid = False
+        self.announced = False
         self.nal = bytearray()
+        self.irap_seen = False
 
-    def start(self, payload: bytes) -> bytes | None:
+    def start(self, payload: bytes, offset: int) -> bytes | None:
+        if self.header and not self.ready:
+            self.invalid = True
+            return None
         self.header = bytearray(payload)
         self.pts = None
+        self.offset = offset
         self.ready = False
+        self.invalid = False
+        self.announced = False
         self.nal.clear()
+        self.irap_seen = False
         return self.feed(b"")
 
     def feed(self, payload: bytes) -> bytes | None:
@@ -85,19 +96,24 @@ class _PES:
         if len(self.header) < 9:
             return None
         if self.header[:3] != b"\0\0\1" or self.header[6] & 0xC0 != 0x80:
+            self.invalid = True
             return None
         length = self.header[8]
         needed = 9 + length
-        if needed > 264 or len(self.header) < needed:
+        if needed > 264:
+            self.invalid = True
+            return None
+        if len(self.header) < needed:
             return None
         flags = self.header[7] & 0xC0
         self.pts = _pts(self.header[9:14]) if flags in (0x80, 0xC0) else None
         self.ready = self.pts is not None
+        self.invalid = not self.ready
         result = bytes(self.header[needed:]) if self.ready else None
         self.header.clear()
         return result
 
-    def irap(self, payload: bytes) -> bool:
+    def observe_nals(self, payload: bytes) -> None:
         self.nal.extend(payload)
         # Five bytes suffice for Annex-B's longest start code and HEVC header.
         while len(self.nal) >= 5:
@@ -112,11 +128,17 @@ class _PES:
             first, second = self.nal[zeroes + 1], self.nal[zeroes + 2]
             del self.nal[:zeroes + 3]
             nal_type, layer = (first >> 1) & 0x3F, ((first & 1) << 5) | (second >> 3)
-            if layer == 0 and 16 <= nal_type <= 21:
-                return True
+            if first & 0x80 or layer != 0 or (second & 7) == 0:
+                self.invalid = True
+                return
+            if nal_type == 62:  # An inline RPU belongs only to the enhancement PID.
+                self.invalid = True
+                return
+            if 16 <= nal_type <= 21:
+                self.irap_seen = True
         if len(self.nal) > 5:
             del self.nal[:-5]
-        return False
+        return
 
 
 def scan(path: Path, expected: DolbyVisionTransportPair, stop: threading.Event | None = None) -> IRAPIndex | None:
@@ -131,8 +153,23 @@ def scan(path: Path, expected: DolbyVisionTransportPair, stop: threading.Event |
         pair = None
         pes = {expected.base_pid: _PES(), expected.enhancement_pid: _PES()}
         el_offsets: dict[int, int] = {}
-        pending: dict[int, tuple[int, int]] = {}
+        # Base PES records are discarded as soon as their exact-PTS EL arrives
+        # and their NAL payload is complete. This keeps ordinary non-key AUs
+        # out of the index and bounds EL-first/BL-first reordering alike.
+        base_records: dict[int, dict[str, int | bool | None]] = {}
+        current_base_pts: int | None = None
         keys: list[tuple[int, int]] = []
+
+        def finish_base(pts: int) -> bool:
+            state = base_records.get(pts)
+            if state is None or state["el"] is None or not state["complete"]:
+                return False
+            if state["irap"]:
+                if len(keys) >= MAX_KEYS:
+                    return False
+                keys.append((pts, min(int(state["offset"]), int(state["el"]))))
+            del base_records[pts]
+            return True
         with path.open("rb") as source:
             packet_number = 0
             while packet := source.read(M2TS_PACKET_SIZE):
@@ -175,33 +212,65 @@ def scan(path: Path, expected: DolbyVisionTransportPair, stop: threading.Event |
                             pair = parsed
                 if pid in pes and has_payload:
                     parser = pes[pid]
-                    body = parser.start(payload) if starts else parser.feed(payload)
-                    if body is None or parser.pts is None:
+                    if starts and pid == expected.base_pid and current_base_pts is not None:
+                        prior = base_records.get(current_base_pts)
+                        if prior is None:
+                            return None
+                        prior["complete"] = True
+                        prior["irap"] = parser.irap_seen
+                        if prior["irap"] and parser.invalid:
+                            return None
+                        if prior["el"] is not None and not finish_base(current_base_pts):
+                            return None
+                    body = parser.start(payload, packet_number * M2TS_PACKET_SIZE) if starts else parser.feed(payload)
+                    if parser.invalid:
                         return None
+                    if body is None:
+                        packet_number += 1
+                        continue
                     pts = parser.pts
-                    if pid == expected.enhancement_pid and starts:
-                        if pts in el_offsets or len(el_offsets) >= MAX_PENDING_EL:
+                    if pts is None or parser.offset is None:
+                        return None
+                    if pid == expected.enhancement_pid and not parser.announced:
+                        state = base_records.get(pts)
+                        if state is not None:
+                            if state["el"] is not None:
+                                return None
+                            state["el"] = parser.offset
+                            if state["complete"] and not finish_base(pts):
+                                return None
+                        elif pts in el_offsets or len(el_offsets) >= MAX_PENDING_EL:
                             return None
-                        el_offsets[pts] = packet_number * M2TS_PACKET_SIZE
-                        if pts in pending:
-                            base_offset, _ = pending.pop(pts)
-                            keys.append((pts, min(base_offset, el_offsets.pop(pts))))
-                    elif pid == expected.base_pid and parser.irap(body):
-                        if len(keys) + len(pending) >= MAX_KEYS or pts in pending:
-                            return None
-                        if pts in el_offsets:
-                            keys.append((pts, min(packet_number * M2TS_PACKET_SIZE, el_offsets.pop(pts))))
                         else:
-                            pending[pts] = (packet_number * M2TS_PACKET_SIZE, pts)
+                            el_offsets[pts] = parser.offset
+                        parser.announced = True
+                    elif pid == expected.base_pid and not parser.announced:
+                        if pts in base_records or len(base_records) >= MAX_PENDING_EL:
+                            return None
+                        base_records[pts] = {"offset": parser.offset, "el": el_offsets.pop(pts, None), "complete": False, "irap": False}
+                        current_base_pts = pts
+                        parser.announced = True
+                    if pid == expected.base_pid:
+                        parser.observe_nals(body)
+                        if parser.invalid:
+                            return None
                 packet_number += 1
-        if pat is None or pair is None or pending or not keys:
+        if current_base_pts is not None:
+            prior = base_records.get(current_base_pts)
+            if prior is None:
+                return None
+            prior["complete"] = True
+            prior["irap"] = pes[expected.base_pid].irap_seen
+            if pes[expected.base_pid].invalid or (prior["el"] is not None and not finish_base(current_base_pts)):
+                return None
+        if pat is None or pair is None or base_records or el_offsets or any(parser.invalid or parser.header for parser in pes.values()) or not keys:
             return None
         after = path.stat()
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
             return None
         # Keep the source's 90 kHz timeline, including a legal wrap, in decode order.
         unwrapped: list[tuple[int, int]] = []
-        wrap, last = 0, None
+        wrap, last, last_offset = 0, None, None
         for pts, offset in keys:
             value = pts + wrap
             if last is not None and value < last - PTS_WRAP // 2:
@@ -209,8 +278,10 @@ def scan(path: Path, expected: DolbyVisionTransportPair, stop: threading.Event |
                 value += PTS_WRAP
             if last is not None and value <= last:
                 return None
+            if last_offset is not None and offset <= last_offset:
+                return None
             unwrapped.append((value, offset))
-            last = value
+            last, last_offset = value, offset
         result = IRAPIndex(source_fingerprint(path), before.st_size, expected.base_pid, expected.enhancement_pid,
                            [value for value, _ in unwrapped], [offset for _, offset in unwrapped])
         encoded = json.dumps(asdict(result), separators=(",", ":")).encode()

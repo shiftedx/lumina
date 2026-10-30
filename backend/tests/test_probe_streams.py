@@ -147,6 +147,36 @@ def test_m2ts_irap_index_requires_real_base_irap_and_exact_el_pts(tmp_path: Path
     assert scan(path, pair) is None
 
 
+def test_m2ts_irap_index_accepts_a_pes_header_split_across_ts_packets(tmp_path: Path) -> None:
+    pair_bytes = _dovi_m2ts()
+    pair = parse_m2ts_dolby_vision_pair(pair_bytes)
+    assert pair is not None
+    base = _pes(90_000, b"\0\0\1\x26\x01")
+    path = tmp_path / "split-pes.m2ts"
+    path.write_bytes(
+        pair_bytes
+        + _payload_packet(pair.enhancement_pid, _pes(90_000, b"\0\0\1\x02\x01"), continuity=0, starts=True)
+        + _payload_packet(pair.base_pid, base[:8], continuity=0, starts=True)
+        + _payload_packet(pair.base_pid, base[8:], continuity=1, starts=False)
+    )
+    assert (index := scan(path, pair)) is not None
+    assert (index.keyframe_pts, index.packet_offsets) == ([90_000], [len(pair_bytes)])
+
+
+def test_m2ts_irap_index_rejects_a_trailing_incomplete_enhancement_pes(tmp_path: Path) -> None:
+    pair_bytes = _dovi_m2ts()
+    pair = parse_m2ts_dolby_vision_pair(pair_bytes)
+    assert pair is not None
+    path = tmp_path / "trailing-el-pes.m2ts"
+    path.write_bytes(
+        pair_bytes
+        + _payload_packet(pair.enhancement_pid, _pes(90_000, b"\0\0\1\x02\x01"), continuity=0, starts=True)
+        + _payload_packet(pair.base_pid, _pes(90_000, b"\0\0\1\x26\x01"), continuity=0, starts=True)
+        + _payload_packet(pair.enhancement_pid, b"\0\0\1\xe0\0\0\x80\x80", continuity=1, starts=True)
+    )
+    assert scan(path, pair) is None
+
+
 def test_m2ts_irap_index_cache_reuses_only_current_complete_source(tmp_path: Path) -> None:
     pair_bytes = _dovi_m2ts()
     pair = parse_m2ts_dolby_vision_pair(pair_bytes)
@@ -166,6 +196,37 @@ def test_m2ts_irap_index_cache_reuses_only_current_complete_source(tmp_path: Pat
     # Cancellation cannot return a partial map that a later request might use.
     stopped = Event(); stopped.set()
     assert scan(path, pair, stopped) is None
+
+
+def test_m2ts_irap_index_matches_the_complete_variable_gop_oracle() -> None:
+    root = os.environ.get("LUMINA_DV_M2TS_FIXTURES")
+    if not root:
+        pytest.skip("generated M2TS corpus is not configured")
+    fixture_root = Path(root)
+    manifest = json.loads((fixture_root / "manifest.json").read_text())
+    fixture = fixture_root / manifest["variableGOPColdSeek"]["fixture"]["container"]
+    with fixture.open("rb") as source:
+        pair = parse_m2ts_dolby_vision_pair(source.read(4 * 1024 * 1024))
+    assert pair is not None
+    index = scan(fixture, pair)
+    assert index is not None
+    oracle = manifest["variableGOPColdSeek"]["fixture"]["suppliedSeekIndex"]
+    assert (index.keyframe_pts, index.packet_offsets) == (oracle["KeyframePTS"], oracle["PacketOffsets"])
+
+
+@pytest.mark.parametrize("filename", ["p7-m2ts-mel.m2ts", "p7-m2ts-nonconventional-mel.m2ts"])
+def test_m2ts_irap_index_uses_pes_starts_for_bl_and_el_first(filename: str) -> None:
+    root = os.environ.get("LUMINA_DV_M2TS_FIXTURES")
+    if not root:
+        pytest.skip("generated M2TS corpus is not configured")
+    fixture = Path(root) / filename
+    with fixture.open("rb") as source:
+        pair = parse_m2ts_dolby_vision_pair(source.read(4 * 1024 * 1024))
+    assert pair is not None
+    index = scan(fixture, pair)
+    assert index is not None
+    assert index.keyframe_pts == [7500, 97500, 187500, 277500, 367500, 457500, 547500, 637500]
+    assert index.packet_offsets == [576, 55488, 119808, 184512, 245568, 309888, 375552, 441216]
 
 
 def test_m2ts_dolby_vision_pair_accepts_legal_null_counters_and_delivers_a_pmt_completed_at_pointer() -> None:

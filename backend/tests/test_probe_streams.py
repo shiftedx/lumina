@@ -305,13 +305,22 @@ def test_m2ts_public_probe_marks_only_complete_signalled_files(tmp_path: Path, m
             return None
 
     monkeypatch.setattr(media_probe, "media_tool", lambda *_args: "ffprobe")
-    monkeypatch.setattr(media_probe, "run_ffprobe", lambda _tool, path: _m2ts_probe_raw(el_first=path.stem == "el-first"))
+    def probe_raw(_tool: str, path: Path) -> dict[str, object]:
+        raw = _m2ts_probe_raw(el_first=path.stem == "el-first")
+        if path.stem == "conflicting-depth":
+            for stream in raw["streams"]:
+                if stream.get("codec_type") == "video":
+                    stream.update(pix_fmt="yuv420p", bits_per_raw_sample="10")
+        return raw
+    monkeypatch.setattr(media_probe, "run_ffprobe", probe_raw)
     valid = tmp_path / "pair.m2ts"
     valid.write_bytes(_dovi_m2ts(null_packets=True))
     el_first = tmp_path / "el-first.m2ts"
     el_first.write_bytes(valid.read_bytes())
     truncated = tmp_path / "truncated.m2ts"
     truncated.write_bytes(valid.read_bytes()[:-1])
+    conflicting = tmp_path / "conflicting-depth.m2ts"
+    conflicting.write_bytes(valid.read_bytes())
     service = media_probe.MediaProbeService(Database())  # type: ignore[arg-type]
 
     facts = service._probe(valid)
@@ -324,6 +333,7 @@ def test_m2ts_public_probe_marks_only_complete_signalled_files(tmp_path: Path, m
     el_first_facts = service._probe(el_first)
     assert (el_first_facts["dv_transport_pair"]["base_stream_index"], el_first_facts["video_codec"], el_first_facts["width"], el_first_facts["height"]) == (1, "hevc", 1920, 1080)
     assert "dv_transport_pair" not in service._probe(truncated)
+    assert "dv_transport_pair" not in service._probe(conflicting)
 
 
 def test_m2ts_normalization_retains_only_valid_stream_pid_and_program_membership() -> None:

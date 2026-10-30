@@ -23,7 +23,7 @@ from app.services.chapters import normalize_chapters
 from app.persistence import write_transaction
 from app.services.media_artifacts import MediaArtifactService
 from app.services.mpegts_dolby_vision import M2TS_PACKET_SIZE, parse_m2ts_dolby_vision_pair
-from app.services.playback_decision import BROWSER_DEFAULT, bit_depth, decide
+from app.services.playback_decision import BROWSER_DEFAULT, decide, has_verified_ten_bit_video
 from app.services.yt_dlp_service import YtDlpService
 
 PROBE_TIMEOUT_SECONDS = 20
@@ -456,7 +456,7 @@ def _m2ts_transport_pair(facts: dict[str, Any], path: Path) -> dict[str, Any]:
     base, enhancement = by_pid.get(pair.base_pid), by_pid.get(pair.enhancement_pid)
     if base is None or enhancement is None or base is enhancement:
         return facts
-    if any(stream.get("codec") != "hevc" or bit_depth(stream) != 10 or stream.get("program_number") != pair.program_number for stream in (base, enhancement)):
+    if any(stream.get("codec") != "hevc" or not has_verified_ten_bit_video(stream) or stream.get("program_number") != pair.program_number for stream in (base, enhancement)):
         return facts
     # ffprobe can omit one or more EL DOVI fields.  When it does report one,
     # it must agree with the independently CRC-validated PMT descriptor.

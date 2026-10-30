@@ -129,9 +129,25 @@ def video_range(stream: Mapping[str, Any]) -> str:
     return {1: "DOVIWithHDR10", 6: "DOVIWithEL", 4: "DOVIWithHLG", 2: "DOVIWithSDR"}.get(stream.get("dv_compat"), "DOVI")
 
 
+def pixel_bit_depth(stream: Mapping[str, Any]) -> int | None:
+    pixel_format = stream.get("pix_fmt")
+    match = re.search(r"p0?(\d{2})(?:le|be)?(?:$|[^0-9])", pixel_format) if isinstance(pixel_format, str) else None
+    return int(match[1]) if match else None
+
+
 def bit_depth(stream: Mapping[str, Any]) -> int:
-    match = re.search(r"p0?(\d{2})(?:le|be)?(?:$|[^0-9])", stream.get("pix_fmt") or "")
-    return int(match[1]) if match else 8
+    pixel_depth = pixel_bit_depth(stream) or 8
+    explicit = stream.get("bit_depth")
+    # Normalized ffprobe depth remains useful when a pixel format is absent.
+    # Conflicting metadata must never lower a known decoder requirement.
+    if isinstance(explicit, int) and not isinstance(explicit, bool) and 1 <= explicit <= 64:
+        return max(pixel_depth, explicit)
+    return pixel_depth
+
+
+def has_verified_ten_bit_video(stream: Mapping[str, Any]) -> bool:
+    """Strict Dolby Vision paths require the original 10-bit pixel-format proof."""
+    return pixel_bit_depth(stream) == 10 and bit_depth(stream) == 10
 
 
 def _container_tokens(facts: Mapping[str, Any]) -> set[str]:
@@ -153,7 +169,7 @@ def _dolby_vision_source_is_single_layer(video: Mapping[str, Any]) -> bool:
     """Only a fully probed, 10-bit single-layer HEVC source can use the opt-in path."""
     return (
         video.get("codec") == "hevc"
-        and bit_depth(video) == 10
+        and has_verified_ten_bit_video(video)
         and video.get("dv_profile") in {5, 8}
         and isinstance(video.get("dv_compat"), int)
         and not isinstance(video.get("dv_compat"), bool)
@@ -188,7 +204,7 @@ def _profile7_source_is_convertible(video: Mapping[str, Any]) -> bool:
     # only to the explicitly lossy declaration; neither is described as preserved.
     return (
         video.get("codec") == "hevc"
-        and bit_depth(video) == 10
+        and has_verified_ten_bit_video(video)
         and type(video.get("dv_profile")) is int
         and video["dv_profile"] == 7
         and type(video.get("dv_compat")) is int
@@ -219,7 +235,8 @@ def _profile7_separate_track_source_is_convertible(
         return False
     return (
         base.get("codec") == enhancement.get("codec") == "hevc"
-        and bit_depth(base) == bit_depth(enhancement) == 10
+        and has_verified_ten_bit_video(base)
+        and has_verified_ten_bit_video(enhancement)
         and type(base.get("dv_profile")) is int
         and type(enhancement.get("dv_profile")) is int
         and base["dv_profile"] == enhancement["dv_profile"] == 7
@@ -319,7 +336,7 @@ def _m2ts_pair_base(facts: Mapping[str, Any], videos: list[Mapping[str, Any]]) -
     base, enhancement = by_index.get(pair["base_stream_index"]), by_index.get(pair["enhancement_stream_index"])
     if base is None or enhancement is None:
         return None
-    if any(stream.get("codec") != "hevc" or bit_depth(stream) != 10 or stream.get("program_number") != pair["program_number"] for stream in (base, enhancement)):
+    if any(stream.get("codec") != "hevc" or not has_verified_ten_bit_video(stream) or stream.get("program_number") != pair["program_number"] for stream in (base, enhancement)):
         return None
     if base.get("ts_pid") != pair["base_pid"] or enhancement.get("ts_pid") != pair["enhancement_pid"]:
         return None

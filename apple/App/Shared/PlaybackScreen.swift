@@ -141,14 +141,7 @@ private struct NativeResumeChoiceView: View {
         .task(id: restarting) {
             guard restarting, store.session?.accessToken == owner else { return }
             do {
-                let fresh = try await store.preparePlayback(
-                    for: request.item, forceTranscode: request.isTranscoding,
-                    quality: request.resolvedQuality,
-                    audioStreamIndex: request.audioStreamIndex,
-                    subtitleStreamIndex: request.subtitleStreamIndex,
-                    mediaSourceID: request.mediaSourceID, startPositionSeconds: 0,
-                    forceCompatibleVideo: request.usesCompatibleVideo
-                )
+                let fresh = try await store.preparePlaybackFromBeginning(after: request)
                 guard !Task.isCancelled, store.session?.accessToken == owner else { return }
                 onSelect(fresh)
             } catch {

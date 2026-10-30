@@ -1284,6 +1284,35 @@ let tickScale = 10_000_000.0
                                           usesCompatibleVideo: forceCompatibleVideo)
     }
 
+    /// Keeps the source and selections approved by the resume chooser.
+    public func preparePlaybackFromBeginning(after request: PlaybackRequest) async throws -> PlaybackRequest {
+        // Original-file URLs have no server-owned start offset. Reuse the decision
+        // already made for this chooser instead of repeating potentially slow probes.
+        if !request.isTranscoding {
+            return PlaybackRequest(
+                id: request.id, item: request.item, url: request.url,
+                startPositionSeconds: 0, mediaSourceID: request.mediaSourceID,
+                isTranscoding: false, methodLabel: request.methodLabel,
+                usesClientDemux: request.usesClientDemux,
+                usesCompatibleVideo: request.usesCompatibleVideo,
+                bitRate: request.bitRate, sourceContainer: request.sourceContainer,
+                m2tsSeekIndex: request.m2tsSeekIndex, mediaStreams: request.mediaStreams,
+                audioStreamIndex: request.audioStreamIndex,
+                subtitleStreamIndex: request.subtitleStreamIndex,
+                chapters: request.chapters, resolvedQuality: request.resolvedQuality
+            )
+        }
+        // HLS sessions carry the original offset and must be negotiated at zero.
+        return try await preparePlayback(
+            for: request.item, forceTranscode: request.isTranscoding,
+            quality: request.resolvedQuality,
+            audioStreamIndex: request.audioStreamIndex,
+            subtitleStreamIndex: request.subtitleStreamIndex,
+            mediaSourceID: request.mediaSourceID, startPositionSeconds: 0,
+            forceCompatibleVideo: request.usesCompatibleVideo
+        )
+    }
+
     /// Re-request one video as H.264/SDR HLS after AVFoundation identifies an
     /// initial codec/container failure. Callers keep the one-attempt guard;
     /// this method does not turn transport or authorization errors into a

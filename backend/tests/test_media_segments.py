@@ -82,6 +82,36 @@ def test_segment_routes_edit_replaces_detection_and_respect_visibility(household
         assert client.put(url, json={"segments": []}).status_code == 403
 
 
+
+def test_playback_segments_use_named_file_chapters_without_analysis(household: None) -> None:
+    item_id = _item(duration=1400)
+    with db_module.SessionLocal() as db:
+        artifact, fingerprint, _ = media_segments.current_analysis(db, item_id)
+        artifact.probe = {"fingerprint": fingerprint, "duration": 1400, "chapters": [
+            {"start_time": 0, "title": "Prologue"},
+            {"start_time": 10.47, "title": "Opening"},
+            {"start_time": 100.564, "title": "Episode"},
+            {"start_time": 1330.58, "title": "Ending"},
+            {"start_time": 1390.653, "title": "Epilogue"},
+        ]}
+        db.commit()
+    url = f"/api/library/{item_id}/segments"
+    with _client("alice") as client:
+        segments = client.get(url).json()["segments"]
+        assert [(s["type"], s["start_seconds"], s["end_seconds"]) for s in segments] == [
+            ("intro", 10.47, 100.564), ("credits", 1330.58, 1390.653),
+        ]
+        # Explicit edits, including removing all markers, remain authoritative.
+        assert client.put(url, json={"segments": []}).json()["segments"] == []
+        assert client.get(url).json()["segments"] == []
+    _seed(item_id, [_seg("intro", 12_000, 99_000, "fingerprint", 1.0)])
+    with _client("alice") as client:
+        assert client.get(url).json()["segments"][0]["start_seconds"] == 12
+    with (settings.library_root / "alice" / "episode.mkv").open("ab") as media:
+        media.write(b"different-cut")
+    with _client("alice") as client:
+        assert client.get(url).json()["segments"] == []
+
 def test_progress_at_credits_start_counts_as_watched(household: None) -> None:
     item_id = _item(duration=1000)
     _seed(item_id, [_seg("credits", 900_000, 1_000_000, "fingerprint", 1.0)])

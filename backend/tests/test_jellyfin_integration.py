@@ -467,6 +467,29 @@ def test_transcript_tracks_are_external_streams_rendered_from_the_db(vault: Vaul
     assert vault.jf.get(f"{subtitles}/3/Stream.srt", headers=bob.headers).status_code == 404  # private item
 
 
+
+def test_native_skip_markers_use_selected_versions_embedded_chapters(vault: Vault) -> None:
+    from app.services.media_segments import current_analysis
+
+    fake_show(vault.media, 1)
+    scan(vault.admin, vault.media)
+    episode = episodes(vault)[0]
+    with db_module.SessionLocal() as db:
+        artifact, fingerprint, _ = current_analysis(db, episode["play_item_id"])
+        artifact.probe = {**(artifact.probe or {}), "fingerprint": fingerprint, "duration": 1400, "chapters": [
+            {"start_time": 0, "title": "Prologue"},
+            {"start_time": 10.47, "title": "Opening"},
+            {"start_time": 100.564, "title": "Episode"},
+        ]}
+        db.commit()
+    tv = login(vault)
+    for item_id in [episode["id"], episode["play_item_id"]]:
+        response = vault.jf.get(f"/MediaSegments/{jellyfin_id(item_id)}", headers=tv.headers)
+        assert response.status_code == 200
+        assert [(s["Type"], s["StartTicks"], s["EndTicks"]) for s in response.json()["Items"]] == [
+            ("Intro", 104_700_000, 1_005_640_000),
+        ]
+
 def test_media_segments_route(vault: Vault) -> None:
     fake_show(vault.media, 1)
     scan(vault.admin, vault.media)

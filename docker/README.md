@@ -1002,6 +1002,8 @@ AI features use only the OpenAI-compatible endpoints configured under **Manage S
 | Match tie-breaker | AI endpoint | Low-confidence titles go to Unmatched |
 | Intro/credits detection | nothing | Always local |
 
+Playback skip ranges also use explicitly labeled embedded chapters (Intro/Opening/OP and Credits/Ending/ED) from the current file's cached probe. Web, iOS and tvOS receive the same ranges; no third-party lookup or detection job is needed for these chapters. Detected ranges take precedence, manual edits (including clearing all markers) suppress the fallback, and a changed file invalidates its cached chapters. Unlabeled chapters are not treated as intros.
+
 **TheIntroDB** lookups (Manage Server → Connections → Metadata) are off by default. Each lookup tells a third party which episodes the household owns.
 
 On the first v3 boot after an upgrade, restart recovery re-queues any `queued` or `running` speech-to-text (ASR) rows left over from before the restart, so a transcription in progress at shutdown resumes instead of being lost.

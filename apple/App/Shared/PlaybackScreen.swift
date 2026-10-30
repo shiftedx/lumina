@@ -425,20 +425,27 @@ struct PlaybackScreen: View {
         .task(id: playback.request.id) {
             await playback.refreshVideoActions()
         }
-        .alert("Still watching?", isPresented: Binding(
-            get: { playback.episodeAutoplay.confirmationDeadline != nil },
-            set: { _ in }
-        )) {
-            Button("Continue watching") {
-                Task {
-                    if playback.episodeAutoplay.confirmationExpired() { finishAndReturnHome(); return }
-                    guard playback.confirmEpisodeAutoplay() else { return }
-                    await playback.playNextEpisode(automatically: true)
+        .background {
+            Color.clear
+                .alert("Still watching?", isPresented: Binding(
+                    get: { playback.episodeAutoplay.confirmationDeadline != nil },
+                    set: { _ in }
+                )) {
+                    Button("Continue watching") {
+                        Task {
+                            if playback.episodeAutoplay.confirmationExpired() { finishAndReturnHome(); return }
+                            guard playback.confirmEpisodeAutoplay() else { return }
+                            await playback.playNextEpisode(automatically: true)
+                        }
+                    }
+                    Button("Go Home", role: .cancel) { finishAndReturnHome() }
+                } message: {
+                    Text("Continue watching, or Lumina will return Home after \(Duration.seconds(playback.episodeAutoplay.policy.timeoutSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))) without a response.")
                 }
-            }
-            Button("Go Home", role: .cancel) { finishAndReturnHome() }
-        } message: {
-            Text("Continue watching, or Lumina will return Home after \(Duration.seconds(playback.episodeAutoplay.policy.timeoutSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))) without a response.")
+                #if os(tvOS)
+                // The library’s white tint makes the focused system-alert action unreadable.
+                .tint(nil)
+                #endif
         }
         .task(id: playback.episodeAutoplay.confirmationDeadline) {
             guard let deadline = playback.episodeAutoplay.confirmationDeadline else { return }

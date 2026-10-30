@@ -1236,3 +1236,45 @@ were inspected, including the top gradient over bright synthetic artwork.
 Source hashes and attachments are retained beside the results. No full suite,
 physical-device qualification, new distribution package or upload was performed.
 These source changes postdate the signed build-35 packages.
+
+
+## Episode autoplay and server-owned presence policy — October 30, 2026
+
+Web, iOS and tvOS continue a show's episodes using the existing next-episode
+resolver. With the default policy, the manually started episode plus two
+successors play before a Still watching confirmation blocks episode four.
+Continue starts another batch; Go Home or an expired wall-clock deadline stops
+playback and returns Home. Member autoplay-off remains authoritative. Admin
+Settings → Media can disable the check, change the episode limit (1–100), or
+change the response timeout (1 minute–24 hours). Players refresh this policy at
+playback/episode boundaries. Schema 42 adds the durable settings JSON column;
+the operator guide documents its additive rollback.
+
+Focused qualification:
+
+- Backend policy serialization, admin authorization and bounds, native/member
+  parity, migration, and media contract: 259 passed.
+- Web overlays, episode workflows and admin form: 51 passed; TypeScript passed.
+- Selected Core session/settings tests: 3 passed, including custom limits,
+  disabled checks, timeout and continued batches. Broker checks: 27 passed.
+- Both Debug simulator test builds passed after incorporating main's newer
+  playback dependency. The selected Apple TV 4K (2nd generation, 1080p/tvOS
+  27.0) workflow passed: direct thumbnail playback, automatic episodes two and
+  three with advancing decoded time/server progress, episode four untouched,
+  confirmation, then remote Go Home. Screenshot review found and corrected an
+  inherited white-tint contrast problem; the final focused Continue action is
+  readable. Result: `output/episode-autoplay-presence/tvos-policy-final.xcresult`.
+- The final selected iPad Pro 11-inch (M5/iOS 27.0) workflow also passed with
+  server policy support and the same episode/progress/Home assertions:
+  `output/episode-autoplay-presence/ipad-policy-final.xcresult`. A separate
+  unattended default-policy observation captured the confirmation and Home
+  320 seconds later with no GUI input between captures. This observation
+  preceded configurable policy support; `idle-observation.json` records that
+  distinction. Custom durations are covered by deterministic Core/web checks.
+
+Evidence, logs and screenshots remain in ignored
+`output/episode-autoplay-presence/`. The iPad journey uses the existing test-only
+static-animation switch; shipping animations are unchanged. No full suite,
+physical-device qualification, production deployment, packaging or TestFlight
+upload was performed for this feature. The previously uploaded build 36 does
+not contain it.

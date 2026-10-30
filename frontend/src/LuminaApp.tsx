@@ -921,7 +921,7 @@ export default function LuminaApp() {
       });
       return;
     }
-    if (!preflight && route.startSeconds === undefined && !preserveEpisodeAutoplayRun && !preserveRemoteChain) {
+    if (!preflight && route.startSeconds === undefined && libraryWatchItem?.id !== route.libraryId && !preserveEpisodeAutoplayRun && !preserveRemoteChain) {
       if (!confirmed && !leaveSettingsOk()) return;
       const request = ++choiceRequestRef.current;
       setResumeChoice(null);

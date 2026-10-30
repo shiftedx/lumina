@@ -1449,3 +1449,26 @@ chrome-hide races while retaining public user input. No full suite, physical
 hardware qualification, packaging, upload or deployment was performed. This
 feature requires updated app/web clients; it adds no backend API or schema.
 The previously uploaded build 36 does not include it.
+
+
+The final iPad Pro 11-inch (M5/iOS 27.0) branded movie and episode workflows
+passed in `output/playback-resume-choice/ipad-qualified.xcresult`, including the
+public reveal/close gestures. After incorporating the newer real-media startup,
+audio and M2TS seek work from main, both simulator targets built and the TV
+movie workflow passed again (`tvos-final.xcresult`). Earlier iPad failures were
+traced to the test checking close-button existence just before chrome auto-hide;
+the qualified journey starts from hidden chrome before revealing and tapping.
+
+## Mobile Connect form centering — October 30, 2026
+
+The existing connection form now centers as a group on iPad and standard
+phones. Its internal leading alignment, 420-point maximum width, QR/manual/help
+controls, and keyboard scrolling are retained. The established standard-phone
+predicate keeps Duo's previous wide-leading/narrow-bottom placement and its
+left artwork shade. Centered layouts retain the full-screen vertical gradient.
+`NativeConnectionFormCenteringTests/testConnectionFormCentersInViewport` checks
+horizontal centering, vertical centering within system safe areas, and visible
+manual/help actions. The iPad check passed in `ipad-qualified.xcresult`; the
+standard iPhone 17 Pro check passed in `phone-centered.xcresult` in the
+same evidence directory. No physical Duo qualification or distribution build
+was performed.

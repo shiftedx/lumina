@@ -323,13 +323,16 @@ private struct ConnectionView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let centerForm = UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome
             ScrollView {
                 connectionForm
                     .frame(maxWidth: 420)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("connectionForm")
                     .padding(.horizontal, geometry.size.width > 700 ? 64 : 28)
                     .padding(.vertical, 32)
                     .frame(maxWidth: .infinity, minHeight: geometry.size.height,
-                           alignment: geometry.size.width > 700 ? .leading : .bottom)
+                           alignment: centerForm ? .center : (geometry.size.width > 700 ? .leading : .bottom))
             }
             .scrollDismissesKeyboard(.interactively)
             .background {
@@ -345,7 +348,7 @@ private struct ConnectionView: View {
                         }
                         LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.65), .black.opacity(0.96)],
                                        startPoint: .top, endPoint: .bottom)
-                        if geometry.size.width > 700 {
+                        if geometry.size.width > 700 && !centerForm {
                             LinearGradient(colors: [.black.opacity(0.88), .clear],
                                            startPoint: .leading, endPoint: .trailing)
                         }

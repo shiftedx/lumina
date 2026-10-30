@@ -458,6 +458,9 @@ describe('browser routes', () => {
   });
 
   it('keeps the position when the open item is reopened without a time, and seeks when its link time is asked for again', async () => {
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getLibraryItem.mockResolvedValue(movie);
     mocks.getPlaybackProgress.mockResolvedValue({ item_id: 'library-1', position_seconds: 30, duration_seconds: 120, completed: false });
     window.history.replaceState(null, '', '/watch/library/library-1?t=42');
     render(<LuminaApp />);
@@ -471,6 +474,7 @@ describe('browser routes', () => {
     await waitFor(() => expect(window.location.search).toBe(''));
     await new Promise((resolve) => { setTimeout(resolve, 20); });
     expect(position).toBe(50);
+    expect(screen.queryByRole('dialog', { name: 'Resume playback?' })).toBeNull();
 
     window.history.pushState(null, '', '/watch/library/library-1?t=42');
     window.dispatchEvent(new PopStateEvent('popstate'));
@@ -480,6 +484,10 @@ describe('browser routes', () => {
 
   it('applies a link time once: the address drops it, and Back to the watch page does not seek there again', async () => {
     const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getLibraryItem.mockResolvedValue(movie);
+    mocks.getPlaybackProgress.mockResolvedValue({ item_id: movie.id, position_seconds: 30, duration_seconds: 120, completed: false });
     window.history.replaceState(null, '', '/watch/library/library-1?t=42');
     render(<LuminaApp />);
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
@@ -494,6 +502,7 @@ describe('browser routes', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
     await new Promise((resolve) => { setTimeout(resolve, 20); });
     expect(position).toBe(50);
+    expect(screen.queryByRole('dialog', { name: 'Resume playback?' })).toBeNull();
     expect(window.location.search).toBe('');
 
     // A new link time for the open item still seeks, and leaves the address clean.
@@ -505,6 +514,9 @@ describe('browser routes', () => {
 
   it('a later Play of the same item after the player closed ignores the old link time', async () => {
     const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getLibraryItem.mockResolvedValue(movie);
     mocks.getPlaybackProgress.mockResolvedValue({ item_id: 'library-1', position_seconds: 30, duration_seconds: 120, completed: false });
     window.history.replaceState(null, '', '/watch/library/library-1?t=42');
     render(<LuminaApp />);
@@ -513,7 +525,9 @@ describe('browser routes', () => {
     await browser.click(await screen.findByRole('button', { name: 'Close player' }));
     await waitFor(() => expect(document.querySelector('video')).toBeNull());
 
-    await browser.click(screen.getByRole('button', { name: 'Film in the vault, Archive Channel' }));
+    await browser.click(screen.getByRole('button', { name: /^Film in the vault,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resume playback?' });
+    await browser.click(within(dialog).getByRole('button', { name: 'Resume' }));
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
     const player = document.querySelector('video') as HTMLVideoElement;
     Object.defineProperty(player, 'duration', { configurable: true, value: 120 });

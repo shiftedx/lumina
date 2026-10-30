@@ -397,6 +397,12 @@ final class NativeVideoCastPickerSmokeTests: NativeProofJourney {
     }
 }
 #endif
+#if os(iOS)
+@MainActor
+final class NativeConnectionFormCenteringTests: NativeProofJourney {
+    func testConnectionFormCentersInViewport() throws { try journeyConnectionFormCentering() }
+}
+#endif
 @MainActor
 final class NativePlaybackResumeChoiceTests: NativeProofJourney {
     func testMovieResumeStartOverAndCancel() async throws { try await journeyPlaybackResumeChoice(episode: false) }
@@ -3063,6 +3069,27 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
+    #if os(iOS)
+    func journeyConnectionFormCentering() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        guard UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome else {
+            throw XCTSkip("Duo retains its existing connection layout.")
+        }
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        let form = element("connectionForm")
+        try waitForExistence(form, timeout: 15, named: "centered connection form")
+        try waitForExistence(element("connectionCameraStatus"), timeout: 15, named: "resolved QR camera state")
+        let viewport = try applicationViewport()
+        XCTAssertEqual(form.frame.midX, viewport.midX, accuracy: 2, "Connect must center horizontally in the full viewport.")
+        XCTAssertEqual(form.frame.midY, viewport.midY, accuracy: 24, "Connect must center vertically within system safe areas.")
+        XCTAssertTrue(hasVisibleFrame(element("advancedConnectionButton")))
+        XCTAssertTrue(hasVisibleFrame(element("connectionHelpButton")))
+        try attachFrame(named: "Connection form centered for this device")
+        completed = true
+    }
+    #endif
+
     func journeyPlaybackResumeChoice(episode: Bool) async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -3091,14 +3118,18 @@ class NativeProofJourney: XCTestCase {
         }
         func closeRequestedPlayback() throws {
             #if os(iOS)
-            let close = element("closePlayerButton")
-            if !hasVisibleFrame(close) {
-                let surface = element("videoControlsSurface")
-                surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            // Start from a known hidden state: an existence probe can race the auto-hide timer.
+            guard disappears(element("videoPlaybackChrome"), timeout: 8) else {
+                throw ProofFailure.ui("Playing video must auto-hide its controls before the close gesture.")
             }
-            XCTAssertTrue(waitUntil(timeout: 8) { self.hasVisibleFrame(close) })
+            let surface = element("videoControlsSurface")
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+            let close = element("closePlayerButton")
+            try waitForExistence(close, timeout: 3, named: "revealed player close control")
             close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            XCTAssertTrue(disappears(element("playbackScreen"), timeout: 10))
+            guard disappears(element("playbackScreen"), timeout: 10) else {
+                throw ProofFailure.ui("The visible close control must dismiss requested playback.")
+            }
             #else
             try closePlayer()
             #endif

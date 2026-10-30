@@ -322,3 +322,33 @@ server deployment or new physical-device qualification was performed.
 
 Do not upload iOS build 34 again. Apple processing and tester assignment remain
 unverified. This release operation did not build or upload tvOS.
+
+### Internal dogfood package 35, 2026-10-29 — signed and staged
+
+Version **0.1.0 (35)** is packaged for **iOS and tvOS** from clean main
+`283eede5e3fe72a01741516feee8114537e68983`. Both Release device archives,
+distribution-signed IPAs and signed Organizer copies passed local validation.
+The staged copies preserve matching executable/dSYM UUIDs and appear in Xcode
+Organizer as **Lumina iOS/tvOS 0.1.0 (35) — Signed for Upload**. The original
+unsigned source archives are labeled separately. **Neither platform was uploaded
+by this packaging work; the owner will perform the uploads.**
+
+Xcode used cloud-managed automatic distribution signing. Both exports retain
+build 35, include symbols, and use **TestFlight Internal Only**. Use automatic
+signing through the existing Xcode account when uploading; the cloud-managed
+certificate does not supply a local private key for manual signing.
+
+This package includes the episode alignment/contextual Play fixes, TV episode
+activation and hero return, TV artwork and bounded metadata caching, and native
+HDR/AV1/Dolby Vision playback negotiation and Profile 7-to-8.1 MKV packaging,
+including separate-track sources and final-segment validation. Reader controls,
+episode/season downloads, picker theme and named ratings from earlier builds
+remain included. The matching server source is deployed on production.
+
+Ignored `apple/Distribution/0.1.0-35/` retains source snapshot/input hashes,
+per-platform archives and signed IPAs, matching symbols, export options,
+validation logs, Organizer staging records, checksums and What to Test notes.
+Three focused Core checks and both signing/framework packaging safeguards passed.
+No full suite, physical-device qualification, upload or tester assignment occurred.
+Organizer now also shows the previous tvOS build 33 uploaded on October 29 at
+09:50 America/Chicago; this was observed, not performed by this packaging work.

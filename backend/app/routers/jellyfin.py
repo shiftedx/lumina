@@ -60,6 +60,7 @@ from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
 from app.services.media_response import MediaFileResponse, media_content_type
+from app.services.m2ts_irap_index import m2ts_irap_indexes, pair_from_facts
 from app.services.media_titles import from_ticks, parse_item_id
 from app.services.playback_decision import caps_from_device_profile
 from app.services.playback_resources import playback_resources
@@ -505,7 +506,7 @@ def playback_info(
         wanted = replace(wanted, media_source_id=None)
     if wanted.media_source_id is not None:
         versions = [version for version in versions if version.id == wanted.media_source_id]
-    probes, artifacts, sources = MediaProbeService(db), MediaArtifactService(db), []
+    probes, artifacts, sources, source_versions = MediaProbeService(db), MediaArtifactService(db), [], []
     for version in versions:
         try:
             plan = probes.plan(version)
@@ -513,6 +514,7 @@ def playback_info(
             continue
         found = artifacts.artifact_for(version.id)
         sources.append(jf.media_source(version, found[0] if found else None, plan.get("facts") or {}))
+        source_versions.append(version)
         # Transcript tracks only on PlaybackInfo (one query per version), where clients pick subtitles;
         # /Items?fields=MediaStreams shows embedded + sidecars. Batch it if a client needs them from lists.
         append_transcript_streams(db, sources[-1], version, plan.get("facts") or {})
@@ -521,11 +523,63 @@ def playback_info(
     play_session_id = uuid.uuid4().hex
     stream_grants.put(grant_address(request), [parse_item_id(item_id), *(version.id for version in versions)], caller.token)
     annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, wanted, play_session_id, request)
+    for source, version in zip(sources, source_versions, strict=True):
+        if source.get("LuminaClientPackaging") == "p7_m2ts_to_p81_drop_el":
+            source["LuminaM2TSIRAPIndexUrl"] = (
+                f"/Videos/{jf.jid(version.id)}/lumina-m2ts-irap-index?MediaSourceId={jf.jid(version.id)}"
+            )
     for stream in (stream for source in sources for stream in source.get("MediaStreams") or []):
         if stream.get("DeliveryMethod") == "External" and stream.get("DeliveryUrl"):
             # Players fetch DeliveryUrl without auth headers; Jellyfin appends the caller's ApiKey the same way.
             stream["DeliveryUrl"] += f"?ApiKey={quote(caller.token, safe='')}"
     return {"MediaSources": sources, "PlaySessionId": play_session_id}
+
+
+@stream_router.get("/videos/{item_id}/lumina-m2ts-irap-index")
+def m2ts_irap_index(
+    item_id: str,
+    request: Request,
+    db_scope: Annotated[Callable[[], AbstractContextManager[Session]], Depends(stream_session_scope)],
+    mediasourceid: str | None = Query(None, max_length=64),
+) -> dict:
+    """Return only a complete, current source-bound map; stale work remains pending."""
+    with db_scope() as db:
+        caller = jellyfin_stream_user(request, item_id, db, mediasourceid)
+        try:
+            found = jf.credential_stream_file(caller.resolution) if caller.resolution is not None else jf.stream_file(db, caller.user, item_id, mediasourceid)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+        if found is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        version_id, path = found
+        # The index is validator-bound to one concrete original, never a
+        # Jellyfin primary-source fallback selected from a malformed id.
+        if mediasourceid is None or mediasourceid.lower() != jf.jid(version_id):
+            raise HTTPException(status_code=404, detail="Item not found")
+        selected = jf.pick_version(db, caller.user, jf.resolve(db, caller.user, item_id), mediasourceid)
+        if selected is None or selected.id != version_id:
+            raise HTTPException(status_code=404, detail="Item not found")
+        screen_time.enforce(db, caller.user)
+        activity.guard(caller.user.id, version_id, getattr(request.state, "connected_app_id", None) or "web")
+        found_artifact = MediaArtifactService(db).artifact_for(version_id)
+        if found_artifact is None:
+            return {"Status": "unsupported", "SourceId": jf.jid(version_id)}
+        artifact = found_artifact[0]
+        try:
+            facts = MediaProbeService(db).cached_facts(artifact, path)
+            stat = path.stat()
+        except OSError:
+            raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from None
+        pair = pair_from_facts(facts)
+        if pair is None:
+            return {"Status": "unsupported", "SourceId": jf.jid(version_id)}
+        status, index = m2ts_irap_indexes.request_status(path, pair, artifact.id)
+        if status == "unsupported":
+            return {"Status": "unsupported", "SourceId": jf.jid(version_id)}
+        if index is None or index.fingerprint != f"{stat.st_size}:{stat.st_mtime_ns}":
+            return {"Status": "pending", "SourceId": jf.jid(version_id)}
+        etag = MediaFileResponse(path, stat_result=stat).headers["etag"]
+        return index.response(etag, jf.jid(version_id), int((facts.get("dv_transport_pair") or {}).get("base_stream_index", 0)))
 
 
 @stream_router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])

@@ -643,6 +643,26 @@ def verify_positive(
         if byte_offset is None:
             raise ValueError("Cold seek target lacks a base-layer PES byte offset")
         keyframes = keyframe_pts(path, pair.base_pid)
+        base_offsets = pes_pts_offsets(path, pair.base_pid)
+        enhancement_offsets = pes_pts_offsets(path, pair.enhancement_pid)
+        packet_offsets = []
+        for pts in keyframes:
+            try:
+                packet_offset = min(base_offsets[pts], enhancement_offsets[pts])
+            except KeyError as error:
+                raise ValueError("Cold seek keyframe has no paired PES byte offset") from error
+            if packet_offset % M2TS_PACKET_SIZE:
+                raise ValueError("Cold seek packet offset is not M2TS aligned")
+            packet_offsets.append(packet_offset)
+        all_streams = streams(path)
+        base_stream_index = next(
+            index for index, stream in enumerate(all_streams)
+            if int(str(stream["id"]), 0) == pair.base_pid
+        )
+        time_base = str(all_streams[base_stream_index].get("time_base", "")).split("/", 1)
+        if len(time_base) != 2:
+            raise ValueError("Cold seek base stream has no rational time base")
+        time_base_num, time_base_den = (int(part) for part in time_base)
         irap_floor = max((pts for pts in keyframes if pts <= presentation_pts), default=None)
         if irap_floor is None:
             raise ValueError("Cold seek target has no preceding base-layer IRAP")
@@ -667,6 +687,17 @@ def verify_positive(
             "baseIRAPAfterPTS": irap_after,
             "baseIRAPAfterFrame": irap_after_frame,
             "sourceBytes": path.stat().st_size,
+        }
+        result["suppliedSeekIndex"] = {
+            "Version": 1,
+            "SourceSize": path.stat().st_size,
+            "BasePID": pair.base_pid,
+            "EnhancementPID": pair.enhancement_pid,
+            "StreamIndex": base_stream_index,
+            "TimeBaseNum": time_base_num,
+            "TimeBaseDen": time_base_den,
+            "KeyframePTS": keyframes,
+            "PacketOffsets": packet_offsets,
         }
     return result
 
@@ -924,6 +955,7 @@ def generate_cold_seek_positive(
     duration_seconds: int,
     *,
     gop_frames: int,
+    mux_rate_bits_per_second: int,
 ) -> dict[str, object]:
     if duration_seconds < COLD_SEEK_DURATION_SECONDS:
         raise ValueError(
@@ -943,7 +975,7 @@ def generate_cold_seek_positive(
         # The RPU refresh cadence continues across the 75-second anchor; an
         # anchor fragment can therefore prove ordering rather than only count.
         scene_frames=tuple(range(0, frames, FRAME_RATE)),
-        mux_rate_bits_per_second=COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+        mux_rate_bits_per_second=mux_rate_bits_per_second,
         cold_seek_target_seconds=COLD_SEEK_TARGET_SECONDS,
         base_keyint_frames=gop_frames,
         cold_seek_requires_preroll=gop_frames > FRAME_RATE,
@@ -980,6 +1012,7 @@ def generate_variable_gop_cold_seek_positive(
     duration_seconds: int,
     *,
     gop_pattern: tuple[int, ...],
+    mux_rate_bits_per_second: int,
 ) -> dict[str, object]:
     if duration_seconds < COLD_SEEK_DURATION_SECONDS:
         raise ValueError(
@@ -996,7 +1029,7 @@ def generate_variable_gop_cold_seek_positive(
         el_first=True,
         frames=frames,
         scene_frames=tuple(range(0, frames, FRAME_RATE)),
-        mux_rate_bits_per_second=COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+        mux_rate_bits_per_second=mux_rate_bits_per_second,
         cold_seek_target_seconds=VARIABLE_GOP_COLD_SEEK_TARGET_SECONDS,
         base_keyint_frames=max(gop_pattern),
         base_forced_keyframes=keyframes,
@@ -1012,7 +1045,10 @@ def generate(
     cold_seek_duration_seconds: int | None = None,
     cold_seek_gop_frames: int = 24,
     cold_seek_variable_gop_pattern: tuple[int, ...] | None = None,
+    cold_seek_mux_rate_bits_per_second: int = COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
 ) -> None:
+    if cold_seek_mux_rate_bits_per_second <= 0:
+        raise ValueError("Cold seek M2TS mux rate must be positive")
     output.mkdir(parents=True, exist_ok=True)
     sources = {kind: download(details["source"], details["source_sha256"]) for kind, details in P7_VECTORS.items()}
     positives = [
@@ -1030,6 +1066,7 @@ def generate(
             sources["mel"],
             cold_seek_duration_seconds,
             gop_frames=cold_seek_gop_frames,
+            mux_rate_bits_per_second=cold_seek_mux_rate_bits_per_second,
         )
         if cold_seek_duration_seconds is not None else None
     )
@@ -1040,6 +1077,7 @@ def generate(
             sources["mel"],
             cold_seek_duration_seconds,
             gop_pattern=cold_seek_variable_gop_pattern,
+            mux_rate_bits_per_second=cold_seek_mux_rate_bits_per_second,
         )
         if cold_seek_duration_seconds is not None and cold_seek_variable_gop_pattern is not None else None
     )
@@ -1059,7 +1097,7 @@ def generate(
         manifest["coldSeek"] = {
             "fixture": cold_seek,
             "durationSeconds": cold_seek_duration_seconds,
-            "muxRateBitsPerSecond": COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+            "muxRateBitsPerSecond": cold_seek_mux_rate_bits_per_second,
             "baseGOPFrames": cold_seek_gop_frames,
             "producerLeadSeconds": 30,
             "purpose": (
@@ -1071,7 +1109,7 @@ def generate(
         manifest["variableGOPColdSeek"] = {
             "fixture": variable_gop_cold_seek,
             "durationSeconds": cold_seek_duration_seconds,
-            "muxRateBitsPerSecond": COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+            "muxRateBitsPerSecond": cold_seek_mux_rate_bits_per_second,
             "baseGOPPatternFrames": cold_seek_variable_gop_pattern,
             "headGOPFrames": VARIABLE_GOP_HEAD_FRAMES,
             "headSeconds": VARIABLE_GOP_HEAD_SECONDS,
@@ -1104,6 +1142,15 @@ if __name__ == "__main__":
         help="Base-layer GOP length for the optional cold-seek fixture (default: 24).",
     )
     parser.add_argument(
+        "--cold-seek-mux-rate",
+        type=int,
+        default=COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+        help=(
+            "M2TS mux rate in bits/s for optional cold-seek fixtures "
+            f"(default: {COLD_SEEK_MUX_RATE_BITS_PER_SECOND})."
+        ),
+    )
+    parser.add_argument(
         "--cold-seek-variable-gop-pattern",
         help=(
             "Also generate a separate variable-GOP cold-seek fixture. Supply at least "
@@ -1128,4 +1175,5 @@ if __name__ == "__main__":
         cold_seek_duration_seconds=arguments.cold_seek_duration_seconds,
         cold_seek_gop_frames=arguments.cold_seek_gop_frames,
         cold_seek_variable_gop_pattern=variable_gop_pattern,
+        cold_seek_mux_rate_bits_per_second=arguments.cold_seek_mux_rate,
     )

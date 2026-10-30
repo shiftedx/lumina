@@ -258,6 +258,7 @@ from app.services.local_playback_sessions import sessions as local_playback_sess
 from app.services.embeddings import start_backfill as start_embedding_backfill
 from app.services.library_automation import FIRST_TICK_DELAY_S, automation as library_automation
 from app.services.probe_warming import probe_warming
+from app.services.m2ts_irap_index import m2ts_irap_indexes
 from app.services.renditions import renditions, use_host_format  # artwork renditions pass
 from app.services.hero_framing import hero_framing
 from app.routers import art  # /api/art and /api/admin/artwork
@@ -936,6 +937,7 @@ async def lifespan(app: FastAPI):
     local_playback_sessions.close_all()  # derivatives are disposable; drop any a crash left
     enrichment_jobs.recover_after_restart()  # before any worker starts: re-pend once, then fail
     probe_warming.start()  # background ffprobe + loudness, one file at a time; also woken after each import
+    m2ts_irap_indexes.start()
     library_automation.start(first_tick_delay_s=FIRST_TICK_DELAY_S)  # scheduled scans and folder watching; polls off the event loop
     # gallery: artwork renditions, one nice-19 ffmpeg at a time, paused during video transcodes. Off the loop:
     # start() probes ffmpeg's encoders and sweeps staging. With the pass off, on-demand renders still need the format.
@@ -983,6 +985,7 @@ async def lifespan(app: FastAPI):
         import_stop_event.set()
         remote_streams.close_all()
         await asyncio.to_thread(probe_warming.stop)
+        await asyncio.to_thread(m2ts_irap_indexes.stop)
         await asyncio.to_thread(renditions.stop)
         await asyncio.to_thread(hero_framing.stop)
         await asyncio.to_thread(local_playback_sessions.close_all)

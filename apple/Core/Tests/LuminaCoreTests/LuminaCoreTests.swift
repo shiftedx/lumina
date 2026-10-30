@@ -2833,6 +2833,36 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertFalse(try request(container: "mts", packaging: "p7_m2ts_to_p81_drop_el").usesClientDemux)
     }
 
+    func testDirectM2TSSeekIndexStaysBoundToSelectedSourceAndOrigin() throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let origin = URL(string: "http://127.0.0.1:8765")!
+        let sourceID = String(repeating: "a", count: 32)
+        func request(indexURL: String, marked: Bool = true, container: String = "m2ts") throws -> PlaybackRequest {
+            var source: [String: Any] = [
+                "Id": sourceID, "Container": container, "SupportsDirectPlay": true,
+                "SupportsTranscoding": false, "LuminaM2TSIRAPIndexUrl": indexURL,
+            ]
+            if marked { source["LuminaClientPackaging"] = "p7_m2ts_to_p81_drop_el" }
+            let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+                "PlaySessionId": "indexed", "MediaSources": [source],
+            ]))
+            return try client.playbackRequest(origin: origin, token: "test-token", item: item, result: info)
+        }
+        let endpoint = "/videos/movie-1/lumina-m2ts-irap-index"
+        let selected = try XCTUnwrap(request(indexURL: endpoint + "?MediaSourceId=wrong&ApiKey=stale#ignored").m2tsSeekIndex)
+        XCTAssertEqual(selected.sourceID, sourceID)
+        XCTAssertEqual(selected.url.path, endpoint)
+        let query = URLComponents(url: selected.url, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query, [URLQueryItem(name: "MediaSourceId", value: sourceID), URLQueryItem(name: "ApiKey", value: "test-token")])
+        XCTAssertNil(selected.url.fragment)
+        XCTAssertNil(try request(indexURL: "https://elsewhere.invalid" + endpoint).m2tsSeekIndex)
+        XCTAssertNil(try request(indexURL: "http://member@127.0.0.1:8765" + endpoint).m2tsSeekIndex)
+        XCTAssertNil(try request(indexURL: "/videos/movie-1/stream").m2tsSeekIndex)
+        XCTAssertNil(try request(indexURL: endpoint, marked: false).m2tsSeekIndex)
+        XCTAssertNil(try request(indexURL: endpoint, container: "mkv").m2tsSeekIndex)
+    }
+
     func testRefusesCrossOriginPlaybackURL() throws {
         let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
         let info = try JSONDecoder().decode(PlaybackInfo.self, from: json(["PlaySessionId": "session-1", "MediaSources": [[

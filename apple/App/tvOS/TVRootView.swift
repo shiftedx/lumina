@@ -7,6 +7,7 @@ public struct TVRootView: View {
     private let store: LuminaStore
     @State private var path: [MediaItem] = []
     @State private var playbackRequest: PlaybackRequest?
+    @State private var libraryGeneration = 0
     @State private var audioSession = NativeAudioSession()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -27,6 +28,7 @@ public struct TVRootView: View {
                     } onSignOut: {
                         path.removeAll()
                     }
+                    .id(libraryGeneration)
                 }
             }
             .onPlayPauseCommand(perform: toggleAudioPlayback)
@@ -81,7 +83,10 @@ public struct TVRootView: View {
         .fullScreenCover(item: $playbackRequest, onDismiss: {
             Task { await store.refresh() }
         }) { request in
-            PlaybackScreen(request: request, store: store)
+            PlaybackScreen(request: request, store: store, onReturnHome: {
+                path.removeAll()
+                libraryGeneration += 1
+            })
         }
         .environment(audioSession)
         .tint(LuminaTheme.ink)

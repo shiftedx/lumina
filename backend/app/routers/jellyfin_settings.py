@@ -30,7 +30,7 @@ from app.schemas import (
     UserResponse, UserSelfUpdateRequest, UserSettingsResponse, UserSettingsUpdateRequest,
 )
 from app.security import DEVICE_TOKEN_IDLE_DAYS, PasswordPolicyError, audit_log, hash_password, session_digest, validate_password_policy, verify_password
-from app.services import invites, member_access, public_address, two_factor
+from app.services import autoplay_presence, invites, member_access, public_address, two_factor
 from app.services.connected_apps import create_agent_token, create_app_password, revoke_connected_app as revoke_connected_app_service, sign_out_all_apps, to_connected_app
 from app.services.rate_limit import enforce_rate_limit
 from app.services.user_settings import UserSettingsService
@@ -295,12 +295,13 @@ def get_access(response: Response, caller: Caller, db: Db) -> dict:
 
 
 @router.get("/capabilities")
-def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, bool]:
+def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     user = _live_user(db, caller)
     return {
         "streaming_enabled": native_streaming_enabled(db, user),
         "youtube_session_enabled": native_youtube_session_enabled(db, user),
+        "autoplay_presence": autoplay_presence.serialize(db.get(AppSettings, 1)).model_dump(),
     }
 
 

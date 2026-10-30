@@ -1,8 +1,8 @@
-import { type ComponentProps, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAccess, useCanDownload, watchGate } from '../access/access';
 import { ArrowDownToLine, Check, ChevronDown, ChevronLeft, Download, ExternalLink, LoaderCircle, Plus, RotateCcw, Share2 } from '../../luminaIcons';
-import { clearRemotePlaybackProgress, getLibraryUpNext, getMediaSegments, getMuteRanges, getRecap, getRemotePlaybackProgress, getTitle, getUpNext, type Summary, updateRemotePlaybackProgress } from '../../api';
-import { type AlbumTrack, type DownloadJob, type LibraryItem, type LibraryNote, type LocalPlaybackOptions, type MediaSegment, type MuteRange, type PlaybackProgress, type PlaybackSessionRequest, type SubtitleTrack, type TitleSummary, type PreviewResponse, type RemotePlaybackProgress, type SourceAutomation, type WatchQueueEntry, type YouTubeSearchResult } from '../../types';
+import { clearRemotePlaybackProgress, getLibraryUpNext, getMediaSegments, getMuteRanges, getPlaybackPresencePolicy, getRecap, getRemotePlaybackProgress, getTitle, getUpNext, type Summary, updateRemotePlaybackProgress } from '../../api';
+import { type AlbumTrack, type AutoplayPresencePolicy, type DownloadJob, type LibraryItem, type LibraryNote, type LocalPlaybackOptions, type MediaSegment, type MuteRange, type PlaybackProgress, type PlaybackSessionRequest, type SubtitleTrack, type TitleSummary, type PreviewResponse, type RemotePlaybackProgress, type SourceAutomation, type WatchQueueEntry, type YouTubeSearchResult } from '../../types';
 import { EXTERNAL_LIBRARY, isAudioItem, jobProgress, libraryThumbnail, readNumber, readString, remoteItemIsSaved, youtubeVideoId } from '../../luminaModel';
 import { Avatar, ErrorState, Skeleton, TextButton } from '../../ui';
 import { RemotePlayer, RemotePlayerLoading } from '../../remotePlayer';
@@ -41,7 +41,7 @@ import type { CaptionPrefs } from './captionPrefs';
 import { preferredAudio, preferredSubtitle } from './trackPreferences';
 import { PlaybackMenu, subtitleTrackSources, useSubtitleTracks } from './PlaybackMenu';
 import { ChromecastPanel } from './ChromecastPanel';
-import { type UpNext, PlayerOverlays } from './PlayerOverlays';
+import { type StillWatching, type UpNext, PlayerOverlays } from './PlayerOverlays';
 import { showTextTrack } from './playerSegments';
 import { stepFrom } from '../gallery/albumQueue';
 import { useMediaQuery } from '../gallery/WallGrid';
@@ -57,10 +57,21 @@ const DEFAULT_PLAYBACK_PREFS: PlaybackPrefs = { normalizeLoudness: true, autoSki
 const NO_REQUEST: PlaybackSessionRequest = {};
 const NO_MUTE: MuteRange[] = [];
 const NO_TRACKS: AlbumTrack[] = [];
+export const DEFAULT_AUTOPLAY_PRESENCE_POLICY: AutoplayPresencePolicy = { enabled: true, episode_limit: 3, timeout_seconds: 300 };
 
 export type WatchSelection =
   | { kind: 'library'; item: LibraryItem }
   | { kind: 'remote'; item: YouTubeSearchResult; preview: PreviewResponse | null };
+export type EpisodeAutoplayRun = { itemId: string | null; count: number; pendingAutomaticId: string | null; stillWatchingDeadline: number | null; stillWatchingTimeoutSeconds: number | null };
+
+export function autoplayPresencePolicy(value: unknown): AutoplayPresencePolicy {
+  if (!value || typeof value !== 'object') return DEFAULT_AUTOPLAY_PRESENCE_POLICY;
+  const policy = value as Partial<AutoplayPresencePolicy>;
+  const { enabled, episode_limit: episodeLimit, timeout_seconds: timeoutSeconds } = policy;
+  if (typeof enabled !== 'boolean' || typeof episodeLimit !== 'number' || typeof timeoutSeconds !== 'number' || !Number.isInteger(episodeLimit) || !Number.isInteger(timeoutSeconds)) return DEFAULT_AUTOPLAY_PRESENCE_POLICY;
+  if (episodeLimit < 1 || episodeLimit > 100 || timeoutSeconds < 60 || timeoutSeconds > 86_400) return DEFAULT_AUTOPLAY_PRESENCE_POLICY;
+  return { enabled, episode_limit: episodeLimit, timeout_seconds: timeoutSeconds };
+}
 
 /** A generic web source with no channel metadata is attributed to its site, never guessed. */
 function siteName(url: string | null | undefined): string | null {
@@ -102,6 +113,7 @@ export function WatchSurface({
   onRetryRemoteRelated,
   onOpenQueued = () => undefined,
   onOpenLibraryItem,
+  onAutomaticEpisodeAdvance,
   onFollow,
   onOpenDownloads,
   onPlaybackCheckpoint,
@@ -116,6 +128,7 @@ export function WatchSurface({
   mini = false,
   onExpand = () => undefined,
   onClose = () => undefined,
+  onStillWatchingHome = onClose,
   sourceProblem = null,
   playerVolume,
   onPlayerVolumeChange,
@@ -126,6 +139,7 @@ export function WatchSurface({
   onPlaybackPrefsChange,
   startSeconds = null,
   startNonce,
+  episodeAutoplayRun,
 }: {
   selection: WatchSelection;
   previewLoading: boolean;
@@ -151,6 +165,8 @@ export function WatchSurface({
   onRetryRemoteRelated?: () => void;
   onOpenQueued?: (entry: WatchQueueEntry) => void;
   onOpenLibraryItem?: (id: string) => void;
+  /** The app shell preserves the short episode-run budget only for its own automatic transition. */
+  onAutomaticEpisodeAdvance?: (id: string) => void;
   onFollow: () => void;
   onOpenDownloads: () => void;
   onPlaybackCheckpoint: (item: LibraryItem, position: number, duration: number | null, completed: boolean) => void;
@@ -166,6 +182,8 @@ export function WatchSurface({
   mini?: boolean;
   onExpand?: () => void;
   onClose?: () => void;
+  /** The inactivity gate exits playback to Home; mini-player close keeps its existing route behavior. */
+  onStillWatchingHome?: () => void;
   /** Why the remote source could not be inspected (restricted, removed, …); never a sign-in prompt. */
   sourceProblem?: string | null;
   playerVolume?: number;
@@ -180,6 +198,8 @@ export function WatchSurface({
   startSeconds?: number | null;
   /** New for every Play with a `t`, so the same moment pressed again seeks again. */
   startNonce?: number;
+  /** Held by the app shell so automatic next episodes keep their confirmation budget through a player remount. */
+  episodeAutoplayRun?: { current: EpisodeAutoplayRun };
 }) {
   const canDownload = useCanDownload();
   const localTitleId = useId();
@@ -347,6 +367,59 @@ export function WatchSurface({
   const prefs = playbackPrefs ?? DEFAULT_PLAYBACK_PREFS;
   const watchTitle = useFetched(local?.title_id ?? null, () => getTitle(local?.title_id as string));
   const episode = watchTitle.data?.type === 'episode' ? watchTitle.data : null;
+  // An explicit episode choice starts a new run. Only the next-item path below carries its
+  // pending id across the player remount, so a three-episode confirmation cannot leak into
+  // another manual selection.
+  const localEpisodeRunRef = useRef<EpisodeAutoplayRun>({ itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null });
+  const episodeRunRef = episodeAutoplayRun ?? localEpisodeRunRef;
+  const [episodeRunCount, setEpisodeRunCount] = useState(0);
+  const [, setPresencePolicyRevision] = useState(0);
+  const presencePolicyResource = useFetched(local?.id ?? remote?.id ?? null, getPlaybackPresencePolicy);
+  const presencePolicy = autoplayPresencePolicy(presencePolicyResource.data);
+  useEffect(() => {
+    if (!local || local.kind !== 'episode') {
+      episodeRunRef.current = { itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null };
+      setEpisodeRunCount(0);
+      return;
+    }
+    const run = episodeRunRef.current;
+    if (run.itemId === local.id) {
+      setEpisodeRunCount(run.count);
+      return;
+    }
+    if (run.pendingAutomaticId === local.id) {
+      run.itemId = local.id;
+      run.pendingAutomaticId = null;
+      setEpisodeRunCount(run.count);
+      return;
+    }
+    episodeRunRef.current = { itemId: local.id, count: 1, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null };
+    setEpisodeRunCount(1);
+  }, [local?.id, local?.kind]);
+  useEffect(() => {
+    const run = episodeRunRef.current;
+    if (!presencePolicy.enabled) {
+      if (run.stillWatchingDeadline !== null) {
+        run.stillWatchingDeadline = null;
+        run.stillWatchingTimeoutSeconds = null;
+        setPresencePolicyRevision((revision) => revision + 1);
+      }
+      return;
+    }
+    if (run.stillWatchingDeadline !== null && run.stillWatchingTimeoutSeconds !== presencePolicy.timeout_seconds) {
+      run.stillWatchingDeadline = Date.now() + presencePolicy.timeout_seconds * 1000;
+      run.stillWatchingTimeoutSeconds = presencePolicy.timeout_seconds;
+      setPresencePolicyRevision((revision) => revision + 1);
+    }
+  }, [presencePolicy.enabled, presencePolicy.timeout_seconds]);
+  const openNextEpisode = useCallback((itemId: string, automatic = false) => {
+    const current = episodeRunRef.current;
+    const count = automatic ? Math.max(1, current.count) + 1 : 1;
+    episodeRunRef.current = { itemId: current.itemId, count, pendingAutomaticId: itemId, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null };
+    setEpisodeRunCount(count);
+    if (automatic) (onAutomaticEpisodeAdvance ?? onOpenLibraryItem)?.(itemId);
+    else onOpenLibraryItem?.(itemId);
+  }, [onAutomaticEpisodeAdvance, onOpenLibraryItem]);
   const mediaTitle = !local?.extra_type && (watchTitle.data?.type === 'episode' || watchTitle.data?.type === 'movie') ? watchTitle.data : null;
   const title = mediaTitle?.name || sourceTitle;
   const description = mediaTitle?.overview || sourceDescription;
@@ -407,11 +480,25 @@ export function WatchSurface({
       action: episodeNext ? 'Next episode' : 'Next film',
       still: nextTitle.poster?.url ?? nextTitle.poster_url,
       // A series or anime plays on by itself; a collection's next film waits for the member.
-      autoplay: episodeNext,
-      onPlay: () => onOpenLibraryItem(nextTitle.play_item_id as string),
+      autoplay: episodeNext && (!presencePolicy.enabled || episodeRunCount < presencePolicy.episode_limit),
+      onPlay: (automatic = false) => episodeNext
+        ? openNextEpisode(nextTitle.play_item_id as string, automatic)
+        : onOpenLibraryItem(nextTitle.play_item_id as string),
     };
-  }, [nextTitle, nextTrack, onOpenLibraryItem]);
+  }, [nextTitle, nextTrack, onOpenLibraryItem, episodeRunCount, openNextEpisode, presencePolicy.enabled, presencePolicy.episode_limit]);
   const autoAdvance = autoplayUpNext && !gated;
+  const stillWatching = autoAdvance && presencePolicy.enabled && nextTitle?.type === 'episode' && episodeRunCount >= presencePolicy.episode_limit
+    ? {
+      deadlineAt: episodeRunRef.current.stillWatchingDeadline,
+      timeoutSeconds: presencePolicy.timeout_seconds,
+      onDeadline: (deadlineAt: number | null) => {
+        episodeRunRef.current.stillWatchingDeadline = deadlineAt;
+        episodeRunRef.current.stillWatchingTimeoutSeconds = deadlineAt === null ? null : presencePolicy.timeout_seconds;
+      },
+      onContinue: () => upNext?.onPlay(false),
+      onGoHome: onStillWatchingHome,
+    } satisfies StillWatching
+    : null;
   useEffect(() => { showTextTrack(playerRef.current?.textTracks, selectedTextTrack); }, [selectedTextTrack, playerTracks, sessionRequest]);
 
   function chooseSubtitle(track: SubtitleTrack | null) {
@@ -462,7 +549,7 @@ export function WatchSurface({
     ...(local && !mini ? {
       menu: <PlaybackMenu captions={captions} capabilities={enrichment} onCaptionsChange={onCaptionsChange} currentVersionId={local.id} itemId={playId as string} onPrefs={onPlaybackPrefsChange ?? (() => undefined)} onRequestChange={changeSessionRequest} onSubtitle={chooseSubtitle} onTracksChanged={reloadSubtitleTracks} options={playbackOptions} prefs={prefs} request={sessionRequest} subtitle={subtitle} tracks={subtitleTracks} versions={watchTitle.data?.versions ?? []} />,
       // Music gets no up-next card: its countdown would cut the last 20 s off every song. The stage names the next track.
-      overlay: <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} upNext={audio ? null : upNext} />,
+      overlay: <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} stillWatching={audio ? null : stillWatching} upNext={audio ? null : upNext} />,
     } : {}),
   };
 
@@ -722,13 +809,16 @@ export function WatchSurface({
     autoplayHandledRef.current = playbackIdentity;
     checkpointPlayer(true, true);
     // An episode continues its show unless the member cancelled the up-next card; a film never starts itself.
-    if (upNext) { if (upNext.autoplay && autoAdvance && !upNextCancelledRef.current) upNext.onPlay(); return; }
+    if (upNext) { if (upNext.autoplay && autoAdvance && !upNextCancelledRef.current) upNext.onPlay(true); return; }
+    // A title episode never falls through to a generic recommendation while its verified successor
+    // is still loading (or absent). That route would bypass the episode-run confirmation budget.
+    if (local?.kind === 'episode') return;
     if (album) return; // the album's last track ends its queue
     if (autoAdvance) playNext();
   }
 
   function playNext() {
-    if (upNext) upNext.onPlay();
+    if (upNext) upNext.onPlay(false);
     else if (queuedNext) playQueued(queuedNext);
     else if (autoplayIndex >= 0) {
       const next = visibleRelated[autoplayIndex];

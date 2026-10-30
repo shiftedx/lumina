@@ -24,8 +24,8 @@ beforeAll(() => {
 });
 afterEach(() => vi.resetAllMocks());
 
-const settings: MediaServerSettings = { jellyfin_enabled: false, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, has_omdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
-const draft = { tmdb_api_key: '', clear_tmdb_key: false, omdb_api_key: '', clear_omdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, native_streaming_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
+const settings: MediaServerSettings = { jellyfin_enabled: false, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, has_omdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null, autoplay_presence: { enabled: true, episode_limit: 3, timeout_seconds: 300 } };
+const draft = { tmdb_api_key: '', clear_tmdb_key: false, omdb_api_key: '', clear_omdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, native_streaming_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '', autoplay_presence_enabled: true, autoplay_episode_limit: '3', autoplay_timeout_minutes: '5' };
 const user = { id: 'admin', username: 'owner', role: 'admin', is_active: true } as never;
 const connectedApp: ConnectedApp = { id: 'agent-1', user_id: 'admin', owner_display_name: 'Owner', kind: 'agent', scope: 'read', device_name: 'Home Assistant', client: null, client_version: null, created_at: '2026-10-22T00:00:00Z', last_seen_at: null };
 
@@ -43,6 +43,7 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(mediaServerChanges(settings, { ...draft, omdb_api_key: 'abc123' })).toEqual({ omdb_api_key: 'abc123' });
     expect(mediaServerChanges(settings, { ...draft, omdb_api_key: 'ignored', clear_omdb_key: true })).toEqual({ omdb_api_key: '' });
     expect(mediaServerChanges(settings, { ...draft, metadata_language: ' de-DE ', hwaccel: 'qsv', transcode_cache_gb: '25' })).toEqual({ metadata_language: 'de-DE', hwaccel: 'qsv', transcode_cache_gb: 25 });
+    expect(mediaServerChanges(settings, { ...draft, autoplay_presence_enabled: false, autoplay_episode_limit: '12', autoplay_timeout_minutes: '30' })).toEqual({ autoplay_presence: { enabled: false, episode_limit: 12, timeout_seconds: 1800 } });
   });
 
   it('saves the Jellyfin server members import from, and an empty address turns importing off', async () => {
@@ -62,6 +63,17 @@ describe('Media server and Playback & transcoding sections', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ plex_import_url: 'http://192.168.1.20:32400' }));
     expect(screen.getByRole('button', { name: 'About Plex server to import from' })).toBeTruthy();
+  });
+
+  it('saves the household still-watching policy', async () => {
+    setup('media');
+    api.updateMediaServerSettings.mockResolvedValue({ ...settings, autoplay_presence: { enabled: true, episode_limit: 12, timeout_seconds: 1800 } });
+    await userEvent.clear(await screen.findByRole('spinbutton', { name: 'Episodes before confirmation' }));
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Episodes before confirmation' }), '12');
+    await userEvent.clear(screen.getByRole('spinbutton', { name: 'Response timeout (minutes)' }));
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Response timeout (minutes)' }), '30');
+    await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
+    await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ autoplay_presence: { enabled: true, episode_limit: 12, timeout_seconds: 1800 } }));
   });
 
   it('saves a new TMDB key, clears the field, tests it and credits TMDB', async () => {

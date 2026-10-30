@@ -7,9 +7,10 @@ type WatchSurfaceProps = ComponentProps<typeof WatchSurface>;
 const noop = () => undefined;
 
 /** A WatchSurface with inert defaults; pass it to `render` or `renderToStaticMarkup`. */
-export function watchSurface(overrides: Partial<WatchSurfaceProps> & Pick<WatchSurfaceProps, 'selection'>) {
+export function watchSurface({ remountKey, ...overrides }: Partial<WatchSurfaceProps> & Pick<WatchSurfaceProps, 'selection'> & { remountKey?: string }) {
   return (
     <WatchSurface
+      key={remountKey}
       busy={false} channels={[]} downloadMenuOpen={false} downloadQuality="best" jobs={[]} library={[]}
       onBack={noop} onClearPlayback={noop} onCloseDownloadMenu={noop} onDownload={noop} onDownloadQuality={noop}
       onFollow={noop} onOpenDownloads={noop} onOpenRelated={noop} onPlaybackCheckpoint={noop}

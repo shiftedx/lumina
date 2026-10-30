@@ -94,6 +94,7 @@ import type {
   MediaSegmentList,
   MediaServerSettings,
   MediaServerSettingsUpdate,
+  PlaybackPresencePolicy,
   MetadataBulkRefreshResponse,
   MetadataRefreshResponse,
   MuteRange,
@@ -1025,6 +1026,7 @@ export const regenerateRecoveryCodes = (password: string, code: string): Promise
 export const resetMemberTwoFactor = (userId: string): Promise<void> => del(`/api/admin/users/${enc(userId)}/two-factor`);
 export const getMediaServerSettings = (): Promise<MediaServerSettings> => requestJson('/api/admin/media-server');
 export const updateMediaServerSettings = (payload: MediaServerSettingsUpdate, options?: RequestJsonOptions): Promise<MediaServerSettings> => put('/api/admin/media-server', payload, options);
+export const getPlaybackPresencePolicy = (): Promise<PlaybackPresencePolicy> => requestJson('/api/playback/presence-policy');
 export const discoverHouseholdTransfer = (provider: HouseholdTransferProvider, payload: HouseholdTransferRequest, signal?: AbortSignal): Promise<HouseholdTransfer> =>
   post(`/api/admin/household-transfer/${provider}/discover`, payload, { signal, timeoutMs: 120000 });
 export const runTranscodeDiagnostics = (): Promise<TranscodeDiagnostics> => post('/api/admin/media-server/transcode-diagnostics', undefined, { timeoutMs: 90_000 });

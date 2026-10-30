@@ -11,8 +11,11 @@ import { activeSegment, upNextAt } from './playerSegments';
 export const UP_NEXT_COUNTDOWN_SECONDS = 10;
 export const SKIP_NOTICE_MS = 3000;
 export const RECAP_WINDOW_SECONDS = 90;
+export const STILL_WATCHING_TIMEOUT_MS = 5 * 60 * 1000;
 /** What plays next: `autoplay` false (a collection's next film) offers it but never starts it on its own. */
-export type UpNext = { label: string; action: string; still?: string | null; autoplay: boolean; onPlay: () => void };
+export type UpNext = { label: string; action: string; still?: string | null; autoplay: boolean; onPlay: (automatic?: boolean) => void };
+/** The episode run has reached its confirmation boundary. The watch surface owns what happens next. */
+export type StillWatching = { deadlineAt: number | null; timeoutSeconds?: number; onDeadline: (deadlineAt: number | null) => void; onContinue: () => void; onGoHome: () => void };
 type Skippable = keyof AutoSkipPref;
 
 const segmentKey = (segment: MediaSegment) => `${segment.type}:${segment.start_seconds}`;
@@ -25,7 +28,7 @@ function focusIfIdle(button: HTMLButtonElement | null) {
   if (!active || active === document.body || (player?.contains(active) ?? true)) button.focus({ preventScroll: true });
 }
 
-export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNext, autoplay, recap, onSeek, onCancelUpNext }: {
+export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNext, autoplay, recap, stillWatching = null, onSeek, onCancelUpNext }: {
   currentTime: number;
   duration: number | null;
   segments: MediaSegment[];
@@ -33,6 +36,7 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
   upNext: UpNext | null;
   autoplay: boolean;
   recap: RecapResponse | null;
+  stillWatching?: StillWatching | null;
   onSeek: (seconds: number) => void;
   onCancelUpNext: () => void;
 }) {
@@ -41,6 +45,12 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
   const playedNextRef = useRef(false);
   const skipRef = useRef<HTMLButtonElement>(null);
   const playNowRef = useRef<HTMLButtonElement>(null);
+  const continueWatchingRef = useRef<HTMLButtonElement>(null);
+  const stillWatchingDeadlineRef = useRef<number | null>(null);
+  const stillWatchingTimedOutRef = useRef(false);
+  const stillWatchingResolvedRef = useRef(false);
+  const stillWatchingRef = useRef<StillWatching | null>(stillWatching);
+  stillWatchingRef.current = stillWatching;
   const [notice, setNotice] = useState<{ type: Skippable; from: number } | null>(null);
   const [upNextDismissed, setUpNextDismissed] = useState(false);
   const [recapDismissed, setRecapDismissed] = useState(false);
@@ -51,7 +61,8 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
   const creditsBelongToUpNext = active?.type === 'credits' && upNext !== null;
   const upNextStart = upNext ? upNextAt(duration, segments) : null;
   const inUpNext = upNext !== null && upNextStart !== null && currentTime >= upNextStart;
-  const showUpNext = inUpNext && !upNextDismissed;
+  const showStillWatching = inUpNext && stillWatching !== null;
+  const showUpNext = inUpNext && !upNextDismissed && !showStillWatching;
   const counting = showUpNext && autoplay && Boolean(upNext?.autoplay);
   const showSkip = active !== null && !creditsBelongToUpNext && notice === null;
   const showRecap = !recapDismissed && Boolean(recap?.suggest_preroll) && currentTime < RECAP_WINDOW_SECONDS && Boolean(recap?.points.length || recap?.fallback.length);
@@ -84,11 +95,50 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
   useEffect(() => {
     if (countdown !== 0 || playedNextRef.current || !upNext) return;
     playedNextRef.current = true;
-    upNext.onPlay();
+    upNext.onPlay(true);
   }, [countdown]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Compare against a wall-clock deadline on wake/visibility changes so a backgrounded tab
+  // cannot extend the confirmation window, without waking once per second while paused.
+  useEffect(() => {
+    if (!showStillWatching) {
+      stillWatchingDeadlineRef.current = null;
+      stillWatchingTimedOutRef.current = false;
+      stillWatchingResolvedRef.current = false;
+      return undefined;
+    }
+    if (stillWatchingDeadlineRef.current === null) {
+      stillWatchingDeadlineRef.current = stillWatching?.deadlineAt ?? Date.now() + (stillWatching?.timeoutSeconds ?? STILL_WATCHING_TIMEOUT_MS / 1000) * 1000;
+      if (stillWatching?.deadlineAt === null) stillWatching.onDeadline(stillWatchingDeadlineRef.current);
+    }
+    let timer: number | null = null;
+    const checkDeadline = () => {
+      const deadline = stillWatchingDeadlineRef.current;
+      if (deadline === null || Date.now() < deadline || stillWatchingTimedOutRef.current) return;
+      stillWatchingTimedOutRef.current = true;
+      stillWatchingResolvedRef.current = true;
+      stillWatchingDeadlineRef.current = null;
+      stillWatchingRef.current?.onDeadline(null);
+      stillWatchingRef.current?.onGoHome();
+    };
+    const scheduleDeadline = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      checkDeadline();
+      const deadline = stillWatchingDeadlineRef.current;
+      if (deadline === null || stillWatchingTimedOutRef.current) { timer = null; return; }
+      timer = window.setTimeout(scheduleDeadline, Math.max(0, deadline - Date.now()));
+    };
+    scheduleDeadline();
+    document.addEventListener('visibilitychange', scheduleDeadline);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', scheduleDeadline);
+    };
+  }, [showStillWatching]);
 
   useEffect(() => { if (showSkip) focusIfIdle(skipRef.current); }, [activeKey, showSkip]);
   useEffect(() => { if (showUpNext) focusIfIdle(playNowRef.current); }, [showUpNext]);
+  useEffect(() => { if (showStillWatching) focusIfIdle(continueWatchingRef.current); }, [showStillWatching]);
 
   function skip() {
     if (!active || !activeKey) return;
@@ -104,6 +154,15 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
     setUpNextDismissed(true);
     setCountdown(null);
     onCancelUpNext();
+  }
+  function resolveStillWatching(action: 'continue' | 'home') {
+    if (stillWatchingResolvedRef.current || !stillWatching) return;
+    stillWatchingResolvedRef.current = true;
+    const expired = stillWatchingDeadlineRef.current !== null && Date.now() >= stillWatchingDeadlineRef.current;
+    stillWatchingDeadlineRef.current = null;
+    stillWatching.onDeadline(null);
+    if (action === 'home' || expired) stillWatching.onGoHome();
+    else stillWatching.onContinue();
   }
 
   return (
@@ -121,14 +180,24 @@ export function PlayerOverlays({ currentTime, duration, segments, autoSkip, upNe
       ) : null}
       {notice ? <div className="player-card player-notice-card" role="status">Skipped {notice.type} · <TextButton data-focus-item onClick={undo}>Undo</TextButton></div> : null}
       {showSkip && active ? <Button className="player-skip" data-focus-item icon={<SkipForward />} onClick={skip} ref={skipRef} variant="secondary">Skip {active.type}</Button> : null}
-      {inUpNext && upNextDismissed && upNext ? <Button className="player-skip" data-focus-item icon={<SkipForward />} onClick={() => { playedNextRef.current = true; upNext.onPlay(); }} variant="secondary">{upNext.action}</Button> : null}
+      {inUpNext && upNextDismissed && upNext ? <Button className="player-skip" data-focus-item icon={<SkipForward />} onClick={() => { playedNextRef.current = true; upNext.onPlay(false); }} variant="secondary">{upNext.action}</Button> : null}
+      {showStillWatching && stillWatching ? (
+        <section aria-label="Still watching" className="player-card player-next-card">
+          <p className="player-card-title">Still watching?</p>
+          <p className="player-card-meta">Continue to the next episode or return home.</p>
+          <div className="player-card-actions">
+            <Button data-focus-item onClick={() => resolveStillWatching('continue')} ref={continueWatchingRef} variant="primary">Continue watching</Button>
+            <Button data-focus-item onClick={() => resolveStillWatching('home')} variant="quiet">Go Home</Button>
+          </div>
+        </section>
+      ) : null}
       {showUpNext && upNext ? (
         <section aria-label={upNext.action} className="player-card player-next-card">
           {upNext.still ? <Artwork alt="" className="player-next-still" src={upNext.still} /> : null}
           <p className="player-card-title">Next: {upNext.label}</p>
           {countdown !== null ? <p className="player-card-meta"><span aria-hidden="true">Playing in {countdown} s</span><span className="sr-only">Plays automatically in {UP_NEXT_COUNTDOWN_SECONDS} seconds.</span></p> : null}
           <div className="player-card-actions">
-            <Button data-focus-item onClick={() => { playedNextRef.current = true; upNext.onPlay(); }} ref={playNowRef} variant="primary">Play now</Button>
+            <Button data-focus-item onClick={() => { playedNextRef.current = true; upNext.onPlay(false); }} ref={playNowRef} variant="primary">Play now</Button>
             <Button data-focus-item onClick={cancel} variant="quiet">Cancel</Button>
           </div>
         </section>

@@ -549,9 +549,17 @@ class SignOutAllAppsResponse(BaseModel):
 
 # ---- Media server settings, transcoding ---------------------------------------
 
+class AutoplayPresencePolicy(BaseModel):
+    """Household-wide attendance gate for consecutive episode autoplay."""
+
+    enabled: bool = True
+    episode_limit: int = Field(default=3, ge=1, le=100)
+    timeout_seconds: int = Field(default=300, ge=60, le=86_400)
+
 class MediaServerSettings(BaseModel):
     jellyfin_enabled: bool
     native_streaming_enabled: bool = False
+    autoplay_presence: AutoplayPresencePolicy = Field(default_factory=AutoplayPresencePolicy)
     jellyfin_url: str | None = None  # the local address, else the app public URL (the API is served at the root); None without either
     jellyfin_public_url: str | None = None  # the public address, for apps away from home
     has_tmdb_key: bool
@@ -573,6 +581,7 @@ class MediaServerSettingsUpdate(_Body):
 
     jellyfin_enabled: bool | None = None
     native_streaming_enabled: bool | None = None
+    autoplay_presence: AutoplayPresencePolicy | None = None
     tmdb_api_key: str | None = Field(default=None, max_length=512)
     omdb_api_key: str | None = Field(default=None, max_length=512)
     metadata_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
@@ -584,6 +593,12 @@ class MediaServerSettingsUpdate(_Body):
     plex_import_url: str | None = Field(default=None, max_length=2048)
     anime_folders: list[AnimeFolder] | None = Field(default=None, max_length=ANIME_FOLDERS_MAX)
     members_edit_metadata: bool | None = None
+
+    @model_validator(mode="after")
+    def _presence_policy_is_not_nullable_when_supplied(self) -> "MediaServerSettingsUpdate":
+        if "autoplay_presence" in self.model_fields_set and self.autoplay_presence is None:
+            raise ValueError("autoplay_presence must be an object when supplied")
+        return self
 
     @field_validator("jellyfin_import_url", "plex_import_url")
     @classmethod

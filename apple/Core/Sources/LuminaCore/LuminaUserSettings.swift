@@ -74,10 +74,12 @@ public indirect enum SettingsValue: Codable, Equatable, Sendable {
 private struct UserSettingsCapabilities: Decodable {
     let streamingEnabled: Bool
     let youtubeSessionEnabled: Bool?
+    let autoplayPresence: SettingsValue?
 
     private enum CodingKeys: String, CodingKey {
         case streamingEnabled = "streaming_enabled"
         case youtubeSessionEnabled = "youtube_session_enabled"
+        case autoplayPresence = "autoplay_presence"
     }
 }
 
@@ -110,6 +112,7 @@ public enum UserSettingsError: Error, Equatable, LocalizedError, Sendable {
     public private(set) var streamingEnabled = false
     /// Whether the current member is allowed to use their YouTube session in this connected app.
     public private(set) var youtubeSessionEnabled = false
+    public private(set) var autoplayPresencePolicy = EpisodeAutoplayPolicy()
 
     /// The theme stored under `ui_prefs.theme`, with the website's system default for an absent or malformed value.
     public var theme: String {
@@ -117,6 +120,9 @@ public enum UserSettingsError: Error, Equatable, LocalizedError, Sendable {
               ["system", "light", "dark", "oled"].contains(theme) else { return "system" }
         return theme
     }
+
+    /// Shared with the website; an absent preference keeps next-episode autoplay enabled.
+    public var autoplayUpNext: Bool { document["ui_prefs"]?["autoplay_up_next"]?.boolValue ?? true }
 
     private var session: LuminaSession?
     private let client: LuminaClient
@@ -145,6 +151,7 @@ public enum UserSettingsError: Error, Equatable, LocalizedError, Sendable {
         errorMessage = nil
         streamingEnabled = false
         youtubeSessionEnabled = false
+        autoplayPresencePolicy = EpisodeAutoplayPolicy()
     }
 
     public func load() async {
@@ -175,6 +182,7 @@ public enum UserSettingsError: Error, Equatable, LocalizedError, Sendable {
             guard owns(operation), owner == sessionGeneration else { return }
             streamingEnabled = capabilities?.streamingEnabled ?? false
             youtubeSessionEnabled = streamingEnabled && capabilities?.youtubeSessionEnabled == true
+            if let capabilities { autoplayPresencePolicy = EpisodeAutoplayPolicy(settingsValue: capabilities.autoplayPresence) }
         } catch {
             guard owns(operation), owner == sessionGeneration else { return }
             errorMessage = Self.message(for: error)
@@ -285,5 +293,15 @@ public enum UserSettingsError: Error, Equatable, LocalizedError, Sendable {
 
     private static func message(for error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "Lumina could not update settings."
+    }
+}
+
+private extension EpisodeAutoplayPolicy {
+    init(settingsValue: SettingsValue?) {
+        let limit = settingsValue?["episode_limit"]?.numberValue ?? 3
+        let timeout = settingsValue?["timeout_seconds"]?.numberValue ?? 300
+        self.init(enabled: settingsValue?["enabled"]?.boolValue ?? true,
+                  episodeLimit: (1.0...100.0).contains(limit) && limit.rounded() == limit ? Int(limit) : 3,
+                  timeoutSeconds: (60.0...86_400.0).contains(timeout) && timeout.rounded() == timeout ? Int(timeout) : 300)
     }
 }

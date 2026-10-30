@@ -75,6 +75,7 @@ from app import device_ring
 from app.device_ring import append_token, apply_ring_cookie, drop_token, read_ring
 from app.models import (
     AcquisitionBatch,
+    AppSettings,
     AppSession,
     AcquisitionBatchEntry,
     AcquisitionJobOutput,
@@ -237,13 +238,14 @@ from app.services.household_collections import (
     InvisibleLibraryItemError,
     SmartCollectionEditError,
 )
-from app.media_schemas import ItemProgress, SearchScope, SmartCollectionRule
+from app.media_schemas import AutoplayPresencePolicy, ItemProgress, SearchScope, SmartCollectionRule
 from app.services import smart_collections
 from app.services import backups
 from app.services import model_downloads, model_supervisor, photo_cache, photo_faces, photo_imports
 from app.services import enrichment as enrichment_jobs
 from app.services.background_work import background_work
 from app.services import music_cast_capabilities
+from app.services import autoplay_presence
 from app.services.redaction import install_log_redaction
 from app.services.watch_queue import RemoteRef
 from app.services.artifact_quarantine import ArtifactQuarantineService
@@ -3683,6 +3685,14 @@ def list_continue_watching(
 ) -> list[PlaybackProgressResponse]:
     service = PlaybackProgressService(db)
     return service.serialize_continue_watching(service.list_continue_watching(current_user), current_user)
+
+
+@app.get("/api/playback/presence-policy", response_model=AutoplayPresencePolicy)
+def get_playback_presence_policy(
+    current_user: User = Depends(get_current_user),  # noqa: ARG001 - member authentication is the boundary
+    db: Session = Depends(get_db, scope="function"),
+) -> AutoplayPresencePolicy:
+    return autoplay_presence.serialize(db.get(AppSettings, 1))
 
 
 @app.get("/api/playback/remote/{source_identity:path}", response_model=RemotePlaybackProgressResponse | None)

@@ -1343,3 +1343,66 @@ iOS/tvOS output, Dolby Vision panel activation, Atmos/HDMI passthrough, or the f
 production authentication/negotiation path. The owner reports failure on the
 latest app build across devices; local success does not establish a device fix
 until an updated app is tested there. No archive, upload or deployment occurred.
+
+
+## Episode autoplay and server-owned presence policy — October 30, 2026
+
+Web, iOS and tvOS continue a show's episodes using the existing next-episode
+resolver. With the default policy, the manually started episode plus two
+successors play before a Still watching confirmation blocks episode four.
+Continue starts another batch; Go Home or an expired wall-clock deadline stops
+playback and returns Home. Member autoplay-off remains authoritative. Admin
+Settings → Media can disable the check, change the episode limit (1–100), or
+change the response timeout (1 minute–24 hours). Players refresh this policy at
+playback/episode boundaries. Schema 42 adds the durable settings JSON column;
+the operator guide documents its additive rollback.
+
+Focused qualification:
+
+- Backend policy serialization, admin authorization and bounds, native/member
+  parity, migration, and media contract: 259 passed.
+- Web overlays, episode workflows and admin form: 51 passed; TypeScript passed.
+- Selected Core session/settings tests: 3 passed, including custom limits,
+  disabled checks, timeout and continued batches. Broker checks: 27 passed.
+- Both Debug simulator test builds passed after incorporating main's newer
+  playback dependency. The selected Apple TV 4K (2nd generation, 1080p/tvOS
+  27.0) workflow passed: direct thumbnail playback, automatic episodes two and
+  three with advancing decoded time/server progress, episode four untouched,
+  confirmation, then remote Go Home. Screenshot review found and corrected an
+  inherited white-tint contrast problem; the final focused Continue action is
+  readable. Result: `output/episode-autoplay-presence/tvos-policy-final.xcresult`.
+- The final selected iPad Pro 11-inch (M5/iOS 27.0) workflow also passed with
+  server policy support and the same episode/progress/Home assertions:
+  `output/episode-autoplay-presence/ipad-policy-final.xcresult`. A separate
+  unattended default-policy observation captured the confirmation and Home
+  320 seconds later with no GUI input between captures. This observation
+  preceded configurable policy support; `idle-observation.json` records that
+  distinction. Custom durations are covered by deterministic Core/web checks.
+
+Evidence, logs and screenshots remain in ignored
+`output/episode-autoplay-presence/`. The iPad journey uses the existing test-only
+static-animation switch; shipping animations are unchanged. No full suite,
+physical-device qualification, production deployment, packaging or TestFlight
+upload was performed for this feature. The previously uploaded build 36 does
+not contain it.
+
+
+## tvOS Home carousel entry — October 30, 2026
+
+`NativeTVHomeNavigationPreservesSelectionTests/testNewHomeCarouselsEnterAtLeadingCard`
+reproduced the owner's focus report on a second-generation Apple TV 4K
+1080p/tvOS 27.0 simulator. With fresh metadata and no prior row history, Down
+from the hero's right-hand watchlist action focused Continue watching's second
+card. The baseline failed its first-card assertion; its screenshot and
+accessibility hierarchy confirm that the first card remained visible at the
+left edge, ruling out an initially shifted carousel.
+
+The shared Home rail now uses a user-initiated default focus: its first item on
+initial entry, or its last visited item when that item still exists. The same
+remote workflow then passed both entry cases (hero to first row, right-hand
+card to the next new row), Left/Right movement, Up restoring the previous row's
+third card, and detail Back restoring that same card. The focused screenshot
+was inspected and the tvOS simulator test build passed. Evidence remains in
+ignored `output/tvos-carousel-entry/` (`baseline.xcresult`, `fix.xcresult`, and
+`final.xcresult`). No full suite, physical Apple TV qualification, new release
+package or upload was performed. This source fix is not in uploaded build 36.

@@ -49,6 +49,8 @@ SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
 SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
+THIRD_EPISODE_TITLE = "The Relay Opens"
+FOURTH_EPISODE_TITLE = "Signal in the Static"
 SECOND_SEASON_EPISODE_TITLE = "The Signal Returns"
 SERIES_ABOUT_FIRST_PARAGRAPH = (
     "Across three careful seasons, the Observatory Signal Logs follows the people who maintain a weather station "
@@ -85,6 +87,9 @@ SECOND_EPISODE_SOURCE = "Morning Signal Desk"
 SECOND_EPISODE_NOTE = "The coordinate sequence is unique to the second episode fixture."
 EPISODE_INTRO_END_SECONDS = 10
 EPISODE_CREDITS_START_SECONDS = 75
+AUTOPLAY_CREDITS_START_SECONDS = 10
+AUTOPLAY_SERIES_ENV = "LUMINA_NATIVE_AUTOPLAY_SERIES"
+AUTOPLAY_DISABLED_ENV = "LUMINA_NATIVE_AUTOPLAY_DISABLED"
 PERFORMANCE_CATALOGUE_COUNT_ENV = "LUMINA_NATIVE_PERF_CATALOGUE_COUNT"
 MAX_PERFORMANCE_CATALOGUE_COUNT = 500
 PERFORMANCE_VIDEO_SIZE_ENV = "LUMINA_NATIVE_PERF_VIDEO_SIZE"
@@ -1097,6 +1102,11 @@ def make_show(media_root: Path) -> None:
         (1, 2, SECOND_EPISODE_TITLE),
         (2, 1, SECOND_SEASON_EPISODE_TITLE),
     ]
+    if os.environ.get(AUTOPLAY_SERIES_ENV) == "1":
+        episodes += [
+            (1, 3, THIRD_EPISODE_TITLE),
+            (1, 4, FOURTH_EPISODE_TITLE),
+        ]
     if os.environ.get("LUMINA_NATIVE_LONG_SERIES") == "1":
         episodes += [(season, 1, f"Signal from season {season}") for season in range(3, 28)]
         episodes += [(27, episode, f"Late signal {episode}") for episode in range(2, 6)]
@@ -1152,7 +1162,7 @@ def configure_environment(state_root: Path) -> None:
 def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
     from app.db import init_db, session_scope
-    from app.models import LibraryItem, MediaRequest, MediaTitle, User
+    from app.models import LibraryItem, MediaRequest, MediaTitle, User, UserSettings
     from app.media_schemas import MediaSegmentInput
     from app.music_schemas import MusicPlaylistSave
     from app.services import media_segments
@@ -1214,7 +1224,21 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             MediaSegmentInput(type="intro", start_seconds=0, end_seconds=EPISODE_INTRO_END_SECONDS),
             MediaSegmentInput(type="credits", start_seconds=EPISODE_CREDITS_START_SECONDS, end_seconds=90),
         ])
+        third_episode_title = None
+        fourth_episode_title = None
+        if os.environ.get(AUTOPLAY_SERIES_ENV) == "1":
+            second_episode_title = db.query(MediaTitle).filter_by(type="episode", name=SECOND_EPISODE_TITLE).one()
+            third_episode_title = db.query(MediaTitle).filter_by(type="episode", name=THIRD_EPISODE_TITLE).one()
+            fourth_episode_title = db.query(MediaTitle).filter_by(type="episode", name=FOURTH_EPISODE_TITLE).one()
+            for title in (second_episode_title, third_episode_title):
+                item = db.query(LibraryItem).filter_by(title_id=title.id).one()
+                media_segments.save_user_segments(db, item.id, [
+                    MediaSegmentInput(type="credits", start_seconds=AUTOPLAY_CREDITS_START_SECONDS, end_seconds=90),
+                ])
         owner = db.query(User).filter_by(username=username).one()
+        if os.environ.get(AUTOPLAY_DISABLED_ENV) == "1":
+            preferences = db.query(UserSettings).filter_by(user_id=owner.id).one()
+            preferences.ui_prefs = {**(preferences.ui_prefs or {}), "autoplay_up_next": False}
         db.add(MediaRequest(
             id=str(uuid.uuid4()), kind="anime", media_type="tv", tmdb_id=209867,
             tvdb_id=424536, anilist_id=154587, title=REQUEST_ANIME_TITLE,
@@ -1253,6 +1277,10 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "secondEpisodeAbout": SECOND_EPISODE_OVERVIEW,
             "secondEpisodeAboutSource": SECOND_EPISODE_SOURCE,
             "secondEpisodeAboutNote": SECOND_EPISODE_NOTE,
+            "thirdEpisodeID": uuid.UUID(third_episode_title.id).hex if third_episode_title else None,
+            "thirdEpisodeTitle": THIRD_EPISODE_TITLE if third_episode_title else None,
+            "fourthEpisodeID": uuid.UUID(fourth_episode_title.id).hex if fourth_episode_title else None,
+            "fourthEpisodeTitle": FOURTH_EPISODE_TITLE if fourth_episode_title else None,
             "secondSeasonEpisodeID": uuid.UUID(second_season_episode_title.id).hex,
             "secondSeasonEpisodeTitle": SECOND_SEASON_EPISODE_TITLE,
             "episodeIntroEndSeconds": EPISODE_INTRO_END_SECONDS,
@@ -1424,7 +1452,9 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     if not {expected["seasonID"], expected["secondSeasonID"]}.issubset({item.get("Id") for item in seasons.get("Items", [])}):
         raise RuntimeError("The synthetic show did not expose both imported seasons.")
     episodes = request_json(f"/Items?ParentId={expected['seasonID']}&IncludeItemTypes=Episode&Limit=50", token=token)
-    if not {expected["episodeID"], expected["secondEpisodeID"]}.issubset({item.get("Id") for item in episodes.get("Items", [])}):
+    expected_season_episode_ids = {expected["episodeID"], expected["secondEpisodeID"]}
+    expected_season_episode_ids.update(item for item in (expected.get("thirdEpisodeID"), expected.get("fourthEpisodeID")) if item)
+    if not expected_season_episode_ids.issubset({item.get("Id") for item in episodes.get("Items", [])}):
         raise RuntimeError("The synthetic season did not expose both imported episodes.")
     second_season_episodes = request_json(f"/Items?ParentId={expected['secondSeasonID']}&IncludeItemTypes=Episode&Limit=50", token=token)
     if expected["secondSeasonEpisodeID"] not in {item.get("Id") for item in second_season_episodes.get("Items", [])}:

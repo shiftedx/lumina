@@ -8,7 +8,7 @@ import { albumDetail, albumSummary, albumTrack } from './test/galleryFixtures';
 
 vi.mock('hls.js', () => import('./test/fakeHls'));
 const api = vi.hoisted(() => ({
-  getTitle: vi.fn(), getLibraryUpNext: vi.fn(), getWatchQueue: vi.fn(), listSubtitleTracks: vi.fn(), getMediaSegments: vi.fn(), getRecap: vi.fn(), getMuteRanges: vi.fn(),
+  getTitle: vi.fn(), getLibraryUpNext: vi.fn(), getPlaybackPresencePolicy: vi.fn(), getWatchQueue: vi.fn(), listSubtitleTracks: vi.fn(), getMediaSegments: vi.fn(), getRecap: vi.fn(), getMuteRanges: vi.fn(),
   getLocalPlaybackOptions: vi.fn(), startLocalPlaybackSession: vi.fn(), stopLocalPlaybackSession: vi.fn(),
 }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
@@ -19,6 +19,7 @@ const audioGraph = vi.hoisted(() => {
 vi.mock('./features/watch/audioGraph', () => ({ audioGraphFor: audioGraph.audioGraphFor }));
 const { watchSurface } = await import('./test/watchSurface');
 const { clearAlbumQueue, setAlbumQueue } = await import('./features/gallery/albumQueue');
+const { autoplayPresencePolicy, DEFAULT_AUTOPLAY_PRESENCE_POLICY } = await import('./features/watch/WatchSurface');
 
 afterEach(() => vi.resetAllMocks());
 
@@ -33,6 +34,7 @@ const textTrack: SubtitleTrack = { id: 's:0', label: 'English', origin: 'sidecar
 function available(overrides: Partial<typeof api> = {}) {
   api.getTitle.mockResolvedValue(detail);
   api.getLibraryUpNext.mockResolvedValue(followingEpisodes);
+  api.getPlaybackPresencePolicy.mockRejectedValue(new Error('404'));
   api.getWatchQueue.mockResolvedValue({ entries: [], revision: 0 });
   api.listSubtitleTracks.mockResolvedValue([textTrack]);
   api.getMediaSegments.mockResolvedValue({ item_id: 'i-e1', segments: [] });
@@ -194,6 +196,98 @@ describe('Up next for library media', () => {
     fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(onOpenLibraryItem).not.toHaveBeenCalled();
+  });
+
+  it('falls back safely for an older or malformed presence-policy response', () => {
+    expect(autoplayPresencePolicy(null)).toEqual(DEFAULT_AUTOPLAY_PRESENCE_POLICY);
+    expect(autoplayPresencePolicy({ enabled: true, episode_limit: 0, timeout_seconds: 300 })).toEqual(DEFAULT_AUTOPLAY_PRESENCE_POLICY);
+  });
+
+  it('lets episodes continue without a confirmation when the household disables checks', async () => {
+    available();
+    api.getPlaybackPresencePolicy.mockResolvedValue({ enabled: false, episode_limit: 1, timeout_seconds: 60 });
+    const onOpenLibraryItem = vi.fn();
+    render(watchSurface({ selection: { kind: 'library', item }, onOpenLibraryItem }));
+    await waitFor(() => expect(api.getPlaybackPresencePolicy).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
+    await waitFor(() => expect(onOpenLibraryItem).toHaveBeenCalledWith('i-e2'));
+  });
+
+  it('uses the household episode limit for the still-watching prompt', async () => {
+    available();
+    api.getPlaybackPresencePolicy.mockResolvedValue({ enabled: true, episode_limit: 1, timeout_seconds: 60 });
+    const shortEpisode = { ...item, metadata_json: { duration: 120 } };
+    const onStillWatchingHome = vi.fn();
+    render(watchSurface({ selection: { kind: 'library', item: shortEpisode }, onOpenLibraryItem: vi.fn(), onStillWatchingHome }));
+    await waitFor(() => expect(api.getPlaybackPresencePolicy).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    const video = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 91, writable: true });
+    fireEvent.timeUpdate(video);
+    expect(await screen.findByRole('region', { name: 'Still watching' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Go Home' }));
+    expect(onStillWatchingHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fall through to a related video while an episode successor is still loading', async () => {
+    available();
+    api.getLibraryUpNext.mockImplementation(() => new Promise<LibraryUpNext>(() => undefined));
+    const onOpenLibraryItem = vi.fn();
+    const onOpenRelated = vi.fn();
+    const related = [{
+      id: 'related-1', source: 'youtube', title: 'Unrelated recommendation', uploader: 'Another channel', webpage_url: 'https://www.youtube.com/watch?v=related-1',
+      capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: true, chat: { live: 'unavailable', replay: 'unavailable' } },
+    }] as YouTubeSearchResult[];
+    render(watchSurface({ selection: { kind: 'library', item }, onOpenLibraryItem, onOpenRelated, related }));
+    await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith('i-e1'));
+    fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(onOpenLibraryItem).not.toHaveBeenCalled();
+    expect(onOpenRelated).not.toHaveBeenCalled();
+  });
+
+  it('confirms after three episodes, then starts a fresh automatic run when the member continues', async () => {
+    const itemFor = (index: number): LibraryItem => ({ ...item, id: `i-e${index}`, title_id: `e${index}`, title: `Harbor Lights S01E${index}`, metadata_json: { duration: 120 } });
+    const detailFor = (index: number): TitleDetail => ({ ...detail, ...episode(`e${index}`, index) });
+    available();
+    api.getTitle.mockImplementation(async (id: string) => detailFor(Number(id.slice(1))));
+    api.getLibraryUpNext.mockImplementation(async (id: string): Promise<LibraryUpNext> => {
+      const index = Number(id.slice(-1));
+      return { kind: 'episodes', title: 'Harbor Lights', title_id: 's1', current_id: `e${index}`, items: [episode(`e${index + 1}`, index + 1)] };
+    });
+    const onOpenLibraryItem = vi.fn();
+    const episodeAutoplayRun = { current: { itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null } };
+    const surfaceFor = (index: number, remountKey = `episode-${index}`) => watchSurface({ selection: { kind: 'library', item: itemFor(index) }, onOpenLibraryItem, episodeAutoplayRun, remountKey });
+    const { rerender } = render(surfaceFor(1));
+
+    for (const index of [1, 2]) {
+      await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith(`i-e${index}`));
+      fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
+      await waitFor(() => expect(onOpenLibraryItem).toHaveBeenLastCalledWith(`i-e${index + 1}`));
+      rerender(surfaceFor(index + 1));
+    }
+
+    await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith('i-e3'));
+    const video = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 91, writable: true });
+    fireEvent.timeUpdate(video);
+    expect(await screen.findByRole('region', { name: 'Still watching' })).toBeTruthy();
+    expect(episodeAutoplayRun.current.stillWatchingDeadline).toEqual(expect.any(Number));
+    rerender(surfaceFor(3, 'episode-3-rebuilt'));
+    const rebuiltVideo = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(rebuiltVideo, 'currentTime', { configurable: true, value: 91, writable: true });
+    fireEvent.timeUpdate(rebuiltVideo);
+    expect(await screen.findByRole('region', { name: 'Still watching' })).toBeTruthy();
+    fireEvent.ended(rebuiltVideo);
+    expect(onOpenLibraryItem).toHaveBeenCalledTimes(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Continue watching' }));
+    expect(onOpenLibraryItem).toHaveBeenLastCalledWith('i-e4');
+
+    rerender(surfaceFor(4));
+    await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith('i-e4'));
+    fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
+    await waitFor(() => expect(onOpenLibraryItem).toHaveBeenLastCalledWith('i-e5'));
   });
 
   it('stops instead of advancing once watching time is up', async () => {

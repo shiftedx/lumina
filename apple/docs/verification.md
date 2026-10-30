@@ -543,9 +543,23 @@ The complete Lumina Core run passed 267 checks with five unconfigured
 `NativeServerTests` skips and no failures. All P5/P8/P7, separate-track,
 M2TS and cold/variable-GOP media fixtures were enabled, with no media skips.
 Unsigned generic iOS and tvOS Simulator builds passed against the immutable
-production pin. Physical Dolby Vision/color/HDMI qualification, arbitrary
-large-source cold-seek availability, and full FEL reconstruction remain
-separate; no deployment or upload was performed.
+production pin. A final two-case native rerun also passed after requiring
+both player position and returned frame presentation time.
+
+Repository validation passed 5,814 backend checks (20 skips) and 2,754 frontend
+checks. The second full browser run passed 651 cases; the backend's low-disk
+guard refused one conversion and its four dependent WebKit cases did not run.
+After reclaiming this task's rebuildable caches, a fresh-fixture rerun passed
+all 35 selected setup/performance/WebKit cases (8.4 minutes), including the
+previously blocked conversion and all four WebKit workflows. All 656 unique
+browser cases passed across these runs; the aggregate `make check` invocation
+is recorded as failed, not as a clean full-gate pass. An earlier unchanged
+navigation test timeout also passed three isolated repeats and the second
+full functional run; no web application or test changes were needed.
+
+Physical Dolby Vision/color/HDMI qualification, arbitrary large-source
+cold-seek availability, and full FEL reconstruction remain separate; no
+deployment or upload was performed.
 
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 

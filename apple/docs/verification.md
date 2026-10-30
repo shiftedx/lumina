@@ -1027,3 +1027,23 @@ no service-worker or playback changes were made to hide it. Logs:
 `/tmp/lumina-brand-offline-chromium-r3.log` and
 `/tmp/lumina-brand-offline-baseline.log`. The temporary overlay configs were removed.
 No distribution archive, signed export, or upload was made.
+
+
+## Episode thumbnail playback and artwork alignment — October 29, 2026
+
+Source after staged build 35 removes the duplicate selected-episode title and
+Play/Resume block. Tapping an episode card directly starts/resumes that exact
+episode. The artwork card's outer leading edge aligns with Episodes, the season
+selector and About text; interior text padding remains unchanged. Leading
+restoration and trailing scroll room keep the final card on that same gutter.
+
+The focused `NativeEpisodeShowContextTests/testEpisodeControlsStayAlignedAndPlayWithoutReturningToHero`
+workflow passed on iPad Pro 11-inch (M5) and iPhone 17 simulators with iOS 27.0.
+Each opens a saved episode from Home, checks card-edge alignment against all
+three text anchors and the absence of duplicate controls, resumes from eight
+seconds, switches seasons, and taps an episode thumbnail. Decoded playback time
+and server progress verify the requested episode. Captured layout screenshots
+were inspected on both layouts. Results and source hashes are retained in
+ignored `output/episode-thumbnail-fix/` (`ipad-r8.xcresult`, `phone-r8.xcresult`).
+No full suite, new distribution package or upload was performed; signed build 35
+remains unchanged and predates this correction.

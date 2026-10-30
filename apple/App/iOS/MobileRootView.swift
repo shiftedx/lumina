@@ -2573,7 +2573,8 @@ struct VideoCollectionView: View {
     @State private var selectedEpisodeID: String?
     @State private var isLoadingSelectedSeason = false
     @State private var hasPositionedInitialEpisode = false
-    @State private var hasCenteredInitialEpisode = false
+    @State private var hasAlignedInitialEpisode = false
+    @State private var episodeRailWidth: CGFloat = 0
     @State private var detailItem: MediaItem?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -2652,23 +2653,10 @@ struct VideoCollectionView: View {
                             .id(collectionSectionID)
                             if isSeriesCollection {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
-                                        ViewThatFits(in: .horizontal) {
-                                            HStack(alignment: .center, spacing: 20) {
-                                                selectedEpisodeHeading(selectedEpisode)
-                                                Spacer(minLength: 0)
-                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
-                                            }
-                                            VStack(alignment: .leading, spacing: 12) {
-                                                selectedEpisodeHeading(selectedEpisode)
-                                                collectionPlayButton(identifier: "selectedEpisodePlayButton")
-                                            }
-                                        }
-                                        if let playbackError {
-                                            Text(playbackError)
-                                                .font(.callout).foregroundStyle(LuminaTheme.accentInk)
-                                                .accessibilityIdentifier("selectedEpisodePlaybackError")
-                                        }
+                                    if let playbackError {
+                                        Text(playbackError)
+                                            .font(.callout).foregroundStyle(LuminaTheme.accentInk)
+                                            .accessibilityIdentifier("selectedEpisodePlaybackError")
                                     }
                                     if isLoadingSelectedSeason {
                                         ProgressView("Loading episodes…")
@@ -2860,29 +2848,26 @@ struct VideoCollectionView: View {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(episodes) { episode in
                             episodeLink(episode)
-                                .containerRelativeFrame(.horizontal) { width, _ in
-                                    min(max(340, width * 0.30), width * 0.86)
-                                }
+                                .frame(width: episodeCardWidth)
                         }
                     }
                     .scrollTargetLayout()
                 }
-                .onAppear { centerInitialEpisode(using: proxy) }
+                .onAppear { alignInitialEpisode(using: proxy) }
+                .onChange(of: episodeRailWidth) { alignInitialEpisode(using: proxy) }
                 .scrollTargetBehavior(.viewAligned)
-                .modifier(LuminaCarouselEdges())
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { episodeRailWidth = $0 }
+                // Leave room for the final card to settle at the same content gutter.
+                .contentMargins(.trailing, max(0, episodeRailWidth - episodeCardWidth - episodeRailInset), for: .scrollContent)
+                .modifier(LuminaCarouselEdges(inset: episodeRailInset))
             }
         }
     }
 
-    private func selectedEpisodeHeading(_ episode: MediaItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(episode.name).font(.headline)
-                .accessibilityIdentifier("collectionEpisodeTitle")
-            if !episode.displaySubtitle.isEmpty {
-                Text(episode.displaySubtitle).font(.subheadline).foregroundStyle(LuminaTheme.muted)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
+    private var episodeRailInset: CGFloat { LuminaTheme.contentGutter }
+    private var episodeCardWidth: CGFloat {
+        let width = max(0, episodeRailWidth - 2 * episodeRailInset)
+        return width > 0 ? min(max(340, width * 0.30), width * 0.86) : 340
     }
 
     private func collectionPlayButton(identifier: String) -> some View {
@@ -2907,21 +2892,20 @@ struct VideoCollectionView: View {
     }
 
     private func episodeLink(_ episode: MediaItem) -> some View {
-        Group {
-            if isSeriesCollection {
-                Button { selectedEpisodeID = episode.id } label: {
-                    episodeCard(episode, selected: episode.id == selectedEpisodeID)
-                }
-            } else {
-                NavigationLink(value: episode) {
-                    episodeCard(episode)
-                }
-            }
+        Button {
+            guard !isPreparingPlayback else { return }
+            selectedEpisodeID = episode.id
+            preparePlayback(for: episode)
+        } label: {
+            episodeCard(episode, selected: episode.id == selectedEpisodeID)
         }
         .buttonStyle(.plain)
+        .disabled(isPreparingPlayback || isLoading || isLoadingSelectedSeason)
         .contextMenu { NativeMetadataActions(item: episode) }
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
+        .accessibilityHint(episode.resumeSeconds > 5 && episode.userData?.played != true ? "Resumes this episode" : "Plays this episode")
         .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
         .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
         .accessibilityIdentifier("videoEpisode-\(episode.id)")
@@ -2935,6 +2919,7 @@ struct VideoCollectionView: View {
                let episode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
                 Text("About this episode")
                     .font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("episodeAboutHeading")
                 if let overview = episode.overview, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     NativeMediaAbout(overview: MediaOverview(overview))
                         .id(episode.id)
@@ -3087,25 +3072,26 @@ struct VideoCollectionView: View {
         }
     }
 
-    private func centerInitialEpisode(using proxy: ScrollViewProxy) {
-        guard isSeriesCollection, initialEpisodeID != nil, !hasCenteredInitialEpisode,
+    private func alignInitialEpisode(using proxy: ScrollViewProxy) {
+        guard isSeriesCollection, initialEpisodeID != nil, episodeRailWidth > 0, !hasAlignedInitialEpisode,
               let selectedEpisodeID,
               selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
-        hasCenteredInitialEpisode = true
+        hasAlignedInitialEpisode = true
         DispatchQueue.main.async {
-            proxy.scrollTo(episodeScrollID(selectedEpisodeID), anchor: .center)
+            proxy.scrollTo(episodeScrollID(selectedEpisodeID), anchor: .leading)
         }
     }
 
-    private func preparePlayback() {
+    private func preparePlayback(for episode: MediaItem? = nil) {
         guard !isPreparingPlayback else { return }
         isPreparingPlayback = true
         playbackError = nil
         Task {
             defer { isPreparingPlayback = false }
             do {
-                let episode = try await playableEpisode()
-                playbackRequest = try await store.preparePlayback(for: episode)
+                let target: MediaItem
+                if let episode { target = episode } else { target = try await playableEpisode() }
+                playbackRequest = try await store.preparePlayback(for: target)
             } catch {
                 playbackError = (error as? LocalizedError)?.errorDescription ?? "No playable episode is available yet. Check the collection and try again."
             }

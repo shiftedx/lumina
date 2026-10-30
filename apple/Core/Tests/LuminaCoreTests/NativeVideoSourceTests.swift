@@ -658,6 +658,111 @@ final class NativeVideoSourceTests: XCTestCase {
         try await assertBasePlaybackAdvancesAndSeeks([remote], transportPairing: true)
     }
 
+    /// An opt-in public workflow for a cold, late M2TS seek. The engine suite
+    /// owns exact RPU/VCL association and its private keyframe-cache evidence;
+    /// this test keeps the native AVPlayer route, source identity, and range
+    /// behaviour observable without depending on engine internals.
+    func testM2TSProfile7ColdSeekAvoidsPrefixPlayback() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_M2TS_COLD_SEEK_FIXTURE"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_M2TS_COLD_SEEK_FIXTURE to the generated 96-second M2TS fixture")
+        }
+        let fixture = URL(fileURLWithPath: value)
+        let manifestURL = fixture.deletingLastPathComponent().appendingPathComponent("manifest.json")
+        let manifestData = try Data(contentsOf: manifestURL)
+        let manifest = try XCTUnwrap(try JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        let coldSeek = try XCTUnwrap(manifest["coldSeek"] as? [String: Any])
+        let fixtureSummary = try XCTUnwrap(coldSeek["fixture"] as? [String: Any])
+        let anchor = try XCTUnwrap(fixtureSummary["coldSeek"] as? [String: Any])
+        let expectedHash = try XCTUnwrap(fixtureSummary["sha256"] as? String)
+        XCTAssertEqual(fixtureSummary["container"] as? String, fixture.lastPathComponent)
+        let targetSeconds = try XCTUnwrap(anchor["targetSeconds"] as? NSNumber).doubleValue
+        let targetByteOffset = try XCTUnwrap(anchor["basePESByteOffset"] as? NSNumber).intValue
+        let sourceBytes = try Data(contentsOf: fixture)
+        XCTAssertEqual(SHA256.hash(data: sourceBytes).map { String(format: "%02x", $0) }.joined(), expectedHash,
+                       "The cold-seek manifest must describe the exact source served to Prism")
+
+        // Pace this long source so a producer cannot race to EOF while the
+        // first user-visible seek is meant to exercise a cold late target.
+        let server = try ProgressiveAudioHTTPFixture(bytes: sourceBytes, mime: "video/mp2t", delay: 2)
+        let remote = try await server.start().deletingLastPathComponent()
+            .appendingPathComponent("cold-seek-\(UUID().uuidString).m2ts")
+        defer { server.stop() }
+
+        let rejected = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+        defer { rejected.stop() }
+        do {
+            _ = try await rejected.prepare(url: remote, usesClientDemux: false,
+                                           requireDolbyVisionTransportPairing: true)
+            XCTFail("A paired M2TS source must not bypass the client-demux route")
+        } catch let error as NativeVideoSource.SelectionError {
+            XCTAssertEqual(error, .invalidDolbyVisionConversion)
+        }
+
+        let owner = NativeVideoSource()
+        let item = try await owner.prepare(url: remote, usesClientDemux: true,
+                                           requireDolbyVisionTransportPairing: true)
+        let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ])
+        item.add(frames)
+        let player = AVPlayer(playerItem: item)
+        player.volume = 0
+        defer { player.replaceCurrentItem(with: nil); owner.stop() }
+        try await NativeVideoSource.waitUntilReady(player)
+        let duration = item.duration.seconds
+        let seekableEnd = item.seekableTimeRanges
+            .map { CMTimeRangeGetEnd($0.timeRangeValue).seconds }
+            .filter(\.isFinite)
+            .max() ?? 0
+        guard duration.isFinite, duration > 95, seekableEnd >= 95 else {
+            XCTFail("The first playable item must expose a finite full cold-seek scrubber range; duration=\(duration), seekableEnd=\(seekableEnd)")
+            return
+        }
+
+        let baselineRanges = server.requestedRangeStarts.count
+        let baselineBytes = try XCTUnwrap(owner.sourceBytesRead,
+                                          "Coordinated HTTP must report origin bytes before the cold seek")
+        XCTAssertLessThan(baselineBytes, Int64(sourceBytes.count / 2),
+                          "Startup must not preflight more than half the cold source")
+        func seekAndDecode(_ target: Double, play: Bool = false) async throws -> Duration {
+            let started = ContinuousClock.now
+            let finished = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                             toleranceBefore: .zero, toleranceAfter: .zero)
+            XCTAssertTrue(finished, "Cold seek must complete at \(target)s")
+            if play { player.play() }
+            let deadline = started + .seconds(8)
+            var decoded = false
+            while ContinuousClock.now < deadline {
+                let time = item.currentTime()
+                if abs(time.seconds - target) < 0.75,
+                   frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
+                    decoded = true
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertTrue(decoded, "Cold paired M2TS seek must render \(target)s")
+            return started.duration(to: .now)
+        }
+
+        let firstSeekElapsed = try await seekAndDecode(targetSeconds, play: true)
+        let postReadyRanges = Array(server.requestedRangeStarts.dropFirst(baselineRanges))
+        let minimumLateRange = targetByteOffset / 2
+        XCTAssertTrue(postReadyRanges.contains { $0 >= minimumLateRange },
+                      "The first late seek must request a range near its verified transport anchor")
+        let bytesAfterFirstLateSeek = try XCTUnwrap(owner.sourceBytesRead,
+                                                     "Coordinated HTTP must report origin bytes after the cold seek")
+        XCTAssertLessThan(bytesAfterFirstLateSeek - baselineBytes, Int64(targetByteOffset / 2),
+                          "The initial late seek must not linearly walk the source prefix after startup probing")
+        XCTAssertLessThanOrEqual(firstSeekElapsed, .seconds(8),
+                                 "The first cold seek must include both seek completion and frame delivery in its budget")
+        print("Cold M2TS first seek elapsed=\(firstSeekElapsed) sourceBytes=\(bytesAfterFirstLateSeek - baselineBytes)")
+        for target in [88.0, 68.0, targetSeconds] {
+            try await seekAndDecode(target)
+        }
+        try await owner.validateDolbyVisionConversion()
+    }
+
     private func assertBasePlaybackAdvancesAndSeeks(_ fixtures: [URL], transportPairing: Bool = false) async throws {
         for fixture in fixtures {
             let owner = NativeVideoSource()

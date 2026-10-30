@@ -18,11 +18,14 @@ final class ProgressiveAudioHTTPFixture: @unchecked Sendable {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var delivered = 0
     private var requests = 0
+    private var rangeStarts: [Int] = []
     private var credentials = false
     var receivedCredentials: Bool { lock.withLock { credentials } }
     var deliveredBytes: Int { lock.withLock { delivered } }
     var activeConnections: Int { lock.withLock { connections.count } }
     var requestCount: Int { lock.withLock { requests } }
+    /// Test-only source-range evidence. A missing Range header records zero.
+    var requestedRangeStarts: [Int] { lock.withLock { rangeStarts } }
     func reject(_ code: Int) { lock.withLock { status = code } }
 
     init(bytes: Data, mime: String = "audio/wav", delay: Int = 20, ranges: Bool = true, status: Int = 200, redirect: URL? = nil, advertisedLength: Int? = nil, relativeRedirect: Bool = false) throws {
@@ -61,6 +64,7 @@ final class ProgressiveAudioHTTPFixture: @unchecked Sendable {
                 let start = ranges ? range?.first.flatMap { Int($0) } ?? 0 : 0
                 let end = ranges ? min(range?.last.flatMap { Int($0) } ?? (bytes.count - 1), bytes.count - 1) : bytes.count - 1
                 guard start >= 0, end >= start, start < bytes.count else { connection.cancel(); return }
+                lock.withLock { rangeStarts.append(start) }
                 let partial = ranges && header != nil
                 let rangeHeader = partial ? "Content-Range: bytes \(start)-\(end)/\(advertisedLength ?? bytes.count)\r\n" : ""
                 let reply = "HTTP/1.1 \(partial ? "206 Partial Content" : "200 OK")\r\nContent-Type: \(mime)\r\nContent-Length: \(end - start + 1)\r\n\(rangeHeader)Accept-Ranges: \(ranges ? "bytes" : "none")\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"

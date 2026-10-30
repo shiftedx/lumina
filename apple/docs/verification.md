@@ -409,6 +409,63 @@ rerun after the compact BL metadata correction passed 5,814 tests with 20 skips.
 Generic iOS and tvOS Simulator builds also passed against the exact pinned
 revision, with signing disabled and no deployment or upload.
 
+### Cold M2TS Dolby Vision seeks, 2026-10-29
+
+PR #225 merged as `0136bfa23fe97fc7d5bee2226ee5f8457dfe27e5` before this
+continuation. Its 8-second fixtures could fit within the producer lead window,
+so they did not establish cold deep seeking. The new synthetic source is
+96.02 seconds / 49,053,696 bytes, with a 4 Mb/s constant transport rate,
+nonadjacent EL-first PIDs, B-frame BL, AAC and distinguishable RPUs around the
+late target. No source media is committed.
+
+```sh
+mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-m2ts-cold \
+  --cold-seek-duration-seconds 96
+# A second corpus uses a 2-second BL GOP; a 5-second segment target then
+# places some inferred boundaries between actual IRAPs.
+mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-m2ts-cold-gop48 \
+  --cold-seek-duration-seconds 96 --cold-seek-gop-frames 48
+```
+
+The old engine failed the public session check with a nil planned timeline;
+its native item had an indefinite duration and only a 20-second seekable
+range. The fixed route scouts actual BL IRAPs into an ephemeral partial map,
+then validates a nearby real IRAP and its exact-PTS EL/RPU after timestamp
+seeking. It never promotes PCR anchors to picture keyframes or silently
+forgives unmatched future EL data at EOF. Candidate and verified states are
+separate: post-IRAP BL frames remain queued while the matching EL is arriving.
+
+The native workflow uses a unique range-served URL and a paced synthetic
+origin. Before playback it requires finite duration and the full seekable
+range, and rejects whole-source startup preflight. It seeks to 75 seconds
+before normal prefix playback, decodes the destination and repeats forward/
+backward scrubs at 88, 68 and 75 seconds. In the focused local run the first
+seek rendered in 0.352 seconds with 592,675 origin bytes (0.57 MiB); the
+source's late anchor is at byte 38,255,424 (36.5 MiB). These are local synthetic
+measurements, not a network/device throughput guarantee.
+
+The final engine source is pinned to
+`37148992b891d9a5e587a6aaa0aa56b72cd98b8f`
+([source](https://github.com/shiftedx/PrismCore/commit/37148992b891d9a5e587a6aaa0aa56b72cd98b8f),
+[engine PR](https://github.com/shiftedx/PrismCore/pull/2)). Its focused source
+checks passed 16 tests across seven suites, three fuzz checks, selected-AAC
+forced reanchor, and two exact payload checks. The latter compare retained BL
+VCL bytes and original-index P8.1 RPUs at 74.083/78.083-second IRAPs, filtering
+only source-PTS pre-roll; they also verify no EL/layer leakage and stable init.
+A final pin-resolution rerun passed all four native M2TS contracts without skips.
+
+The complete Core run passed 266 checks with five unconfigured fixture-server
+skips and no failures, with all P5/P8/P7/M2TS and cold media fixtures enabled.
+The full `mise exec -- make check` gate also passed: 5,814 backend tests
+(20 skips), 2,754 frontend tests and all 656 browser cases (1,124.184 seconds
+for the browser tier).
+The unseen tail retains the existing partial-map GOP-cadence inference;
+insufficient bounded prefix evidence does not establish whole-file seek
+coverage. Physical Dolby Vision/color/HDMI qualification and full FEL
+reconstruction remain separate.
+
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 
 The native clients open on Home, with separate Video and Audio destinations. Home uses a cinematic artwork hero with an eight-second idle rotation, manual previous/next and title selection, horizontal swiping on iOS, and an explicit Pause control. Automatic rotation stops for Reduce Motion, VoiceOver, an inactive scene, or TV focus interaction. Continue watching, Next up, and recent-video shelves use the authenticated server catalog. The recent shelf can contain movies or episodes; its first visible card is not a fixed fixture item. Authenticated artwork requests support inherited series backdrops while preserving own-art precedence.

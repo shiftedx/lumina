@@ -1423,8 +1423,8 @@ failed the unchanged 30-second cold-start budget, corroborating the transport
 cost. No engine read-size, codec, planner deadline or playback budget was changed.
 
 The fast source also makes complete planning observable: planner diagnostics
-reported `keyframeIndex`, `indexCoversEnd=true`, 1,358 VOD segments, and no budget
-expiry. The planner took 36.6 ms with persistent readers and 2.801 seconds with
+reported `keyframeIndex`, `indexCoversEnd=true`, a complete VOD timeline, and no
+budget expiry. The planner took 36.6 ms with persistent readers and 2.801 seconds with
 fresh processes. A historical fresh session instead exposed a four-second EVENT
 window. Its exact planner fallback reason was not captured; do not label that
 historical verdict as proven budget expiry. The engine retains its three-second

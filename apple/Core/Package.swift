@@ -4,7 +4,7 @@ let package = Package(
     name: "LuminaCore",
     platforms: [.iOS(.v18), .tvOS(.v18), .macOS(.v15)],
     products: [.library(name: "LuminaCore", targets: ["LuminaCore"])],
-    dependencies: [.package(url: "https://github.com/shiftedx/PrismCore.git", revision: "8fdb8f1e444839c47df4c2f697df39e0ec8098fb")],
+    dependencies: [.package(url: "https://github.com/shiftedx/PrismCore.git", revision: "db42eb269ee629fe8ea81614b187fe290d2ec2d0")],
     targets: [
         .target(name: "LuminaCore", dependencies: [.product(name: "PrismCore", package: "PrismCore")]),
         .testTarget(name: "LuminaCoreTests", dependencies: ["LuminaCore"]),

@@ -1,7 +1,7 @@
 Lumina playback acknowledgements
 
-PrismCore 3.8.1 with Lumina's final-segment statistics, explicitly paired Dolby Vision packaging and cold M2TS seeking patches:
-https://github.com/shiftedx/PrismCore/tree/8fdb8f1e444839c47df4c2f697df39e0ec8098fb
+PrismCore 3.8.1 with Lumina's final-segment statistics, explicitly paired Dolby Vision packaging and cold M2TS seeking and planned-startup read bounds:
+https://github.com/shiftedx/PrismCore/tree/db42eb269ee629fe8ea81614b187fe290d2ec2d0
 The shipping immutable revision is recorded in Lumina's Swift Package Manager lockfiles.
 MPVKit 1.0.1 and corresponding FFmpeg sources/build recipes: https://github.com/Wenzlik/MPVKit/tree/1.0.1
 FFmpeg: https://ffmpeg.org/legal.html

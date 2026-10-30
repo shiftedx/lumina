@@ -31,6 +31,7 @@ from typing import Any, Callable
 CHUNK_BYTES = 1 << 20
 MAX_RESPONSE_BYTES = 64 << 20
 MAX_RUN_BYTES = 256 << 20
+MAX_ALLOWED_RUN_BYTES = 1 << 30
 WORKERS = 4
 IO_TIMEOUT_SECONDS = 15
 STATE_VERSION = 1
@@ -77,13 +78,15 @@ if not selected_audio_codec:
     raise SystemExit(6)
 audio_codecs = [selected_audio_codec]
 audio_codecs.extend(str(value.get('codec') or '').lower() for value in audio if value is not chosen)
+response = MediaFileResponse(path, stat_result=stat)
 print(json.dumps({
     'version': 1, 'artifactID': artifact_id, 'size': stat.st_size, 'mtimeNS': stat.st_mtime_ns,
     'device': stat.st_dev, 'inode': stat.st_ino,
-    'etag': MediaFileResponse(path, stat_result=stat).headers['etag'],
+    'etag': response.headers['etag'],
     'duration': probe.get('duration'), 'audioStreamIndex': chosen['index'],
     'expected': {'width': width, 'height': height, 'videoCodec': codec, 'hdr': hdr,
-                 'sourceDolbyVisionProfile': video.get('dv_profile'), 'audioCodecs': audio_codecs},
+                 'sourceDolbyVisionProfile': video.get('dv_profile'), 'audioCodecs': audio_codecs,
+                 'contentType': response.headers['content-type']},
 }))
 '''
 
@@ -168,6 +171,9 @@ class SourceIdentity:
                 and isinstance(expected.get('hdr'), str) and expected['hdr']
                 and isinstance(expected.get('audioCodecs'), list) and expected['audioCodecs']):
             raise ValueError('invalid private source expectations')
+        content_type = expected.get('contentType', 'application/octet-stream')
+        if not isinstance(content_type, str) or not re.fullmatch(r'[\w.+-]+/[\w.+-]+', content_type, flags=re.ASCII):
+            raise ValueError('invalid private source content type')
         return identity
 
 
@@ -368,12 +374,18 @@ class ReaderPool:
 class RangeProxy(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, identity: SourceIdentity, command_factory: CommandFactory) -> None:
+    def __init__(self, identity: SourceIdentity, command_factory: CommandFactory,
+                 max_run_bytes: int | None = None, streaming_ranges: bool = False) -> None:
+        self.max_run_bytes = MAX_RUN_BYTES if max_run_bytes is None else max_run_bytes
+        if type(self.max_run_bytes) is not int or not 1 <= self.max_run_bytes <= MAX_ALLOWED_RUN_BYTES:
+            raise ValueError('run byte budget must be between 1 byte and 1 GiB')
         self.identity = identity
+        self.streaming_ranges = streaming_ranges
         self.route = '/' + uuid.uuid4().hex
         self.pool = ReaderPool(identity, command_factory)
         self.slots = threading.BoundedSemaphore(WORKERS)
         self.budget = 0
+        self.budget_exhausted = False
         self.budget_lock = threading.Lock()
         self.serving = False
         try:
@@ -391,7 +403,10 @@ class RangeProxy(http.server.ThreadingHTTPServer):
 
     def reserve(self, length: int) -> bool:
         with self.budget_lock:
-            if self.budget + length > MAX_RUN_BYTES:
+            if self.budget + length > self.max_run_bytes:
+                if not self.budget_exhausted:
+                    self.budget_exhausted = True
+                    print('real-media range proxy read budget exhausted', file=sys.stderr, flush=True)
                 return False
             self.budget += length
             return True
@@ -428,13 +443,14 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
     def parse_range(self, body: bool) -> tuple[int, int] | None:
         header = self.headers.get('Range')
         if header is None:
-            return (0, self.proxy.identity.size - 1) if not body else None
+            return (0, self.proxy.identity.size - 1) if not body or self.proxy.streaming_ranges else None
         match = re.fullmatch(r'bytes=(\d+)-(\d*)', header)
         if not match:
             return None
         start = int(match[1])
         end = self.proxy.identity.size - 1 if not match[2] else min(int(match[2]), self.proxy.identity.size - 1)
-        if start > end or start >= self.proxy.identity.size or end - start + 1 > MAX_RESPONSE_BYTES:
+        if (start > end or start >= self.proxy.identity.size
+                or (end - start + 1 > MAX_RESPONSE_BYTES and not self.proxy.streaming_ranges)):
             return None
         return start, end
 
@@ -459,7 +475,8 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
         reader: PersistentReader | None = None
         if body:
             slot = self.proxy.slots.acquire(timeout=IO_TIMEOUT_SECONDS)
-            if not slot or not self.proxy.reserve(length):
+            first_reservation = min(CHUNK_BYTES, length) if self.proxy.streaming_ranges else length
+            if not slot or not self.proxy.reserve(first_reservation):
                 if slot:
                     self.proxy.slots.release()
                 self.send_error(503)
@@ -472,7 +489,7 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
                 return
         try:
             self.send_response(206 if self.headers.get('Range') else 200)
-            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Type', self.proxy.identity.expected.get('contentType', 'application/octet-stream'))
             self.send_header('Accept-Ranges', 'bytes')
             self.send_header('ETag', self.proxy.identity.etag)
             self.send_header('Cache-Control', 'no-store')
@@ -487,6 +504,8 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
             try:
                 self.connection.settimeout(IO_TIMEOUT_SECONDS)
                 for offset, chunk_length in self.slices(start, end):
+                    if self.proxy.streaming_ranges and offset != start and not self.proxy.reserve(chunk_length):
+                        break
                     reader.begin(offset, chunk_length)
                     consumed = 0
                     try:
@@ -537,8 +556,9 @@ def load_identity(config: PrivateConfig, source_state: Path | None) -> SourceIde
 
 
 def start_proxy(identity: SourceIdentity, command_factory: CommandFactory, manifest_path: Path,
-                freeze_path: Path | None = None) -> RangeProxy:
-    proxy = RangeProxy(identity, command_factory)
+                freeze_path: Path | None = None, max_run_bytes: int | None = None,
+                streaming_ranges: bool = False) -> RangeProxy:
+    proxy = RangeProxy(identity, command_factory, max_run_bytes, streaming_ranges)
     try:
         if freeze_path:
             write_private(freeze_path, asdict(identity))
@@ -555,13 +575,20 @@ def main() -> None:
     parser.add_argument('--manifest', required=True, type=Path)
     parser.add_argument('--freeze', type=Path)
     parser.add_argument('--source-state', type=Path)
+    parser.add_argument('--max-run-bytes', type=int, default=MAX_RUN_BYTES,
+                        help='total reserved response bytes for this origin (default: 256 MiB; maximum: 1 GiB)')
+    parser.add_argument('--streaming-ranges', action='store_true',
+                        help='admit raw-player HTTP reads one bounded frame at a time, including large or absent ranges')
     args = parser.parse_args()
     if args.freeze and args.source_state:
         parser.error('--freeze and --source-state are mutually exclusive')
+    if not 1 <= args.max_run_bytes <= MAX_ALLOWED_RUN_BYTES:
+        parser.error('--max-run-bytes must be between 1 byte and 1 GiB')
     try:
         config = PrivateConfig.load(args.config)
         identity = load_identity(config, args.source_state)
-        proxy = start_proxy(identity, reader_factory(config), args.manifest, args.freeze)
+        proxy = start_proxy(identity, reader_factory(config), args.manifest, args.freeze,
+                            args.max_run_bytes, args.streaming_ranges)
         atexit.register(proxy.close)
     except Exception:
         print('real-media range proxy startup failed', file=sys.stderr)
@@ -578,6 +605,8 @@ def main() -> None:
         proxy.serve_forever()
     finally:
         proxy.close()
+        print(f'real-media range proxy reservedBytes={proxy.budget} maxRunBytes={proxy.max_run_bytes}',
+              file=sys.stderr, flush=True)
 
 
 if __name__ == '__main__':

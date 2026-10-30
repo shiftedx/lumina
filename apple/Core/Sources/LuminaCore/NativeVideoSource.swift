@@ -147,6 +147,7 @@ public final class NativeVideoSource {
         url: URL,
         usesClientDemux: Bool,
         requireDolbyVisionTransportPairing: Bool = false,
+        m2tsSeekIndex: M2TSSeekIndexReference? = nil,
         preferredAudioStreamIndex: Int? = nil,
         preferredSubtitleStreamIndex: Int? = nil,
         externalSubtitles: [ExternalSubtitle] = [],
@@ -170,8 +171,12 @@ public final class NativeVideoSource {
                 bandwidth: bandwidth
             )
         }
+        let sourceOpenHints = requireDolbyVisionTransportPairing
+            ? try await m2tsSeekIndex?.sourceOpenHints(for: url) : nil
+        try Task.checkCancellation()
         let session = try PrismCoreSession(url: url, display: injectedDisplay ?? .current(),
                                           segmentCacheBytes: 64 << 20,
+                                          sourceOpenHints: sourceOpenHints,
                                           preferredAudioStreamIndex: preferredAudioStreamIndex,
                                           preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,
                                           coordinatedHTTP: true,

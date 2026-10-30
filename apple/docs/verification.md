@@ -1236,3 +1236,35 @@ were inspected, including the top gradient over bright synthetic artwork.
 Source hashes and attachments are retained beside the results. No full suite,
 physical-device qualification, new distribution package or upload was performed.
 These source changes postdate the signed build-35 packages.
+
+### Server-indexed cold M2TS seeks (2026-10-30)
+
+The large-source case uses a 96-second, 147,161,088-byte M2TS fixture with a
+12 Mb/s transport rate and changing tail GOP cadence. Its generator records all
+26 real IRAP PTS and earliest paired BL/EL PES offsets independently. The actual
+backend scanner matches the full vector, including EL-first and BL-first layouts;
+its local full scan took 0.80 seconds. This is synthetic transport qualification,
+not a production hardware throughput claim.
+
+With the origin paced at 16 ms per 64 KiB, the native pending-to-complete index
+workflow publishes the full VOD range before the first cold seek. Local evidence:
+startup 3.920 seconds / 12,898,448 origin bytes; first late seek 6.651 seconds /
+26,279,936 additional origin bytes. The test decodes the requested presentation
+time at late, forward, backward and repeated targets. It checks exact source
+identity, HTTP ranges and clean conversion evidence. The engine separately checks
+PID mismatch fallback, offset order and that supplied proof is never persisted as
+locally harvested keys.
+
+```bash
+PYTHONPATH=backend LUMINA_DV_M2TS_FIXTURES=/tmp/lumina-m2ts-server-index \
+  mise exec -- backend/.venv/bin/python -m pytest -q \
+  backend/tests/test_probe_streams.py backend/tests/test_jellyfin_clients.py
+LUMINA_DV7_M2TS_SERVER_INDEX_FIXTURE=/tmp/lumina-m2ts-server-index/p7-m2ts-variable-gop-cold-seek-mel.m2ts \
+  mise exec -- swift test --package-path apple/Core \
+  --filter NativeVideoSourceTests.testM2TSProfile7SlowColdSeekUsesServerIndex
+```
+
+The focused backend pair passed 131 tests with the generated corpus configured.
+Source/URL binding, malformed responses, explicit authorization errors and pending
+cancellation have focused native contract coverage. No full repository/Core/UI
+suite or physical HDR/HDMI qualification ran for this change.

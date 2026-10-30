@@ -118,8 +118,29 @@ The scout shares a total two-second / 64-MiB AVIO budget across its seeks and
 reads. An incomplete proof retains sequential EVENT playback and its produced
 seek range. Source and cancellation failures keep their ordinary classification.
 A complete producer-harvested map can still supply full seeking on a later
-session. These limits deliberately bound startup work instead of promising
-full cold seeking for every large or slow source.
+session. These limits deliberately bound client startup reads.
+
+For larger or slower originals, the server can prepare a complete index locally
+before native playback opens the source. Only the marked direct M2TS candidate
+receives `LuminaM2TSIRAPIndexUrl`. The authenticated endpoint is bound to the
+selected visible source, returns pending/unsupported/complete, and shares the
+original-file authorization and screen-time checks. A single bounded worker
+scans the full transport file, verifies stable PAT/PMT association and continuity,
+records actual BL IRAPs with exact-PTS EL partners, and publishes atomically only
+after EOF and unchanged size/mtime. Each byte offset starts at the earliest BL
+or matching EL PES, including EL-first layouts. Ordinary non-IRAP pairs are
+retired as they match, so pairing memory does not grow with runtime.
+
+The native client polls pending preparation cancellably. A complete response
+carries the original HTTP strong ETag, size, stream/timebase, base/enhancement
+PIDs, actual keyframe PTS, and aligned monotonic packet offsets. The engine
+accepts it only after matching source representation and program metadata;
+reopens repeat that validation. Missing, malformed, stale, or unsupported maps
+retain the bounded scout behavior. Authorization and cancellation remain errors.
+A supplied map never becomes locally harvested proof. Deep seeks still verify
+the actual BL IRAP and matching valid EL/RPU after byte reanchoring; the map
+cannot bypass conversion validation. The index cache is additive filesystem
+state, invalidated with the original fingerprint; no database migration is needed.
 
 A deep reanchor uses FFmpeg timestamp seeking only as a locality hint. Before
 publishing video it must locate the planned real BL IRAP and its exact-PTS

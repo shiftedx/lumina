@@ -678,10 +678,22 @@ final class NativeVideoSourceTests: XCTestCase {
         )
     }
 
+    func testM2TSProfile7SlowColdSeekUsesServerIndex() async throws {
+        try await assertM2TSProfile7ColdSeek(
+            environment: "LUMINA_DV7_M2TS_SERVER_INDEX_FIXTURE",
+            manifestKey: "variableGOPColdSeek",
+            fixtureDescription: "generated 96-second high-rate variable-GOP M2TS fixture",
+            originDelayMilliseconds: 16,
+            usesServerIndex: true
+        )
+    }
+
     private func assertM2TSProfile7ColdSeek(
         environment: String,
         manifestKey: String,
-        fixtureDescription: String
+        fixtureDescription: String,
+        originDelayMilliseconds: Int = 2,
+        usesServerIndex: Bool = false
     ) async throws {
         guard let value = ProcessInfo.processInfo.environment[environment], !value.isEmpty else {
             throw XCTSkip("Set \(environment) to the \(fixtureDescription)")
@@ -701,11 +713,39 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertEqual(SHA256.hash(data: sourceBytes).map { String(format: "%02x", $0) }.joined(), expectedHash,
                        "The cold-seek manifest must describe the exact source served to Prism")
 
+        let sourceID = String(repeating: "a", count: 32)
+        let validator = "\"lumina-test-m2ts-index-v1\""
+        let indexResponses: [Data]
+        if usesServerIndex {
+            var complete = try XCTUnwrap(fixtureSummary["suppliedSeekIndex"] as? [String: Any])
+            complete["Status"] = "complete"
+            complete["SourceId"] = sourceID
+            complete["Validator"] = validator
+            indexResponses = [
+                try JSONSerialization.data(withJSONObject: ["Status": "pending", "SourceId": sourceID]),
+                try JSONSerialization.data(withJSONObject: complete),
+            ]
+        } else {
+            indexResponses = []
+        }
+
         // Pace this long source so a producer cannot race to EOF while the
         // first user-visible seek is meant to exercise a cold late target.
-        let server = try ProgressiveAudioHTTPFixture(bytes: sourceBytes, mime: "video/mp2t", delay: 2)
-        let remote = try await server.start().deletingLastPathComponent()
+        let server = try ProgressiveAudioHTTPFixture(
+            bytes: sourceBytes, mime: "video/mp2t", delay: originDelayMilliseconds,
+            etag: usesServerIndex ? validator : nil, seekIndexResponses: indexResponses
+        )
+        let origin = try await server.start().deletingLastPathComponent()
+        let remote = origin
             .appendingPathComponent("cold-seek-\(UUID().uuidString).m2ts")
+        var indexURL = origin.appendingPathComponent("seek-index")
+        indexURL.append(queryItems: [
+            URLQueryItem(name: "MediaSourceId", value: "fixture"),
+            URLQueryItem(name: "api_key", value: "fixture"),
+        ])
+        let seekIndex = usesServerIndex
+            ? M2TSSeekIndexReference(url: indexURL, sourceID: sourceID)
+            : nil
         defer { server.stop() }
 
         let rejected = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
@@ -721,7 +761,8 @@ final class NativeVideoSourceTests: XCTestCase {
         let startupStarted = ContinuousClock.now
         let owner = NativeVideoSource()
         let item = try await owner.prepare(url: remote, usesClientDemux: true,
-                                           requireDolbyVisionTransportPairing: true)
+                                           requireDolbyVisionTransportPairing: true,
+                                           m2tsSeekIndex: seekIndex)
         let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ])
@@ -745,8 +786,13 @@ final class NativeVideoSourceTests: XCTestCase {
         // Prism's sourceBytesRead counts compressed media packets, excluding transport
         // padding and scout reads. The paced origin's sent-byte upper bound covers both.
         let baselineBytes = server.deliveredBytes
-        XCTAssertLessThan(baselineBytes, 64 << 20,
-                          "This synthetic startup must stay within its 64-MiB origin-send budget, including probing and lookahead")
+        let startupOriginBudget = usesServerIndex ? 16 << 20 : 64 << 20
+        XCTAssertLessThan(baselineBytes, startupOriginBudget,
+                          "This synthetic startup must stay within its bounded origin-send budget, including probing and lookahead")
+        if usesServerIndex {
+            XCTAssertGreaterThanOrEqual(server.seekIndexRequestCount, 2,
+                                        "The native route must poll the pending server index before publishing VOD")
+        }
         func seekAndDecode(_ target: Double, play: Bool = false) async throws -> Duration {
             let started = ContinuousClock.now
             let finished = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
@@ -781,7 +827,8 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertTrue(postReadyRanges.contains { $0 >= minimumLateRange },
                       "The first late seek must request a range near its verified transport anchor")
         let bytesAfterFirstLateSeek = server.deliveredBytes
-        XCTAssertLessThan(bytesAfterFirstLateSeek - baselineBytes, targetByteOffset,
+        let firstSeekOriginBudget = usesServerIndex ? 32 << 20 : targetByteOffset
+        XCTAssertLessThan(bytesAfterFirstLateSeek - baselineBytes, firstSeekOriginBudget,
                           "The initial late seek must send less than a full replay of the source prefix after startup")
         XCTAssertLessThanOrEqual(firstSeekElapsed, .seconds(8),
                                  "The first cold seek must include both seek completion and frame delivery in its budget")

@@ -1,6 +1,6 @@
 # Continue Lumina app dogfooding
 
-Current continuation handoff, October 29, 2026. Use this for the owner's next native-app screenshot, recording, bug or small feature request. Older handoffs describe historical batches; this document supplies the current workflow.
+Current continuation handoff, October 30, 2026. Use this for the owner's next native-app screenshot, recording, bug or small feature request. Older handoffs describe historical batches; this document supplies the current workflow.
 
 **Focused testing only. Test the specific change. A full repository, Core or native UI suite requires the owner's direct request.** This explicit owner instruction overrides older `make check` requirements in repository docs and skills. Land accepted fixes on main; all current features must stay together.
 
@@ -67,9 +67,41 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Only when the owner requests another build
 
+### Current release and production status, October 30
+
+The latest release is **iOS and tvOS 0.1.0 (38)** from clean merged
+`df8511a7b0c921072c62a64da4ac7cfa8ec9982a`, including PrismCore
+`db42eb269ee629fe8ea81614b187fe290d2ec2d0`. Both packages are signed, locally
+validated, staged in Organizer and transferred through Xcode. **Build 38 is
+consumed on both platforms.** iOS Organizer retained upload warnings; explicit
+validation subsequently ended with expired-account-credentials warnings. The
+owner reauthenticated, but exact-build Custom validation requires an unavailable
+local distribution private key. The recommended validation had used a build-39
+copy; build 39 was not uploaded. Clean Apple validation remains unverified, as do processing completion
+and tester assignment are unverified. Preserve all build-38 packages, symbols,
+source provenance, receipts and warnings; follow the [build-38 release record](../../apple/docs/testflight.md#internal-dogfood-package-38-2026-10-30)
+before further distribution. The historical build records below do not describe
+the current production deployment or authorize reusing a consumed number.
+
+Production now runs the full image built from `df8511a7`, is healthy, and upgraded
+schema 41 to 42. Existing service settings, mounts, devices, networks and proxy
+labels were retained. Three rollback pins remain stopped with health checks
+disabled, restart disabled and networking isolated. A consistent schema-41
+database backup and key copy were verified; the manual backup was compressed
+with a verified decompressed checksum, and the automatic pre-upgrade backup is
+also retained. This full rollout supersedes the chapter-only overlay described
+below. Private deployment evidence is retained in ignored
+`output/release-df8511a7b0c-20261030T221126Z/`.
+
+Build 38 includes the source changes previously described above as after build
+36. Package inclusion does not establish that the owner has installed it or
+that physical HDR/HDMI/object-audio behavior has been qualified.
+
+### Historical packages
+
 The October 30 iOS packaging attempt produced a validated **unsigned 0.1.0 (37)** archive from clean main `4c38a37d`. The owner redirected to merge/cleanup before signing and Organizer staging. Preserve ignored `apple/Distribution/0.1.0-37/` with its archive/dSYMs, source snapshot/hashes, manifest and logs. It is **not signed, not staged and not uploaded**; no TV archive was created. A future export may reuse this archive. Only this chat's disposable build caches were removed; the hardware-transcoding and other agents' worktrees/branches remain untouched.
 
-Latest confirmed uploads are **iOS and tvOS 0.1.0 (36)** from clean main `052c2070b2f76f008ed0ac42c7b9ab43237858e4`, uploaded through Xcode cloud signing on October 29. Both completion screens and distribution logs confirm success. Build 36 includes the episode thumbnail activation/artwork-gutter corrections, Home scrolling headers, pinned Library navigation, TV gradient and normal-player X removal, plus all earlier merged features. Preserve ignored `apple/Distribution/0.1.0-36/`: exact submitted IPAs, original device archives, matching-symbol signed references, source snapshot/input hashes, validation logs, upload confirmations, successful distribution logs and checksums. Both archive/IPA/reference validations and signing/framework safeguards passed. Focused native workflow evidence is recorded in the build-36 TestFlight entry; no full suite or physical-device qualification ran. Apple processing and tester assignment remain unverified. Do not reupload build 36 on either platform. Production remains at the separately deployed source `283eede5`; this app release did not deploy the server.
+Previous confirmed uploads were **iOS and tvOS 0.1.0 (36)** from clean main `052c2070b2f76f008ed0ac42c7b9ab43237858e4`, uploaded through Xcode cloud signing on October 29. Both completion screens and distribution logs confirm success. Build 36 includes the episode thumbnail activation/artwork-gutter corrections, Home scrolling headers, pinned Library navigation, TV gradient and normal-player X removal, plus all earlier merged features. Preserve ignored `apple/Distribution/0.1.0-36/`: exact submitted IPAs, original device archives, matching-symbol signed references, source snapshot/input hashes, validation logs, upload confirmations, successful distribution logs and checksums. Both archive/IPA/reference validations and signing/framework safeguards passed. Focused native workflow evidence is recorded in the build-36 TestFlight entry; no full suite or physical-device qualification ran. Apple processing and tester assignment remain unverified. Do not reupload build 36 on either platform. At that release, production remained at the separately deployed source `283eede5`; build-36 packaging did not deploy the server.
 
 Previous staged package was **iOS and tvOS 0.1.0 (35)** from clean main `283eede5e3fe72a01741516feee8114537e68983`, signed and staged in Xcode Organizer on October 29. During build-36 work, Organizer showed both prior build-35 packages uploaded by the owner; those uploads were observed, not performed by this release operation. Preserve ignored `apple/Distribution/0.1.0-35/`, including signed IPAs, Organizer/source archives, matching symbols, source snapshot/input hashes, validation logs, staging record and checksums. Three focused Core checks and two packaging safeguards passed. No upload or full suite occurred. The matching server source is deployed and healthy; live named-rating fields and bounded QSV H.264/HEVC segment generation were verified. Physical native HDR/HDMI/audio qualification remains pending.
 
@@ -79,7 +111,7 @@ Previous confirmed upload was **iOS 0.1.0 (33)** from clean source `06faf929684b
 
 tvOS build 33 has a validated signed IPA and matching-symbol `Lumina-tvOS-Organizer.xcarchive` in the same package. During build-35 staging, Xcode Organizer showed build 33 uploaded on October 29 at 09:50 America/Chicago; this upload was observed, not performed by this packaging work. The original unsigned source archive is preserved. Organizer also contains a TV build-21 archive without an upload status. Before the subsequent build-35/36 releases, the latest observed successful TV upload was build 33; the owner described the installed version as the last Xcode build, without confirming a number. The owner clarified that both selecting titles/posters and clicking Play failed on an older physical Apple TV running the latest tvOS. This is an input/focus report, not an established video-decoder failure. The strengthened movie-start workflow passes on a second-generation Apple TV 4K simulator at 1080p/tvOS 27: directional focus and center Select open a Home title and library poster, then focus/click Play and verify advancing video. Evidence: `output/tvos-select-proof/select-playback.xcresult`. The physical selection failure was not reproduced on current code; no additional product-code fix is claimed. Physical-TV qualification remains pending; the household server is now deployed at source `283eede5`. Preserve build 32 and all earlier exact packages.
 
-Use the [TestFlight procedure](../../apple/docs/testflight.md) for any newly requested release. Recheck live build inventory and choose an unused number; do not upload consumed builds 33–36 again. Direct build-setting overrides avoided XcodeGen project churn. CLI export reported No Accounts; Xcode's existing account exported and uploaded with automatic cloud signing from the source archive. The signed reference archive's manual-signing route required a local private key and was cancelled without upload. Verify the final version/build and internal-only audience in Xcode, preserve the actual submitted artifact and confirmation, and distinguish upload from processing/tester availability. A successful prior upload does not authorize the next one.
+Use the [TestFlight procedure](../../apple/docs/testflight.md) for any newly requested release. Recheck live build inventory and choose an unused number; do not upload consumed builds 33–36 or 38 again. Direct build-setting overrides avoided XcodeGen project churn. CLI export reported No Accounts; Xcode's existing account exported and uploaded with automatic cloud signing from the source archive. The signed reference archive's manual-signing route required a local private key and was cancelled without upload. Verify the final version/build and internal-only audience in Xcode, preserve the actual submitted artifact and confirmation, and distinguish upload from processing/tester availability. A successful prior upload does not authorize the next one.
 
 ## Chapter skip-marker rollout, October 30
 

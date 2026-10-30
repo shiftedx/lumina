@@ -402,3 +402,44 @@ uploaded.** No tvOS archive was built. Future signing/export can reuse this
 archive; do not overwrite it or confuse it with a distribution-signed package.
 The temporary compiler cache was removed; existing releases and other agents'
 worktrees were preserved. The latest confirmed uploads remain build 36.
+
+### Internal dogfood package 38, 2026-10-30
+
+Version **0.1.0 (38)** was built for **iOS and tvOS** from clean merged
+`df8511a7b0c921072c62a64da4ac7cfa8ec9982a`, with PrismCore pinned to
+`db42eb269ee629fe8ea81614b187fe290d2ec2d0`. Both automatic-signing exports,
+signed IPAs and matching-symbol Organizer references passed local archive,
+signature, framework, artwork, privacy and fixture-exclusion checks. The two
+focused archive-preparation safeguards passed. No full suite or physical-device
+HDR/HDMI/audio qualification ran during packaging.
+
+Xcode's command-line upload reported success for iOS at **22:28:10 UTC** and
+tvOS at **22:29:23 UTC**. Both build numbers are consumed; **do not upload 38
+again**. These are TestFlight Internal Only builds with symbols and automatic
+build-number changes disabled. Upload transfer is confirmed; Apple processing
+completion and tester assignment are **unverified**.
+
+The iOS Organizer record says **Uploaded with warnings**: validation was skipped
+following a `buildUpload` relationship/build-upload-file error. It shares the
+command-line upload's distribution identifier; the divergent records do not
+establish two separate uploads. A subsequent **Validate App** attempt completed
+with warnings because the Apple Account credentials expired and Xcode could not
+reauthenticate. The recommended validation flow had changed its validation copy
+to build 39; no build-39 upload occurred. After the owner reauthenticated, an
+exact-build Custom validation retry was canceled: it required a local
+distribution private key, while these exports used cloud signing. The warning
+therefore remains unresolved; preserve the upload receipts and warning evidence.
+Neither the transfer success nor local signing checks establish an Apple
+validation pass.
+
+Preserve ignored `apple/Distribution/0.1.0-38/`: source archives, signed exports,
+matching-symbol Organizer references, source snapshot/input hashes, manifests,
+upload confirmations, warning screenshot and distribution/validation logs. The
+retained exported IPAs are validated local packages; their checksums differ from
+the temporary upload payloads, so they are not claimed as exact submitted bytes.
+The unsigned build-37 iOS archive remains preserved separately.
+
+The matching full production server image is deployed and healthy at the same
+`df8511a7` source, with schema 42, protected rollback images and verified
+pre-upgrade database/key backups. This replaces the earlier chapter-only image
+overlay; native physical-device qualification remains pending.

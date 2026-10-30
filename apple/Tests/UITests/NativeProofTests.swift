@@ -3219,7 +3219,19 @@ class NativeProofJourney: XCTestCase {
 
         try press(action)
         try waitForExistence(choice, timeout: 15, named: "start-over choice")
-        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Start Over")).firstMatch)
+        let startOver = choice.buttons.matching(NSPredicate(format: "label == %@", "Start Over")).firstMatch
+        #if os(tvOS)
+        guard focus(startOver, timeout: 20) else { throw ProofFailure.ui("The remote must focus Start Over before timing selection.") }
+        #endif
+        let restartSubmitted = ProcessInfo.processInfo.systemUptime
+        #if os(tvOS)
+        XCUIRemote.shared.press(.select)
+        #else
+        try press(startOver)
+        #endif
+        XCTAssertTrue(disappears(choice, timeout: 2), "Start Over must promptly leave the chooser for an already prepared original.")
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - restartSubmitted, 4,
+                          "A slow playback-info service must not delay Start Over for a prepared original.")
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "restarted player")
         let restarted = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= 1 }
         XCTAssertLessThan(restarted, 10, "Start Over must play from zero, not the old resume offset.")

@@ -573,7 +573,9 @@ def m2ts_irap_index(
         pair = pair_from_facts(facts)
         if pair is None:
             return {"Status": "unsupported", "SourceId": jf.jid(version_id)}
-        index = m2ts_irap_indexes.request(path, pair, artifact.id)
+        status, index = m2ts_irap_indexes.request_status(path, pair, artifact.id)
+        if status == "unsupported":
+            return {"Status": "unsupported", "SourceId": jf.jid(version_id)}
         if index is None or index.fingerprint != f"{stat.st_size}:{stat.st_mtime_ns}":
             return {"Status": "pending", "SourceId": jf.jid(version_id)}
         etag = MediaFileResponse(path, stat_result=stat).headers["etag"]

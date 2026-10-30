@@ -232,8 +232,8 @@ def test_m2ts_irap_index_url_is_authenticated_and_uses_the_original_etag(jf: Tes
         "LuminaDolbyVisionTransportProfiles": [{"Type": "Video", "Container": "m2ts", "VideoCodec": "hevc", "AudioCodec": "aac", "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionM2TSPairing": True, "LuminaDolbyVisionPackagingConversions": [{"SourceProfile": 7, "SourceCompatibilityID": 6, "TargetProfile": 8, "TargetCompatibilityID": 1, "MaxLevel": 9, "EnhancementLayerDisposition": "dropped"}]}],
         "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [{"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"}, {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"}]}],
     }
-    pending = lambda *_args: None
-    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request", pending)
+    pending = lambda *_args: ("pending", None)
+    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request_status", pending)
     monkeypatch.setattr("app.routers.jellyfin.annotate_media_sources", lambda _db, _user, _token_id, _token, sources, *_args: sources[0].update(LuminaClientPackaging="p7_m2ts_to_p81_drop_el"))
     source = post(jf, f"/Items/{HEX(MOVIE)}/PlaybackInfo", {"DeviceProfile": profile}).json()["MediaSources"][0]
     assert "LuminaM2TSIRAPIndexUrl" in source
@@ -245,9 +245,9 @@ def test_m2ts_irap_index_url_is_authenticated_and_uses_the_original_etag(jf: Tes
     assert get(jf, index_path, MediaSourceId=UNKNOWN).status_code == 404
 
     def complete(path, pair, artifact_id):  # noqa: ANN001
-        return IRAPIndex(source_fingerprint(path), path.stat().st_size, pair.base_pid, pair.enhancement_pid, [0], [0])
+        return "complete", IRAPIndex(source_fingerprint(path), path.stat().st_size, pair.base_pid, pair.enhancement_pid, [0], [0])
 
-    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request", complete)
+    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request_status", complete)
     complete_response = get(jf, index_path, MediaSourceId=source["Id"])
     stream = get(jf, f"/Videos/{HEX(MOVIE)}/stream", MediaSourceId=source["Id"])
     assert complete_response.json()["Validator"] == stream.headers["etag"]

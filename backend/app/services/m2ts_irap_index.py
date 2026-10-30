@@ -1,9 +1,11 @@
 """Durable, fail-closed IRAP maps for qualified Dolby Vision M2TS originals."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,7 @@ MAX_KEYS = 20_000
 MAX_JSON_BYTES = 1024 * 1024
 MAX_PENDING_EL = 512
 MAX_QUEUE = 100
+MAX_TERMINAL = 100
 PTS_WRAP = 1 << 33
 
 
@@ -294,6 +297,7 @@ class M2TSIRAPIndexes:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._pending: dict[str, tuple[str, bool]] = {}
+        self._terminal: OrderedDict[tuple[str, str], None] = OrderedDict()
         self._queue: list[tuple[Path, DolbyVisionTransportPair, str, str]] = []
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -311,20 +315,52 @@ class M2TSIRAPIndexes:
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             return None
 
-    def request(self, path: Path, pair: DolbyVisionTransportPair, source_id: str, *, explicit: bool = True) -> IRAPIndex | None:
+    def _failed(self, path: Path, source_id: str) -> bool:
+        try:
+            data = json.loads(self._file(source_id).read_text())
+            return data == {"status": "unsupported", "fingerprint": source_fingerprint(path)}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return False
+
+    def request_status(self, path: Path, pair: DolbyVisionTransportPair, source_id: str, *, explicit: bool = True) -> tuple[str, IRAPIndex | None]:
         result = self.get(path, source_id)
         if result is not None:
-            return result
+            return "complete", result
         try:
             fingerprint = source_fingerprint(path)
         except OSError:
-            return None
+            return "unsupported", None
+        with self._lock:
+            if (source_id, fingerprint) in self._terminal:
+                self._terminal.move_to_end((source_id, fingerprint))
+                return "unsupported", None
+        if self._failed(path, source_id):
+            return "unsupported", None
+        self._enqueue(path, pair, source_id, explicit=explicit)
+        return "pending", None
+
+    def _mark_terminal(self, source_id: str, fingerprint: str) -> None:
+        with self._lock:
+            self._terminal[(source_id, fingerprint)] = None
+            self._terminal.move_to_end((source_id, fingerprint))
+            while len(self._terminal) > MAX_TERMINAL:
+                self._terminal.popitem(last=False)
+
+    def request(self, path: Path, pair: DolbyVisionTransportPair, source_id: str, *, explicit: bool = True) -> IRAPIndex | None:
+        _status, result = self.request_status(path, pair, source_id, explicit=explicit)
+        return result
+
+    def _enqueue(self, path: Path, pair: DolbyVisionTransportPair, source_id: str, *, explicit: bool) -> None:
+        try:
+            fingerprint = source_fingerprint(path)
+        except OSError:
+            return
         with self._lock:
             pending = self._pending.get(source_id)
             if pending is None or pending[0] != fingerprint:
                 if len(self._queue) >= MAX_QUEUE:
                     if not explicit:
-                        return None
+                        return
                     _, _, dropped_id, dropped_fingerprint = self._queue.pop()
                     if self._pending.get(dropped_id, (None, False))[0] == dropped_fingerprint:
                         self._pending.pop(dropped_id, None)
@@ -333,7 +369,7 @@ class M2TSIRAPIndexes:
                 self._wake.set()
             elif explicit:
                 self._pending[source_id] = (fingerprint, True)
-        return None
+        return
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -370,14 +406,18 @@ class M2TSIRAPIndexes:
                 self._wake.wait(1); self._wake.clear()
                 continue
             result = scan(path, pair, self._stop)
-            if result is not None and not self._stop.is_set():
-                target = self._file(source_id); target.parent.mkdir(parents=True, exist_ok=True)
+            if not self._stop.is_set():
+                target = self._file(source_id)
                 temporary = target.with_suffix(".tmp")
                 try:
-                    temporary.write_text(json.dumps(asdict(result), separators=(",", ":")))
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    payload = asdict(result) if result is not None else {"status": "unsupported", "fingerprint": fingerprint}
+                    temporary.write_text(json.dumps(payload, separators=(",", ":")))
                     os.replace(temporary, target)
                 except OSError:
-                    temporary.unlink(missing_ok=True)
+                    with contextlib.suppress(OSError):
+                        temporary.unlink()
+                    self._mark_terminal(source_id, fingerprint)
             with self._lock:
                 if self._pending.get(source_id, (None, False))[0] == fingerprint:
                     self._pending.pop(source_id, None)

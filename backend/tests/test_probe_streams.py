@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from threading import Event
@@ -14,7 +15,8 @@ import pytest
 from app.services import media_probe
 from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, run_ffprobe
 from app.services.mpegts_dolby_vision import parse_m2ts_dolby_vision_pair
-from app.services.m2ts_irap_index import M2TSIRAPIndexes, scan
+from app.services.m2ts_irap_index import M2TSIRAPIndexes, scan, source_fingerprint
+from app.config import settings
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
@@ -193,9 +195,35 @@ def test_m2ts_irap_index_cache_reuses_only_current_complete_source(tmp_path: Pat
     assert indexes.get(path, "source") == index
     path.write_bytes(path.read_bytes() + b"x")
     assert indexes.get(path, "source") is None
+    cache.write_text(json.dumps({"status": "unsupported", "fingerprint": source_fingerprint(path)}))
+    assert indexes.request_status(path, pair, "source")[0] == "unsupported"
+    path.write_bytes(path.read_bytes() + b"x")
+    assert indexes.request_status(path, pair, "source")[0] == "pending"
     # Cancellation cannot return a partial map that a later request might use.
     stopped = Event(); stopped.set()
     assert scan(path, pair, stopped) is None
+
+
+def test_m2ts_irap_index_persist_failure_becomes_bounded_terminal_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "pair.m2ts"
+    path.write_bytes(_dovi_m2ts())
+    pair = parse_m2ts_dolby_vision_pair(path.read_bytes())
+    assert pair is not None
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("x")
+    monkeypatch.setattr(settings, "data_dir", blocked)
+    indexes = M2TSIRAPIndexes()
+    indexes.start()
+    try:
+        assert indexes.request_status(path, pair, "source")[0] == "pending"
+        for _ in range(100):
+            if indexes.request_status(path, pair, "source")[0] == "unsupported":
+                break
+            time.sleep(0.01)
+        assert indexes.request_status(path, pair, "source")[0] == "unsupported"
+        assert not indexes._queue
+    finally:
+        indexes.stop()
 
 
 def test_m2ts_irap_index_matches_the_complete_variable_gop_oracle() -> None:

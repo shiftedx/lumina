@@ -51,6 +51,9 @@ HEVC_DESCRIPTOR_TAG = 0x38
 DOVI_DESCRIPTOR_TAG = 0xB0
 COLD_SEEK_DURATION_SECONDS = 96
 COLD_SEEK_TARGET_SECONDS = 75
+VARIABLE_GOP_COLD_SEEK_TARGET_SECONDS = 77
+VARIABLE_GOP_HEAD_SECONDS = 10
+VARIABLE_GOP_HEAD_FRAMES = 24
 # This is bits per second, as required by FFmpeg's MPEG-TS muxer. It makes the
 # optional long fixture large enough that its bounded 4 MiB transport scan ends
 # well before the 75-second seek anchor without increasing encoder complexity.
@@ -509,6 +512,7 @@ def source_pair(
     frames: int = FRAMES,
     scene_frames: tuple[int, ...] | None = None,
     base_keyint_frames: int = 24,
+    base_forced_keyframes: tuple[int, ...] | None = None,
     malformed_final_rpu: bool = False,
 ) -> tuple[Path, Path, Path, bytes]:
     """Build a B-frame BL and presentation-order EL/RPU source pair."""
@@ -524,6 +528,7 @@ def source_pair(
         frames,
         bframes=2,
         keyint=base_keyint_frames,
+        forced_keyframes=base_forced_keyframes,
     )
     encode_layer(enhancement, f"testsrc=size=128x72:rate={FRAME_RATE}:duration={duration}", frames)
     sequence = scene_refreshed_rpus(
@@ -577,6 +582,7 @@ def verify_positive(
     el_first: bool,
     frames: int = FRAMES,
     cold_seek_target_seconds: int | None = None,
+    base_forced_keyframes: tuple[int, ...] | None = None,
     cold_seek_requires_preroll: bool = False,
 ) -> dict[str, object]:
     signalling = patch_positive(path, pair, base_mp4, el_mp4, el_first=el_first)
@@ -590,6 +596,10 @@ def verify_positive(
         raise ValueError("Dual PID tracks do not retain identical PTS sets")
     if not any(pts != dts for pts, dts in base_times) or any(pts != dts for pts, dts in enhancement_times):
         raise ValueError("Expected B-frame BL and presentation-order EL timestamps")
+    if base_forced_keyframes is not None:
+        expected_keyframes = [sorted(pts for pts, _ in base_times)[frame] for frame in base_forced_keyframes]
+        if keyframe_pts(path, pair.base_pid) != expected_keyframes:
+            raise ValueError("M2TS base-layer IRAP cadence differs from the requested forced frame pattern")
     verify_pes_access_units(path, pair, frames)
     with tempfile.TemporaryDirectory(prefix="lumina-m2ts-verify-") as temporary_name:
         temporary = Path(temporary_name)
@@ -637,6 +647,10 @@ def verify_positive(
         if irap_floor is None:
             raise ValueError("Cold seek target has no preceding base-layer IRAP")
         irap_floor_frame = sorted(pts for pts, _ in base_times).index(irap_floor)
+        irap_after = min((pts for pts in keyframes if pts > presentation_pts), default=None)
+        if irap_after is None:
+            raise ValueError("Cold seek target has no following base-layer IRAP")
+        irap_after_frame = sorted(pts for pts, _ in base_times).index(irap_after)
         if cold_seek_requires_preroll and irap_floor == presentation_pts:
             raise ValueError("Cold seek target unexpectedly lands on an IRAP")
         result["coldSeek"] = {
@@ -650,6 +664,8 @@ def verify_positive(
             "baseIRAPFloorPTS": irap_floor,
             "baseIRAPFloorFrame": irap_floor_frame,
             "baseIRAPPrerollFrames": target_frame - irap_floor_frame,
+            "baseIRAPAfterPTS": irap_after,
+            "baseIRAPAfterFrame": irap_after_frame,
             "sourceBytes": path.stat().st_size,
         }
     return result
@@ -668,6 +684,7 @@ def generate_positive(
     mux_rate_bits_per_second: int | None = None,
     cold_seek_target_seconds: int | None = None,
     base_keyint_frames: int = 24,
+    base_forced_keyframes: tuple[int, ...] | None = None,
     cold_seek_requires_preroll: bool = False,
 ) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"lumina-m2ts-{kind}-") as name:
@@ -679,6 +696,7 @@ def generate_positive(
             frames=frames,
             scene_frames=scene_frames,
             base_keyint_frames=base_keyint_frames,
+            base_forced_keyframes=base_forced_keyframes,
         )
         media = output / f"p7-m2ts-{kind}.m2ts"
         mux_m2ts(
@@ -689,6 +707,7 @@ def generate_positive(
             media, tool, pair, base_mp4, el_mp4, injected, sequence, output,
             kind=kind, el_first=el_first, frames=frames,
             cold_seek_target_seconds=cold_seek_target_seconds,
+            base_forced_keyframes=base_forced_keyframes,
             cold_seek_requires_preroll=cold_seek_requires_preroll,
         )
 
@@ -931,6 +950,60 @@ def generate_cold_seek_positive(
     )
 
 
+def variable_gop_keyframes(
+    frames: int,
+    pattern: tuple[int, ...],
+    *,
+    head_seconds: int = VARIABLE_GOP_HEAD_SECONDS,
+) -> tuple[int, ...]:
+    if len(pattern) < 2 or len(set(pattern)) < 2 or any(frame <= 0 for frame in pattern):
+        raise ValueError("Variable cold-seek GOP pattern needs at least two distinct positive frame counts")
+    result = [0]
+    position = 0
+    head_end = min(frames, head_seconds * FRAME_RATE)
+    while position + VARIABLE_GOP_HEAD_FRAMES <= head_end:
+        position += VARIABLE_GOP_HEAD_FRAMES
+        result.append(position)
+    tail_index = 0
+    while True:
+        position += pattern[tail_index % len(pattern)]
+        if position >= frames:
+            return tuple(result)
+        result.append(position)
+        tail_index += 1
+
+
+def generate_variable_gop_cold_seek_positive(
+    output: Path,
+    tool: str,
+    source_rpu: bytes,
+    duration_seconds: int,
+    *,
+    gop_pattern: tuple[int, ...],
+) -> dict[str, object]:
+    if duration_seconds < COLD_SEEK_DURATION_SECONDS:
+        raise ValueError(
+            f"Cold seek duration must be at least {COLD_SEEK_DURATION_SECONDS} seconds"
+        )
+    frames = duration_seconds * FRAME_RATE
+    keyframes = variable_gop_keyframes(frames, gop_pattern)
+    return generate_positive(
+        output,
+        tool,
+        "variable-gop-cold-seek-mel",
+        source_rpu,
+        NONCONVENTIONAL_PAIR,
+        el_first=True,
+        frames=frames,
+        scene_frames=tuple(range(0, frames, FRAME_RATE)),
+        mux_rate_bits_per_second=COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+        cold_seek_target_seconds=VARIABLE_GOP_COLD_SEEK_TARGET_SECONDS,
+        base_keyint_frames=max(gop_pattern),
+        base_forced_keyframes=keyframes,
+        cold_seek_requires_preroll=True,
+    )
+
+
 def generate(
     output: Path,
     tool: str,
@@ -938,6 +1011,7 @@ def generate(
     positives_only: bool,
     cold_seek_duration_seconds: int | None = None,
     cold_seek_gop_frames: int = 24,
+    cold_seek_variable_gop_pattern: tuple[int, ...] | None = None,
 ) -> None:
     output.mkdir(parents=True, exist_ok=True)
     sources = {kind: download(details["source"], details["source_sha256"]) for kind, details in P7_VECTORS.items()}
@@ -958,6 +1032,16 @@ def generate(
             gop_frames=cold_seek_gop_frames,
         )
         if cold_seek_duration_seconds is not None else None
+    )
+    variable_gop_cold_seek = (
+        generate_variable_gop_cold_seek_positive(
+            output,
+            tool,
+            sources["mel"],
+            cold_seek_duration_seconds,
+            gop_pattern=cold_seek_variable_gop_pattern,
+        )
+        if cold_seek_duration_seconds is not None and cold_seek_variable_gop_pattern is not None else None
     )
     manifest = {
         "purpose": "Structural dual-PID Profile 7 MPEG-TS/M2TS signalling and pairing; not Dolby colour, FEL residual, or player certification",
@@ -983,6 +1067,20 @@ def generate(
                 "before prefix playback to a verified late anchor."
             ),
         }
+    if variable_gop_cold_seek is not None:
+        manifest["variableGOPColdSeek"] = {
+            "fixture": variable_gop_cold_seek,
+            "durationSeconds": cold_seek_duration_seconds,
+            "muxRateBitsPerSecond": COLD_SEEK_MUX_RATE_BITS_PER_SECOND,
+            "baseGOPPatternFrames": cold_seek_variable_gop_pattern,
+            "headGOPFrames": VARIABLE_GOP_HEAD_FRAMES,
+            "headSeconds": VARIABLE_GOP_HEAD_SECONDS,
+            "producerLeadSeconds": 30,
+            "purpose": (
+                "Opt-in cold-seek transport regression with a changing base-layer "
+                "IRAP cadence beyond the bounded prefix scout."
+            ),
+        }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
@@ -1005,11 +1103,29 @@ if __name__ == "__main__":
         default=24,
         help="Base-layer GOP length for the optional cold-seek fixture (default: 24).",
     )
+    parser.add_argument(
+        "--cold-seek-variable-gop-pattern",
+        help=(
+            "Also generate a separate variable-GOP cold-seek fixture. Supply at least "
+            "two distinct positive tail frame counts, for example 288,24,72; the "
+            "first ten seconds remain one-second GOPs for the scout witness."
+        ),
+    )
     arguments = parser.parse_args()
+    variable_gop_pattern = None
+    if arguments.cold_seek_variable_gop_pattern is not None:
+        if arguments.cold_seek_duration_seconds is None:
+            parser.error("--cold-seek-variable-gop-pattern requires --cold-seek-duration-seconds")
+        try:
+            variable_gop_pattern = tuple(int(value) for value in arguments.cold_seek_variable_gop_pattern.split(","))
+            variable_gop_keyframes(arguments.cold_seek_duration_seconds * FRAME_RATE, variable_gop_pattern)
+        except ValueError as error:
+            parser.error(str(error))
     generate(
         arguments.output,
         arguments.dovi_tool,
         positives_only=arguments.positives_only,
         cold_seek_duration_seconds=arguments.cold_seek_duration_seconds,
         cold_seek_gop_frames=arguments.cold_seek_gop_frames,
+        cold_seek_variable_gop_pattern=variable_gop_pattern,
     )

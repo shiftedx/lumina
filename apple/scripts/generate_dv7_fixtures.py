@@ -141,17 +141,27 @@ def encode_timed_layer_mp4(
     *,
     bframes: int,
     keyint: int = 24,
+    forced_keyframes: tuple[int, ...] | None = None,
 ) -> None:
     """Encode directly into MP4 so its distinct decode/presentation order survives."""
     if keyint <= 0:
         raise ValueError("Timed HEVC keyframe interval must be positive")
-    run([
+    if forced_keyframes is not None:
+        if not forced_keyframes or forced_keyframes[0] != 0 or any(
+            earlier >= later or later >= frames
+            for earlier, later in zip(forced_keyframes, forced_keyframes[1:])
+        ):
+            raise ValueError("Forced timed HEVC keyframes must start at zero and be increasing frame indices")
+    command = [
         "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", pattern,
         "-frames:v", str(frames), "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast",
         "-x265-params",
-        f"pools=1:frame-threads=1:bframes={bframes}:b-adapt=0:keyint={keyint}:min-keyint={keyint}:scenecut=0:repeat-headers=1",
-        "-tag:v", "hvc1", str(destination),
-    ])
+        f"pools=1:frame-threads=1:bframes={bframes}:b-adapt=0:keyint={keyint}:min-keyint={1 if forced_keyframes else keyint}:scenecut=0:repeat-headers=1",
+    ]
+    if forced_keyframes is not None:
+        command.extend(["-force_key_frames", ",".join(str(frame / FRAME_RATE) for frame in forced_keyframes)])
+    command.extend(["-tag:v", "hvc1", str(destination)])
+    run(command)
 
 
 def packet_facts(media: Path, ordinal: int) -> list[dict[str, object]]:

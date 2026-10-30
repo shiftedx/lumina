@@ -314,10 +314,27 @@ Cold M2TS seeking is measured separately from the indexed MKV routes below.
 A synthetic 96.02-second / 46.8-MiB M2TS source places the late anchor 36.5 MiB
 into the transport. The local native workflow exposed the full range before
 playback and rendered the first 75-second seek in 0.352 seconds with 0.57 MiB
-of origin reads. The byte assertion rules out linear prefix replay; forward,
-backward and repeated seeks also rendered. The origin was paced at 2 ms per
-64-KiB chunk. These short local measurements do not qualify arbitrary remote
-networks, large-title latency, HDR display output or device energy.
+of compressed packet data. That engine counter excludes transport padding
+and scout reads; it was incorrectly described as origin I/O and did not rule
+out linear prefix replay. The changing-GOP qualification uses the paced
+origin's sent-byte counter instead. Forward, backward and repeated seeks also
+rendered. The origin was paced at 2 ms per 64-KiB chunk. These short local
+measurements do not qualify arbitrary remote networks, large-title latency,
+HDR display output or device energy.
+
+The changing-GOP continuation replaces inferred tail timing with bounded,
+complete observed-anchor proof. In the full local Core run, a 96-second
+one-second-GOP source started in 1.636 s (37,741,360 origin-sent bytes) and
+rendered its first late seek in 0.448 s (9,764,864 additional sent bytes).
+The 12/1/3-second changing-GOP source started in 1.882 s (44,543,536 sent bytes)
+and rendered its first late seek in 0.799 s (19,267,584 additional sent bytes).
+These origin counts include probing, normal lookahead and socket slack;
+they are not the engine's compressed-packet counter or exact client-consumed
+network bytes. The startup bound is a 64-MiB synthetic-workflow test budget,
+separate from the runtime scout's two-second / 64-MiB AVIO budget. Sources
+that cannot complete the proof retain produced-range seeking. See the
+[verification record](verification.md#changing-gop-m2ts-dolby-vision-seeks-2026-10-30)
+for the exact source pin, fixture and regression evidence.
 
 #### Measured results
 

@@ -23,7 +23,7 @@ stream-copyable; a bridgeable selection uses the server fallback.
 
 Positive initial/resume seeks and transactional track replacements use a target-aware
 readiness check. `AVPlayerItem.status == readyToPlay` alone can precede the
-manifest timeline. Readiness additionally requires finite duration beyond the
+manifest timeline. Readiness additionally requires finite duration covering the
 requested target or a seekable range containing it; it never requires media to
 be buffered at that target. KVO for status, duration, seekable ranges and item
 replacement shares one bounded timeout/cancellation path. Zero-position starts

@@ -739,7 +739,7 @@ public final class NativeVideoSource {
         case .readyToPlay:
             guard let targetSeconds, targetSeconds > 0 else { return .ready }
             let duration = item.duration
-            if duration.isNumeric, duration.seconds.isFinite, duration.seconds > targetSeconds {
+            if duration.isNumeric, duration.seconds.isFinite, duration.seconds >= targetSeconds {
                 return .ready
             }
             let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)

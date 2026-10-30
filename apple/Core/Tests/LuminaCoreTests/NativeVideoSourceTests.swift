@@ -279,6 +279,12 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertEqual(item.status, .readyToPlay)
         // Zero remains status-only: it must not wait for a positive-target timeline.
         try await NativeVideoSource.waitUntilReady(player, seekingTo: 0)
+        // Resume requests are clamped to the inclusive media end.
+        let end = item.duration.seconds
+        XCTAssertTrue(end.isFinite)
+        if end.isFinite {
+            try await NativeVideoSource.waitUntilReady(player, seekingTo: end, timeout: .milliseconds(500))
+        }
         player.play()
         var decoded = false
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))

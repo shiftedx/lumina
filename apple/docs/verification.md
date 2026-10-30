@@ -1435,7 +1435,7 @@ using the app's actual source audio index. It does not visit the midpoint first
 or require a previously harvested index. Positive seeks call the production
 readiness gate before seeking, with one initial 30-second deadline. Native local
 workflow coverage checks available targets, out-of-range timeout, invalid target,
-zero start, replacement cancellation, decoded playback and source teardown.
+zero/exact-end start, replacement cancellation, decoded playback and source teardown.
 This is fresh-player qualification; no production or OS disk cache was cleared.
 
 The reusable stdlib bridge is `apple/scripts/real_media_range_proxy.py`. Its

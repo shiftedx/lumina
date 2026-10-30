@@ -94,6 +94,19 @@ def test_lumina_dolby_vision_direct_play_is_exact_and_overrides_only_its_range_c
     assert decide(caps, facts(MKV, source, a())).mode != "direct"
 
 
+@pytest.mark.parametrize("pixel_format", [None, "yuv420p"])
+def test_dolby_vision_direct_play_requires_original_ten_bit_pixel_format_proof(pixel_format: str | None) -> None:
+    source = dovi_source(5, 0, level=6)
+    source.update(pix_fmt=pixel_format, bit_depth=10)
+
+    decision = decide(
+        dovi_client([{"Profile": 5, "CompatibilityIDs": [0], "MaxLevel": 6}]),
+        facts(MKV, source, a()),
+    )
+
+    assert decision.mode != "direct"
+
+
 def test_dolby_vision_direct_range_exception_never_leaks_to_hls_after_audio_subtitle_or_track_failure() -> None:
     caps = dovi_client([{"Profile": 5, "CompatibilityIDs": [0], "MaxLevel": 9}])
     source = dovi_source(5, 0)
@@ -211,6 +224,18 @@ def test_profile_seven_m2ts_pairing_is_explicit_and_selects_the_marked_base_even
 
     assert (decision.mode, decision.video, decision.audio, decision.video_index) == ("direct", "copy", "copy", 8)
     assert decision.client_packaging == "p7_m2ts_to_p81_drop_el"
+
+
+def test_profile_seven_m2ts_pairing_requires_original_ten_bit_pixel_format_proof() -> None:
+    source = m2ts_pair_facts()
+    for stream in source["streams"]:
+        if stream.get("type") == "video":
+            stream.update(pix_fmt="yuv420p", bit_depth=10)
+
+    decision = decide(m2ts_pair_client(), source)
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
 
 
 @pytest.mark.parametrize(("client", "source"), [
@@ -525,6 +550,9 @@ ROWS = [
     ("native_mkv_hevc10_direct", NATIVE_AVKIT, facts(MKV, HDR10_4K, a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_mkv_truehd_only_audio_encodes", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioCodecNotSupported",))),
     ("native_h264_high10_encodes", NATIVE_AVKIT, facts(MP4, v(pix_fmt="yuv420p10le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
+    ("native_explicit_high10_without_pixfmt_encodes", NATIVE_AVKIT, facts(MP4, {**v(pix_fmt=None), "bit_depth": 10}, a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
+    ("native_explicit_depth_cannot_lower_pixfmt", NATIVE_AVKIT, facts(MP4, {**v(pix_fmt="yuv420p10le"), "bit_depth": 8}, a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
+    ("native_explicit_hevc12_encodes", NATIVE_AVKIT, facts(MP4, {**v("hevc", pix_fmt=None), "bit_depth": 12}, a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
     ("native_hevc12_encodes", NATIVE_AVKIT, facts(MP4, v("hevc", pix_fmt="yuv420p12le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
     ("infuse_mkv_h264_aac_direct", INFUSE, facts(MKV, v(), a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("infuse_hevc10_hdr10_truehd_direct", INFUSE, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),

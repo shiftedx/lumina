@@ -104,29 +104,35 @@ ADTS packets are normalized to ASC for fMP4. The selected audio must remain
 stream-copyable, and external text sidecars retain the local master. The
 range exception applies only to this direct candidate, never HLS fallback.
 MPEG-TS's demuxer index can contain PCR seek anchors that are not picture
-keyframes. The qualified route instead scouts a contiguous head prefix of
-actual BL HEVC IRAP access units, bounded to two seconds and 64 MiB of AVIO
-reads. A witnessed prefix seeds the existing partial-map VOD planner: its
-prefix has observed boundaries and its unseen tail follows the existing
-GOP-cadence inference. It does not claim a verified whole-file index. Without
-enough safe evidence the existing sequential EVENT behavior remains available;
-source/cancellation failures retain their ordinary classification.
+keyframes. The qualified route must instead observe actual BL HEVC IRAP
+boundaries across the source before publishing a full VOD playlist. Bounded
+sparse timestamp probes may locate those boundaries, but the timestamp index
+itself is never promoted to picture evidence. Every published boundary must
+be a real observed IRAP; the final tail requires EOF evidence. Neither a
+head-only scout nor a partial producer cache may infer the unseen tail's GOP
+cadence for this strict transport route. Otherwise a later GOP increase can
+make several advertised entries resolve to the same picture, corrupting the
+playlist timeline.
+
+The scout shares a total two-second / 64-MiB AVIO budget across its seeks and
+reads. An incomplete proof retains sequential EVENT playback and its produced
+seek range. Source and cancellation failures keep their ordinary classification.
+A complete producer-harvested map can still supply full seeking on a later
+session. These limits deliberately bound startup work instead of promising
+full cold seeking for every large or slow source.
 
 A deep reanchor uses FFmpeg timestamp seeking only as a locality hint. Before
-publishing video it must find an actual BL IRAP at/after the planned target
-and its exact-PTS valid EL/RPU. Separate search/candidate/verified states keep
-post-keyframe BL pictures while metadata is still arriving. Earlier BL/EL
-pre-roll is discarded at the actual accepted IRAP PTS; decode order remains
-unchanged. Missing or malformed pairs and exhausted locality bounds fail
-closed. EOF does not forgive unmatched future enhancement metadata.
+publishing video it must locate the planned real BL IRAP and its exact-PTS
+valid EL/RPU. Separate search/candidate/verified states keep post-keyframe BL
+pictures while metadata is still arriving. Earlier BL/EL pre-roll is discarded
+at the accepted IRAP PTS; decode order remains unchanged. Missing or malformed
+pairs and exhausted locality bounds fail closed. EOF does not forgive
+unmatched future enhancement metadata.
 
 Head resets use the proven BL stream rather than the first/default video
-stream, which can be EL. Only normal producer harvesting persists actual
-packet keys; the startup scout is ephemeral. Cache namespace v2 isolates the
-new head-selection semantics from earlier maps. Unsupported/unseekable sources
-and an inadequate bounded prefix retain limited produced-range seeking;
-arbitrary changes in unseen tail GOP cadence are still an inferred-plan
-qualification boundary, not proof that PCR anchors are keyframes.
+stream, which can be EL. The startup proof is ephemeral; only normal producer
+harvesting persists actual packet keys. Unsupported or unseekable sources and
+incomplete bounded proof retain limited produced-range seeking.
 Generic TS/MTS, unmarked HDMV layouts and offline M2TS downloads do not gain
 this capability. Probe cache version 7 invalidates older facts; no SQL schema
 migration is needed.

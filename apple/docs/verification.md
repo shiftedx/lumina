@@ -1574,3 +1574,57 @@ manual/help actions. The iPad check passed in `ipad-qualified.xcresult`; the
 standard iPhone 17 Pro check passed in `phone-centered.xcresult` in the
 same evidence directory. No physical Duo qualification or distribution build
 was performed.
+
+
+### Quality-preserving native format recovery (2026-10-30)
+
+A real 3840 x 2160 HEVC Main 10 source with Dolby Vision Profile 8.1/PQ,
+an HDR10-compatible base and E-AC-3 5.1 exposed an avoidable recovery trigger.
+The client promoted its server-default SubRip index into an explicit subtitle
+selection even when the member chose Automatic. Prism's media-direct delivery
+can render the original video while correctly refusing an explicit subtitle
+that needs a master. That refusal was classified as a format failure, and the
+previous one-shot recovery immediately requested H.264/SDR, whose output ceiling
+is 1080p. A prior production history entry records that lower-quality output;
+its initial device profile/error was not retained, so the historical trigger
+cannot independently be proven from that record. The same default-selection
+chain is reproducible locally against the version-bound production original.
+
+The client now leaves Automatic implicit on local MKV/qualified M2TS packaging.
+Explicit member subtitle choices, language preferences and Off remain intact.
+A startup local-packaging failure first requests server HLS with direct play
+disabled and the client's current capabilities retained. The server therefore
+retains 4K/HDR video copy when permitted, or negotiates within the actual client
+and quality limits. Only a further format failure reaches the existing
+H.264/SDR final tier. Conversion-evidence failures retain conservative recovery;
+no Dolby Vision or HDR output capability is inferred from a failed candidate.
+
+The opt-in source test first failed because Automatic resolved to the source
+default index; the explicit selection separately reproduced
+`subtitleMasterUnavailable` on observed media-direct output. After the fix,
+Automatic stayed nil through the real client request and native source
+preparation, then rendered the original 4K HEVC/PQ video. The implicit workflow
+passed in 3.531 seconds on a fresh bounded bridge, and the explicit-selection
+boundary passed in 3.181 seconds with both subtitle-rendition modes retained. A fresh normal-source workflow also passed
+startup, deep resume and near-end decode: 0.801, 0.311 and 0.551 seconds,
+respectively. These are individual local observations, not benchmark medians.
+
+Reproduction uses the bounded read-only range bridge documented above, a
+private version-bound manifest and
+`LUMINA_REAL_MEDIA_DEFAULT_SUBTITLE_STREAM_INDEX` set to the source's actual
+default index. Run the focused
+`RealMediaPlaybackTests.testConfiguredAssetDefaultSubtitleStaysImplicit` and
+`testConfiguredAssetExplicitSubtitleRequestsCompatibleFallback` filters. The
+explicit test observes the baseline delivery shape: an eligible master may
+serve the requested subtitle; media-direct must report the typed selection
+failure. Private manifests, identifiers, credentials and media details stay
+outside the repository.
+
+The public PlaybackInfo-to-master integration covers both body/query forms of
+`EnableDirectPlay=false`, including a generic 4K DV8/PQ/E-AC-3/default-text
+fixture. All four cases passed; the started session retained HEVC video copy,
+2160 height and no tone mapping. The 167 focused playback-decision cases also
+passed, retaining the existing Dolby/HDR trust boundaries. This is composed
+local verification, not a physical iOS/tvOS HDR, color, HDMI or Atmos
+qualification. No production deployment, release archive or app upload is
+part of this change.

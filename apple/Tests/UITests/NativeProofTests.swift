@@ -78,6 +78,17 @@ final class NativeVideoFormatRecoveryTests: NativeProofJourney {
     #endif
 }
 
+@MainActor
+final class NativeClientDemuxVideoFormatRecoveryTests: NativeProofJourney {
+    func testClientDemuxFormatFailureRetainsNormalServerProfile() async throws {
+        try await journeyClientDemuxVideoFormatRecovery(failServerCandidate: false)
+    }
+
+    func testClientDemuxServerRecoveryFailureUsesFinalCompatibilityProfile() async throws {
+        try await journeyClientDemuxVideoFormatRecovery(failServerCandidate: true)
+    }
+}
+
 #if os(tvOS)
 @MainActor
 final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney {
@@ -1850,6 +1861,38 @@ class NativeProofJourney: XCTestCase {
         try attachPlaybackFrame(named: "Initial direct format failure recovered through compatible HLS")
         try closePlayer()
         completed = true
+    }
+
+    func journeyClientDemuxVideoFormatRecovery(failServerCandidate: Bool) async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        try await api.resetInitialVideoFormatRecovery()
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 6)
+
+        var arguments = ["--ui-testing-client-demux-format-failure"]
+        if failServerCandidate { arguments.append("--ui-testing-server-video-recovery-format-failure") }
+        try launchAndResetSession(extraLaunchArguments: arguments)
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.convertedItemID)
+        let playbackTime = try startPlayback(using: "playButton")
+        let startedAt = try waitForPlaybackValue(playbackTime, timeout: 25) { $0 >= 5 }
+        _ = try waitForPlaybackValue(playbackTime, timeout: 20) { $0 >= startedAt + 2 }
+
+        let evidence = try await api.initialVideoFormatRecovery()
+        XCTAssertFalse(evidence.faultedDirectStream, "The client-demux fault must not replace the source bytes.")
+        XCTAssertEqual(evidence.compatibilityRequests, failServerCandidate ? 2 : 1,
+                       "Recovery must request normal server HLS once, then at most one final compatible rendition.")
+        XCTAssertTrue(evidence.normalRecoveryProfile,
+                      "The first client-demux recovery must retain the normal server capability profile.")
+        XCTAssertEqual(evidence.compatibilityProfile, failServerCandidate,
+                       "Only a rejected normal server candidate may request H.264/SDR compatibility.")
+        XCTAssertTrue(evidence.sameMediaSource, "Recovery must retain the selected media source.")
+        XCTAssertTrue(evidence.preservedOptions, "Recovery must retain the selected tracks and resume position.")
+        try closePlayer()
     }
 
     #if os(iOS)
@@ -10645,6 +10688,12 @@ private struct ProofAPI {
         return try JSONDecoder().decode(VideoFormatRecoveryEvidence.self, from: await send(request))
     }
 
+    func resetInitialVideoFormatRecovery() async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Proof/initial-video-format-recovery/reset"))
+        request.httpMethod = "POST"
+        _ = try await send(request)
+    }
+
     func recoveryHomeEvidence(identity: APIIdentity, itemID: String, title: String) async -> String {
         func matches(_ data: Data, key: String) -> String {
             guard let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -10729,6 +10778,7 @@ private struct VideoFormatRecoveryEvidence: Decodable {
     let faultedDirectStream: Bool
     let compatibilityRequests: Int
     let compatibilityProfile: Bool
+    let normalRecoveryProfile: Bool
     let sameMediaSource: Bool
     let preservedOptions: Bool
 }

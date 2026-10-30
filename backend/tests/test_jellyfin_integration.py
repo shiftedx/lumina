@@ -277,8 +277,9 @@ exec sleep 60
 
 @needs_ffmpeg
 @pytest.mark.parametrize("query", [False, True])
+@pytest.mark.parametrize("hdr", [False, True])
 def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
-    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, query: bool,
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, query: bool, hdr: bool,
 ) -> None:
     fake = tmp_path / "ffmpeg"
     fake.write_text(FAKE_FFMPEG)
@@ -286,12 +287,41 @@ def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
     monkeypatch.setattr(local_playback, "media_tool", lambda db, name: str(fake) if name == "ffmpeg" else None)
     make_media(vault.media / SEASON / "Vault Show - S01E01.mkv")
     scan(vault.admin, vault.media)
+    profile = INFUSE_PROFILE
+    if hdr:
+        from app.services import jellyfin_playback
+        from app.services.media_probe import MediaProbeService
+
+        facts = {
+            "container": "matroska,webm", "bit_rate": 25_000_000, "duration": 120,
+            "streams": [
+                {"index": 0, "type": "video", "codec": "hevc", "width": 3840, "height": 2160,
+                 "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "color_primaries": "bt2020",
+                 "color_space": "bt2020nc", "color_range": "tv", "dv_profile": 8, "dv_compat": 1,
+                 "dv_level": 6, "dv_rpu_present": True, "dv_el_present": False, "dv_bl_present": True},
+                {"index": 1, "type": "audio", "codec": "eac3", "channels": 6, "default": True},
+                {"index": 2, "type": "subtitle", "codec": "subrip", "default": True},
+            ],
+        }
+        monkeypatch.setattr(MediaProbeService, "facts", lambda *_args: facts)
+        monkeypatch.setattr(jellyfin_playback, "keyframes", lambda *_args: [0.0])
+        profile = {
+            "DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "eac3",
+                                    "LuminaDolbyVisionProfiles": [{"Profile": 8, "CompatibilityIDs": [1], "MaxLevel": 9}]}],
+            "TranscodingProfiles": [{"Type": "Video", "Container": "fmp4", "Protocol": "hls", "VideoCodec": "h264,hevc", "AudioCodec": "aac"}],
+            "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+                {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+                {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR|HDR10|HLG"},
+                {"Property": "Width", "Condition": "LessThanEqual", "Value": "3840"},
+                {"Property": "Height", "Condition": "LessThanEqual", "Value": "2160"},
+            ]}],
+        }
     tv = login(vault)
     url = f"/Items/{jellyfin_id(episodes(vault)[0]['id'])}/PlaybackInfo"
-    direct = vault.jf.post(url, headers=tv.headers, json={"DeviceProfile": INFUSE_PROFILE}).json()["MediaSources"][0]
+    direct = vault.jf.post(url, headers=tv.headers, json={"DeviceProfile": profile}).json()["MediaSources"][0]
     assert direct["SupportsDirectPlay"] is True
     assert direct["SupportsDirectStream"] is False and "TranscodingUrl" not in direct
-    body = {"DeviceProfile": INFUSE_PROFILE}
+    body = {"DeviceProfile": profile}
     params = {"EnableDirectPlay": "false"} if query else {}
     if not query:
         body["EnableDirectPlay"] = False
@@ -302,6 +332,14 @@ def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
     master = vault.jf.get(fallback["TranscodingUrl"])
     assert master.status_code == 200, master.text
     assert "index.m3u8?ApiKey=" in master.text
+    if hdr:
+        session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == response.json()["PlaySessionId"])
+        assert "VideoCodec=hevc" in fallback["TranscodingUrl"]
+        assert "MaxHeight=" not in fallback["TranscodingUrl"]
+        assert session.key[4] == "copy"
+        assert session.info["video"]["height"] == 2160
+        assert session.info["video"]["tonemap"] is False
+        assert session.info["video"]["range"] == "DOVIWithHDR10"
     lps.sessions.close_all()
 
 

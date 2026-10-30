@@ -1208,7 +1208,8 @@ let tickScale = 10_000_000.0
                                 quality: PlaybackQuality? = nil,
                                 audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
                                 mediaSourceID: String? = nil, startPositionSeconds: Double? = nil,
-                                forceCompatibleVideo: Bool = false) async throws -> PlaybackRequest {
+                                forceCompatibleVideo: Bool = false,
+                                usesServerVideoRecovery: Bool = false) async throws -> PlaybackRequest {
         if let local = offline.localURL(for: item.id) {
             return PlaybackRequest(id: UUID().uuidString, item: item, url: local,
                                    startPositionSeconds: startPositionSeconds ?? (item.isAudio ? 0 : offline.resumeSeconds(for: item.id)),
@@ -1269,7 +1270,8 @@ let tickScale = 10_000_000.0
                                                       audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                                       mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
                                                       selectedSourceChapters: selectedSourceChapters,
-                                                      usesCompatibleVideo: forceCompatibleVideo)
+                                                      usesCompatibleVideo: forceCompatibleVideo,
+                                                      usesServerVideoRecovery: usesServerVideoRecovery)
             guard !requiresServerHLS || request.isTranscoding else { throw LuminaError.malformedResponse }
             return request
         }
@@ -1281,25 +1283,32 @@ let tickScale = 10_000_000.0
                                           audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                           mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
                                           selectedSourceChapters: selectedSourceChapters,
-                                          usesCompatibleVideo: forceCompatibleVideo)
+                                          usesCompatibleVideo: forceCompatibleVideo,
+                                          usesServerVideoRecovery: usesServerVideoRecovery)
     }
 
-    /// Re-request one video as H.264/SDR HLS after AVFoundation identifies an
-    /// initial codec/container failure. Callers keep the one-attempt guard;
-    /// this method does not turn transport or authorization errors into a
-    /// compatibility request.
+    /// Re-request a failed local package as normal server HLS once before the
+    /// existing H.264/SDR fallback. Callers keep the one-attempt guard; this
+    /// method does not turn transport or authorization errors into a recovery.
     public func prepareCompatiblePlayback(after request: PlaybackRequest, error: Error,
-                                          positionSeconds: Double? = nil) async throws -> PlaybackRequest {
-        guard request.canRetryCompatibleVideo(after: error) else {
+                                          positionSeconds: Double? = nil,
+                                          hasAdvanced: Bool = false) async throws -> PlaybackRequest {
+        guard request.canRetryCompatibleVideo(after: error, hasAdvanced: hasAdvanced) else {
             throw LuminaError.malformedResponse
         }
-        return try await preparePlayback(
+        let conversionFailure = (error as? NativeVideoSource.SelectionError) == .invalidDolbyVisionConversion
+        let serverVideoRecovery = !hasAdvanced && !conversionFailure
+            && request.usesClientDemux && !request.usesServerVideoRecovery
+        let recovered = try await preparePlayback(
             for: request.item, forceTranscode: true, quality: request.resolvedQuality,
             audioStreamIndex: request.audioStreamIndex, subtitleStreamIndex: request.subtitleStreamIndex,
             mediaSourceID: request.mediaSourceID,
             startPositionSeconds: positionSeconds ?? request.startPositionSeconds,
-            forceCompatibleVideo: true
+            forceCompatibleVideo: !serverVideoRecovery,
+            usesServerVideoRecovery: serverVideoRecovery
         )
+        guard recovered.isTranscoding else { throw LuminaError.malformedResponse }
+        return recovered
     }
 
     /// Mints a brief, receiver-scoped Chromecast capability. The returned media URL is safe to

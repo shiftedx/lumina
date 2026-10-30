@@ -44,10 +44,13 @@ final class RealMediaPlaybackTests: XCTestCase {
                 requirePlaybackMetadata: false,
                 followUp: []
             )
-            try await assertSelectedSubtitleSelection(
-                configuration,
-                mediaDirect: defaultDelivery == .mediaDirect
-            )
+            if let selectedSubtitleStreamIndex = configuration.selectedSubtitleStreamIndex {
+                _ = try await assertSelectedSubtitleSelection(
+                    configuration,
+                    selectedSubtitleStreamIndex: selectedSubtitleStreamIndex,
+                    mediaDirect: defaultDelivery == .mediaDirect
+                )
+            }
             // This is deliberately a new item: app resume calls
             // awaitInitialPlayback after it has prepared a fresh player, rather
             // than after playing the beginning of a cached item.
@@ -77,6 +80,72 @@ final class RealMediaPlaybackTests: XCTestCase {
             requirePlaybackMetadata: true,
             followUp: []
         )
+    }
+
+    /// The source's server default is not a member choice. It must remain
+    /// implicit so a media-direct delivery is not rejected merely because its
+    /// default subtitle cannot be represented in a local master.
+    func testConfiguredAssetDefaultSubtitleStaysImplicit() async throws {
+        let configuration = try configuredAsset()
+        guard configuration.usesClientDemux else {
+            throw XCTSkip("The selected original does not use native client packaging")
+        }
+        let defaultSubtitleStreamIndex = try configuredDefaultSubtitleStreamIndex(configuration)
+        try await assertSourceBinding(configuration)
+
+        let implicit = try subtitlePlaybackRequest(
+            configuration: configuration,
+            defaultSubtitleStreamIndex: defaultSubtitleStreamIndex,
+            selectedSubtitleStreamIndex: nil
+        )
+        XCTAssertTrue(implicit.usesClientDemux)
+        XCTAssertNil(implicit.subtitleStreamIndex,
+                     "A source-default subtitle must not be treated as an explicit selection")
+
+        _ = try await exercise(
+            configuration,
+            preferredAudioStreamIndex: implicit.audioStreamIndex,
+            preferredSubtitleStreamIndex: implicit.subtitleStreamIndex,
+            initialPosition: configuration.startSeconds,
+            initialLabel: "default-subtitle-implicit",
+            requirePlaybackMetadata: true,
+            followUp: []
+        )
+    }
+
+    /// An explicit member selection still needs a compatible master when the
+    /// original delivery is media-direct. Keep that recovery boundary distinct
+    /// from the source default above.
+    func testConfiguredAssetExplicitSubtitleRequestsCompatibleFallback() async throws {
+        let configuration = try configuredAsset()
+        guard configuration.usesClientDemux else {
+            throw XCTSkip("The selected original does not use native client packaging")
+        }
+        let defaultSubtitleStreamIndex = try configuredDefaultSubtitleStreamIndex(configuration)
+        try await assertSourceBinding(configuration)
+
+        let explicit = try subtitlePlaybackRequest(
+            configuration: configuration,
+            defaultSubtitleStreamIndex: defaultSubtitleStreamIndex,
+            selectedSubtitleStreamIndex: defaultSubtitleStreamIndex
+        )
+        XCTAssertTrue(explicit.usesClientDemux)
+        XCTAssertEqual(explicit.subtitleStreamIndex, defaultSubtitleStreamIndex)
+
+        let defaultDelivery = try await exercise(
+            configuration,
+            preferredAudioStreamIndex: explicit.audioStreamIndex,
+            initialPosition: configuration.startSeconds,
+            initialLabel: "explicit-subtitle-baseline",
+            requirePlaybackMetadata: true,
+            followUp: []
+        )
+        let delivery = try await assertSelectedSubtitleSelection(
+            configuration,
+            selectedSubtitleStreamIndex: try XCTUnwrap(explicit.subtitleStreamIndex),
+            mediaDirect: defaultDelivery == .mediaDirect
+        )
+        print("Real-media explicit-subtitle delivery=\(delivery.rawValue)")
     }
 
     func testSourceBindingPreflightRejectsChangedOriginBeforePlayback() async throws {
@@ -119,6 +188,46 @@ final class RealMediaPlaybackTests: XCTestCase {
         )
         try configuration.validate()
         return configuration
+    }
+
+    private func configuredDefaultSubtitleStreamIndex(_ configuration: Configuration) throws -> Int {
+        if let configured = configuration.defaultSubtitleStreamIndex { return configured }
+        guard let raw = ProcessInfo.processInfo.environment["LUMINA_REAL_MEDIA_DEFAULT_SUBTITLE_STREAM_INDEX"],
+              let index = Int(raw), index >= 0 else {
+            throw XCTSkip("Set LUMINA_REAL_MEDIA_DEFAULT_SUBTITLE_STREAM_INDEX for the private source default subtitle")
+        }
+        return index
+    }
+
+    private func subtitlePlaybackRequest(
+        configuration: Configuration,
+        defaultSubtitleStreamIndex: Int,
+        selectedSubtitleStreamIndex: Int?
+    ) throws -> PlaybackRequest {
+        guard let audioStreamIndex = configuration.audioStreamIndex else {
+            throw QualificationFailure(chain: "private source qualification requires an audio stream index")
+        }
+        let item = try JSONDecoder().decode(MediaItem.self, from: JSONSerialization.data(withJSONObject: [
+            "Id": "real-media-subtitle-qualification", "Name": "Qualified media", "Type": "Movie",
+        ]))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: JSONSerialization.data(withJSONObject: [
+            "PlaySessionId": "real-media-subtitle-qualification",
+            "MediaSources": [[
+                "Id": "real-media-source", "Container": "mkv",
+                "SupportsDirectPlay": true, "SupportsTranscoding": true,
+                "DefaultAudioStreamIndex": audioStreamIndex,
+                "DefaultSubtitleStreamIndex": defaultSubtitleStreamIndex,
+                "MediaStreams": [
+                    ["Index": 0, "Type": "Video", "Codec": configuration.expected.codec],
+                    ["Index": audioStreamIndex, "Type": "Audio", "Codec": configuration.expected.audio],
+                    ["Index": defaultSubtitleStreamIndex, "Type": "Subtitle", "Codec": "subrip", "IsDefault": true],
+                ],
+            ]],
+        ]))
+        return try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1")!, token: "qualification-token", item: item, result: info,
+            subtitleStreamIndex: selectedSubtitleStreamIndex
+        )
     }
 
     private func assertPreflightRejects(url: URL, sourceSize: Int, sourceValidator: String) async {
@@ -182,6 +291,7 @@ final class RealMediaPlaybackTests: XCTestCase {
     private func exercise(
         _ configuration: Configuration,
         preferredAudioStreamIndex: Int?,
+        preferredSubtitleStreamIndex: Int? = nil,
         initialPosition: Double,
         initialLabel: String,
         requirePlaybackMetadata: Bool,
@@ -197,7 +307,8 @@ final class RealMediaPlaybackTests: XCTestCase {
                 url: configuration.proxyURL,
                 usesClientDemux: configuration.usesClientDemux,
                 requireDolbyVisionTransportPairing: configuration.strictPair,
-                preferredAudioStreamIndex: preferredAudioStreamIndex
+                preferredAudioStreamIndex: preferredAudioStreamIndex,
+                preferredSubtitleStreamIndex: preferredSubtitleStreamIndex
             )
             let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -315,12 +426,18 @@ final class RealMediaPlaybackTests: XCTestCase {
             && left.port == right.port
     }
 
+    private enum ExplicitSubtitleDelivery: String {
+        case mediaDirectFallback = "media-direct-subtitleMasterUnavailable"
+        case selectableMaster = "selectable-master"
+    }
+
     private func assertSelectedSubtitleSelection(
         _ configuration: Configuration,
+        selectedSubtitleStreamIndex: Int,
         mediaDirect: Bool
-    ) async throws {
-        guard let selectedSubtitleStreamIndex = configuration.selectedSubtitleStreamIndex else { return }
+    ) async throws -> ExplicitSubtitleDelivery {
         let modes = mediaDirect ? [true, false] : [true]
+        var delivery: ExplicitSubtitleDelivery?
         for enableSubtitleRenditions in modes {
             let owner = NativeVideoSource()
             defer { owner.stop() }
@@ -346,14 +463,20 @@ final class RealMediaPlaybackTests: XCTestCase {
                 let legible = try await item.asset.loadMediaSelectionGroup(for: .legible)
                 XCTAssertNotNil(legible,
                                 "A selected subtitle accepted by a genuine master must remain selectable")
+                delivery = .selectableMaster
             } catch let error as NativeVideoSource.SelectionError {
                 if mediaDirect {
                     XCTAssertEqual(error, .subtitleMasterUnavailable)
+                    delivery = .mediaDirectFallback
                 } else {
                     XCTFail("A genuine master must not silently drop a selected subtitle: \(error)")
                 }
             }
         }
+        guard let delivery else {
+            throw QualificationFailure(chain: "selected subtitle did not produce a compatible delivery")
+        }
+        return delivery
     }
 
     private func render(
@@ -585,6 +708,7 @@ final class RealMediaPlaybackTests: XCTestCase {
         let sourceValidator: String
         let expected: Expected
         let selectedSubtitleStreamIndex: Int?
+        let defaultSubtitleStreamIndex: Int?
         let audioStreamIndex: Int?
 
         func validate() throws {
@@ -598,6 +722,7 @@ final class RealMediaPlaybackTests: XCTestCase {
                   sourceValidator.count > 2,
                   sourceValidator.hasPrefix("\"") && sourceValidator.hasSuffix("\""),
                   selectedSubtitleStreamIndex.map({ $0 >= 0 }) ?? true,
+                  defaultSubtitleStreamIndex.map({ $0 >= 0 }) ?? true,
                   audioStreamIndex.map({ $0 >= 0 }) ?? true,
                   expected.width > 0, expected.height > 0,
                   !expected.codec.isEmpty, !expected.hdr.isEmpty, !expected.audio.isEmpty

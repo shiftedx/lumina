@@ -451,7 +451,8 @@ final class LuminaClient: @unchecked Sendable {
                          audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
                          startPositionSeconds: Double? = nil,
                          selectedSourceChapters: [PlaybackChapter]? = nil,
-                         usesCompatibleVideo: Bool = false) throws -> PlaybackRequest {
+                         usesCompatibleVideo: Bool = false,
+                         usesServerVideoRecovery: Bool = false) throws -> PlaybackRequest {
         let source = try preferredSource(in: result, mediaSourceID: mediaSourceID)
         let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
         let sourceChapters = source.chapters.map {
@@ -465,13 +466,21 @@ final class LuminaClient: @unchecked Sendable {
         let chapters = sourceChapters ?? selectedSourceChapters
             ?? ((mediaSourceID == nil || source.id == item.id) ? item.chapters : [])
         let resolvedAudioStreamIndex = audioStreamIndex ?? source.defaultAudioStreamIndex
-        let resolvedSubtitleStreamIndex = subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
+        let usesClientDemux = source.supportsDirectPlay && !item.isAudio && (
+            ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased())
+            || (source.container?.lowercased() == "m2ts" && source.clientPackaging == "p7_m2ts_to_p81_drop_el")
+        )
+        // Automatic subtitle selection must remain unselected for Prism's original-file
+        // packaging. Supplying a server default here turns it into an explicit embedded
+        // subtitle request, which can require a master the media-direct route does not publish.
+        let resolvedSubtitleStreamIndex = usesClientDemux && subtitleStreamIndex == nil
+            ? nil : subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
         let start = try boundedStartPosition(startPositionSeconds, item: item)
         if source.supportsDirectPlay {
             // A compatible retry must receive the forced H.264/SDR HLS
             // decision. Treat a direct response as the server ignoring that
             // request rather than relabelling the original media compatible.
-            guard !usesCompatibleVideo else { throw LuminaError.malformedResponse }
+            guard !usesCompatibleVideo, !usesServerVideoRecovery else { throw LuminaError.malformedResponse }
             guard let direct = url(origin: origin, path: "/Videos/\(item.id)/stream", query: [
                 URLQueryItem(name: "MediaSourceId", value: source.id),
                 URLQueryItem(name: "Static", value: "true"),
@@ -493,11 +502,9 @@ final class LuminaClient: @unchecked Sendable {
             }
             return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
-                                   usesClientDemux: !item.isAudio && (
-                                       ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased())
-                                       || (source.container?.lowercased() == "m2ts" && source.clientPackaging == "p7_m2ts_to_p81_drop_el")
-                                   ),
+                                   usesClientDemux: usesClientDemux,
                                    usesCompatibleVideo: usesCompatibleVideo,
+                                   usesServerVideoRecovery: usesServerVideoRecovery,
                                    bitRate: source.bitRate, sourceContainer: source.container, m2tsSeekIndex: seekIndex,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                    subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
@@ -508,6 +515,7 @@ final class LuminaClient: @unchecked Sendable {
         return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: start,
                                mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS",
                                usesCompatibleVideo: usesCompatibleVideo,
+                               usesServerVideoRecovery: usesServerVideoRecovery,
                                bitRate: source.bitRate, sourceContainer: source.container,
                                mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,

@@ -439,12 +439,15 @@ separate: post-IRAP BL frames remain queued while the matching EL is arriving.
 
 The native workflow uses a unique range-served URL and a paced synthetic
 origin. Before playback it requires finite duration and the full seekable
-range, and rejects whole-source startup preflight. It seeks to 75 seconds
-before normal prefix playback, decodes the destination and repeats forward/
-backward scrubs at 88, 68 and 75 seconds. In the focused local run the first
-seek rendered in 0.352 seconds with 592,675 origin bytes (0.57 MiB); the
-source's late anchor is at byte 38,255,424 (36.5 MiB). These are local synthetic
-measurements, not a network/device throughput guarantee.
+range. It seeks to 75 seconds before normal prefix playback, decodes the
+destination and repeats forward/backward scrubs at 88, 68 and 75 seconds.
+In the focused local run the first seek rendered in 0.352 seconds with
+592,675 compressed packet bytes (0.57 MiB); the source's late anchor is at
+byte 38,255,424 (36.5 MiB). That counter excludes transport padding and scout
+reads, so the original byte assertion did not establish origin I/O or rule
+out whole-source startup preflight. The changing-GOP qualification below
+replaces it with the paced origin's sent-byte counter. These remain local
+synthetic measurements, not a network/device throughput guarantee.
 
 The final engine source is pinned to
 `37148992b891d9a5e587a6aaa0aa56b72cd98b8f`
@@ -468,6 +471,95 @@ The unseen tail retains the existing partial-map GOP-cadence inference;
 insufficient bounded prefix evidence does not establish whole-file seek
 coverage. Physical Dolby Vision/color/HDMI qualification and full FEL
 reconstruction remain separate.
+
+### Changing-GOP M2TS Dolby Vision seeks, 2026-10-30
+
+PR #228 merged as `adee5d58dea2e157c15063646953f5232ddb1164`. Its head-prefix
+map still inferred unseen tail cadence. The strict M2TS route now publishes
+VOD only from observed IRAP segment boundaries across the source, with EOF
+proof for the final tail. Sparse timestamp seeks locate candidates; they are
+not picture evidence. One two-second / 64-MiB AVIO budget covers the complete
+scout and its head reset. Incomplete proof retains sequential produced-range
+seeking. Partial cached maps cannot bypass this rule; cache namespace v3
+isolates the new semantics. Reanchors require the exact advertised IRAP.
+
+The immutable production pin is
+`5e6a28a714dc711a811ff678501ff9b5b99378ee`
+([source](https://github.com/shiftedx/PrismCore/commit/5e6a28a714dc711a811ff678501ff9b5b99378ee),
+[engine PR](https://github.com/shiftedx/PrismCore/pull/3)). The test-only
+head `9e4054ba82e5d4e362356c12fc2e419f0314a4ae` has identical `Sources`
+and `Package.swift`; it binds the older exact-payload test to the observed
+plan, updates strict-cache expectations and locks cancellation, insufficient
+budget and source-I/O outcomes independently.
+
+```sh
+mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-m2ts-variable \
+  --cold-seek-duration-seconds 96 --cold-seek-variable-gop-pattern 288,24,72
+LUMINA_DV7_M2TS_VARIABLE_GOP_COLD_SEEK_FIXTURE=/tmp/lumina-m2ts-variable/p7-m2ts-variable-gop-cold-seek-mel.m2ts \
+  mise exec -- swift test --package-path apple/Core \
+    --filter NativeVideoSourceTests.testM2TSProfile7ColdSeekTracksVariableGOPCadence
+```
+
+This optional source has ten seconds of one-second GOPs, then 12/1/3-second
+GOPs. At target 77 seconds its nearest source IRAPs are 74.083 and 86.083
+seconds. Sparse planning legitimately selects a larger 70.083–86.083-second
+segment; every advertised start is an actual IRAP and the requested picture
+remains inside that segment. The old production revision fails the new
+public-session regression with ten non-IRAP boundaries. The new revision
+passes, including byte-exact retained VCL vectors and cache-evicted repeated
+fetches. The full-vector oracle uses source decode order, excluding the next
+anchor and filtering only pre-anchor presentation preroll: 383 retained
+pictures match. A presentation-time upper bound would incorrectly include a
+picture decoded after the next segment's opening IRAP.
+
+The native workflow uses real AVPlayer output, verifies returned display time,
+finite duration/full seek range, forward/backward/repeated seeks, late HTTP
+ranges and clean conversion. Its origin counter includes transport framing,
+probing, lookahead and socket read-ahead. It replaces the earlier compressed
+packet counter, which did not measure those costs. The 64-MiB synthetic
+startup-send assertion is a whole-workflow test budget, distinct from the
+runtime scout's AVIO budget. First-seek sends must be less than replaying the
+entire source prefix; no half-file startup or sublinear-I/O claim is made.
+
+| Synthetic source | Startup | Startup origin sent | First seek + frame | First-seek origin sent |
+| --- | ---: | ---: | ---: | ---: |
+| 96-second, one-second GOP | 1.636 s | 37,741,360 B | 0.448 s | 9,764,864 B |
+| 96-second, changing GOP | 1.882 s | 44,543,536 B | 0.799 s | 19,267,584 B |
+
+These are single local observations with a paced 2-ms/64-KiB origin, not
+client-consumed byte counts or remote-network throughput guarantees. Socket
+slack and concurrent producer lookahead vary the sent-byte totals.
+
+Focused engine runs passed the seven sparse-map/cold/variable-GOP checks,
+two exact-payload checks, 40 association/cache/fuzz checks, and 12 enabled
+M2TS/MKV corpus checks without media skips. At that engine test head, the three scout boundary checks
+also verify cancellation, byte/time budgets, source I/O and head restoration.
+A delayed seekable-input run starts from mid-file, expires the optional proof
+after ten milliseconds, and verifies `insufficient` with no required reopen
+and the real opening BL IRAP still readable. No production change was needed.
+
+The complete Lumina Core run passed 267 checks with five unconfigured
+`NativeServerTests` skips and no failures. All P5/P8/P7, separate-track,
+M2TS and cold/variable-GOP media fixtures were enabled, with no media skips.
+Unsigned generic iOS and tvOS Simulator builds passed against the immutable
+production pin. A final two-case native rerun also passed after requiring
+both player position and returned frame presentation time.
+
+Repository validation passed 5,814 backend checks (20 skips) and 2,754 frontend
+checks. The second full browser run passed 651 cases; the backend's low-disk
+guard refused one conversion and its four dependent WebKit cases did not run.
+After reclaiming this task's rebuildable caches, a fresh-fixture rerun passed
+all 35 selected setup/performance/WebKit cases (8.4 minutes), including the
+previously blocked conversion and all four WebKit workflows. All 656 unique
+browser cases passed across these runs; the aggregate `make check` invocation
+is recorded as failed, not as a clean full-gate pass. An earlier unchanged
+navigation test timeout also passed three isolated repeats and the second
+full functional run; no web application or test changes were needed.
+
+Physical Dolby Vision/color/HDMI qualification, arbitrary large-source
+cold-seek availability, and full FEL reconstruction remain separate; no
+deployment or upload was performed.
 
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 

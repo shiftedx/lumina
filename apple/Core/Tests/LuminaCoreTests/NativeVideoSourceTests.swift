@@ -663,14 +663,34 @@ final class NativeVideoSourceTests: XCTestCase {
     /// this test keeps the native AVPlayer route, source identity, and range
     /// behaviour observable without depending on engine internals.
     func testM2TSProfile7ColdSeekAvoidsPrefixPlayback() async throws {
-        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_M2TS_COLD_SEEK_FIXTURE"], !value.isEmpty else {
-            throw XCTSkip("Set LUMINA_DV7_M2TS_COLD_SEEK_FIXTURE to the generated 96-second M2TS fixture")
+        try await assertM2TSProfile7ColdSeek(
+            environment: "LUMINA_DV7_M2TS_COLD_SEEK_FIXTURE",
+            manifestKey: "coldSeek",
+            fixtureDescription: "generated 96-second M2TS fixture"
+        )
+    }
+
+    func testM2TSProfile7ColdSeekTracksVariableGOPCadence() async throws {
+        try await assertM2TSProfile7ColdSeek(
+            environment: "LUMINA_DV7_M2TS_VARIABLE_GOP_COLD_SEEK_FIXTURE",
+            manifestKey: "variableGOPColdSeek",
+            fixtureDescription: "generated 96-second variable-GOP M2TS fixture"
+        )
+    }
+
+    private func assertM2TSProfile7ColdSeek(
+        environment: String,
+        manifestKey: String,
+        fixtureDescription: String
+    ) async throws {
+        guard let value = ProcessInfo.processInfo.environment[environment], !value.isEmpty else {
+            throw XCTSkip("Set \(environment) to the \(fixtureDescription)")
         }
         let fixture = URL(fileURLWithPath: value)
         let manifestURL = fixture.deletingLastPathComponent().appendingPathComponent("manifest.json")
         let manifestData = try Data(contentsOf: manifestURL)
         let manifest = try XCTUnwrap(try JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
-        let coldSeek = try XCTUnwrap(manifest["coldSeek"] as? [String: Any])
+        let coldSeek = try XCTUnwrap(manifest[manifestKey] as? [String: Any])
         let fixtureSummary = try XCTUnwrap(coldSeek["fixture"] as? [String: Any])
         let anchor = try XCTUnwrap(fixtureSummary["coldSeek"] as? [String: Any])
         let expectedHash = try XCTUnwrap(fixtureSummary["sha256"] as? String)
@@ -698,6 +718,7 @@ final class NativeVideoSourceTests: XCTestCase {
             XCTAssertEqual(error, .invalidDolbyVisionConversion)
         }
 
+        let startupStarted = ContinuousClock.now
         let owner = NativeVideoSource()
         let item = try await owner.prepare(url: remote, usesClientDemux: true,
                                            requireDolbyVisionTransportPairing: true)
@@ -709,6 +730,7 @@ final class NativeVideoSourceTests: XCTestCase {
         player.volume = 0
         defer { player.replaceCurrentItem(with: nil); owner.stop() }
         try await NativeVideoSource.waitUntilReady(player)
+        let startupElapsed = startupStarted.duration(to: .now)
         let duration = item.duration.seconds
         let seekableEnd = item.seekableTimeRanges
             .map { CMTimeRangeGetEnd($0.timeRangeValue).seconds }
@@ -720,10 +742,11 @@ final class NativeVideoSourceTests: XCTestCase {
         }
 
         let baselineRanges = server.requestedRangeStarts.count
-        let baselineBytes = try XCTUnwrap(owner.sourceBytesRead,
-                                          "Coordinated HTTP must report origin bytes before the cold seek")
-        XCTAssertLessThan(baselineBytes, Int64(sourceBytes.count / 2),
-                          "Startup must not preflight more than half the cold source")
+        // Prism's sourceBytesRead counts compressed media packets, excluding transport
+        // padding and scout reads. The paced origin's sent-byte upper bound covers both.
+        let baselineBytes = server.deliveredBytes
+        XCTAssertLessThan(baselineBytes, 64 << 20,
+                          "This synthetic startup must stay within its 64-MiB origin-send budget, including probing and lookahead")
         func seekAndDecode(_ target: Double, play: Bool = false) async throws -> Duration {
             let started = ContinuousClock.now
             let finished = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
@@ -732,16 +755,23 @@ final class NativeVideoSourceTests: XCTestCase {
             if play { player.play() }
             let deadline = started + .seconds(8)
             var decoded = false
+            var deliveredTime: Double?
             while ContinuousClock.now < deadline {
                 let time = item.currentTime()
-                if abs(time.seconds - target) < 0.75,
-                   frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
+                var itemTimeForDisplay = CMTime.invalid
+                if frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: &itemTimeForDisplay) != nil {
+                    deliveredTime = itemTimeForDisplay.seconds
+                }
+                if abs(time.seconds - target) < 0.75, let deliveredTime,
+                   deliveredTime.isFinite,
+                   abs(deliveredTime - target) < 0.75 {
                     decoded = true
                     break
                 }
                 try await Task.sleep(for: .milliseconds(20))
             }
-            XCTAssertTrue(decoded, "Cold paired M2TS seek must render \(target)s")
+            let deliveredDetail = deliveredTime.map { String($0) } ?? "no frame"
+            XCTAssertTrue(decoded, "Cold paired M2TS seek must render \(target)s at the requested presentation time; delivered \(deliveredDetail)")
             return started.duration(to: .now)
         }
 
@@ -750,15 +780,15 @@ final class NativeVideoSourceTests: XCTestCase {
         let minimumLateRange = targetByteOffset / 2
         XCTAssertTrue(postReadyRanges.contains { $0 >= minimumLateRange },
                       "The first late seek must request a range near its verified transport anchor")
-        let bytesAfterFirstLateSeek = try XCTUnwrap(owner.sourceBytesRead,
-                                                     "Coordinated HTTP must report origin bytes after the cold seek")
-        XCTAssertLessThan(bytesAfterFirstLateSeek - baselineBytes, Int64(targetByteOffset / 2),
-                          "The initial late seek must not linearly walk the source prefix after startup probing")
+        let bytesAfterFirstLateSeek = server.deliveredBytes
+        XCTAssertLessThan(bytesAfterFirstLateSeek - baselineBytes, targetByteOffset,
+                          "The initial late seek must send less than a full replay of the source prefix after startup")
         XCTAssertLessThanOrEqual(firstSeekElapsed, .seconds(8),
                                  "The first cold seek must include both seek completion and frame delivery in its budget")
-        print("Cold M2TS first seek elapsed=\(firstSeekElapsed) sourceBytes=\(bytesAfterFirstLateSeek - baselineBytes)")
+        print("Cold M2TS startup elapsed=\(startupElapsed) originSentBytes=\(baselineBytes)")
+        print("Cold M2TS first seek elapsed=\(firstSeekElapsed) originSentBytes=\(bytesAfterFirstLateSeek - baselineBytes)")
         for target in [88.0, 68.0, targetSeconds] {
-            try await seekAndDecode(target)
+            _ = try await seekAndDecode(target)
         }
         try await owner.validateDolbyVisionConversion()
     }

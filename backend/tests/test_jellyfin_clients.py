@@ -20,9 +20,11 @@ from app.services import activity, media_probe, public_address
 from app.services.rate_limit import grant_address
 from app.services.connected_apps import image_grants
 from app.services.media_response import MediaFileResponse
+from app.services.m2ts_irap_index import IRAPIndex, source_fingerprint
 from app.services.media_titles import jellyfin_id, synthetic_id
 from test_jellyfin_api import MOVIES, TV, get, post
-from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, TRAILER, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
+from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, TRAILER, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_EPISODE, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
+from test_playback_decision import m2ts_pair_facts
 
 HEX = jellyfin_id
 EMPTY = {"Items": [], "TotalRecordCount": 0, "StartIndex": 0}
@@ -219,6 +221,36 @@ def test_download_is_allowed_exactly_when_streaming_is(jf: TestClient) -> None:
 
 
 # ---- R4: PlaybackInfo ------------------------------------------------------------------------------------------
+
+def test_m2ts_irap_index_url_is_authenticated_and_uses_the_original_etag(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    facts = m2ts_pair_facts()
+    monkeypatch.setattr(media_probe.MediaProbeService, "plan", lambda *_args: {"facts": facts})
+    monkeypatch.setattr(media_probe.MediaProbeService, "cached_facts", lambda *_args: facts)
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+                                 "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": [{"SourceProfile": 7, "SourceCompatibilityID": 6, "TargetProfile": 8, "TargetCompatibilityID": 1, "MaxLevel": 9, "EnhancementLayerDisposition": "dropped"}]}],
+        "LuminaDolbyVisionTransportProfiles": [{"Type": "Video", "Container": "m2ts", "VideoCodec": "hevc", "AudioCodec": "aac", "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionM2TSPairing": True, "LuminaDolbyVisionPackagingConversions": [{"SourceProfile": 7, "SourceCompatibilityID": 6, "TargetProfile": 8, "TargetCompatibilityID": 1, "MaxLevel": 9, "EnhancementLayerDisposition": "dropped"}]}],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [{"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"}, {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"}]}],
+    }
+    pending = lambda *_args: None
+    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request", pending)
+    monkeypatch.setattr("app.routers.jellyfin.annotate_media_sources", lambda _db, _user, _token_id, _token, sources, *_args: sources[0].update(LuminaClientPackaging="p7_m2ts_to_p81_drop_el"))
+    source = post(jf, f"/Items/{HEX(MOVIE)}/PlaybackInfo", {"DeviceProfile": profile}).json()["MediaSources"][0]
+    assert "LuminaM2TSIRAPIndexUrl" in source
+    url = source["LuminaM2TSIRAPIndexUrl"]
+    index_path = url.split("?", 1)[0]
+    assert get(jf, index_path, MediaSourceId=source["Id"]).json()["Status"] == "pending"
+    assert get(jf, index_path, token="not-a-token", MediaSourceId=source["Id"]).status_code == 401
+    assert get(jf, f"/Videos/{HEX(SECRET_EPISODE)}/lumina-m2ts-irap-index", MediaSourceId=HEX(SECRET_EPISODE)).status_code == 404
+    assert get(jf, index_path, MediaSourceId=UNKNOWN).status_code == 404
+
+    def complete(path, pair, artifact_id):  # noqa: ANN001
+        return IRAPIndex(source_fingerprint(path), path.stat().st_size, pair.base_pid, pair.enhancement_pid, [0], [0])
+
+    monkeypatch.setattr("app.routers.jellyfin.m2ts_irap_indexes.request", complete)
+    complete_response = get(jf, index_path, MediaSourceId=source["Id"])
+    stream = get(jf, f"/Videos/{HEX(MOVIE)}/stream", MediaSourceId=source["Id"])
+    assert complete_response.json()["Validator"] == stream.headers["etag"]
 
 def test_playback_info_honours_the_body_media_source_id(jf: TestClient, no_ffprobe: None) -> None:
     both = post(jf, f"/Items/{HEX(MOVIE)}/PlaybackInfo", {"DeviceProfile": {}}).json()["MediaSources"]

@@ -34,6 +34,7 @@ from app.services.background_work import background_work
 from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_probe import LOCAL_INPUT_ARGS, MediaProbeService, media_tool
+from app.services.m2ts_irap_index import m2ts_irap_indexes, pair_from_facts
 
 logger = logging.getLogger(__name__)
 IDLE_SECONDS = 60
@@ -303,7 +304,9 @@ class ProbeWarming:
                 with write_transaction(db, name="probe_warming"):
                     artifact.probe = {"fingerprint": None, "error": "missing", "loudness": {"error": "missing"}}
                 return True
-            MediaProbeService(db).cached_facts(artifact, path)
+            facts = MediaProbeService(db).cached_facts(artifact, path)
+            if (pair := pair_from_facts(facts)) is not None:
+                m2ts_irap_indexes.request(path, pair, artifact.id, explicit=False)
             probe = dict(artifact.probe or {})
             expected = (
                 f"{artifact.size}:{artifact.mtime_ns}"

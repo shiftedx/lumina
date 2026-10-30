@@ -384,3 +384,21 @@ and tester assignment remain unverified. No server deployment occurred during
 this release; production remains at the separately verified source `283eede5`.
 Organizer also showed both prior build-35 packages uploaded by the owner; those
 uploads were observed, not performed during this operation.
+
+
+### iOS archive 37, 2026-10-30 — unsigned source preserved
+
+The owner requested an iOS build signed and staged for their own upload, then
+redirected work to merge and workspace cleanup before signing/staging finished.
+An **unsigned iOS 0.1.0 (37)** Release device archive completed from clean main
+`4c38a37d0f3898a01d716048a518b0d0470fd196`. Archive preparation and validation,
+plus the signing/framework packaging safeguards, passed. The immutable playback
+revision agrees across the package manifest, all three locks, notices and links.
+
+Ignored `apple/Distribution/0.1.0-37/` preserves the unsigned archive, matching
+symbols, native source snapshot/input hashes, release manifest and build/check
+logs. **It is not signed, is not staged for upload in Organizer, and was not
+uploaded.** No tvOS archive was built. Future signing/export can reuse this
+archive; do not overwrite it or confuse it with a distribution-signed package.
+The temporary compiler cache was removed; existing releases and other agents'
+worktrees were preserved. The latest confirmed uploads remain build 36.

@@ -461,6 +461,9 @@ skips and no failures, with all P5/P8/P7/M2TS and cold media fixtures enabled.
 The full `mise exec -- make check` gate also passed: 5,814 backend tests
 (20 skips), 2,754 frontend tests and all 656 browser cases (1,124.184 seconds
 for the browser tier).
+Generic iOS and tvOS Simulator builds passed against the final immutable pin
+after integrating main through `052c2070` (Apple UI fixes #226/#227). Signing
+was disabled; no app deployment or upload was performed.
 The unseen tail retains the existing partial-map GOP-cadence inference;
 insufficient bounded prefix evidence does not establish whole-file seek
 coverage. Physical Dolby Vision/color/HDMI qualification and full FEL

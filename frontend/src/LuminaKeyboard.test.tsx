@@ -571,6 +571,31 @@ describe('browser routes', () => {
     expect(mocks.stopLocalPlaybackSession).not.toHaveBeenCalled();
   });
 
+  it('adopts the warmed conversion for an unplayed movie', async () => {
+    forgetTitles();
+    await forgetPlaybackWarmup();
+    const early = { session_id: 'unplayed-early', mode: 'remux', playback_url: '/api/playback-sessions/unplayed-early/index.m3u8', start: 0, kind: 'remux' };
+    mocks.getLibraryItem.mockResolvedValue({ ...libraryItem, kind: 'movie' });
+    mocks.getLocalPlaybackOptions.mockResolvedValue({ mode: 'remux', reason: null, facts: { duration: 120 }, audio_tracks: [], quality_heights: [], loudness_gain_db: null, free_video_slots: 1 });
+    mocks.startLocalPlaybackSession.mockResolvedValue(early);
+    mocks.getTitle.mockResolvedValue({
+      id: 'movie-1', type: 'movie', name: 'Northern Lantern', genres: [], added_at: '2026-09-01T00:00:00Z', play_item_id: 'library-1',
+      user_data: { played: false, is_favorite: false, position_seconds: 0, resume_item_id: null },
+      studios: [], provider_ids: {}, people: [], versions: [], extras: [], children: [], has_recap: false, play_next: null,
+    });
+    mocks.listSimilarTitles.mockResolvedValue([]);
+    window.history.replaceState(null, '', '/title/movie-1');
+    render(<LuminaApp />);
+    const play = await screen.findByRole('button', { name: 'Play' });
+    await waitFor(() => expect(mocks.getLocalPlaybackOptions).toHaveBeenCalledWith('library-1'));
+    fireEvent.pointerEnter(play);
+    await waitFor(() => expect(mocks.startLocalPlaybackSession).toHaveBeenCalledWith('library-1', 0), { timeout: 2000 });
+    fireEvent.click(play);
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+    expect(vi.mocked(claimSpeculativeStart)).toHaveBeenCalledWith('library-1');
+    expect(mocks.stopLocalPlaybackSession).not.toHaveBeenCalledWith('unplayed-early');
+  });
+
   it('times the title page hero from the poster click, before the page renders', async () => {
     const browser = userEvent.setup();
     mocks.listTitles.mockResolvedValue(titlePage([movieSummary()]));
@@ -966,6 +991,115 @@ describe('household and Library curation integration', () => {
 });
 
 describe('Media acquisition shell integration', () => {
+  it.each([['Resume', 30], ['Start Over', 0]] as const)('offers %s for a movie using fresh progress', async (choice, expected) => {
+    await forgetPlaybackWarmup();
+    const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const, duration: 120 };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getLibraryItem.mockResolvedValue(movie);
+    mocks.getPlaybackProgress.mockResolvedValue({ item_id: movie.id, position_seconds: 30, duration_seconds: 120, completed: false });
+    render(<LuminaApp />);
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resume playback?' });
+    expect(within(dialog).getByRole('heading', { name: movie.title })).toBeTruthy();
+    expect(within(dialog).getByText('Resume playback from 0:30?')).toBeTruthy();
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Resume' }));
+    expect(document.querySelector('video')).toBeNull();
+    await browser.click(within(dialog).getByRole('button', { name: choice }));
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+    const player = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(player, 'duration', { configurable: true, value: 120 });
+    fireEvent.loadedMetadata(player);
+    expect(player.currentTime).toBe(expected);
+    expect(mocks.getPlaybackProgress).toHaveBeenCalledWith(movie.id);
+  });
+
+  it('starts a new converted movie session at zero after Start Over', async () => {
+    const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const, duration: 120 };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getLibraryItem.mockResolvedValue(movie);
+    mocks.getPlaybackProgress.mockResolvedValue({ item_id: movie.id, position_seconds: 30, duration_seconds: 120, completed: false });
+    mocks.getLocalPlaybackOptions.mockResolvedValue({ mode: 'remux', reason: null, facts: { duration: 120 }, audio_tracks: [], quality_heights: [], loudness_gain_db: null, free_video_slots: 1 });
+    mocks.startLocalPlaybackSession.mockResolvedValue({ session_id: 'fresh', mode: 'remux', playback_url: '/api/playback-sessions/fresh/index.m3u8', start: 0, kind: 'remux' });
+    render(<LuminaApp />);
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resume playback?' });
+    await browser.click(within(dialog).getByRole('button', { name: 'Start Over' }));
+    await waitFor(() => expect(mocks.startLocalPlaybackSession).toHaveBeenCalledWith(movie.id, 0, undefined));
+  });
+
+  it('does not open a chosen movie after the member session changes', async () => {
+    const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getPlaybackProgress.mockResolvedValue({ item_id: movie.id, position_seconds: 30, duration_seconds: 120, completed: false });
+    let finishStop!: () => void;
+    vi.mocked(cancelSpeculativeStart).mockReturnValueOnce(new Promise<void>((resolve) => { finishStop = resolve; }));
+    render(<LuminaApp />);
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resume playback?' });
+    await browser.click(within(dialog).getByRole('button', { name: 'Resume' }));
+    mocks.useAuthenticatedWorkspace.mock.results[0].value.isSessionTokenCurrent.mockReturnValue(false);
+    await act(async () => { finishStop(); });
+    expect(document.querySelector('video')).toBeNull();
+    expect(mocks.startLocalPlaybackSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps browsing and lets the member retry when movie history is unavailable', async () => {
+    const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    mocks.getPlaybackProgress.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(null);
+    render(<LuminaApp />);
+    const play = await screen.findByRole('button', { name: /^Film in the vault,/ });
+    await browser.click(play);
+    expect(await screen.findByText('Playback history could not be loaded. Try playing again.')).toBeTruthy();
+    expect(document.querySelector('video')).toBeNull();
+    expect(mocks.startLocalPlaybackSession).not.toHaveBeenCalled();
+    await browser.click(play);
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Resume playback?' })).toBeNull();
+  });
+
+  it('retains a warmed session when an unplayed movie starts', async () => {
+    const browser = userEvent.setup();
+    const movie = { ...libraryItem, kind: 'movie' as const };
+    workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];
+    render(<LuminaApp />);
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+    expect(vi.mocked(claimSpeculativeStart)).toHaveBeenCalledWith(movie.id);
+    expect(vi.mocked(cancelSpeculativeStart)).not.toHaveBeenCalled();
+  });
+
+  it('requests item and history together for an explicit item ID', async () => {
+    let finishItem!: (item: LibraryItem) => void;
+    mocks.getLibraryItem.mockReturnValueOnce(new Promise((resolve) => { finishItem = resolve; }));
+    window.history.replaceState(null, '', '/watch/library/library-9');
+    render(<LuminaApp />);
+    await waitFor(() => expect(mocks.getPlaybackProgress).toHaveBeenCalledWith('library-9'));
+    expect(document.querySelector('video')).toBeNull();
+    await act(async () => { finishItem({ ...libraryItem, id: 'library-9', kind: 'movie' }); });
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+  });
+
+  it('cancels an episode choice without starting playback or changing progress', async () => {
+    const browser = userEvent.setup();
+    const episode = { ...libraryItem, kind: 'episode' as const };
+    workspaceState.library = [episode]; workspaceState.libraryRecent = [episode];
+    mocks.getLibraryItem.mockResolvedValue(episode);
+    mocks.getPlaybackProgress.mockResolvedValue({ item_id: episode.id, position_seconds: 30, duration_seconds: 120, completed: false });
+    render(<LuminaApp />);
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resume playback?' });
+    await browser.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Resume playback?' })).toBeNull();
+    expect(document.querySelector('video')).toBeNull();
+    expect(mocks.startLocalPlaybackSession).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /^Film in the vault,/ })).toBeTruthy();
+  });
+
   it('starts local playback at the resume point once history arrives, without waiting for the item refresh', async () => {
     const browser = userEvent.setup();
     let resolveItem: ((item: LibraryItem) => void) | undefined;

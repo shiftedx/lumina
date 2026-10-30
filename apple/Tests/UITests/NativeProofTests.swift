@@ -398,6 +398,11 @@ final class NativeVideoCastPickerSmokeTests: NativeProofJourney {
 }
 #endif
 @MainActor
+final class NativePlaybackResumeChoiceTests: NativeProofJourney {
+    func testMovieResumeStartOverAndCancel() async throws { try await journeyPlaybackResumeChoice(episode: false) }
+    func testEpisodeResumeStartOverAndCancel() async throws { try await journeyPlaybackResumeChoice(episode: true) }
+}
+@MainActor
 final class NativeVideoSettingsTests: NativeProofJourney { func testNativeVideoDoesNotKeepDuplicateControlsOverPlayback() async throws { try await journeyNativeVideoDoesNotKeepDuplicateControlsOverPlayback() } }
 @MainActor
 final class NativePlaybackQualityAndSubtitleTimingTests: NativeProofJourney {
@@ -3057,6 +3062,109 @@ class NativeProofJourney: XCTestCase {
         throw ProofFailure.ui("TV Back did not return the music proof journey to the Audio catalog.")
     }
     #endif
+
+    func journeyPlaybackResumeChoice(episode: Bool) async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let itemID = episode ? fixture.episodeID : fixture.directItemID
+        try await api.seedProgress(identity: identity, itemID: itemID, seconds: 24)
+        #if os(iOS)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        #else
+        try launchAndResetSession()
+        #endif
+        try signIn(using: fixture, waitsForAccount: false)
+
+        func press(_ control: XCUIElement) throws {
+            #if os(iOS)
+            XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(control) && control.isEnabled })
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            #else
+            try activate(control)
+            #endif
+        }
+        func closeRequestedPlayback() throws {
+            #if os(iOS)
+            let close = element("closePlayerButton")
+            if !hasVisibleFrame(close) {
+                let surface = element("videoControlsSurface")
+                surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            XCTAssertTrue(waitUntil(timeout: 8) { self.hasVisibleFrame(close) })
+            close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(disappears(element("playbackScreen"), timeout: 10))
+            #else
+            try closePlayer()
+            #endif
+        }
+        let resume = element("resumeItem-\(itemID)")
+        #if os(iOS)
+        try revealDetailElement(resume, in: element("homeScreen"), named: "saved title on Home", requiresHittable: false)
+        #else
+        for _ in 0..<8 where !resume.exists { XCUIRemote.shared.press(.down) }
+        #endif
+        try press(resume)
+        let action: XCUIElement
+        if episode {
+            try waitForExistence(element("videoCollectionScreen"), timeout: 25, named: "show detail")
+            #if os(tvOS)
+            action = element("videoCollectionItem-\(itemID)")
+            #else
+            action = element("videoEpisode-\(itemID)")
+            try revealDetailElement(action, in: element("videoCollectionScreen"), named: "saved episode", requiresHittable: false)
+            #endif
+        } else {
+            try waitForExistence(element("detailScreen"), timeout: 25, named: "movie detail")
+            action = element("playButton")
+        }
+        let choice = element("resumePlaybackChoice")
+        try press(action)
+        try waitForExistence(choice, timeout: 15, named: "Resume / Start Over choice")
+        XCTAssertFalse(element("playbackScreen").exists, "Saved playback must wait for a choice.")
+        try attachFrame(named: episode ? "Episode Resume and Start Over choice" : "Movie Resume and Start Over choice")
+        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Cancel")).firstMatch)
+        XCTAssertTrue(disappears(choice, timeout: 8))
+        XCTAssertFalse(element("playbackScreen").exists)
+        let untouched = try await api.playbackSeconds(identity: identity, itemID: itemID)
+        XCTAssertEqual(untouched, 24, accuracy: 0.1, "Cancelling must preserve saved progress.")
+
+        try press(action)
+        try waitForExistence(choice, timeout: 15, named: "resume choice after cancellation")
+        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "resumed player")
+        let initial = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= 24 }
+        XCTAssertLessThan(initial, 35, "Resume must use the saved position.")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= initial + 2 }
+        try closeRequestedPlayback()
+
+        try press(action)
+        try waitForExistence(choice, timeout: 15, named: "start-over choice")
+        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Start Over")).firstMatch)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "restarted player")
+        let restarted = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= 1 }
+        XCTAssertLessThan(restarted, 10, "Start Over must play from zero, not the old resume offset.")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= restarted + 2 }
+        let deadline = Date().addingTimeInterval(10)
+        var saved = try await api.playbackSeconds(identity: identity, itemID: itemID)
+        while saved >= 10, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(250))
+            saved = try await api.playbackSeconds(identity: identity, itemID: itemID)
+        }
+        XCTAssertLessThan(saved, 10, "The server must receive the restarted timeline.")
+        try closeRequestedPlayback()
+        try await api.seedProgress(identity: identity, itemID: itemID, seconds: 0)
+        try press(action)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "unplayed title starts directly")
+        XCTAssertFalse(choice.exists, "A fresh title must not need a resume choice.")
+        try closeRequestedPlayback()
+        completed = true
+    }
 
     func journeyNativePlaybackReportsResumeAndConversionProgress() async throws {
         var completed = false
@@ -7377,6 +7485,11 @@ class NativeProofJourney: XCTestCase {
         #endif
         try waitForHittable(firstEpisode, timeout: 20, named: "first episode for playback actions")
         try activate(firstEpisode)
+        #if os(iOS)
+        let initialResumeChoice = element("resumePlaybackChoice")
+        try waitForExistence(initialResumeChoice, timeout: 15, named: "initial saved episode choice")
+        try activate(initialResumeChoice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch)
+        #endif
         try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode thumbnail playback")
         let time = element("playbackTime")
         let intro = element("skipIntroButton")
@@ -9390,6 +9503,10 @@ class NativeProofJourney: XCTestCase {
         }
         #endif
         try activate(button)
+        // Existing playback journeys explicitly keep their saved position; choice semantics have their own workflow.
+        let resumeChoice = element("resumePlaybackChoice")
+        XCTAssertTrue(waitUntil(timeout: 35) { resumeChoice.exists || self.element("playbackScreen").exists })
+        if resumeChoice.exists { try activate(resumeChoice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch) }
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
         #if os(iOS)
         if freezeInitialTransport {

@@ -1,0 +1,8 @@
+.resume-choice .g-dialog-head { justify-content: flex-end; padding: 12px 12px 0; }
+.resume-choice .g-dialog-body { padding: 0 28px 24px; }
+.resume-choice-content { display: grid; justify-items: center; gap: 12px; text-align: center; }
+.resume-choice-content .g-brand { --w: 48px; }
+.resume-choice-content h3 { margin: 8px 0 0; overflow-wrap: anywhere; font: var(--g-type-h2); }
+.resume-choice-content p { margin: 0; color: var(--g-ink-2); font: var(--g-type-ui); }
+.resume-choice .g-dialog-foot { justify-content: center; padding: 0 24px 24px; border: 0; }
+@media (max-width: 599px) { .resume-choice .g-dialog-foot { align-items: stretch; } }

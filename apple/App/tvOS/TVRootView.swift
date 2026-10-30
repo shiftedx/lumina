@@ -1850,6 +1850,7 @@ private struct TVRail: View {
     var onHide: (String) -> Void = { _ in }
     @FocusState private var focusedItemID: String?
     @State private var movingForward = true
+    @State private var lastFocusedItemID: String?
 
     private var captionPresentation: TVRailCaptionPresentation {
         TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
@@ -1883,7 +1884,11 @@ private struct TVRail: View {
             .scrollClipDisabled()
         }
         .padding(.horizontal, 80)
+        // Enter using this row’s history, rather than the previous row’s horizontal position.
+        .defaultFocus($focusedItemID, items.first(where: { $0.id == lastFocusedItemID })?.id ?? items.first?.id,
+                      priority: .userInitiated)
         .onChange(of: focusedItemID) { old, new in
+            if let new { lastFocusedItemID = new }
             guard let old, let new,
                   let previous = items.firstIndex(where: { $0.id == old }),
                   let current = items.firstIndex(where: { $0.id == new }) else { return }

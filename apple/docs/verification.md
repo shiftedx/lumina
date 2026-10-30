@@ -1278,3 +1278,24 @@ static-animation switch; shipping animations are unchanged. No full suite,
 physical-device qualification, production deployment, packaging or TestFlight
 upload was performed for this feature. The previously uploaded build 36 does
 not contain it.
+
+
+## tvOS Home carousel entry — October 30, 2026
+
+`NativeTVHomeNavigationPreservesSelectionTests/testNewHomeCarouselsEnterAtLeadingCard`
+reproduced the owner's focus report on a second-generation Apple TV 4K
+1080p/tvOS 27.0 simulator. With fresh metadata and no prior row history, Down
+from the hero's right-hand watchlist action focused Continue watching's second
+card. The baseline failed its first-card assertion; its screenshot and
+accessibility hierarchy confirm that the first card remained visible at the
+left edge, ruling out an initially shifted carousel.
+
+The shared Home rail now uses a user-initiated default focus: its first item on
+initial entry, or its last visited item when that item still exists. The same
+remote workflow then passed both entry cases (hero to first row, right-hand
+card to the next new row), Left/Right movement, Up restoring the previous row's
+third card, and detail Back restoring that same card. The focused screenshot
+was inspected and the tvOS simulator test build passed. Evidence remains in
+ignored `output/tvos-carousel-entry/` (`baseline.xcresult`, `fix.xcresult`, and
+`final.xcresult`). No full suite, physical Apple TV qualification, new release
+package or upload was performed. This source fix is not in uploaded build 36.

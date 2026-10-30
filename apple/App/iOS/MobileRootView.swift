@@ -745,6 +745,7 @@ private enum LibraryCategory: String, CaseIterable {
 @MainActor
 private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var destination: LibraryDestination = .home
     @State private var homeNavigationID = UUID()
     #if LUMINA_UI_TESTING
@@ -828,7 +829,9 @@ private struct LibraryShellView: View {
                                         stacksCategoryHeader: stacksCategoryHeader,
                                         usesClosedCategoryRow: usesClosedCategoryRow,
                                         showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
-                                        uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue
+                                        uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue,
+                                        scrollsHeader: usesIPadHeaderNavigation,
+                                        header: { if usesIPadHeaderNavigation { iPadHomeHeader } }
                         ) { selected in
                             openLibrary(selected, fromHome: true)
                         }
@@ -973,6 +976,36 @@ private struct LibraryShellView: View {
         .accessibilityIdentifier("libraryCategories")
     }
 
+    private var iPadHomeHeader: some View {
+        HStack(spacing: 12) {
+            HomeHeroChrome().fixedSize()
+            unifiedCategories.frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                    NavigationLink {
+                        NativeOfflineLibraryView(store: store)
+                            .environment(\.colorScheme, colorScheme)
+                            .toolbarVisibility(.visible, for: .navigationBar)
+                    } label: { Label("Downloads", glyph: .download).labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(.rect) }
+                        .accessibilityIdentifier("homeDownloadsButton")
+                }
+                NavigationLink {
+                    HomeSearchView(store: store)
+                        .environment(\.colorScheme, colorScheme)
+                        .toolbarVisibility(.visible, for: .navigationBar)
+                        .toolbar { NativeNowPlayingToolbar(store: store) }
+                } label: { Label("Search", glyph: .search).labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(.rect) }
+                    .accessibilityIdentifier("homeSearchButton")
+                NativeNowPlayingControls(store: store)
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+        }
+        .frame(height: 44)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
     private var unifiedCategorySelection: String? {
         switch destination {
         case .home: homeCategory == .watchlist ? HomeBrowsingDestination.watchlist.rawValue : HomeBrowsingDestination.all.rawValue
@@ -1044,7 +1077,7 @@ private struct LibraryShellView: View {
                                                          @ViewBuilder content: () -> Content) -> some View {
             content()
                 .toolbar {
-                    if usesIPadHeaderNavigation, owner == destination {
+                    if usesIPadHeaderNavigation, owner == destination, owner != .home {
                         ToolbarItem(placement: .principal) {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
@@ -1077,7 +1110,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("compactBrowseMenu")
                         }
                     }
-                    if owner == .home, destination == .home, !usesPortraitRail {
+                    if owner == .home, destination == .home, !usesPortraitRail, !usesIPadHeaderNavigation {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
@@ -1094,7 +1127,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("homeSearchButton")
                         }
                     }
-                    if !usesPortraitRail { NativeNowPlayingToolbar(store: store) }
+                    if !usesPortraitRail, owner != .home || !usesIPadHeaderNavigation { NativeNowPlayingToolbar(store: store) }
                 }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
@@ -1210,7 +1243,7 @@ private struct MobileHomeSessionScope: Hashable {
 }
 
 @MainActor
-private struct HomeLibraryView: View {
+private struct HomeLibraryView<Header: View>: View {
     let store: LuminaStore
     let homeLayout: LuminaHomeLayout
     let feed: LuminaHomeFeed
@@ -1221,11 +1254,14 @@ private struct HomeLibraryView: View {
     let usesClosedCategoryRow: Bool
     let showsBrowsingRow: Bool
     let uiTestingNavigationDiagnostics: String?
+    let scrollsHeader: Bool
+    @ViewBuilder let header: Header
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
     #if LUMINA_UI_TESTING
     @State private var uiTestingHomeRefreshCount = 0
     #endif
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -1286,6 +1322,12 @@ private struct HomeLibraryView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
+            .padding(.top, scrollsHeader && snapshot.items.isEmpty ? geometry.safeAreaInsets.top + 76 : 0)
+            .overlay(alignment: .top) {
+                header
+                    .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
+                    .padding(.top, geometry.safeAreaInsets.top)
+            }
         }
         .ignoresSafeArea(edges: snapshot.items.isEmpty ? [] : .top)
         .modifier(HomeHeroScrollEdge(isEnabled: !snapshot.items.isEmpty))
@@ -1304,11 +1346,11 @@ private struct HomeLibraryView: View {
 
         .navigationBarTitleDisplayMode(.inline)
         .background(LuminaTheme.paper)
-        .toolbarVisibility(.visible, for: .navigationBar)
+        .toolbarVisibility(scrollsHeader ? .hidden : .visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if !stacksCategoryHeader {
+            if !stacksCategoryHeader && !scrollsHeader {
                 if showsBrowsingRow, usesClosedCategoryRow {
                     let header = HStack(spacing: 12) {
                         HomeHeroChrome().fixedSize()

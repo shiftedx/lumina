@@ -233,6 +233,7 @@ final class NativeTVEpisodeRemoteNavigationTests: NativeProofJourney {
 }
 @MainActor
 final class NativeTVLibraryAlphabetTests: NativeProofJourney {
+    func testHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
     func testTVLibraryAlphabetSortAndJump() throws { try journeyTVLibraryAlphabetSortAndJump() }
 }
 @MainActor
@@ -273,6 +274,7 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
+    func testIPadHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
     func testCompleteCatalogSupportsFastPosterScrolling() throws {
         try journeyCompleteCatalogSupportsFastPosterScrolling()
     }
@@ -3293,8 +3295,14 @@ class NativeProofJourney: XCTestCase {
         }, "Focus must preview the episode before Select.")
         XCUIRemote.shared.press(.select)
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "playback directly from episode Select")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
-        try attachPlaybackFrame(named: "TV episode Select starts the focused episode")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
+        XCUIRemote.shared.press(.playPause)
+        let chrome = element("videoPlaybackChrome")
+        if !hasVisibleFrame(chrome) { XCUIRemote.shared.press(.select) }
+        try waitForExistence(chrome, timeout: 10, named: "TV video controls overlay")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("videoPlayPauseButton").label == "Play" })
+        XCTAssertFalse(element("closePlayerButton").exists, "TV video controls must use remote Back instead of a close icon.")
+        try attachPlaybackFrame(named: "TV remote-only playback controls without a close icon")
         try closePlayer()
         _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.secondEpisodeID)
         try waitForExistence(episode, timeout: 15, named: "episode after playback Back")
@@ -9251,6 +9259,69 @@ class NativeProofJourney: XCTestCase {
         throw ProofFailure.ui("A connection field could not be revealed: field=\(field.frame), viewport=\(viewport).")
     }
     #endif
+
+    func journeyHomeHeaderScrolling() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        #if os(iOS)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        #else
+        try launchAndResetSession()
+        #endif
+        try signIn(using: fixture, waitsForAccount: false)
+        let home = element("homeScreen")
+        try waitForExistence(home, timeout: 30, named: "Home before scrolling")
+        #if os(tvOS)
+        let movies = element("homeBrowse-movies")
+        #else
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("This workflow targets iPad navigation.") }
+        let movies = element("iPadCategory-movies")
+        #endif
+        try waitForExistence(movies, timeout: 20, named: "Home categories at the top")
+        XCTAssertTrue(hasVisibleFrame(movies))
+        try attachFrame(named: "Home categories over bright hero artwork")
+        #if os(tvOS)
+        let resume = element("resumeItem-\(fixture.directItemID)")
+        for _ in 0..<12 where !hasVisibleFrame(resume) { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(focus(resume, timeout: 20), "The remote must reach a shelf below the Home hero.")
+        #else
+        home.swipeUp()
+        home.swipeUp()
+        #endif
+        XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(movies) },
+                      "Home categories must scroll away rather than cover the shelves.")
+        XCTAssertFalse(hasVisibleFrame(element("homeMasthead")))
+        try attachFrame(named: "Home shelves without an overlapping navigation header")
+        #if os(tvOS)
+        for _ in 0..<12 where !hasVisibleFrame(movies) { XCUIRemote.shared.press(.up) }
+        try activate(movies)
+        #else
+        for _ in 0..<8 where !hasVisibleFrame(movies) { home.swipeDown() }
+        movies.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        #endif
+        let library = element("libraryScreen")
+        try waitForExistence(library, timeout: 25, named: "Movies Library")
+        try waitForExistence(movies, timeout: 10, named: "pinned Library categories")
+        let headerY = movies.frame.minY
+        let first = application!.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-")
+        ).firstMatch
+        try waitForExistence(first, timeout: 20, named: "first Library poster")
+        let firstID = first.identifier
+        #if os(tvOS)
+        XCTAssertTrue(focus(first, timeout: 20))
+        for _ in 0..<8 { XCUIRemote.shared.press(.down) }
+        #else
+        library.swipeUp()
+        library.swipeUp()
+        #endif
+        XCTAssertFalse(hasVisibleFrame(element(firstID)), "The Library must actually scroll through its posters.")
+        XCTAssertTrue(hasVisibleFrame(movies), "Library categories must remain pinned while browsing.")
+        XCTAssertEqual(movies.frame.minY, headerY, accuracy: 2)
+        try attachFrame(named: "Library posters beneath pinned categories")
+        completed = true
+    }
 
     private func closePlayer() throws {
         #if os(tvOS)

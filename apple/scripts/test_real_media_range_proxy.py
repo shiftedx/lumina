@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import http.client
+import io
 import json
 import os
 import sqlite3
@@ -10,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from unittest import mock
 
@@ -71,8 +73,11 @@ class RangeProxyTests(unittest.TestCase):
             str(identity.size), str(identity.mtimeNS), str(identity.device), str(identity.inode), str(proxy.CHUNK_BYTES),
         ]
 
-    def start(self) -> str:
-        self.proxy = proxy.RangeProxy(self.identity, self.factory)
+    def start(self, max_run_bytes: int | None = None, streaming_ranges: bool = False) -> str:
+        self.proxy = proxy.start_proxy(
+            self.identity, self.factory, self.root / 'manifest.json', max_run_bytes=max_run_bytes,
+            streaming_ranges=streaming_ranges,
+        )
         self.thread = threading.Thread(target=self.proxy.serve_forever, daemon=True)
         self.thread.start()
         return f'127.0.0.1:{self.proxy.server_port}{self.proxy.route}'
@@ -82,11 +87,12 @@ class RangeProxyTests(unittest.TestCase):
         host, path = authority.split('/', 1)
         connection = http.client.HTTPConnection(host, timeout=5)
         headers = {'Range': range_header} if range_header else {}
-        connection.request('GET', '/' + path, headers=headers)
-        response = connection.getresponse()
-        result = response.status, dict(response.getheaders()), response.read()
-        connection.close()
-        return result
+        try:
+            connection.request('GET', '/' + path, headers=headers)
+            response = connection.getresponse()
+            return response.status, dict(response.getheaders()), response.read()
+        finally:
+            connection.close()
 
     def test_framed_reader_serves_finite_and_open_tail_exact_bytes(self) -> None:
         authority = self.start()
@@ -99,13 +105,59 @@ class RangeProxyTests(unittest.TestCase):
             self.assertEqual(headers['ETag'], self.identity.etag)
 
     def test_rejects_unbounded_get_and_response_or_run_budget(self) -> None:
-        authority = self.start()
+        authority = self.start(max_run_bytes=1024)
         self.assertEqual(self.request(authority)[0], 416)
         with mock.patch.object(proxy, 'MAX_RESPONSE_BYTES', 1024):
             self.assertEqual(self.request(authority, 'bytes=0-1024')[0], 416)
-        with mock.patch.object(proxy, 'MAX_RUN_BYTES', 1024):
-            self.assertEqual(self.request(authority, 'bytes=0-1023')[0], 206)
-            self.assertEqual(self.request(authority, 'bytes=1024-1024')[0], 503)
+        self.assertEqual(self.request(authority, 'bytes=0-1023')[0], 206)
+        self.assertEqual(self.request(authority, 'bytes=1024-1024')[0], 503)
+
+    def test_invalid_run_budget_rejected_before_starting_source_readers(self) -> None:
+        with mock.patch.object(proxy, 'ReaderPool') as readers:
+            for limit in (0, -1, (1 << 30) + 1, True):
+                with self.subTest(limit=limit), self.assertRaises(ValueError):
+                    proxy.RangeProxy(self.identity, self.factory, max_run_bytes=limit)
+            readers.assert_not_called()
+
+    def test_raw_player_streaming_ranges_still_enforce_source_budget(self) -> None:
+        authority = self.start(max_run_bytes=self.identity.size, streaming_ranges=True)
+        with mock.patch.object(proxy, 'MAX_RESPONSE_BYTES', 1024):
+            status, _, body = self.request(authority, 'bytes=0-')
+        self.assertEqual((status, body), (206, self.media.read_bytes()))
+        assert self.proxy is not None
+        self.assertEqual(self.proxy.budget, self.identity.size)
+        # A subsequent request cannot read beyond the same origin's budget.
+        self.assertEqual(self.request(authority, 'bytes=0-0')[0], 503)
+        self.assertEqual(self.proxy.budget, self.identity.size)
+
+    def test_streaming_budget_stops_mid_response_without_reading_extra(self) -> None:
+        authority = self.start(max_run_bytes=proxy.CHUNK_BYTES, streaming_ranges=True)
+        with self.assertRaises(http.client.IncompleteRead) as caught:
+            self.request(authority, 'bytes=0-')
+        self.assertEqual(caught.exception.partial, self.media.read_bytes()[:proxy.CHUNK_BYTES])
+        assert self.proxy is not None
+        self.assertEqual(self.proxy.budget, proxy.CHUNK_BYTES)
+
+    def test_raw_player_can_stream_without_a_range(self) -> None:
+        self.identity.expected['contentType'] = 'video/mp4'
+        authority = self.start(streaming_ranges=True)
+        status, headers, body = self.request(authority)
+        self.assertEqual((status, body), (200, self.media.read_bytes()))
+        self.assertEqual(int(headers['Content-Length']), self.identity.size)
+        self.assertEqual(headers['Content-Type'], 'video/mp4')
+
+    def test_frozen_source_cannot_inject_response_headers(self) -> None:
+        config, state, manifest = (self.root / name for name in ('config.json', 'state.json', 'manifest.json'))
+        proxy.write_private(config, {'sshHost': 'fixture-host', 'container': 'fixture-container', 'artifactID': 'fixture'})
+        self.identity.expected['contentType'] = 'video/mp4\r\nX-Injected: yes'
+        proxy.write_private(state, asdict(self.identity))
+        arguments = ['proxy', '--config', str(config), '--source-state', str(state), '--manifest', str(manifest)]
+        with mock.patch.object(sys, 'argv', arguments), mock.patch.object(sys, 'stderr', io.StringIO()), \
+             mock.patch.object(proxy, 'ReaderPool') as readers, self.assertRaises(SystemExit) as caught:
+            proxy.main()
+        self.assertEqual(caught.exception.code, 2)
+        readers.assert_not_called()
+        self.assertFalse(manifest.exists())
 
     def test_disconnect_reuses_framed_reader_and_shutdown_closes_workers(self) -> None:
         authority = self.start()

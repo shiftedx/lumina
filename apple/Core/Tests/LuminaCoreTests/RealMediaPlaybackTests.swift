@@ -1,4 +1,5 @@
 #if os(macOS)
+import AudioToolbox
 import AVFoundation
 import CoreVideo
 import Foundation
@@ -225,7 +226,11 @@ final class RealMediaPlaybackTests: XCTestCase {
             )
             if requirePlaybackMetadata {
                 phase = "playback-metadata"
-                delivery = try await assertPlaybackMetadata(item: item, expected: configuration.expected)
+                delivery = try await assertPlaybackMetadata(
+                    item: item,
+                    expected: configuration.expected,
+                    usesClientDemux: configuration.usesClientDemux
+                )
             }
             XCTAssertLessThanOrEqual(startupStarted.duration(to: .now), .seconds(30),
                                       "Real-media \(initialLabel) exceeded its 30-second qualification budget")
@@ -417,7 +422,15 @@ final class RealMediaPlaybackTests: XCTestCase {
         }
     }
 
-    private func assertPlaybackMetadata(item: AVPlayerItem, expected: Expected) async throws -> DeliveryShape {
+    private func assertPlaybackMetadata(
+        item: AVPlayerItem,
+        expected: Expected,
+        usesClientDemux: Bool
+    ) async throws -> DeliveryShape {
+        guard usesClientDemux else {
+            try await assertMediaFormatDescriptions(item, expected: expected)
+            return .mediaDirect
+        }
         guard let masterURL = (item.asset as? AVURLAsset)?.url else {
             XCTFail("Client-demux qualification must publish an AVURLAsset")
             return .mediaDirect
@@ -489,8 +502,21 @@ final class RealMediaPlaybackTests: XCTestCase {
         for track in audioTracks {
             audioDescriptions.append(contentsOf: try await track.load(.formatDescriptions))
         }
-        XCTAssertTrue(audioDescriptions.contains { CMFormatDescriptionGetMediaSubType($0) == fourCC(expected.audio) },
+        XCTAssertTrue(audioDescriptions.contains {
+            matchesMediaDirectAudioFormat(CMFormatDescriptionGetMediaSubType($0), expected: expected.audio)
+        },
                       "Media-direct item must retain the expected audio codec")
+    }
+
+    private func matchesMediaDirectAudioFormat(_ delivered: UInt32, expected: String) -> Bool {
+        switch expected {
+        case "mp4a":
+            delivered == kAudioFormatMPEG4AAC
+        case "fLaC":
+            delivered == kAudioFormatFLAC
+        default:
+            delivered == fourCC(expected)
+        }
     }
 
     private func fourCC(_ value: String) -> UInt32 {
@@ -566,7 +592,6 @@ final class RealMediaPlaybackTests: XCTestCase {
                   let scheme = proxyURL.scheme?.lowercased(), scheme == "http" || scheme == "https",
                   let host = proxyURL.host?.lowercased(), ["127.0.0.1", "::1", "localhost"].contains(host),
                   proxyURL.user == nil, proxyURL.password == nil,
-                  usesClientDemux,
                   [startSeconds, deepSeekSeconds, nearEndSeconds].allSatisfy({ $0.isFinite && $0 >= 0 }),
                   startSeconds <= deepSeekSeconds, deepSeekSeconds < nearEndSeconds,
                   sourceSize > 0,

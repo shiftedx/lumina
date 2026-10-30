@@ -1032,7 +1032,7 @@ private struct TVDeviceLicensesView: View {
                 Text("Playback includes PrismCore, MPVKit and FFmpeg. Complete transitive notices are included in PlaybackNotices.txt in the app bundle.")
                     .font(.system(size: 21))
                     .foregroundStyle(LuminaTheme.muted)
-                Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/8fdb8f1e444839c47df4c2f697df39e0ec8098fb")!)
+                Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/db42eb269ee629fe8ea81614b187fe290d2ec2d0")!)
                 Link("MPVKit and FFmpeg source and build recipes", destination: URL(string: "https://github.com/Wenzlik/MPVKit/tree/1.0.1")!)
                 Text(licenses).font(.footnote)
             }

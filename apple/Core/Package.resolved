@@ -15,7 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/shiftedx/PrismCore.git",
       "state" : {
-        "revision" : "8fdb8f1e444839c47df4c2f697df39e0ec8098fb"
+        "revision" : "db42eb269ee629fe8ea81614b187fe290d2ec2d0"
       }
     }
   ],

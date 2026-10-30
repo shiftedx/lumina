@@ -1459,9 +1459,30 @@ LUMINA_REAL_MEDIA_MANIFEST=/tmp/lumina-real-media-private.json \
 
 For repeated runs, use `--source-state` in place of `--freeze` to bind the same
 version. Stop the bridge when finished. It binds only loopback with an opaque
-route, supports bounded finite/open-tail requests, and rejects body GETs without
-a range. Upstream frames are at most 1 MiB, responses at most 64 MiB, and each
-bridge run reserves at most 256 MiB. It streams compressed bytes without a local
+route, supports bounded finite/open-tail requests, and by default rejects body GETs
+without a range. Upstream frames are at most 1 MiB, strict-mode responses at most 64 MiB, and each
+bridge run reserves at most 256 MiB by default. For a workflow that prepares
+several players and seeks each original, explicitly set `--max-run-bytes 1073741824`
+to allow up to 1 GiB on that origin. Values outside 1 byte–1 GiB are rejected
+before starting readers; the per-response and upstream-frame bounds remain in
+force. Start a fresh bridge for each independent trial. An exhausted read budget
+returns 503 and logs `real-media range proxy read budget exhausted`; classify that
+trial as transport-limited rather than a decoder failure. Shutdown reports reserved
+bytes and the selected limit without source identifiers. Reserved bytes are an
+admission budget, not a measurement of bytes consumed by the player.
+For native raw-direct MP4 qualification, add `--streaming-ranges`: AVPlayer can
+ask for a whole remaining file or omit Range while deciding which bytes it needs.
+This mode keeps truthful HTTP lengths/ranges and admits each source frame against
+the same total budget before reading, instead of reserving the entire declared
+response. It can stream responses larger than 64 MiB without a local media cache.
+If the total budget runs out after headers were sent, the body ends early and the
+same exhaustion diagnostic identifies a transport-limited trial. No further source
+frame is read. The default strict mode remains useful for coordinated finite-read
+clients; a 416 there is not evidence of a native codec rejection.
+Fresh state also records the original response's Content-Type; raw-direct checks
+must retain it. Older frozen state defaults to octet-stream for compatibility, so
+capture a fresh state when qualifying native raw MP4 playback.
+It streams compressed bytes without a local
 media cache, enforces bounded reader waits, and closes owned reader process groups
 on stop or startup failure. Metadata playlist reads in the XCTest are independently
 loopback-only, bounded and redirect-rejecting. Test/CLI failures omit source URLs,

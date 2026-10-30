@@ -5,19 +5,26 @@ import Foundation
 import XCTest
 @testable import LuminaCore
 
+private final class QualificationRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+        task.cancel()
+    }
+}
+
 /// Opt-in qualification against a locally proxied, operator-provided media file.
 /// The manifest deliberately contains an alias rather than a library title, path, or credential.
 @MainActor
 final class RealMediaPlaybackTests: XCTestCase {
     func testConfiguredAssetRendersAndSeeks() async throws {
-        guard let path = ProcessInfo.processInfo.environment["LUMINA_REAL_MEDIA_MANIFEST"], !path.isEmpty else {
-            throw XCTSkip("Set LUMINA_REAL_MEDIA_MANIFEST to an opt-in local qualification manifest")
-        }
-        let configuration = try JSONDecoder().decode(
-            Configuration.self,
-            from: Data(contentsOf: URL(fileURLWithPath: path))
-        )
-        try configuration.validate()
+        let configuration = try configuredAsset()
+        try await assertSourceBinding(configuration)
 
         do {
             let defaultDelivery = try await exercise(
@@ -58,6 +65,119 @@ final class RealMediaPlaybackTests: XCTestCase {
         }
     }
 
+    func testConfiguredAssetFreshPlayerColdNearEndRenders() async throws {
+        let configuration = try configuredAsset()
+        try await assertSourceBinding(configuration)
+        _ = try await exercise(
+            configuration,
+            preferredAudioStreamIndex: configuration.audioStreamIndex,
+            initialPosition: configuration.nearEndSeconds,
+            initialLabel: "fresh-player-cold-near-end",
+            requirePlaybackMetadata: true,
+            followUp: []
+        )
+    }
+
+    func testSourceBindingPreflightRejectsChangedOriginBeforePlayback() async throws {
+        let bytes = Data([0x01, 0x02])
+        let validator = "\"fixture-v1\""
+        let accepted = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0, etag: validator)
+        let acceptedURL = try await accepted.start()
+        defer { accepted.stop() }
+        try await assertSourceBinding(url: acceptedURL, sourceSize: bytes.count, sourceValidator: validator)
+        XCTAssertEqual(accepted.requestedRangeStarts, [0])
+
+        let stale = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0, etag: "\"fixture-v2\"")
+        let staleURL = try await stale.start()
+        defer { stale.stop() }
+        await assertPreflightRejects(url: staleURL, sourceSize: bytes.count, sourceValidator: validator)
+        XCTAssertEqual(stale.requestedRangeStarts, [0])
+
+        let wrongSize = try ProgressiveAudioHTTPFixture(
+            bytes: bytes, delay: 0, advertisedLength: bytes.count + 1, etag: validator
+        )
+        let wrongSizeURL = try await wrongSize.start()
+        defer { wrongSize.stop() }
+        await assertPreflightRejects(url: wrongSizeURL, sourceSize: bytes.count, sourceValidator: validator)
+        XCTAssertEqual(wrongSize.requestedRangeStarts, [0])
+
+        let ignoresRange = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0, ranges: false, etag: validator)
+        let ignoresRangeURL = try await ignoresRange.start()
+        defer { ignoresRange.stop() }
+        await assertPreflightRejects(url: ignoresRangeURL, sourceSize: bytes.count, sourceValidator: validator)
+        XCTAssertEqual(ignoresRange.requestedRangeStarts, [0])
+    }
+
+    private func configuredAsset() throws -> Configuration {
+        guard let path = ProcessInfo.processInfo.environment["LUMINA_REAL_MEDIA_MANIFEST"], !path.isEmpty else {
+            throw XCTSkip("Set LUMINA_REAL_MEDIA_MANIFEST to an opt-in local qualification manifest")
+        }
+        let configuration = try JSONDecoder().decode(
+            Configuration.self,
+            from: Data(contentsOf: URL(fileURLWithPath: path))
+        )
+        try configuration.validate()
+        return configuration
+    }
+
+    private func assertPreflightRejects(url: URL, sourceSize: Int, sourceValidator: String) async {
+        do {
+            try await assertSourceBinding(url: url, sourceSize: sourceSize, sourceValidator: sourceValidator)
+            XCTFail("A changed source binding must fail before playback")
+        } catch {}
+    }
+
+    private func assertSourceBinding(_ configuration: Configuration) async throws {
+        try await assertSourceBinding(
+            url: configuration.proxyURL,
+            sourceSize: configuration.sourceSize,
+            sourceValidator: configuration.sourceValidator
+        )
+    }
+
+    private func assertSourceBinding(url: URL, sourceSize: Int, sourceValidator: String) async throws {
+        do {
+            try await assertSourceBindingUnchecked(url: url, sourceSize: sourceSize, sourceValidator: sourceValidator)
+        } catch let error as QualificationFailure {
+            throw error
+        } catch {
+            throw QualificationFailure(chain: "source provenance preflight: \(sanitizedErrorChain(error))")
+        }
+    }
+
+    private func assertSourceBindingUnchecked(url: URL, sourceSize: Int, sourceValidator: String) async throws {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 30
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 30
+        let session = URLSession(
+            configuration: configuration,
+            delegate: QualificationRedirectGuard(),
+            delegateQueue: nil
+        )
+        defer { session.invalidateAndCancel() }
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 206,
+              http.value(forHTTPHeaderField: "Content-Range") == "bytes 0-0/\(sourceSize)",
+              http.value(forHTTPHeaderField: "ETag") == sourceValidator
+        else { throw QualificationFailure(chain: "source provenance preflight rejected") }
+        var iterator = bytes.makeAsyncIterator()
+        guard try await iterator.next() != nil else {
+            throw QualificationFailure(chain: "source provenance preflight body missing")
+        }
+        guard try await iterator.next() == nil else {
+            throw QualificationFailure(chain: "source provenance preflight exceeded one byte")
+        }
+    }
+
     private func exercise(
         _ configuration: Configuration,
         preferredAudioStreamIndex: Int?,
@@ -68,9 +188,9 @@ final class RealMediaPlaybackTests: XCTestCase {
     ) async throws -> DeliveryShape? {
         var phase = "prepare"
         var delivery: DeliveryShape?
+        let owner = NativeVideoSource()
+        var player: AVPlayer?
         do {
-            let owner = NativeVideoSource()
-            defer { owner.stop() }
             let startupStarted = ContinuousClock.now
             let item = try await owner.prepare(
                 url: configuration.proxyURL,
@@ -82,14 +202,27 @@ final class RealMediaPlaybackTests: XCTestCase {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
             ])
             item.add(frames)
-            let player = AVPlayer(playerItem: item)
-            player.volume = 0
-            defer { player.replaceCurrentItem(with: nil) }
+            let preparedPlayer = AVPlayer(playerItem: item)
+            preparedPlayer.volume = 0
+            player = preparedPlayer
 
+            let initialDeadline = startupStarted + .seconds(30)
             phase = "ready"
-            try await NativeVideoSource.waitUntilReady(player, timeout: .seconds(30))
+            try await NativeVideoSource.waitUntilReady(preparedPlayer, timeout: remaining(until: initialDeadline))
+            print("Real-media \(initialLabel) prepareReadyElapsed=\(startupStarted.duration(to: .now))")
+            if initialPosition > 0 {
+                phase = "timeline"
+                let timelineStarted = ContinuousClock.now
+                try await NativeVideoSource.waitUntilReady(
+                    preparedPlayer, seekingTo: initialPosition, timeout: remaining(until: initialDeadline)
+                )
+                print("Real-media \(initialLabel) timelineWaitElapsed=\(timelineStarted.duration(to: .now))")
+            }
             phase = "render"
-            try await render(initialPosition, item: item, player: player, frames: frames, label: initialLabel)
+            try await render(
+                initialPosition, item: item, player: preparedPlayer, frames: frames,
+                label: initialLabel, deadline: initialDeadline
+            )
             if requirePlaybackMetadata {
                 phase = "playback-metadata"
                 delivery = try await assertPlaybackMetadata(item: item, expected: configuration.expected)
@@ -99,15 +232,82 @@ final class RealMediaPlaybackTests: XCTestCase {
             for (label, target) in followUp {
                 let started = ContinuousClock.now
                 phase = "\(label)-render"
-                try await render(target, item: item, player: player, frames: frames, label: label)
+                let deadline = started + .seconds(30)
+                try await render(target, item: item, player: preparedPlayer, frames: frames, label: label, deadline: deadline)
                 XCTAssertLessThanOrEqual(started.duration(to: .now), .seconds(30),
                                           "Real-media \(label) seek exceeded its independent 30-second qualification budget")
             }
             try await owner.validateDolbyVisionConversion()
+            preparedPlayer.replaceCurrentItem(with: nil)
+            await owner.stop().value
             return delivery
         } catch {
+            player?.replaceCurrentItem(with: nil)
+            await owner.stop().value
+            if let qualification = error as? QualificationFailure {
+                throw qualification
+            }
             throw QualificationFailure(chain: "\(initialLabel)/\(phase): \(sanitizedErrorChain(error))")
         }
+    }
+
+    private func remaining(until deadline: ContinuousClock.Instant) throws -> Duration {
+        let remaining = ContinuousClock.now.duration(to: deadline)
+        guard remaining > .zero else {
+            throw QualificationFailure(chain: "initial playback budget exhausted")
+        }
+        return remaining
+    }
+
+    private func loadOwnedLoopbackPlaylist(_ url: URL) async throws -> String {
+        guard isOwnedLoopbackPlaylist(url) else {
+            throw QualificationFailure(chain: "client-demux playlist is not an owned loopback m3u8")
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 5
+        request.setValue("application/vnd.apple.mpegurl, application/x-mpegURL", forHTTPHeaderField: "Accept")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 5
+        configuration.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: configuration, delegate: QualificationRedirectGuard(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200,
+              let responseURL = http.url,
+              isOwnedLoopbackPlaylist(responseURL),
+              sameLoopbackOrigin(url, responseURL) else {
+            throw QualificationFailure(chain: "client-demux playlist request rejected")
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < 1024 * 1024 else {
+                throw QualificationFailure(chain: "client-demux playlist exceeded qualification bound")
+            }
+            data.append(byte)
+        }
+        guard let playlist = String(data: data, encoding: .utf8) else {
+            throw QualificationFailure(chain: "client-demux playlist is not text")
+        }
+        return playlist
+    }
+
+    private func isOwnedLoopbackPlaylist(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "http", url.pathExtension.lowercased() == "m3u8",
+              url.user == nil, url.password == nil, url.fragment == nil,
+              let host = url.host?.lowercased() else { return false }
+        return ["127.0.0.1", "::1", "localhost"].contains(host)
+    }
+
+    private func sameLoopbackOrigin(_ left: URL, _ right: URL) -> Bool {
+        left.scheme?.lowercased() == right.scheme?.lowercased()
+            && left.host?.lowercased() == right.host?.lowercased()
+            && left.port == right.port
     }
 
     private func assertSelectedSubtitleSelection(
@@ -136,9 +336,8 @@ final class RealMediaPlaybackTests: XCTestCase {
                     XCTFail("A selected subtitle needs a genuine HLS master")
                     continue
                 }
-                let (data, response) = try await URLSession.shared.data(from: url)
-                XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-                XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("#EXT-X-STREAM-INF:"))
+                let master = try await loadOwnedLoopbackPlaylist(url)
+                XCTAssertTrue(master.contains("#EXT-X-STREAM-INF:"))
                 let legible = try await item.asset.loadMediaSelectionGroup(for: .legible)
                 XCTAssertNotNil(legible,
                                 "A selected subtitle accepted by a genuine master must remain selectable")
@@ -157,20 +356,27 @@ final class RealMediaPlaybackTests: XCTestCase {
         item: AVPlayerItem,
         player: AVPlayer,
         frames: AVPlayerItemVideoOutput,
-        label: String
+        label: String,
+        deadline: ContinuousClock.Instant
     ) async throws {
         let seekStarted = ContinuousClock.now
-        let sought = await boundedSeek(player: player, item: item, target: target)
+        let sought = await boundedSeek(player: player, item: item, target: target, timeout: try remaining(until: deadline))
         let seekElapsed = seekStarted.duration(to: .now)
         guard sought else {
-            print("Real-media \(label) seek completed=false elapsed=\(seekElapsed)")
-            throw QualificationFailure(chain: "\(label) seek timed out")
+            let seekableEnd = item.seekableTimeRanges
+                .map { CMTimeRangeGetEnd($0.timeRangeValue).seconds }
+                .filter(\.isFinite)
+                .max()
+                .map { String($0) } ?? "none"
+            let duration = item.duration.seconds.isFinite ? String(item.duration.seconds) : "unknown"
+            let itemError = item.error.map(sanitizedErrorChain) ?? "none"
+            print("Real-media \(label) seek completed=false elapsed=\(seekElapsed) itemStatus=\(item.status.rawValue) playerStatus=\(player.status.rawValue) duration=\(duration) seekableEnd=\(seekableEnd) itemError=\(itemError)")
+            throw QualificationFailure(chain: "\(label) seek completion false")
         }
         player.play()
         defer { player.pause() }
 
         let frameStarted = ContinuousClock.now
-        let deadline = ContinuousClock.now + .seconds(30)
         var displayedTime: Double?
         while ContinuousClock.now < deadline {
             let current = item.currentTime().seconds
@@ -190,12 +396,12 @@ final class RealMediaPlaybackTests: XCTestCase {
         XCTFail("Real-media \(label) must display the requested presentation time; rendered=\(rendered)")
     }
 
-    private func boundedSeek(player: AVPlayer, item: AVPlayerItem, target: Double) async -> Bool {
+    private func boundedSeek(player: AVPlayer, item: AVPlayerItem, target: Double, timeout: Duration) async -> Bool {
         let gate = SeekGate()
         return await withCheckedContinuation { continuation in
             gate.install(continuation)
-            let timeout = Task { @MainActor in
-                do { try await Task.sleep(for: .seconds(30)) }
+            let timeoutTask = Task { @MainActor in
+                do { try await Task.sleep(for: timeout) }
                 catch { return }
                 item.cancelPendingSeeks()
                 gate.resolve(false)
@@ -205,7 +411,7 @@ final class RealMediaPlaybackTests: XCTestCase {
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
             ) { finished in
-                timeout.cancel()
+                timeoutTask.cancel()
                 gate.resolve(finished)
             }
         }
@@ -216,9 +422,7 @@ final class RealMediaPlaybackTests: XCTestCase {
             XCTFail("Client-demux qualification must publish an AVURLAsset")
             return .mediaDirect
         }
-        let (data, response) = try await URLSession.shared.data(from: masterURL)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-        let master = String(decoding: data, as: UTF8.self).lowercased()
+        let master = try await loadOwnedLoopbackPlaylist(masterURL).lowercased()
         guard master.contains("#ext-x-stream-inf:") else {
             try await assertMediaFormatDescriptions(item, expected: expected)
             return .mediaDirect
@@ -351,6 +555,8 @@ final class RealMediaPlaybackTests: XCTestCase {
         let startSeconds: Double
         let deepSeekSeconds: Double
         let nearEndSeconds: Double
+        let sourceSize: Int
+        let sourceValidator: String
         let expected: Expected
         let selectedSubtitleStreamIndex: Int?
         let audioStreamIndex: Int?
@@ -363,6 +569,9 @@ final class RealMediaPlaybackTests: XCTestCase {
                   usesClientDemux,
                   [startSeconds, deepSeekSeconds, nearEndSeconds].allSatisfy({ $0.isFinite && $0 >= 0 }),
                   startSeconds <= deepSeekSeconds, deepSeekSeconds < nearEndSeconds,
+                  sourceSize > 0,
+                  sourceValidator.count > 2,
+                  sourceValidator.hasPrefix("\"") && sourceValidator.hasSuffix("\""),
                   selectedSubtitleStreamIndex.map({ $0 >= 0 }) ?? true,
                   audioStreamIndex.map({ $0 >= 0 }) ?? true,
                   expected.width > 0, expected.height > 0,

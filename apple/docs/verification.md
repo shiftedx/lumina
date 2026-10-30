@@ -1287,8 +1287,10 @@ LUMINA_REAL_MEDIA_MANIFEST=/absolute/path/to/private-manifest.json \
 
 The manifest specifies an alias, `proxyURL`, `usesClientDemux: true`, `strictPair`,
 `audioStreamIndex`, optional `selectedSubtitleStreamIndex`, `startSeconds`,
-`deepSeekSeconds`, `nearEndSeconds`, and `expected` dimensions, codec/audio FourCCs
-and HDR label. Each run checks the unselected-audio control, app-matched source
+`deepSeekSeconds`, `nearEndSeconds`, `sourceSize`, `sourceValidator`, and `expected`
+dimensions, codec/audio FourCCs and HDR label. A bounded one-byte range preflight
+requires the original version's ETag and total size before playback. This is
+version-pinned provenance through a trusted bridge, not a full-file content hash. Each run checks the unselected-audio control, app-matched source
 audio selection, a fresh player's deep resume, and a near-end seek. It requires
 actual decoded frame presentation times, with independent 30-second startup/seek
 budgets. Master declarations are checked when present; media-direct delivery is
@@ -1316,7 +1318,7 @@ Representative production originals exercised by the opt-in workflow:
 | --- | --- | --- | --- |
 | 1080p H.264 in Matroska | SDR / BT.709 | AAC stereo | Startup, app audio, fresh midpoint resume and near-end decode pass |
 | 4K HEVC Main10 in Matroska | Dolby Vision P8.1 / PQ base | E-AC-3 5.1 | Startup, app audio, fresh resume, near-end decode and selected-subtitle fallback pass |
-| 4K HEVC Main10 in Matroska | HDR10 / BT.2020 PQ | E-AC-3 5.1 | Startup, app audio, metadata and fresh resume pass; near-end decode passes with a latency outlier under investigation |
+| 4K HEVC Main10 in Matroska | HDR10 / BT.2020 PQ | E-AC-3 5.1 | Initial checks passed with a tail-latency outlier; follow-up persistent-reader qualification below closes the measurement gap |
 
 The HDR10 near-end check took 42.809 seconds in one run, exceeding the retained
 30-second budget. An instrumented repeat passed at 28.329 seconds, almost entirely
@@ -1407,6 +1409,85 @@ ignored `output/tvos-carousel-entry/` (`baseline.xcresult`, `fix.xcresult`, and
 `final.xcresult`). No full suite, physical Apple TV qualification, new release
 package or upload was performed. This source fix is not in uploaded build 36.
 
+
+### HDR10 fresh-player cold-tail qualification (2026-10-30)
+
+The prior 42.809-second miss was retained and investigated with the same
+version-bound production original. The old bridge launched a fresh SSH/container
+Python process for each range; replacing that lifecycle with four persistent
+read-only readers leaves the HTTP ranges and engine unchanged. A matched
+persistent/fresh/persistent comparison measured near-end seeks at 0.346, 20.948,
+and 0.330 seconds. Median source first-byte time was 904 ms with fresh processes
+and 3 ms with persistent readers. A separate 1.35-second-per-range latency control
+failed the unchanged 30-second cold-start budget, corroborating the transport
+cost. No engine read-size, codec, planner deadline or playback budget was changed.
+
+The fast source also makes complete planning observable: planner diagnostics
+reported `keyframeIndex`, `indexCoversEnd=true`, a complete VOD timeline, and no
+budget expiry. The planner took 36.6 ms with persistent readers and 2.801 seconds with
+fresh processes. A historical fresh session instead exposed a four-second EVENT
+window. Its exact planner fallback reason was not captured; do not label that
+historical verdict as proven budget expiry. The engine retains its three-second
+bounded tail-index attempt and never publishes an untrusted uniform VOD plan.
+
+A new dedicated test seeks near the end as the first seek of a fresh player,
+using the app's actual source audio index. It does not visit the midpoint first
+or require a previously harvested index. Positive seeks call the production
+readiness gate before seeking, with one initial 30-second deadline. Native local
+workflow coverage checks available targets, out-of-range timeout, invalid target,
+zero/exact-end start, replacement cancellation, decoded playback and source teardown.
+This is fresh-player qualification; no production or OS disk cache was cleared.
+
+The reusable stdlib bridge is `apple/scripts/real_media_range_proxy.py`. Its
+private 0600 JSON input contains `sshHost`, `container` and `artifactID`; use an
+operator-authorized artifact. It resolves only that original through read-only
+SQLite, then binds readers to its device/inode/size/mtime and original HTTP ETag.
+Each held-file read checks identity before and after reading. Its optional frozen
+state and generated manifest are 0600 and must stay outside the repository.
+The ETag is a source-version validator, not a cryptographic content digest.
+
+```bash
+mise exec -- python apple/scripts/real_media_range_proxy.py \
+  --config /absolute/path/to/private-source.json \
+  --manifest /tmp/lumina-real-media-private.json \
+  --freeze /tmp/lumina-real-media-private-state.json
+# Run the qualification in another terminal while that local bridge is active.
+LUMINA_REAL_MEDIA_MANIFEST=/tmp/lumina-real-media-private.json \
+  mise exec -- swift test --package-path apple/Core \
+  --filter RealMediaPlaybackTests.testConfiguredAssetFreshPlayerColdNearEndRenders
+```
+
+For repeated runs, use `--source-state` in place of `--freeze` to bind the same
+version. Stop the bridge when finished. It binds only loopback with an opaque
+route, supports bounded finite/open-tail requests, and rejects body GETs without
+a range. Upstream frames are at most 1 MiB, responses at most 64 MiB, and each
+bridge run reserves at most 256 MiB. It streams compressed bytes without a local
+media cache, enforces bounded reader waits, and closes owned reader process groups
+on stop or startup failure. Metadata playlist reads in the XCTest are independently
+loopback-only, bounded and redirect-rejecting. Test/CLI failures omit source URLs,
+IDs, paths and private SSH command values.
+
+The checked-in bridge's real HDR10 cold-tail workflow passed in 1.688 seconds:
+prepare/status 0.753 s, target readiness 0.00014 s, seek 0.339 s, and actual frame
+presentation 0.00006 s. Its one-byte live provenance and bounded range checks also
+passed. A separate fresh-origin HDR10 normal workflow passed in 2.547 s, including
+a 0.371-second near-end seek. The same helper's normal workflows passed for real SDR H.264/AAC
+(1.325 s) and Dolby Vision P8.1/PQ-base HEVC/E-AC-3 (2.822 s), including fresh
+resume and near-end presentation. Representative testing retains the source
+resolution, codec, transfer and audio checks; it establishes neither physical
+Dolby Vision/Atmos activation nor the production authentication path.
+
+Focused helper contracts cover actual framed-reader range bytes, source-version
+rejection, byte budgets, disconnect/reuse, startup cleanup and concurrent restart/
+shutdown. No full repository/Core/UI suite, media copy, production deployment,
+archive or app upload was performed. Both earlier playback PRs #233 and #235 were
+merged before this follow-up.
+
+Final focused checks: seven bridge contracts passed; selected native source
+workflows passed (22 tests, including 14 unavailable optional-fixture skips), and
+the local source-provenance contract passed. Both iOS and tvOS unsigned Debug
+simulator builds passed with the target-aware readiness API and main's autoplay/
+carousel work retained. Owned source bridges and their readers were stopped.
 
 ## Branded Resume / Start Over chooser — October 30, 2026
 

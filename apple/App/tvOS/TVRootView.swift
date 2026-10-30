@@ -7,6 +7,7 @@ public struct TVRootView: View {
     private let store: LuminaStore
     @State private var path: [MediaItem] = []
     @State private var playbackRequest: PlaybackRequest?
+    @State private var presentedPlaybackRequest: PlaybackRequest?
     @State private var libraryGeneration = 0
     @State private var audioSession = NativeAudioSession()
     @Environment(\.scenePhase) private var scenePhase
@@ -80,7 +81,9 @@ public struct TVRootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.session != nil { NativeNowPlayingBar(store: store) }
         }
-        .fullScreenCover(item: $playbackRequest, onDismiss: {
+        .nativeVideoResumeChoice(request: $playbackRequest, store: store, onReady: { presentedPlaybackRequest = $0 })
+        .fullScreenCover(item: $presentedPlaybackRequest, onDismiss: {
+            playbackRequest = nil
             Task { await store.refresh() }
         }) { request in
             PlaybackScreen(request: request, store: store, onReturnHome: {

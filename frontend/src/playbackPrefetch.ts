@@ -192,8 +192,9 @@ export function speculativeStart(itemId: string): void {
  * Pointer or focus left the primary action, or the page closed. Ignored after Play claimed the early session.
  * With no item (Play at a time): an unclaimed early session for any item stops.
  */
-export function cancelSpeculativeStart(itemId?: string): void {
-  if (early && !early.claimed && (itemId === undefined || early.itemId === itemId)) stop(early);
+export function cancelSpeculativeStart(itemId?: string): Promise<void> {
+  if (early && !early.claimed && (itemId === undefined || early.itemId === itemId)) return stop(early);
+  return Promise.resolve();
 }
 
 /** Play pressed (the app's openRoute): keep the early session for the player, which has 30 s to adopt it. */

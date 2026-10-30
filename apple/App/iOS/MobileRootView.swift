@@ -4,10 +4,6 @@ import AVFoundation
 import VisionKit
 import LuminaCore
 
-private extension EnvironmentValues {
-    @Entry var returnToLuminaHome: () -> Void = {}
-}
-
 @MainActor
 struct MobileRootView: View {
     @Bindable var store: LuminaStore

@@ -98,6 +98,7 @@
    "archive_path",
    "asr_base_url",
    "asr_model",
+    "autoplay_presence",
    "backup_daily",
    "backup_keep",
    "concurrency",
@@ -1363,5 +1364,5 @@
    "user_id"
   ]
  },
- "version": 41
+ "version": 42
 }

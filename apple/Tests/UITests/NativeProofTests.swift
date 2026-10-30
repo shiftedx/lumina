@@ -221,6 +221,7 @@ final class NativeTVNavigationArtworkAndVideoCategoriesTests: NativeProofJourney
 }
 @MainActor
 final class NativeTVHomeNavigationPreservesSelectionTests: NativeProofJourney {
+    func testNewHomeCarouselsEnterAtLeadingCard() async throws { try await journeyTVLeadingCarouselEntry() }
     func testHomeArtworkAndCachedDetailReturns() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: false) }
     func testNextUpArtworkAndCachedPlayback() async throws { try await journeyTVHomeArtworkAndCachedReturns(nextUp: true) }
     func testTVHomeNavigationPreservesSelection() async throws { try await journeyTVHomeNavigationPreservesSelection() }
@@ -375,6 +376,12 @@ final class NativeRequestsVaultViewTests: NativeProofJourney {
 final class NativeHomeDetailWatchlistPersistsThroughServerTests: NativeProofJourney { func testNativeHomeDetailWatchlistPersistsThroughServer() async throws { try await journeyNativeHomeDetailWatchlistPersistsThroughServer() } }
 @MainActor
 final class NativeEpisodeSkipActionsAndNextEpisodeTests: NativeProofJourney { func testNativeEpisodeSkipActionsAndNextEpisode() async throws { try await journeyNativeEpisodeSkipActionsAndNextEpisode() } }
+@MainActor
+final class NativeEpisodeAutoplayPresenceTests: NativeProofJourney {
+    func testNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes() async throws {
+        try await journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes()
+    }
+}
 @MainActor
 final class NativeVideoOverlayTests: NativeProofJourney {
     func testVideoOverlayCentersAndDismisses() async throws { try await journeyVideoOverlayCentersAndDismisses() }
@@ -3468,6 +3475,61 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
         try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback")
         try closePlayer()
+        completed = true
+    }
+
+    func journeyTVLeadingCarouselEntry() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        for id in [fixture.directItemID, fixture.convertedItemID, fixture.matrixItemID] {
+            try await api.seedProgress(identity: identity, itemID: id, seconds: 12)
+        }
+        _ = try await api.saveHomeLayout(identity: identity, shelves: [
+            ProofHomeShelf(id: "continue", visible: true),
+            ProofHomeShelf(id: "new_in_library", visible: true),
+            ProofHomeShelf(id: "next_up", visible: false),
+        ])
+        let rows = try await api.homeRows(identity: identity)
+        let resumeRow = try XCTUnwrap(rows.first { $0.shelf_id == "continue" })
+        let recentRow = try XCTUnwrap(rows.first { $0.shelf_id == "new_in_library" })
+        XCTAssertGreaterThanOrEqual(resumeRow.items.count, 3)
+        XCTAssertGreaterThanOrEqual(recentRow.items.count, 3)
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        try waitForExistence(element("featuredWatchlistButton"), timeout: 25, named: "hero's right-hand action")
+        XCTAssertTrue(focus(element("featuredWatchlistButton"), timeout: 20))
+        let firstResume = element("resumeItem-\(resumeRow.items[0].Id)")
+        for _ in 0..<4 {
+            XCUIRemote.shared.press(.down)
+            if resumeRow.items.contains(where: { element("resumeItem-\($0.Id)").hasFocus }) { break }
+        }
+        guard waitUntil(timeout: 8, condition: { firstResume.hasFocus }) else {
+            throw ProofFailure.ui("Down from the hero must enter the leftmost Continue watching card, regardless of the hero action's horizontal position.")
+        }
+        XCUIRemote.shared.press(.right)
+        XCUIRemote.shared.press(.right)
+        let visited = element("resumeItem-\(resumeRow.items[2].Id)")
+        XCTAssertTrue(waitUntil(timeout: 8) { visited.hasFocus }, "Horizontal navigation must remain within the row.")
+        let recentPrefix = "homeRow-\(recentRow.id)"
+        let firstRecent = element("\(recentPrefix)-\(recentRow.items[0].Id)")
+        for _ in 0..<4 {
+            XCUIRemote.shared.press(.down)
+            if recentRow.items.contains(where: { element("\(recentPrefix)-\($0.Id)").hasFocus }) { break }
+        }
+        XCTAssertTrue(waitUntil(timeout: 8) { firstRecent.hasFocus }, "Down from a right-hand card must enter a new carousel at its leftmost card.")
+        try attachFrame(named: "New Home carousel enters at its left edge")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitUntil(timeout: 8) { visited.hasFocus }, "Returning to a visited row must restore the member's last card.")
+        try activate(visited)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "movie from the visited carousel")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 12) { visited.hasFocus }, "Back from detail must restore the same carousel card.")
         completed = true
     }
 
@@ -7315,10 +7377,8 @@ class NativeProofJourney: XCTestCase {
         #endif
         try waitForHittable(firstEpisode, timeout: 20, named: "first episode for playback actions")
         try activate(firstEpisode)
-        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show after selecting first episode")
-        XCTAssertFalse(element("detailScreen").exists,
-                       "Episode selection must retain its show context before playback actions.")
-        let time = try startPlayback(using: "playButton")
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode thumbnail playback")
+        let time = element("playbackTime")
         let intro = element("skipIntroButton")
         _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 1 }
         XCTAssertFalse(element("nextEpisodeButton").exists,
@@ -7331,17 +7391,19 @@ class NativeProofJourney: XCTestCase {
         XCUIRemote.shared.press(.playPause)
         try waitForExistence(transport, timeout: 8, named: "paused episode transport")
         XCTAssertEqual(transport.label, "Play", "The episode transport must be paused before contextual skip actions are exercised.")
-        let closeFrame = element("closePlayerButton").frame
-        let settingsFrame = element("videoSettingsButton").frame
-        let muteFrame = element("videoMuteButton").frame
+        XCTAssertFalse(element("closePlayerButton").exists,
+                       "tvOS video controls must rely on the Remote Back action instead of an on-screen close button.")
+        let settings = element("videoSettingsButton")
+        let mute = element("videoMuteButton")
+        try waitForHittable(settings, timeout: 8, named: "TV video settings control")
+        try waitForHittable(mute, timeout: 8, named: "TV video mute control")
+        let settingsFrame = settings.frame
+        let muteFrame = mute.frame
         let viewport = application!.windows.firstMatch.frame
-        XCTAssertLessThan(closeFrame.minX - viewport.minX, viewport.width * 0.06,
-                          "The player toolbar must stay at the screen edge, without compounded safe-area insets.")
-        XCTAssertLessThan(closeFrame.minY - viewport.minY, viewport.height * 0.06)
-        XCTAssertEqual(closeFrame.midY, settingsFrame.midY, accuracy: 2)
         XCTAssertEqual(settingsFrame.midY, muteFrame.midY, accuracy: 2)
-        XCTAssertEqual(closeFrame.minX - viewport.minX, viewport.maxX - muteFrame.maxX, accuracy: 2,
-                       "The toolbar must have balanced leading and trailing margins.")
+        XCTAssertGreaterThanOrEqual(settingsFrame.minX, viewport.minX)
+        XCTAssertLessThanOrEqual(muteFrame.maxX, viewport.maxX,
+                                 "The remaining TV playback controls must stay inside the video viewport.")
         XCTAssertGreaterThan(intro.frame.minY, viewport.midY,
                              "Contextual episode actions belong near the playback timeline.")
         try attachPlaybackFrame(named: "TV playback — aligned edge toolbar and contextual action")
@@ -7403,6 +7465,129 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 1 }
         XCTAssertFalse(element("videoActionError").exists, "The next episode action must keep native playback usable.")
         try closePlayer()
+        completed = true
+    }
+
+    func journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        guard let thirdEpisodeID = fixture.thirdEpisodeID,
+              let thirdEpisodeTitle = fixture.thirdEpisodeTitle,
+              let fourthEpisodeID = fixture.fourthEpisodeID,
+              let fourthEpisodeTitle = fixture.fourthEpisodeTitle else {
+            throw XCTSkip("The autoplay journey requires the opt-in four-episode proof fixture.")
+        }
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        for episodeID in [fixture.episodeID, fixture.secondEpisodeID, thirdEpisodeID, fourthEpisodeID] {
+            try await api.seedProgress(identity: identity, itemID: episodeID, seconds: 0)
+        }
+
+        #if os(iOS)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 8)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        #else
+        try launchAndResetSession()
+        #endif
+        try signIn(using: fixture, waitsForAccount: false)
+        #if os(iOS)
+        let resume = element("resumeItem-\(fixture.episodeID)")
+        try revealDetailElement(resume, in: element("homeScreen"), named: "episode on Home", requiresHittable: false)
+        resume.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.3)).tap()
+        #else
+        try selectTourVideoCategory("tv")
+        let show = element("libraryItem-\(fixture.showID)")
+        try activate(try waitForPerformanceControl(show, timeout: 20, named: "autoplay fixture show"))
+        #endif
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "autoplay fixture show")
+        #if os(tvOS)
+        try waitForExistence(element("videoCollectionItem-\(fixture.seasonID)"), timeout: 20,
+                             named: "autoplay fixture season")
+        let firstEpisode = element("videoCollectionItem-\(fixture.episodeID)")
+        #else
+        let firstEpisode = element("videoEpisode-\(fixture.episodeID)")
+        #endif
+        #if os(iOS)
+        try revealDetailElement(firstEpisode, in: element("videoCollectionScreen"), named: "first episode thumbnail", requiresHittable: false)
+        firstEpisode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        #else
+        try activate(firstEpisode)
+        #endif
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode thumbnail playback")
+        let time = element("playbackTime")
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 1 }
+
+        func finishCurrentEpisode(creditsStartSeconds: Double) throws {
+            #if os(tvOS)
+            XCUIRemote.shared.press(.playPause)
+            let transport = try waitForHittable(element("videoPlayPauseButton"), timeout: 10,
+                                                 named: "paused autoplay transport")
+            XCTAssertEqual(transport.label, "Play", "Autoplay proof must seek while the current episode is paused.")
+            #else
+            XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 8))
+            let surface = element("videoControlsSurface")
+            try waitForExistence(surface, timeout: 8, named: "video controls reveal surface")
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            let transport = element("videoPlayPauseButton")
+            XCTAssertTrue(waitUntil(timeout: 8) { self.hasVisibleFrame(transport) })
+            transport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" },
+                          "Autoplay proof must seek while the current episode is paused.")
+            #endif
+            let forward = element("videoSeekForwardButton")
+            let position = try waitForPlaybackValue(time, timeout: 5) { $0 >= 0 }
+            let steps = max(0, Int(ceil((creditsStartSeconds - position) / 10)))
+            for _ in 0..<steps {
+                #if os(iOS)
+                XCTAssertTrue(waitUntil(timeout: 10) { self.hasVisibleFrame(forward) && forward.isEnabled })
+                forward.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                #else
+                try activate(forward)
+                #endif
+            }
+            let skipCredits = element("skipCreditsButton")
+            #if os(iOS)
+            XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(skipCredits) && skipCredits.isEnabled })
+            skipCredits.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            #else
+            try activate(skipCredits)
+            #endif
+        }
+
+        let automaticallyStarted = [
+            (title: fixture.secondEpisodeTitle, id: fixture.secondEpisodeID),
+            (title: thirdEpisodeTitle, id: thirdEpisodeID),
+        ]
+        for (index, next) in automaticallyStarted.enumerated() {
+            try finishCurrentEpisode(creditsStartSeconds: index == 0 ? fixture.episodeCreditsStartSeconds : 10)
+            let title = element("videoPlaybackChrome").staticTexts
+                .matching(NSPredicate(format: "label CONTAINS %@", next.title)).firstMatch
+            guard waitUntil(timeout: 30, condition: { self.hasVisibleFrame(title) }) else {
+                throw ProofFailure.ui("Completing episode \(index + 1) did not reveal the next episode title.")
+            }
+            _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 3 }
+            _ = try await waitForServerProgress(api, identity: identity, itemID: next.id, minimum: 1)
+        }
+
+        try finishCurrentEpisode(creditsStartSeconds: 10)
+        let stillWatching = application!.alerts["Still watching?"]
+        try waitForExistence(stillWatching, timeout: 20, named: "Still watching presence confirmation")
+        let fourthTitle = element("videoPlaybackChrome").staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", fourthEpisodeTitle)).firstMatch
+        XCTAssertFalse(hasVisibleFrame(fourthTitle),
+                       "The fourth episode must not start until presence is confirmed.")
+        let fourthProgress = try await api.playbackSeconds(identity: identity, itemID: fourthEpisodeID)
+        XCTAssertEqual(fourthProgress, 0, accuracy: 0.1, "An unconfirmed fourth episode must not report playback.")
+        try attachFrame(named: "Still watching after three episodes")
+        let goHome = application!.buttons.matching(NSPredicate(format: "label == %@", "Go Home")).firstMatch
+        try activate(try waitForHittable(goHome, timeout: 10, named: "Go Home presence action"))
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            !self.element("playbackScreen").exists && self.hasVisibleFrame(self.element("homeScreen"))
+        }, "Go Home must dismiss the player and return the unattended session to Home.")
         completed = true
     }
 
@@ -10055,6 +10240,10 @@ private struct ProofFixture: Decodable {
     let secondEpisodeAbout: String?
     let secondEpisodeAboutSource: String?
     let secondEpisodeAboutNote: String?
+    let thirdEpisodeID: String?
+    let thirdEpisodeTitle: String?
+    let fourthEpisodeID: String?
+    let fourthEpisodeTitle: String?
     let secondSeasonEpisodeID: String?
     let secondSeasonEpisodeTitle: String?
     let episodeIntroEndSeconds: Double
@@ -10085,6 +10274,13 @@ private struct ProofFixture: Decodable {
 private struct ProofHomeShelf: Codable, Equatable {
     let id: String
     let visible: Bool
+}
+
+private struct ProofHomeRow: Decodable {
+    struct Item: Decodable { let Id: String }
+    let id: String
+    let shelf_id: String
+    let items: [Item]
 }
 
 private struct ProofHomeLayout: Decodable {
@@ -10159,6 +10355,13 @@ private struct ProofAPI {
             throw ProofAPIError.malformedResponse
         }
         return object
+    }
+
+    func homeRows(identity: APIIdentity) async throws -> [ProofHomeRow] {
+        struct Response: Decodable { let rows: [ProofHomeRow] }
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Home/rows"))
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        return try JSONDecoder().decode(Response.self, from: await send(request)).rows
     }
 
     func homeLayout(identity: APIIdentity) async throws -> [ProofHomeShelf]? {

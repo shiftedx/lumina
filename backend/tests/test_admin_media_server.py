@@ -19,7 +19,7 @@ DEFAULTS = {
     "jellyfin_enabled": False, "native_streaming_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "has_omdb_key": False, "metadata_language": "en-US",
     "introdb_enabled": False, "hwaccel": "auto", "max_playback_sessions": 2, "transcode_cache_gb": 10,
     "jellyfin_import_url": None, "plex_import_url": None, "anime_folders": ["Anime"], "recategorising": False,
-    "members_edit_metadata": False,
+    "members_edit_metadata": False, "autoplay_presence": {"enabled": True, "episode_limit": 3, "timeout_seconds": 300},
 }
 
 
@@ -119,6 +119,41 @@ def test_members_cannot_read_or_change_media_server_settings(admin) -> None:
     current["user"] = member
     assert client.get("/api/admin/media-server").status_code == 403
     assert client.put("/api/admin/media-server", json={"native_streaming_enabled": True}).status_code == 403
+
+
+def test_autoplay_presence_policy_round_trips_to_members_without_granting_writes(admin) -> None:
+    client, current, member, factory = admin
+    custom = {"enabled": False, "episode_limit": 7, "timeout_seconds": 900}
+    with factory.begin() as db:
+        YtDlpService(db).ensure_app_settings().ui_prefs = {"unrelated_setting": "keep"}
+    saved = client.put("/api/admin/media-server", json={"autoplay_presence": custom})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["autoplay_presence"] == custom
+    with factory() as db:
+        assert db.get(AppSettings, 1).autoplay_presence == custom
+        assert db.get(AppSettings, 1).ui_prefs == {"unrelated_setting": "keep"}
+
+    current["user"] = member
+    assert client.get("/api/playback/presence-policy").json() == custom
+    assert client.put("/api/admin/media-server", json={"autoplay_presence": {"enabled": True, "episode_limit": 1, "timeout_seconds": 60}}).status_code == 403
+
+
+@pytest.mark.parametrize("policy", [
+    {"enabled": True, "episode_limit": 0, "timeout_seconds": 300},
+    {"enabled": True, "episode_limit": 101, "timeout_seconds": 300},
+    {"enabled": True, "episode_limit": 3, "timeout_seconds": 59},
+    {"enabled": True, "episode_limit": 3, "timeout_seconds": 86_401},
+    None,
+])
+def test_autoplay_presence_policy_rejects_invalid_limits_before_writing(admin, policy) -> None:  # noqa: ANN001
+    client, _, _, factory = admin
+    persisted = {"enabled": False, "episode_limit": 4, "timeout_seconds": 480}
+    with factory.begin() as db:
+        YtDlpService(db).ensure_app_settings().autoplay_presence = persisted
+    assert client.put("/api/admin/media-server", json={"autoplay_presence": policy}).status_code == 422
+    with factory() as db:
+        record = db.get(AppSettings, 1)
+        assert record is not None and record.autoplay_presence == persisted
 
 
 def test_backups_null_the_metadata_keys_but_keep_the_server_identity() -> None:

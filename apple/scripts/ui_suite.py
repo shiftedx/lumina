@@ -35,6 +35,10 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
         return {"LUMINA_NATIVE_PERF_CATALOGUE_COUNT": "120"}
     if test_class == "NativeTVEpisodeRemoteNavigationTests":
         return {"LUMINA_NATIVE_LONG_SERIES": "1"}
+    if test_class == "NativeEpisodeAutoplayPresenceTests":
+        return {"LUMINA_NATIVE_AUTOPLAY_SERIES": "1"}
+    if test_class == "NativeEpisodeSkipActionsAndNextEpisodeTests":
+        return {"LUMINA_NATIVE_AUTOPLAY_DISABLED": "1"}
     if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
     if test_class == "NativeAudioFormatRecoveryTests":
@@ -82,6 +86,8 @@ class FixtureBroker:
             environment.pop("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE", None)
             environment.pop("LUMINA_NATIVE_VIDEO_FORMAT_FAILURE", None)
             environment.pop("LUMINA_NATIVE_LONG_SERIES", None)
+            environment.pop("LUMINA_NATIVE_AUTOPLAY_SERIES", None)
+            environment.pop("LUMINA_NATIVE_AUTOPLAY_DISABLED", None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
             environment.update(proof_server_environment(fixture_test_class(key)))
             # Do not retain the server's output: its errors may include the fixture path.

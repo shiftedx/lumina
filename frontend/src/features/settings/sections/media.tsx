@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Copy, PlugZap, RefreshCw, Stethoscope } from '../../../luminaIcons';
 
 import { getMediaServerSettings, listUnmatchedTitles, refreshAllMetadata, runTranscodeDiagnostics, testOmdbKey, testTmdbKey, updateMediaServerSettings } from '../../../api';
-import type { HwaccelMode, MediaServerSettings, MediaServerSettingsUpdate, TitleSummary, TranscodeDiagnostics } from '../../../types';
+import type { AutoplayPresencePolicy, HwaccelMode, MediaServerSettings, MediaServerSettingsUpdate, TitleSummary, TranscodeDiagnostics } from '../../../types';
 import { Button, Checkbox, Field, fieldProps, Input, PasswordInput, Select, StatusText } from '../../../ui';
 import { errorMessage, formatBytes } from '../../../utils';
 import { useAdminResource } from '../../admin/useAdminResource';
@@ -18,7 +18,10 @@ export type MediaServerDraft = {
   tmdb_api_key: string; clear_tmdb_key: boolean; omdb_api_key: string; clear_omdb_key: boolean; metadata_language: string; introdb_enabled: boolean; jellyfin_enabled: boolean;
   native_streaming_enabled: boolean;
   hwaccel: HwaccelMode; max_playback_sessions: string; transcode_cache_gb: string; jellyfin_import_url: string; plex_import_url: string;
+  autoplay_presence_enabled: boolean; autoplay_episode_limit: string; autoplay_timeout_minutes: string;
 };
+const DEFAULT_AUTOPLAY_PRESENCE: AutoplayPresencePolicy = { enabled: true, episode_limit: 3, timeout_seconds: 300 };
+const autoplayPresenceOf = (settings: MediaServerSettings) => settings.autoplay_presence ?? DEFAULT_AUTOPLAY_PRESENCE;
 const HWACCEL: Array<[HwaccelMode, string]> = [['auto', 'Automatic'], ['qsv', 'Intel Quick Sync (QSV)'], ['nvenc', 'NVIDIA NVENC'], ['vaapi', 'Intel / AMD VA-API (Linux)'], ['videotoolbox', 'Apple VideoToolbox (macOS)'], ['amf', 'AMD AMF (Windows)'], ['rkmpp', 'Rockchip MPP (Linux BSP)'], ['off', 'Off (software only)']];
 const ACTIVE_LABELS: Record<TranscodeDiagnostics['active'], string> = { qsv: 'Intel Quick Sync', vaapi: 'Intel / AMD VA-API', nvenc: 'NVIDIA NVENC', videotoolbox: 'Apple VideoToolbox', amf: 'AMD AMF', rkmpp: 'Rockchip MPP', none: 'Software only' };
 
@@ -28,6 +31,9 @@ export const draftOf = (settings: MediaServerSettings): MediaServerDraft => ({
   hwaccel: settings.hwaccel, max_playback_sessions: String(settings.max_playback_sessions), transcode_cache_gb: String(settings.transcode_cache_gb),
   jellyfin_import_url: settings.jellyfin_import_url ?? '',
   plex_import_url: settings.plex_import_url ?? '',
+  autoplay_presence_enabled: autoplayPresenceOf(settings).enabled,
+  autoplay_episode_limit: String(autoplayPresenceOf(settings).episode_limit),
+  autoplay_timeout_minutes: String(autoplayPresenceOf(settings).timeout_seconds / 60),
 });
 
 /** Only changed fields are sent; the TMDB key is write-only (typed to replace, ticked to remove). */
@@ -43,6 +49,9 @@ export function mediaServerChanges(settings: MediaServerSettings, draft: MediaSe
   for (const key of ['max_playback_sessions', 'transcode_cache_gb'] as const) if (Number(draft[key]) !== settings[key]) update[key] = Number(draft[key]);
   if (draft.jellyfin_import_url.trim() !== (settings.jellyfin_import_url ?? '')) update.jellyfin_import_url = draft.jellyfin_import_url.trim();
   if (draft.plex_import_url.trim() !== (settings.plex_import_url ?? '')) update.plex_import_url = draft.plex_import_url.trim();
+  const presence = autoplayPresenceOf(settings);
+  const nextPresence = { enabled: draft.autoplay_presence_enabled, episode_limit: Number(draft.autoplay_episode_limit), timeout_seconds: Number(draft.autoplay_timeout_minutes) * 60 };
+  if (nextPresence.enabled !== presence.enabled || nextPresence.episode_limit !== presence.episode_limit || nextPresence.timeout_seconds !== presence.timeout_seconds) update.autoplay_presence = nextPresence;
   return update;
 }
 
@@ -89,7 +98,7 @@ function mediaServerForm(label: string, saveLabel: string) {
 
     return (
       <MediaFormContext.Provider value={{ settings, draft, set }}>
-        <SectionForm saveSettings={['media.tmdb-key', 'media.omdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.native-streaming', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
+        <SectionForm saveSettings={['media.tmdb-key', 'media.omdb-key', 'media.language', 'media.introdb', 'media.autoplay-presence', 'media.jellyfin', 'media.native-streaming', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
       </MediaFormContext.Provider>
     );
   };
@@ -171,6 +180,17 @@ function MetadataLanguage() {
 function IntroDb() {
   const { draft, set } = useMediaForm();
   return <SettingSwitch checked={draft.introdb_enabled} onChange={(next) => set('introdb_enabled', next)} />;
+}
+
+function AutoplayPresence() {
+  const { draft, set } = useMediaForm();
+  return (
+    <div className="g-subrows">
+      <SettingSwitch checked={draft.autoplay_presence_enabled} label="Enable still-watching checks" onChange={(next) => set('autoplay_presence_enabled', next)} />
+      <Field label="Episodes before confirmation">{(ids) => <Input {...fieldProps(ids)} disabled={!draft.autoplay_presence_enabled} inputMode="numeric" max={100} min={1} onChange={(event) => set('autoplay_episode_limit', event.target.value)} required type="number" value={draft.autoplay_episode_limit} />}</Field>
+      <Field label="Response timeout (minutes)">{(ids) => <Input {...fieldProps(ids)} disabled={!draft.autoplay_presence_enabled} inputMode="numeric" max={1440} min={1} onChange={(event) => set('autoplay_timeout_minutes', event.target.value)} required step={1} type="number" value={draft.autoplay_timeout_minutes} />}</Field>
+    </div>
+  );
 }
 
 function RefreshAll() {
@@ -329,6 +349,7 @@ export const MEDIA_SECTIONS: readonly SettingsSectionDef[] = [
       { id: 'media.omdb-key', label: 'OMDb key', layout: 'block', keywords: ['omdb api key', 'imdb rating', 'rotten tomatoes', 'metacritic', 'critic ratings', 'test key', 'remove the saved omdb key'], info: 'Lets Lumina add IMDb user ratings, Rotten Tomatoes and Metacritic scores from OMDb. Once saved, the key is never shown again. Affects everyone on this server.', Control: OmdbKey },
       { id: 'media.language', label: 'Metadata language', advanced: true, keywords: ['details language', 'language', 'locale', 'en-us', 'de-de'], info: 'The language Lumina asks TMDB to use for titles, overviews and artwork, as a tag such as en-US or de-DE. It applies to details fetched after you save. Affects everyone on this server.', Control: MetadataLanguage },
       { id: 'media.introdb', label: 'Intro and credits times', layout: 'switch', advanced: true, description: 'Looked up on TheIntroDB.', keywords: ['theintrodb', 'skip intro', 'segments', 'privacy', 'lookup'], info: 'Looks up where intros and credits start on TheIntroDB, so Skip buttons appear on more episodes. It is off by default because each lookup tells TheIntroDB which episodes this household owns. Affects everyone on this server.', Control: IntroDb },
+      { id: 'media.autoplay-presence', label: 'Still-watching checks', layout: 'block', keywords: ['autoplay', 'next episode', 'presence', 'still watching', 'timeout', 'binge'], info: 'After the chosen number of episodes, including the episode started manually, Lumina asks whether the member is still watching. With checks disabled, episodes continue automatically while the member’s own Autoplay setting remains on. Affects everyone on this server.', Control: AutoplayPresence },
       { id: 'media.refresh-all', label: 'Refresh all details', keywords: ['refresh all metadata', 'metadata', 'update artwork', 'rescan details'], info: 'Fetches details and artwork again for every movie and show, in the background. It needs a saved TMDB key and never overwrites NFO files or your edits. Affects everyone on this server.', Control: RefreshAll },
       { id: 'media.jellyfin', label: 'Let apps like Infuse connect', layout: 'switch', keywords: ['jellyfin', 'infuse', 'swiftfin', 'apple tv', 'clients', 'let apps connect'], info: 'Lets Infuse, Swiftfin and other Jellyfin apps browse and play this vault. Each member signs in with their own Lumina account and sees only what they can see here. Affects everyone on this server.', Control: Jellyfin },
       { id: 'media.native-streaming', label: 'External streaming in the native app', layout: 'switch', keywords: ['native app', 'external streaming', 'providers', 'youtube session', 'iphone', 'ipad'], description: 'Controls external providers and personal YouTube sessions in Lumina\'s native app.', info: 'Lets members see and use external streaming providers and their personal YouTube sessions in Lumina\'s native app. Browser Streaming and local playback stay unchanged. Affects everyone on this server.', Control: NativeStreaming },

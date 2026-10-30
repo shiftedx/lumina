@@ -8,7 +8,7 @@ from app import db as database
 from app.main import app
 from app.models import AppSettings
 from app.persistence import write_transaction
-from title_support import jellyfin_household
+from title_support import ALICE_TOKEN, jellyfin_household, mediabrowser
 
 
 def test_public_info_loads_settings_once_and_observes_the_next_request_disable(tmp_path: Path) -> None:
@@ -36,3 +36,18 @@ def test_public_info_loads_settings_once_and_observes_the_next_request_disable(t
     finally:
         client.close()
         event.remove(database.engine, "before_cursor_execute", count_settings)
+
+
+def test_native_capabilities_expose_the_same_autoplay_presence_policy(tmp_path: Path) -> None:
+    jellyfin_household(tmp_path / "media")
+    client = TestClient(app, base_url="http://localhost")
+    try:
+        default = client.get("/Lumina/Settings/capabilities", headers=mediabrowser(ALICE_TOKEN))
+        assert default.status_code == 200
+        assert default.json()["autoplay_presence"] == {"enabled": True, "episode_limit": 3, "timeout_seconds": 300}
+        custom = {"enabled": False, "episode_limit": 5, "timeout_seconds": 600}
+        with database.SessionLocal.begin() as db:
+            db.get(AppSettings, 1).autoplay_presence = custom
+        assert client.get("/Lumina/Settings/capabilities", headers=mediabrowser(ALICE_TOKEN)).json()["autoplay_presence"] == custom
+    finally:
+        client.close()

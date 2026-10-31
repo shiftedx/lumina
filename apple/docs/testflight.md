@@ -509,3 +509,40 @@ matching-symbol Organizer references, native source snapshot/input hashes,
 release manifest, checksums, validation/export logs, visible-Organizer evidence
 and What to Test notes. Prior packages remain preserved. No server deployment
 occurred; the Start Over correction requires the new native binary.
+
+### Internal iOS diagnostic package 42, 2026-10-31
+
+Version **0.1.0 (42)** is distribution-signed and staged for **iOS only**
+from clean main `72a07002d4951b0bd3d8ca62943bde6698c45a12`, including
+[PR #250](https://github.com/shiftedx/lumina/pull/250). PrismCore remains pinned
+to `db42eb269ee629fe8ea81614b187fe290d2ec2d0`. No PRs were open at capture.
+This build records the actual playback request's capability evidence and safe
+server rejection reasons. It does not change HDR eligibility or fallback rules;
+the physical-phone 4K HDR downgrade remains open pending a new recording.
+
+The Release device archive, automatic distribution-signing export, signed IPA
+and signed Organizer reference passed local validation. Executable/dSYM UUIDs
+match, including the staged copy. Device families, artwork/privacy, strict
+signatures, test-fixture and recovery-fault-hook exclusion passed. Both focused
+packaging safeguards passed; native source input hashes remained unchanged.
+No full suite or new physical-device playback qualification ran.
+
+Xcode Organizer visibly contains **Lumina iOS 0.1.0 (42) — Signed for Upload**,
+selected with version 42, the signing team and Distribute App available.
+**The owner will upload; this operation did not upload or deploy production.**
+The export is TestFlight Internal Only with automatic build-number changes
+disabled. Local validation does not establish Apple's upload validation,
+processing or tester availability. tvOS was not rebuilt; its latest staged
+package remains 41. Organizer also showed iOS 41 Uploaded to Apple; that upload
+was observed, not performed here.
+
+Preserve ignored `apple/Distribution/0.1.0-42/`: source archive, signed IPA,
+matching-symbol Organizer reference, source snapshot/input hashes, release
+manifest, checksums, validation/export logs and What to Test notes. Prior
+packages remain preserved. Only this release's disposable compiler cache was
+removed after completion.
+
+After installing 42, keep Automatic quality, start a Playback diagnostics
+recording, close and reopen the same title while leaving Lumina running, play
+for about ten seconds, then finish and share the JSONL recording. This captures
+the next negotiation rather than only an already-playing stream.

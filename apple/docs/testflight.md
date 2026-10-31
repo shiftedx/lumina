@@ -474,3 +474,38 @@ release manifest, checksums, validation/export logs and What to Test notes.
 Build 40 avoids the earlier build-38 uploads and temporary build-39 validation
 copy. Prior release packages remain preserved. No server deployment occurred;
 production remains at the separately deployed source `df8511a7`.
+
+### Internal dogfood package 41, 2026-10-30
+
+Version **0.1.0 (41)** is distribution-signed and staged for **iOS and tvOS**
+from clean main `6ede902c60243d43b7821c6d727dcfe562b8eca4`, with unchanged
+PrismCore revision `db42eb269ee629fe8ea81614b187fe290d2ec2d0`. It includes
+[PR #248](https://github.com/shiftedx/lumina/pull/248): the first Resume / Start
+Over chooser carries its request and session owner together, preventing the
+silent ownership-guard return that left Start Over spinning. All build-40
+features remain included.
+
+Both Release device archives, automatic distribution-signing exports, signed
+IPAs and signed Organizer references passed local validation. App/dSYM UUIDs
+match on both platforms, including the staged copies. Device families,
+version/build, framework signatures, artwork/privacy, test-fixture exclusion
+and recovery-fault-hook exclusion passed. Both focused packaging safeguards
+passed; all native source input hashes remained unchanged during the build.
+The preceding fix has passing first-choice iOS movie and episode workflows;
+packaging did not run a full suite or add physical-device/TV playback
+qualification.
+
+Xcode Organizer visibly contains **Lumina iOS 0.1.0 (41) — Signed for Upload**
+and **Lumina tvOS 0.1.0 (41) — Signed for Upload**, with the signing team and
+build 41. **The owner will upload; this operation uploaded neither platform.**
+The packages are TestFlight Internal Only with automatic build-number changes
+disabled. Local staging does not establish Apple's upload validation,
+processing or tester availability. Organizer also showed build **40** already
+**Uploaded to Apple** on both platforms; that upload was observed, not
+performed by this operation. Do not reuse build 40.
+
+Preserve ignored `apple/Distribution/0.1.0-41/`: source archives, signed IPAs,
+matching-symbol Organizer references, native source snapshot/input hashes,
+release manifest, checksums, validation/export logs, visible-Organizer evidence
+and What to Test notes. Prior packages remain preserved. No server deployment
+occurred; the Start Over correction requires the new native binary.

@@ -546,3 +546,45 @@ After installing 42, keep Automatic quality, start a Playback diagnostics
 recording, close and reopen the same title while leaving Lumina running, play
 for about ten seconds, then finish and share the JSONL recording. This captures
 the next negotiation rather than only an already-playing stream.
+
+### Internal dogfood package 43, 2026-10-31
+
+Version **0.1.0 (43)** is distribution-signed and staged for **iOS and tvOS**
+from clean main `eed35c244053a4b9bff0a7905a852a3d8d8112cb`, including
+[PR #252](https://github.com/shiftedx/lumina/pull/252). It retries the approved
+server HLS media rendition before H.264/SDR compatibility, retaining the source,
+quality, tracks, resume position and server session. Startup error domain/code
+are recorded before recovery. The source includes all earlier native fixes;
+PrismCore remains pinned to `db42eb269ee629fe8ea81614b187fe290d2ec2d0`.
+No PRs were open at capture.
+
+Both Release device archives, automatic distribution-signing exports, signed
+IPAs and signed Organizer references passed local validation. Strict signatures,
+matching executable/dSYM UUIDs (including staged copies), device families,
+artwork/privacy and fixture exclusion passed. All three recovery fault hooks
+are absent from both shipping executables. Both focused packaging safeguards
+passed; native source input hashes remained unchanged during the build.
+
+Xcode Organizer visibly contains **Lumina iOS 0.1.0 (43) — Signed for Upload**
+and **Lumina tvOS 0.1.0 (43) — Signed for Upload**, each with version 43, the
+signing team and Distribute App available. iOS 43 is left selected.
+**The owner will upload; this operation uploaded neither platform.** These are
+TestFlight Internal Only exports with automatic build-number changes disabled.
+Local validation does not establish Apple's upload validation, processing or
+tester availability. Organizer also showed iOS 42 and tvOS 41 Uploaded to Apple;
+those uploads were observed, not performed here.
+
+Preserve ignored `apple/Distribution/0.1.0-43/`: source archives, signed IPAs,
+matching-symbol Organizer references, source snapshot/input hashes, release
+manifest, checksums, validation/export logs, staging observation and What to Test
+notes. Prior packages remain preserved; only this release's disposable compiler
+cache and checkout were removed. No full suite or new physical HDR/HDMI/audio
+qualification ran during packaging. No production deployment occurred; the
+separate backend AAC-only HLS profile correction is not deployed by this work.
+
+On both platforms, keep Automatic quality and check the affected 4K HDR title,
+Start Over/Resume, seeking and track changes. Playback info should retain source
+resolution and HDR; HLS transport alone does not imply a video quality downgrade.
+If it still downgrades, record diagnostics before closing/reopening the title,
+play about ten seconds, then finish/share the JSONL. Physical output confirmation
+remains pending this beta.

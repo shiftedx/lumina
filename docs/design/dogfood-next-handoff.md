@@ -43,7 +43,7 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Known follow-ups and evidence limits
 
-- **Physical iOS HDR recovery (source after build 42; physical confirmation pending):** build 42 confirms the phone advertises HEVC/HDR10 before server HLS fails and escalates to 1080p SDR. Local real-media controls reproduce a failing HLS master whose exact media rendition decodes and seeks at 4K PQ. Startup now tries that authenticated single muxed rendition before compatibility, retaining source/quality/tracks/position and the same server session; do not stop that session on adoption. Direct capability gates and network/auth/display failures remain authoritative. Server HLS also honors AAC-only audio profiles without changing copied video. No app package or production deployment includes these changes yet. See [the verification record](../../apple/docs/verification.md#server-hls-master-startup-recovery-2026-10-31).
+- **Physical iOS HDR recovery (source after build 42; physical confirmation pending):** build 42 confirms the phone advertises HEVC/HDR10 before server HLS fails and escalates to 1080p SDR. Local real-media controls reproduce a failing HLS master whose exact media rendition decodes and seeks at 4K PQ. Startup now tries that authenticated single muxed rendition before compatibility, retaining source/quality/tracks/position and the same server session; do not stop that session on adoption. Direct capability gates and network/auth/display failures remain authoritative. Server HLS also honors AAC-only audio profiles without changing copied video. Native recovery is included in signed/staged iOS and tvOS build 43; the separate backend AAC-profile correction was not deployed by packaging. See [the verification record](../../apple/docs/verification.md#server-hls-master-startup-recovery-2026-10-31).
 - **Named ratings (included in builds 33–35):** the native item adapter and shared hero now carry separate IMDb, Rotten Tomatoes, and Metacritic scores. The old generic `CriticRating` is only a fallback when named scores are absent. Production now serves the three named fields at source `283eede5`; each was verified against its stored web score. Source-specific DTO/Core checks and native hero screenshots cover this path.
 - **Library scrolling (source only, after build 31):** iOS and tvOS video categories load the first 50 lightweight records, then drain the catalog in 500-record pages. Preserve in-place alphabet jumps, query/session cancellation, suspension/resume, ordinary search/channel pagination, and directional poster lookahead (72 requested 400-pixel renditions on iOS; 36 requested 480-pixel renditions on TV) with the existing four-load and cache budgets. See [ADR 0034](../adr/0034-retain-native-artwork-in-a-private-device-cache.md). This change is not in the uploaded build 31.
 - **TV visual/performance (included in staged build 35):** movie and series details share the artwork-first billboard and named ratings, including valid zero scores. The shared ambient image crop now animates in Core Animation with the existing motion/lifecycle guards; iPhone pixel-motion and stable-layout checks pass. TV remote movie start, saved episode resume, direct/HLS/MKV progress/resume, and the full destination performance tour pass on the simulator. The matching Home window used 83.35% less app CPU and 79.35% fewer wakeups; a 503-title, six-traversal workload ended at 96.5–99.2 MiB (105.5 MiB sampled peak). These are synthetic simulator observations, not physical TV, HDMI/HDR/audio, frame-pacing or energy guarantees. See the [qualification record](../../apple/docs/tvos-performance-2026-10-29.md).
@@ -75,29 +75,29 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ### Current release and production status, October 31
 
-The latest staged iOS package is **0.1.0 (42)** from clean main
-`72a07002d4951b0bd3d8ca62943bde6698c45a12`. It includes PR #250's request-bound
-negotiation diagnostics, with no HDR eligibility or fallback policy changes.
-The physical-phone downgrade remains open pending owner upload, installation
-and a fresh recording. Start recording before closing and reopening the title;
-keep Automatic quality, play about ten seconds, then finish/share diagnostics.
+The latest staged packages are **iOS and tvOS 0.1.0 (43)** from clean main
+`eed35c244053a4b9bff0a7905a852a3d8d8112cb`. Both include PR #252's approved
+server-media recovery before H.264/SDR, plus the safe startup-error capture and
+all earlier native fixes. Physical HDR output confirmation remains pending.
+Keep Automatic quality and test the affected title, Resume/Start Over, seeking
+and track changes. If it still downgrades, record before reopening playback and
+share the JSONL after about ten seconds.
 
-The signed IPA and matching-symbol Organizer archive passed local validation;
-iOS 42 is visibly selected in Xcode as **Signed for Upload** with the signing
-team. **The owner will upload; this operation uploaded nothing and deployed
-no server changes.** Internal Only and fixed build numbering remain enabled.
-Signatures, UUIDs, source hashes, device families, artwork/privacy and
-fixture/fault-hook exclusion passed, as did both focused packaging safeguards.
-No full suite or physical-device qualification ran. Preserve ignored
-`apple/Distribution/0.1.0-42/` and the
-[build-42 release record](../../apple/docs/testflight.md#internal-ios-diagnostic-package-42-2026-10-31).
+Both distribution-signed IPAs and matching-symbol Organizer references passed
+local validation. Both are visibly staged as **Signed for Upload** with build
+43 and the signing team; iOS 43 is left selected. **The owner will upload; this
+operation uploaded neither platform and deployed no server changes.** Internal
+Only and fixed build numbering remain enabled. Signatures, UUIDs, source hashes,
+device families, artwork/privacy and fixture/fault-hook exclusion passed, as did
+both packaging safeguards. No full suite or new physical-device qualification
+ran. Preserve ignored `apple/Distribution/0.1.0-43/` and the
+[build-43 release record](../../apple/docs/testflight.md#internal-dogfood-package-43-2026-10-31).
 
-tvOS was not rebuilt; its latest staged package remains **0.1.0 (41)**. Both
-build-41 packages and all earlier releases remain preserved; see the
-[build-41 release record](../../apple/docs/testflight.md#internal-dogfood-package-41-2026-10-30).
-Xcode now shows **iOS 41 Uploaded to Apple**, observed during iOS-42 staging;
-this operation did not perform that upload. Local staging does not establish
-Apple validation, processing or tester availability for build 42.
+During build-43 staging, Xcode showed **iOS 42 and tvOS 41 Uploaded to Apple**;
+those uploads were observed, not performed here. Preserve both and all earlier
+release packages. Local staging does not establish Apple upload validation,
+processing or tester availability for 43. The separate backend AAC-only HLS
+profile correction requires its own deployment; packaging did not perform it.
 
 The earlier observed uploads are **iOS and tvOS 0.1.0 (40)** from clean main
 `63eb0ccb9818fb60d6e9b37595bec1283c6f4049`. During build-41 staging, Xcode

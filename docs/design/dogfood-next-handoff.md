@@ -27,7 +27,7 @@ Give concise progress updates while working. Carry the request through implement
 - **Music:** wide artwork aligns with the lyrics top; AirPlay/Cast align with Lyrics/Queue at the bottom. Artwork opens Now Playing, with a separate Play/Pause control beneath it in the rail. Track entry preserves source queue/index.
 - **Skip Intro from chapters (server hotfix deployed October 30; owner confirmed working):** explicitly labeled Intro/Opening/OP and Credits/Ending/ED chapters are exposed through the shared web and native MediaSegments APIs for the exact file fingerprint. Existing iOS/tvOS builds already render and seek these ranges; a new app binary is not required. Recorded detection wins per type, manual edits including an empty list remain authoritative, and unlabeled/stale chapters never create skip ranges. Focused web/native API regressions and native DTO decoding cover fractional-second boundaries.
 - **Resume or Start Over (source after build 36):** an explicit movie/episode Play with saved progress offers a Lumina-branded chooser before playback starts. Resume keeps the saved offset; Start Over obtains a zero-position stream while retaining source, quality and track selections; Cancel leaves progress untouched. Native chooser presentation is shared by hero/details/episode/download entry points, uses the approved sunrise mark, Newsreader title, adaptive paper/ink controls, and TV remote default focus/Back. Fresh titles and automatic episode transitions bypass the chooser. Web retains safe unplayed warm-up, waits for old speculative conversions to stop before starting over, and leaves browsing intact if playback history cannot load. No backend API/schema change is required.
-- **Start Over on the first chooser (source after build 40):** carry the request and its session owner together in the full-screen cover item. Reading the owner from separate presentation state could supply nil on the first cover, leaving Start Over spinning at its ownership guard without issuing playback work. Keep selection and dismissal scoped to the original request/session. The focused iOS movie and episode workflows now choose Start Over first, before Cancel or Resume, and verify dismissal, advancing playback and server progress from zero. Preserve prepared-original reuse and fresh zero-position HLS negotiation. Requires a later native build; no server deployment is needed.
+- **Start Over on the first chooser (included in staged build 41):** carry the request and its session owner together in the full-screen cover item. Reading the owner from separate presentation state could supply nil on the first cover, leaving Start Over spinning at its ownership guard without issuing playback work. Keep selection and dismissal scoped to the original request/session. The focused iOS movie and episode workflows now choose Start Over first, before Cancel or Resume, and verify dismissal, advancing playback and server progress from zero. Preserve prepared-original reuse and fresh zero-position HLS negotiation. Included in the signed build-41 packages; no server deployment is needed.
 - **Start Over latency (included in staged build 40):** the shared iOS/tvOS chooser reuses its approved original-file request at position zero, including local MKV/M2TS packaging and downloaded files, rather than repeating item metadata and PlaybackInfo. Keep the exact source, track choices, chapters, quality and packaging data. Server HLS retains fresh negotiation at zero because its session owns the offset. Resume and Cancel remain unchanged; progress is updated only when playback begins. The focused chooser broker fixtures inject a five-second PlaybackInfo delay; workflows require prompt dismissal plus actual advancing playback and saved progress from zero.
 - **Episode autoplay (source after app build 36):** web, iOS and tvOS honor `ui_prefs.autoplay_up_next` and the server-owned `autoplay_presence` policy. Admin Settings → Media controls enabled checks, an episode limit (1–100) and response timeout (60–86,400 seconds); defaults are enabled/3/300. Policy is refreshed at playback/episode boundaries, not pushed into an already-open confirmation. Disabling checks allows uninterrupted autoplay while retaining each member’s autoplay-off choice. With defaults, the initial episode counts as one of three. Automatic continuation stops before episode four for a Still watching confirmation; Continue starts another batch of three. Go Home or five minutes without confirmation stops/cleans up playback and returns to Home. The confirmation deadline survives player-view rebuilds and background suspension. Explicit episode choices reset the batch; music, movie and remote recommendation behavior stays separate. Use the Home fallback rather than attempting to terminate the application. This feature is not in the previously uploaded build 36.
 - **Video:** device volume gestures/hardware buttons and screen brightness, with no overlay volume slider. Keep playback info available. Scrub previews commit on release; new committed targets supersede obsolete native seeks. Preserve pause intent, live-window bounds, stale-callback rejection, durable player ownership through posture/view changes, and Close/Stop teardown.
@@ -74,30 +74,30 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ### Current release and production status, October 30
 
-The latest staged package is **iOS and tvOS 0.1.0 (40)** from clean main
-`63eb0ccb9818fb60d6e9b37595bec1283c6f4049`. Both distribution-signed IPAs and
-matching-symbol Organizer references passed local validation and are visibly
-staged in Xcode as **Signed for Upload**. **The owner will upload; this operation
-did not upload either platform.** Exports are TestFlight Internal Only and retain
-build 40. Preserve ignored `apple/Distribution/0.1.0-40/` and follow the
-[build-40 release record](../../apple/docs/testflight.md#internal-dogfood-package-40-2026-10-30).
-Source hashes, symbols, signatures, artwork/privacy and test-fixture exclusion
-passed; both packaging safeguards passed. No full suite, new physical-device
-qualification or server deployment occurred. Staging does not establish Apple
-validation or tester availability.
+The latest staged package is **iOS and tvOS 0.1.0 (41)** from clean main
+`6ede902c60243d43b7821c6d727dcfe562b8eca4`. It includes the first-chooser
+session-owner correction from PR #248, plus all build-40 features. Both
+Release device archives, distribution-signed IPAs and matching-symbol
+Organizer references passed local validation. Both packages are visibly
+staged in Xcode as **Signed for Upload**, with build 41 and the signing team.
+**The owner will upload; this operation did not upload either platform.**
+Exports are TestFlight Internal Only and retain build 41. Preserve ignored
+`apple/Distribution/0.1.0-41/` and follow the
+[build-41 release record](../../apple/docs/testflight.md#internal-dogfood-package-41-2026-10-30).
 
-The latest confirmed uploads remain **iOS and tvOS 0.1.0 (38)** from clean merged
-`df8511a7b0c921072c62a64da4ac7cfa8ec9982a`, including PrismCore
-`db42eb269ee629fe8ea81614b187fe290d2ec2d0`. Both packages are signed, locally
-validated, staged in Organizer and transferred through Xcode. **Build 38 is
-consumed on both platforms.** iOS Organizer retained upload warnings; explicit
-validation subsequently ended with expired-account-credentials warnings. The
-owner reauthenticated, but exact-build Custom validation requires an unavailable
-local distribution private key. The recommended validation had used a build-39
-copy; build 39 was not uploaded. Clean Apple validation, processing completion and tester assignment remain unverified. Preserve all build-38 packages, symbols,
-source provenance, receipts and warnings; follow the [build-38 release record](../../apple/docs/testflight.md#internal-dogfood-package-38-2026-10-30)
-before further distribution. The historical build records below do not describe
-the current production deployment or authorize reusing a consumed number.
+Source hashes, signatures, app/dSYM UUIDs, device families, artwork/privacy,
+test-fixture exclusion and recovery-fault-hook exclusion passed. Both focused
+packaging safeguards passed. The fix's first-choice iOS movie and episode
+workflows passed before packaging. No full suite, new physical-device/TV
+playback qualification or server deployment occurred. Staging does not
+establish Apple upload validation or tester availability.
+
+The latest observed uploads are **iOS and tvOS 0.1.0 (40)** from clean main
+`63eb0ccb9818fb60d6e9b37595bec1283c6f4049`. During build-41 staging, Xcode
+Organizer showed **Uploaded to Apple** for both build-40 packages. That upload
+was observed, not performed here. Build 40 is consumed; preserve its exact
+packages and symbols. Earlier build-38 upload warnings and validation limits
+remain recorded in the [build-38 release record](../../apple/docs/testflight.md#internal-dogfood-package-38-2026-10-30).
 
 Production now runs the full image built from `df8511a7`, is healthy, and upgraded
 schema 41 to 42. Existing service settings, mounts, devices, networks and proxy

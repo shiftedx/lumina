@@ -3970,7 +3970,7 @@ final class PlaybackModel {
             replacementInstalled = true
             try await NativeVideoSource.waitUntilReady(player, seekingTo: position.seconds)
             guard await seekNativePlayer(to: position, toleranceBefore: .zero, toleranceAfter: .zero),
-                  nextItem.status == .readyToPlay else { throw POSIXError(.EIO) }
+                  nextItem.status == .readyToPlay else { throw nextItem.error ?? POSIXError(.EIO) }
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
             elapsedSeconds = commitPosition
@@ -4017,8 +4017,7 @@ final class PlaybackModel {
                 enqueue(.stop, paused: true, for: candidateRequest, position: commitPosition)
             }
             guard !closed else { return false }
-            if !replacementInstalled,
-               let candidateRequest,
+            if let candidateRequest,
                !retryingServerVideoRecovery,
                candidateRequest.usesServerVideoRecovery,
                candidateRequest.canRetryCompatibleVideo(after: candidateError),

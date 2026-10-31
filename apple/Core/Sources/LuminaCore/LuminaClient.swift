@@ -477,9 +477,9 @@ final class LuminaClient: @unchecked Sendable {
             ? nil : subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
         let start = try boundedStartPosition(startPositionSeconds, item: item)
         if source.supportsDirectPlay {
-            // A compatible retry must receive the forced H.264/SDR HLS
-            // decision. Treat a direct response as the server ignoring that
-            // request rather than relabelling the original media compatible.
+            // Forced server recovery must receive an HLS decision. Treat a direct
+            // response as the server ignoring that request rather than relabelling
+            // the original media as a successful recovery.
             guard !usesCompatibleVideo, !usesServerVideoRecovery else { throw LuminaError.malformedResponse }
             guard let direct = url(origin: origin, path: "/Videos/\(item.id)/stream", query: [
                 URLQueryItem(name: "MediaSourceId", value: source.id),

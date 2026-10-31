@@ -414,7 +414,8 @@ def install_showcase_art_fixture(state_root: Path) -> None:
         if getattr(route, "path", None) == "/proof/requests-art/{index}"
     )
     frontend_index = next(
-        index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"
+        (index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"),
+        len(app.router.routes),
     )
     app.router.routes.remove(request_art_route)
     app.router.routes.insert(frontend_index, request_art_route)

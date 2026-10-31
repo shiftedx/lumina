@@ -1628,3 +1628,10 @@ passed, retaining the existing Dolby/HDR trust boundaries. This is composed
 local verification, not a physical iOS/tvOS HDR, color, HDMI or Atmos
 qualification. No production deployment, release archive or app upload is
 part of this change.
+
+Six focused Core workflows passed after integrating the prepared-original Start
+Over change: Automatic versus explicit subtitles, selection-preserving recovery,
+normal-profile then conservative recovery, downloaded-MKV replay position,
+prepared-original Start Over without another server request, and zero-position
+HLS restart retaining its recovery marker. The proof-server boundary check and
+27 fixture-broker/runner checks also passed. No full suite ran.

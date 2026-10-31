@@ -1876,9 +1876,25 @@ class NativeProofJourney: XCTestCase {
         var arguments = ["--ui-testing-client-demux-format-failure"]
         if failServerCandidate { arguments.append("--ui-testing-server-video-recovery-format-failure") }
         try launchAndResetSession(extraLaunchArguments: arguments)
-        try signIn(using: fixture)
+        try signIn(using: fixture, waitsForAccount: false)
+        #if os(iOS)
+        try selectDestination("Video", screen: "libraryScreen")
+        let item = try revealLibraryItem(id: fixture.convertedItemID, named: "recovery item")
+        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("detailScreen"), timeout: 25, named: "detail screen")
+        let play = element("playButton")
+        try waitForExistence(play, timeout: 20, named: "play button")
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let resumeChoice = element("resumePlaybackChoice")
+        XCTAssertTrue(waitUntil(timeout: 35) { resumeChoice.exists || self.element("playbackScreen").exists })
+        if resumeChoice.exists { try activate(resumeChoice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch) }
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
+        let playbackTime = element("playbackTime")
+        try waitForExistence(playbackTime, timeout: 20, named: "playback time")
+        #else
         try openLibraryItem(id: fixture.convertedItemID)
         let playbackTime = try startPlayback(using: "playButton")
+        #endif
         let startedAt = try waitForPlaybackValue(playbackTime, timeout: 25) { $0 >= 5 }
         _ = try waitForPlaybackValue(playbackTime, timeout: 20) { $0 >= startedAt + 2 }
 

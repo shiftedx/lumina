@@ -47,7 +47,7 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 - **Named ratings (included in builds 33–35):** the native item adapter and shared hero now carry separate IMDb, Rotten Tomatoes, and Metacritic scores. The old generic `CriticRating` is only a fallback when named scores are absent. Production now serves the three named fields at source `283eede5`; each was verified against its stored web score. Source-specific DTO/Core checks and native hero screenshots cover this path.
 - **Library scrolling (source only, after build 31):** iOS and tvOS video categories load the first 50 lightweight records, then drain the catalog in 500-record pages. Preserve in-place alphabet jumps, query/session cancellation, suspension/resume, ordinary search/channel pagination, and directional poster lookahead (72 requested 400-pixel renditions on iOS; 36 requested 480-pixel renditions on TV) with the existing four-load and cache budgets. See [ADR 0034](../adr/0034-retain-native-artwork-in-a-private-device-cache.md). This change is not in the uploaded build 31.
 - **TV visual/performance (included in staged build 35):** movie and series details share the artwork-first billboard and named ratings, including valid zero scores. The shared ambient image crop now animates in Core Animation with the existing motion/lifecycle guards; iPhone pixel-motion and stable-layout checks pass. TV remote movie start, saved episode resume, direct/HLS/MKV progress/resume, and the full destination performance tour pass on the simulator. The matching Home window used 83.35% less app CPU and 79.35% fewer wakeups; a 503-title, six-traversal workload ended at 96.5–99.2 MiB (105.5 MiB sampled peak). These are synthetic simulator observations, not physical TV, HDMI/HDR/audio, frame-pacing or energy guarantees. See the [qualification record](../../apple/docs/tvos-performance-2026-10-29.md).
-- **Full HLS scrubber after build 43 (server fix, deployment pending):** the owner confirms correct-format video but the timeline stops at the short streamed window. Cold copied-video sessions miss the packet-scan startup budget and keep a growing playlist. Selected-track Matroska Cues now provide a full VOD plan without scanning media payload; sparse indexes use independent copied segments with cached, serialized generation. Existing unindexed-source fallback remains. See [verification](../../apple/docs/verification.md#full-server-hls-timeline-during-a-cold-matroska-start-2026-10-31). This requires a server rollout, not a new native build. Physical-device deep-seek confirmation remains pending.
+- **Full HLS scrubber after build 43 (server fix deployed):** the owner confirms correct-format video but the timeline stops at the short streamed window. Cold copied-video sessions miss the packet-scan startup budget and keep a growing playlist. Selected-track Matroska Cues now provide a full VOD plan without scanning media payload; sparse indexes use independent copied segments with cached, serialized generation. Existing unindexed-source fallback remains. See [verification](../../apple/docs/verification.md#full-server-hls-timeline-during-a-cold-matroska-start-2026-10-31). The server fix is deployed from main `c0b9f6a5`; build 43 needs no rebuild. Close and reopen existing playback to create a fresh full-timeline session. Physical-device deep-seek confirmation remains pending.
 - **Portrait detail Play CTA:** confirmed on standard iPhone: the floating tab bar can cover the hero's Play button. Not fixed. The focused gesture test enters playback in landscape, then tests the portrait/landscape player. That setup workaround does not establish that the detail-page obstruction is resolved.
 - **Category artwork under the rail, PR #197:** iOS build passed; the closed-display baseline passed before the change. Open portrait visual verification was blocked by a locked Mac. Recheck the actual open display when this layout is next touched.
 - **Brightness (source only, after build 31):** the owner confirmed that the physical inner panel stayed unchanged while the HUD moved; the outer panel worked. The strengthened open-Duo regression exposed a write target different from the player's scene display. Source now targets that scene's display instead of global `UIScreen.main`. Actual physical backlight behavior still needs checking in the next requested build; HUD movement or simulator routing alone is insufficient.
@@ -107,13 +107,13 @@ was observed, not performed here. Build 40 is consumed; preserve its exact
 packages and symbols. Earlier build-38 upload warnings and validation limits
 remain recorded in the [build-38 release record](../../apple/docs/testflight.md#internal-dogfood-package-38-2026-10-30).
 
-Production now runs `lumina:build43-482cb0aa3abc`, built from clean main
-`482cb0aa3abc2b20d64c805ccbd49cd442a187c2`, with build 43's matching backend
-AAC-only HLS correction. The running image's revision and relevant source
+Production now runs `lumina:build43-c0b9f6a59762`, built from clean main
+`c0b9f6a59762e5fd80a75eac97bee684fe260311`, with build 43's matching backend
+AAC-only HLS correction and PR #255's full Matroska VOD seek timeline. The running image's revision and relevant source
 hashes match; internal health, public HTTPS, frontend and native public API
 checks passed. The real production 4K HEVC/PQ source retains copied 2160p
 video with `DOVIWithHDR10`, AAC audio conversion and no tone mapping for the
-AAC-only HLS profile. This decision check does not certify physical HDR output.
+AAC-only HLS profile. The deployed image also produces the real source's full indexed VOD plan in about one second. These checks do not certify physical HDR output or end-to-end seek latency.
 
 Schema remains 42. A consistent database backup passed integrity and streaming
 checksum verification; signing keys and protected service configuration were
@@ -124,7 +124,8 @@ pinned in a stopped rollback container with health checks, restart and networkin
 disabled; retained rollback pins and their cleanup exclusion were verified.
 Earlier schema-41 backups and rollback images remain retained. This full rollout
 supersedes the chapter-only overlay described below. Private deployment evidence
-is retained in ignored `output/prod-build43-20261031T155751Z/`.
+is retained in ignored `output/prod-build43-20261031T155751Z/` and
+`output/prod-full-timeline-20261031T181114Z/`.
 
 Build 38 includes the source changes previously described above as after build
 36. Package inclusion does not establish that the owner has installed it or

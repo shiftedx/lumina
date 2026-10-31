@@ -1285,6 +1285,7 @@ private struct HomeLibraryView<Header: View>: View {
     var body: some View {
         let snapshot = refinement
         GeometryReader { geometry in
+        let emptyHeaderClearance = scrollsHeader || stacksCategoryHeader ? geometry.safeAreaInsets.top + 76 : 0
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if !snapshot.items.isEmpty {
@@ -1307,6 +1308,7 @@ private struct HomeLibraryView<Header: View>: View {
                     } description: {
                         Text("Choose Home or add something to your watchlist.")
                     }
+                    .frame(minHeight: max(0, geometry.size.height - emptyHeaderClearance - 20))
                 }
                 if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
@@ -1323,7 +1325,7 @@ private struct HomeLibraryView<Header: View>: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
-            .padding(.top, scrollsHeader && snapshot.items.isEmpty ? geometry.safeAreaInsets.top + 76 : 0)
+            .padding(.top, snapshot.items.isEmpty ? emptyHeaderClearance : 0)
             .overlay(alignment: .top) {
                 header
                     .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
@@ -1385,7 +1387,7 @@ private struct HomeLibraryView<Header: View>: View {
         .overlay(alignment: .topLeading) {
             if showsBrowsingRow, stacksCategoryHeader {
                 PortraitNavigationHeader { browsingRow }
-                    .environment(\.colorScheme, .dark)
+                    .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
             }
         }
         .portraitNavigationRail(isEnabled: stacksCategoryHeader, store: store) {

@@ -43,7 +43,7 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Known follow-ups and evidence limits
 
-- **Physical iOS HDR recovery (source after build 42; physical confirmation pending):** build 42 confirms the phone advertises HEVC/HDR10 before server HLS fails and escalates to 1080p SDR. Local real-media controls reproduce a failing HLS master whose exact media rendition decodes and seeks at 4K PQ. Startup now tries that authenticated single muxed rendition before compatibility, retaining source/quality/tracks/position and the same server session; do not stop that session on adoption. Direct capability gates and network/auth/display failures remain authoritative. Server HLS also honors AAC-only audio profiles without changing copied video. Native recovery is included in signed/staged iOS and tvOS build 43; the separate backend AAC-profile correction was not deployed by packaging. See [the verification record](../../apple/docs/verification.md#server-hls-master-startup-recovery-2026-10-31).
+- **Physical iOS HDR recovery (source after build 42; physical confirmation pending):** build 42 confirms the phone advertises HEVC/HDR10 before server HLS fails and escalates to 1080p SDR. Local real-media controls reproduce a failing HLS master whose exact media rendition decodes and seeks at 4K PQ. Startup now tries that authenticated single muxed rendition before compatibility, retaining source/quality/tracks/position and the same server session; do not stop that session on adoption. Direct capability gates and network/auth/display failures remain authoritative. Server HLS also honors AAC-only audio profiles without changing copied video. Native recovery is included in signed/staged iOS and tvOS build 43; the matching backend AAC-profile correction is now deployed in production (see current production status below). See [the verification record](../../apple/docs/verification.md#server-hls-master-startup-recovery-2026-10-31).
 - **Named ratings (included in builds 33–35):** the native item adapter and shared hero now carry separate IMDb, Rotten Tomatoes, and Metacritic scores. The old generic `CriticRating` is only a fallback when named scores are absent. Production now serves the three named fields at source `283eede5`; each was verified against its stored web score. Source-specific DTO/Core checks and native hero screenshots cover this path.
 - **Library scrolling (source only, after build 31):** iOS and tvOS video categories load the first 50 lightweight records, then drain the catalog in 500-record pages. Preserve in-place alphabet jumps, query/session cancellation, suspension/resume, ordinary search/channel pagination, and directional poster lookahead (72 requested 400-pixel renditions on iOS; 36 requested 480-pixel renditions on TV) with the existing four-load and cache budgets. See [ADR 0034](../adr/0034-retain-native-artwork-in-a-private-device-cache.md). This change is not in the uploaded build 31.
 - **TV visual/performance (included in staged build 35):** movie and series details share the artwork-first billboard and named ratings, including valid zero scores. The shared ambient image crop now animates in Core Animation with the existing motion/lifecycle guards; iPhone pixel-motion and stable-layout checks pass. TV remote movie start, saved episode resume, direct/HLS/MKV progress/resume, and the full destination performance tour pass on the simulator. The matching Home window used 83.35% less app CPU and 79.35% fewer wakeups; a 503-title, six-traversal workload ended at 96.5–99.2 MiB (105.5 MiB sampled peak). These are synthetic simulator observations, not physical TV, HDMI/HDR/audio, frame-pacing or energy guarantees. See the [qualification record](../../apple/docs/tvos-performance-2026-10-29.md).
@@ -96,8 +96,8 @@ ran. Preserve ignored `apple/Distribution/0.1.0-43/` and the
 During build-43 staging, Xcode showed **iOS 42 and tvOS 41 Uploaded to Apple**;
 those uploads were observed, not performed here. Preserve both and all earlier
 release packages. Local staging does not establish Apple upload validation,
-processing or tester availability for 43. The separate backend AAC-only HLS
-profile correction requires its own deployment; packaging did not perform it.
+processing or tester availability for 43. Packaging did not deploy the backend;
+the subsequent production rollout below includes the AAC-only HLS correction.
 
 The earlier observed uploads are **iOS and tvOS 0.1.0 (40)** from clean main
 `63eb0ccb9818fb60d6e9b37595bec1283c6f4049`. During build-41 staging, Xcode
@@ -106,15 +106,24 @@ was observed, not performed here. Build 40 is consumed; preserve its exact
 packages and symbols. Earlier build-38 upload warnings and validation limits
 remain recorded in the [build-38 release record](../../apple/docs/testflight.md#internal-dogfood-package-38-2026-10-30).
 
-Production now runs the full image built from `df8511a7`, is healthy, and upgraded
-schema 41 to 42. Existing service settings, mounts, devices, networks and proxy
-labels were retained. Three rollback pins remain stopped with health checks
-disabled, restart disabled and networking isolated. A consistent schema-41
-database backup and key copy were verified; the manual backup was compressed
-with a verified decompressed checksum, and the automatic pre-upgrade backup is
-also retained. This full rollout supersedes the chapter-only overlay described
-below. Private deployment evidence is retained in ignored
-`output/release-df8511a7b0c-20261030T221126Z/`.
+Production now runs `lumina:build43-482cb0aa3abc`, built from clean main
+`482cb0aa3abc2b20d64c805ccbd49cd442a187c2`, with build 43's matching backend
+AAC-only HLS correction. The running image's revision and relevant source
+hashes match; internal health, public HTTPS, frontend and native public API
+checks passed. The real production 4K HEVC/PQ source retains copied 2160p
+video with `DOVIWithHDR10`, AAC audio conversion and no tone mapping for the
+AAC-only HLS profile. This decision check does not certify physical HDR output.
+
+Schema remains 42. A consistent database backup passed integrity and streaming
+checksum verification; signing keys and protected service configuration were
+backed up and verified. The existing final Compose image override was updated;
+effective configuration changed only its image. Runtime settings, media mounts,
+devices, networks, proxy labels and keys were preserved. The prior image is
+pinned in a stopped rollback container with health checks, restart and networking
+disabled; retained rollback pins and their cleanup exclusion were verified.
+Earlier schema-41 backups and rollback images remain retained. This full rollout
+supersedes the chapter-only overlay described below. Private deployment evidence
+is retained in ignored `output/prod-build43-20261031T155751Z/`.
 
 Build 38 includes the source changes previously described above as after build
 36. Package inclusion does not establish that the owner has installed it or

@@ -1746,3 +1746,36 @@ request; both retain source/options and advancing playback. The isolated iPhone
 landscape playback to avoid unrelated old navigation helpers and the known
 portrait Play obstruction. iOS test-source and final tvOS simulator builds
 passed. These checks do not qualify physical HDR output; no full suite ran.
+
+### Full server-HLS timeline during a cold Matroska start (2026-10-31)
+
+The owner reports correct-format playback with build 43, but its scrubber reaches
+the right edge after only a few minutes while the time labels retain the full
+movie duration. A cold read of the affected production source reproduces the
+server's missing seek plan: its packet scan misses the two-second startup budget
+and is still incomplete after a separate 50-second wait. That session keeps a
+growing EVENT playlist, and native gesture projection uses that short window.
+
+The server now reads bounded, selected-track Matroska Cues and publishes the
+whole VOD timeline immediately. Sparse cues define independent copied-video
+segments rather than pretending to contain every keyframe. Completed segments
+are cached across jumps; concurrent requests serialize generation and reuse
+duplicates. The metadata cache follows file replacement, and malformed,
+oversized or unavailable indexes retain the packet-scan/growing fallback.
+Direct-play eligibility, HDR negotiation and native recovery are unchanged.
+
+The API regression failed on the original missing full timeline and passes
+afterward. Dense/sparse indexes, decoded cold forward/backward seeks, concurrent
+prefetch, selected-track metadata, invalid indexes and file replacement are
+covered. All 24 seekable-HLS cases and 41 related session/buffer/response checks
+passed; the existing packet-scanned run contracts remain covered.
+
+Bounded qualification reads the real production source without modifying the
+running service: 4,199 indexed positions load in about one second. Generated
+segments at the start, one hour, the final partial interval and backward at
+twenty minutes decode as 3840×2160 HEVC/PQ with AAC and identical initialization
+data. Generation plus software decode takes approximately 0.4–0.8 seconds per
+sample. This is a segment-generation measurement, not physical end-to-end seek
+latency. Private evidence is retained in ignored `output/hls-full-timeline/`.
+This server-only fix requires deployment; no native rebuild, production rollout
+or physical-device seek qualification occurred in this fix operation.

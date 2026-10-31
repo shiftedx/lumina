@@ -6,6 +6,9 @@ segment is missing. A ``Plan`` is that timeline. Encoded video is cut on a fixed
 can start a run. Copied video is cut where the source has keyframes, and ffmpeg's hls muxer places the cuts of each
 run relative to the run's first keyframe, so the plan is a chain of runs of ``CHUNK_SEGMENTS`` segments: a restart
 begins at its chunk's first keyframe and reproduces the plan exactly.
+
+Matroska Cues avoid the packet scan on indexed files. Cues may omit keyframes,
+so those plans use one independent, cached segment per indexed interval.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ from urllib.parse import quote
 
 from app.services.local_playback_sessions import FIRST_SEGMENT_SECONDS, SEGMENT_SECONDS
 from app.services.media_probe import LOCAL_INPUT_ARGS
+from app.services.matroska_cues import read_video_cues
 
 CHUNK_SEGMENTS = 15  # copied video: segments per keyframe-anchored run (a seek waits for at most one run's worth)
 KEYFRAME_WAIT_SECONDS = 2.0  # how long a master playlist waits for a keyframe scan before the growing playlist is used
@@ -34,6 +38,7 @@ class HlsRun:
     seek: float
     length: float | None = None
     init: str = "init.mp4"  # a restart writes its own copy, so the one clients fetch is never rewritten under them
+    single_segment: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,11 +46,14 @@ class Plan:
     starts: tuple[float, ...]
     durations: tuple[float, ...]
     anchors: tuple[int, ...] | None = None  # copied video: first segment of each run; None = any segment starts a run
+    indexed: bool = False
 
     def index_at(self, seconds: float) -> int:
         return max(0, min(bisect.bisect_right(self.starts, seconds) - 1, len(self.starts) - 1))
 
     def run_for(self, index: int) -> HlsRun:
+        if self.indexed:
+            return HlsRun(index, self.starts[index], self.durations[index], single_segment=True)
         if self.anchors is None:
             return HlsRun(index, self.starts[index])
         slot = bisect.bisect_right(self.anchors, index) - 1
@@ -192,5 +200,11 @@ def plan_for(video: str | None, ffprobe: str | None, path: Path, facts: dict, vi
         return encode_plan(duration)
     if not ffprobe or video_index is None:
         return None
+    cues = read_video_cues(path, video_index)
+    if cues and cues[0] <= 0.15 and cues[-1] < duration:
+        starts = [0.0, *cues[1:]]
+        lengths = tuple(b - a for a, b in zip(starts, [*starts[1:], duration]))
+        if max(lengths) <= 120:  # bound work for a single requested segment
+            return Plan(tuple(starts), lengths, tuple(range(len(starts))), indexed=True)
     found = keyframes(ffprobe, path, video_index, KEYFRAME_WAIT_SECONDS)
     return copy_plan(found, duration, resume) if found else None

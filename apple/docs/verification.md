@@ -1635,3 +1635,23 @@ normal-profile then conservative recovery, downloaded-MKV replay position,
 prepared-original Start Over without another server request, and zero-position
 HLS restart retaining its recovery marker. The proof-server boundary check and
 27 fixture-broker/runner checks also passed. No full suite ran.
+
+Both selected `NativeClientDemuxVideoFormatRecoveryTests` methods passed together
+on the iPad simulator (`ipad-play.xcresult`): 77.794 and 71.176 seconds, including
+sign-in/navigation. The first case observed exactly one normal-profile HLS
+request. The second injected a format failure in that candidate and observed
+exactly one additional conservative request. Both verified the same media
+source, retained options/resume and advancing video from the seeded position.
+The errors are injected only under `LUMINA_UI_TESTING`; runtime capability
+checks remain unchanged. Visible poster/Play coordinates are used in this
+scoped journey because the simulator reported their unobscured accessibility
+nodes as non-hittable. Screen, playback and server assertions remain required.
+
+After disk pressure interrupted full runner rebuilds, the updated UI-test source
+was compiled/linked with the platform Xcode toolchain against the retained
+simulator app and run with `test-without-building`. Earlier setup/navigation
+attempts are retained as failures, not counted as playback qualification.
+The final shared-code tvOS simulator build also passed with shipping flags and
+code signing disabled. tvOS runtime and physical HDR display output were not
+qualified in this change. Build caches and owned simulators are disposable;
+useful logs/results remain in ignored `output/ios-hdr-quality/`.

@@ -316,6 +316,10 @@ final class NativeStandardPhoneAppearanceChromeTests: NativeProofJourney {
     }
 }
 @MainActor
+final class NativeOpenDuoEmptyWatchlistTests: NativeProofJourney {
+    func testEmptyWatchlistCentersBelowCategoriesAndPopulates() async throws { try await journeyEmptyWatchlistCentering() }
+}
+@MainActor
 final class NativeOpenDuoRequestsHeaderTests: NativeProofJourney {
     func testRequestsArtworkAndActionsClearPortraitStatus() throws { try journeyRequestsPortraitHeader() }
 }
@@ -5154,6 +5158,57 @@ class NativeProofJourney: XCTestCase {
                 XCTAssertFalse(control.frame.intersects(region), "Navigation must clear the camera punch hole: \(region).")
             }
         }
+    }
+
+    func journeyEmptyWatchlistCentering() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: false)
+        try launchAndResetSession()
+        let viewport = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              viewport.width >= 600, viewport.height > viewport.width else {
+            throw XCTSkip("Use the actual open Duo portrait display for empty Watchlist verification.")
+        }
+        func tapVisibleControl(_ control: XCUIElement) throws {
+            try waitForExistence(control, timeout: 15, named: "Watchlist navigation control")
+            guard hasVisibleFrame(control) else { throw ProofFailure.ui("Watchlist control must be on screen.") }
+            let frame = control.frame
+            try applicationWindow().coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - viewport.minX) / viewport.width,
+                dy: (frame.midY - viewport.minY) / viewport.height)).tap()
+        }
+        try signIn(using: fixture)
+        try waitForExistence(element("featuredTitleButton"), timeout: 20, named: "loaded Home hero")
+        try tapVisibleControl(element("homeBrowse-watchlist"))
+        let title = application!.staticTexts["No matches on Home"]
+        let message = application!.staticTexts["Choose Home or add something to your watchlist."]
+        try waitForExistence(title, timeout: 20, named: "empty Watchlist title")
+        try waitForExistence(message, timeout: 10, named: "empty Watchlist guidance")
+        let categories = element("homeBrowsingRow").frame
+        let group = title.frame.union(message.frame)
+        XCTAssertGreaterThan(group.minY, categories.maxY + 80,
+                             "The empty Watchlist must clear the category row.")
+        XCTAssertEqual(group.midY, viewport.midY, accuracy: viewport.height * 0.15,
+                       "Empty Watchlist guidance belongs in the middle of the page.")
+        try attachFrame(named: "Open Duo portrait empty Watchlist centered below categories")
+
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: true)
+        application!.terminate()
+        application!.launch()
+        try waitForExistence(element("homeScreen"), timeout: 25, named: "Home after saved Watchlist relaunch")
+        try tapVisibleControl(element("homeBrowse-watchlist"))
+        let populated = element("featuredTitleButton")
+        try waitForExistence(populated, timeout: 25, named: "populated Watchlist hero after relaunch")
+        XCTAssertEqual(populated.label, fixture.directItemTitle)
+        XCTAssertFalse(title.exists, "A populated Watchlist must replace the empty state.")
+        XCTAssertGreaterThan(populated.frame.minY, categories.maxY,
+                             "Populated Watchlist content must retain normal hero placement.")
+        try attachFrame(named: "Open Duo portrait populated Watchlist retains its hero")
     }
 
     func journeyRequestsPortraitHeader() throws {

@@ -3169,11 +3169,16 @@ class NativeProofJourney: XCTestCase {
         let itemID = episode ? fixture.episodeID : fixture.directItemID
         try await api.seedProgress(identity: identity, itemID: itemID, seconds: 24)
         #if os(iOS)
+        XCUIDevice.shared.orientation = .portrait
         try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
         #else
         try launchAndResetSession()
         #endif
         try signIn(using: fixture, waitsForAccount: false)
+        #if os(iOS)
+        // Keep the detail Play action clear of the known portrait tab-bar obstruction.
+        if !episode { XCUIDevice.shared.orientation = .landscapeLeft }
+        #endif
 
         func press(_ control: XCUIElement) throws {
             #if os(iOS)
@@ -3226,23 +3231,6 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(choice, timeout: 15, named: "Resume / Start Over choice")
         XCTAssertFalse(element("playbackScreen").exists, "Saved playback must wait for a choice.")
         try attachFrame(named: episode ? "Episode Resume and Start Over choice" : "Movie Resume and Start Over choice")
-        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Cancel")).firstMatch)
-        XCTAssertTrue(disappears(choice, timeout: 8))
-        XCTAssertFalse(element("playbackScreen").exists)
-        let untouched = try await api.playbackSeconds(identity: identity, itemID: itemID)
-        XCTAssertEqual(untouched, 24, accuracy: 0.1, "Cancelling must preserve saved progress.")
-
-        try press(action)
-        try waitForExistence(choice, timeout: 15, named: "resume choice after cancellation")
-        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch)
-        try waitForExistence(element("playbackScreen"), timeout: 25, named: "resumed player")
-        let initial = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= 24 }
-        XCTAssertLessThan(initial, 35, "Resume must use the saved position.")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= initial + 2 }
-        try closeRequestedPlayback()
-
-        try press(action)
-        try waitForExistence(choice, timeout: 15, named: "start-over choice")
         let startOver = choice.buttons.matching(NSPredicate(format: "label == %@", "Start Over")).firstMatch
         #if os(tvOS)
         guard focus(startOver, timeout: 20) else { throw ProofFailure.ui("The remote must focus Start Over before timing selection.") }
@@ -3268,6 +3256,24 @@ class NativeProofJourney: XCTestCase {
         }
         XCTAssertLessThan(saved, 10, "The server must receive the restarted timeline.")
         try closeRequestedPlayback()
+        try await api.seedProgress(identity: identity, itemID: itemID, seconds: 24)
+        try press(action)
+        try waitForExistence(choice, timeout: 15, named: "choice before cancellation")
+        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Cancel")).firstMatch)
+        XCTAssertTrue(disappears(choice, timeout: 8))
+        XCTAssertFalse(element("playbackScreen").exists)
+        let untouched = try await api.playbackSeconds(identity: identity, itemID: itemID)
+        XCTAssertEqual(untouched, 24, accuracy: 0.1, "Cancelling must preserve saved progress.")
+
+        try press(action)
+        try waitForExistence(choice, timeout: 15, named: "resume choice after cancellation")
+        try press(choice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "resumed player")
+        let initial = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= 24 }
+        XCTAssertLessThan(initial, 35, "Resume must use the saved position.")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= initial + 2 }
+        try closeRequestedPlayback()
+
         try await api.seedProgress(identity: identity, itemID: itemID, seconds: 0)
         try press(action)
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "unplayed title starts directly")

@@ -44,7 +44,13 @@ private struct NativeVideoResumeChoice: ViewModifier {
     let store: LuminaStore
     let onReady: (PlaybackRequest) -> Void
     let onCancel: () -> Void
-    @State private var pending: PlaybackRequest?
+    private struct Choice: Identifiable {
+        let request: PlaybackRequest
+        let owner: String?
+        var id: String { request.id }
+    }
+
+    @State private var pending: Choice?
     @State private var approved: PlaybackRequest?
     @State private var choiceOriginID: String?
     @State private var choiceOwner: String?
@@ -52,9 +58,9 @@ private struct NativeVideoResumeChoice: ViewModifier {
     func body(content: Content) -> some View {
         content
             .fullScreenCover(item: $pending, onDismiss: finishChoice) { candidate in
-                NativeResumeChoiceView(request: candidate, store: store, owner: choiceOwner) { selected in
+                NativeResumeChoiceView(request: candidate.request, store: store, owner: candidate.owner) { selected in
                     guard request?.id == candidate.id, pending?.id == candidate.id,
-                          store.session?.accessToken == choiceOwner else { return }
+                          store.session?.accessToken == candidate.owner else { return }
                     approved = selected
                     pending = nil
                 } onCancel: {
@@ -71,8 +77,9 @@ private struct NativeVideoResumeChoice: ViewModifier {
                 }
                 if !request.item.isAudio, request.startPositionSeconds > 0 {
                     choiceOriginID = request.id
-                    choiceOwner = store.session?.accessToken
-                    pending = request
+                    let owner = store.session?.accessToken
+                    choiceOwner = owner
+                    pending = Choice(request: request, owner: owner)
                 } else if pending != nil {
                     choiceOriginID = request.id
                     choiceOwner = store.session?.accessToken

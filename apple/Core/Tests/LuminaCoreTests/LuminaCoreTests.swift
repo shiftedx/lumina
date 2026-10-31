@@ -1839,10 +1839,14 @@ final class LuminaCoreTests: XCTestCase {
             return response(request, json: ["PlaySessionId": "session", "MediaSources": []])
         }
 
-        _ = try await client.playbackInfo(origin: URL(string: "http://127.0.0.1:8765")!, token: "token", deviceID: "device", item: item, forceTranscode: false)
+        let modernResult = try await client.playbackInfo(origin: URL(string: "http://127.0.0.1:8765")!, token: "token", deviceID: "device", item: item, forceTranscode: false)
         _ = try await client.playbackInfo(origin: URL(string: "http://127.0.0.1:8765")!, token: "token", deviceID: "device", item: item, forceTranscode: true, forceCompatibleVideo: true)
 
         let modern = try XCTUnwrap(try body(requests.all[0])["DeviceProfile"] as? [String: Any])
+        XCTAssertEqual(modernResult.negotiationDiagnostics?.advertisedHEVC, true)
+        XCTAssertEqual(modernResult.negotiationDiagnostics?.advertisedHDR10, false,
+                       "Diagnostics must capture the sent codec-profile intersection, not a broader direct-play HDR claim.")
+        XCTAssertEqual(modernResult.negotiationDiagnostics?.advertisedProfile81MaxLevel, 8)
         let direct = try XCTUnwrap(modern["DirectPlayProfiles"] as? [[String: Any]])
         XCTAssertEqual(direct[0]["VideoCodec"] as? String, "h264,hevc,av1")
         let dolbyVision = try XCTUnwrap(direct[0]["LuminaDolbyVisionProfiles"] as? [[String: Any]])
@@ -1924,6 +1928,90 @@ final class LuminaCoreTests: XCTestCase {
         ])
     }
 
+    func testPlaybackNegotiationCaptureKeepsRequestEvidenceAndExcludesPrivateURLData() async throws {
+        let capabilities = NativeVideoCapabilities.from(.init(
+            hevcHardwareDecode: false, dolbyVisionHardwareDecode: false,
+            av1HardwareDecode: false, hdrEligible: false, dolbyVisionRoute: false,
+            p81Supported: true, converterAvailable: false,
+            playableMP4Codecs: ["hvc1.2.4.L153.B0", "hvc1.2.4.L150.B0", "hvc1"]
+        ))
+        let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: { capabilities })
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            return response(request, json: [
+                "PlaySessionId": "private-session", "MediaSources": [[
+                    "Id": "private-source", "Container": "mkv",
+                    "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "TranscodingUrl": "/Videos/private-item/master.m3u8?ApiKey=private-stream-key&VideoCodec=h264&MaxHeight=1080&TranscodeReasons=VideoCodecNotSupported,private-reason",
+                ]],
+                "negotiationDiagnostics": ["advertisedHEVC": true],
+            ])
+        }
+        let origin = URL(string: "https://example.com")!
+        let result = try await client.playbackInfo(origin: origin, token: "private-token", deviceID: "private-device",
+                                                  item: item, forceTranscode: false)
+        let request = try client.playbackRequest(origin: origin, token: "private-token", item: item, result: result)
+        let evidence = try XCTUnwrap(request.negotiationDiagnostics)
+        XCTAssertEqual(evidence.hevcHardwareDecode, false)
+        XCTAssertEqual(evidence.hevcMain10MP4Playable, true)
+        XCTAssertEqual(evidence.hevcMain10Level50MP4Playable, true)
+        XCTAssertEqual(evidence.hevcBasicMP4Playable, true)
+        XCTAssertEqual(evidence.hdrDisplayEligible, false)
+        XCTAssertEqual(evidence.profile81RuntimeSupported, true)
+        XCTAssertFalse(evidence.advertisedHEVC)
+        XCTAssertFalse(evidence.advertisedHDR10)
+        XCTAssertFalse(evidence.forcedServerHLS)
+        XCTAssertFalse(evidence.forcedCompatibility)
+        XCTAssertFalse(evidence.audioSelectionRequested)
+        XCTAssertFalse(evidence.subtitleSelectionRequested)
+        XCTAssertNil(evidence.qualityHeightLimit)
+        XCTAssertNil(evidence.maximumStreamingBitrate)
+        XCTAssertEqual(evidence.serverDirectPlay, false)
+        XCTAssertEqual(evidence.serverVideoCodec, .h264)
+        XCTAssertEqual(evidence.serverMaxHeight, 1080)
+        XCTAssertEqual(evidence.serverReasons, [.videoCodec])
+        XCTAssertTrue(evidence.unknownServerReason)
+        let posted = try body(try XCTUnwrap(requests.all.first))
+        XCTAssertEqual(posted["EnableDirectPlay"] as? Bool, true)
+        let profile = try XCTUnwrap(posted["DeviceProfile"] as? [String: Any])
+        let codecs = try XCTUnwrap(profile["CodecProfiles"] as? [[String: Any]])
+        XCTAssertFalse(codecs.contains { $0["Codec"] as? String == "hevc" })
+
+        let retryResult = try await client.playbackInfo(origin: origin, token: "private-token", deviceID: "private-device",
+                                                       item: item, forceTranscode: true, quality: .upTo1080p,
+                                                       audioStreamIndex: 3, subtitleStreamIndex: -1, forceCompatibleVideo: true)
+        let retry = try client.playbackRequest(origin: origin, token: "private-token", item: item, result: retryResult,
+                                               usesCompatibleVideo: true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.forcedCompatibility, true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.forcedServerHLS, true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.audioSelectionRequested, true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.subtitleSelectionRequested, true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.subtitlesOffRequested, true)
+        XCTAssertEqual(retry.negotiationDiagnostics?.qualityHeightLimit, 1080)
+        XCTAssertEqual(retry.negotiationDiagnostics?.maximumStreamingBitrate, 8_000_000)
+        XCTAssertNil(retry.negotiationDiagnostics?.hevcHardwareDecode,
+                     "A forced compatibility profile must not fabricate hardware observations.")
+        XCTAssertFalse(evidence.forcedCompatibility, "Later requests must not overwrite earlier request evidence.")
+
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jsonl")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let capture = try PlaybackDiagnosticCapture.start(fileURL: file, version: "0.1.0", build: "42",
+                                                          osVersion: .init(majorVersion: 27, minorVersion: 2, patchVersion: 0))
+        var sample = PlaybackDiagnosticSample()
+        sample.negotiation = evidence
+        XCTAssertTrue(capture.record(.modelCreated, sample: sample))
+        _ = try await capture.finish(reason: .user)
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("VideoCodecNotSupported"))
+        XCTAssertTrue(text.contains("hevcMain10MP4Playable"))
+        for secret in ["private-stream-key", "private-token", "private-device", "private-source", "private-item",
+                       "private-session", "private-reason", "example.com", "ApiKey", "/Videos/"] {
+            XCTAssertFalse(text.contains(secret), "Negotiation capture must exclude private URLs and identifiers.")
+        }
+    }
+
     func testDolbyVisionCapabilityPolicyRequiresExactRouteAndProfileQueries() {
         let baselineCodecs: Set<String> = ["hvc1.2.4.L153.B0", "av01.0.13M.08", "av01.0.13M.10"]
         let p5 = "dvh1.05.09"
@@ -1945,6 +2033,8 @@ final class LuminaCoreTests: XCTestCase {
         }
 
         XCTAssertEqual(capabilities(codecs: baselineCodecs).directMP4DolbyVisionProfiles, [])
+        XCTAssertNil(capabilities(codecs: ["hvc1", "hvc1.2.4.L150.B0"]).hls[.hevc],
+                     "Diagnostic-only lower codec queries must not broaden the playback profile.")
         XCTAssertEqual(capabilities(route: false, codecs: baselineCodecs.union([p5, p8])).directMP4DolbyVisionProfiles, [])
         XCTAssertEqual(capabilities(hdr: false, codecs: baselineCodecs.union([p5, p8])).directMP4DolbyVisionProfiles, [])
         XCTAssertEqual(capabilities(main10: false, codecs: baselineCodecs.union([p5, p8])).directMP4DolbyVisionProfiles, [])
@@ -2529,6 +2619,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(restarted.usesClientDemux)
         XCTAssertEqual(restarted.bitRate, prepared.bitRate)
         XCTAssertEqual(restarted.sourceContainer, prepared.sourceContainer)
+        XCTAssertEqual(restarted.negotiationDiagnostics, prepared.negotiationDiagnostics)
     }
 
     func testPreparePlaybackSendsTrackSelectionSourceAndReplacementPosition() async throws {

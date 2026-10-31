@@ -26,7 +26,50 @@ public enum PlaybackDiagnosticStopReason: String, Codable, Sendable {
     case user, timeout, limit
 }
 
+public struct PlaybackNegotiationDiagnostics: Codable, Equatable, Sendable {
+    public enum VideoCodec: String, Codable, Sendable { case h264, hevc, av1 }
+    public enum Reason: String, Codable, Sendable {
+        case videoCodec = "VideoCodecNotSupported"
+        case videoResolution = "VideoResolutionNotSupported"
+        case videoBitDepth = "VideoBitDepthNotSupported"
+        case videoRange = "VideoRangeTypeNotSupported"
+        case bitrate = "ContainerBitrateExceedsLimit"
+        case audioCodec = "AudioCodecNotSupported"
+        case audioChannels = "AudioChannelsNotSupported"
+        case audioBitDepth = "AudioBitDepthNotSupported"
+        case audioBitrate = "AudioBitrateExceedsLimit"
+        case container = "ContainerNotSupported"
+        case subtitle = "SubtitleCodecNotSupported"
+        case secondaryAudio = "SecondaryAudioNotSupported"
+    }
+
+    public let hevcHardwareDecode: Bool?
+    public let hevcMain10MP4Playable: Bool?
+    public let hevcMain10Level50MP4Playable: Bool?
+    public let hevcBasicMP4Playable: Bool?
+    public let hdrDisplayEligible: Bool?
+    public let dolbyVisionDisplayAvailable: Bool?
+    public let profile81RuntimeSupported: Bool?
+    public let advertisedHEVC: Bool
+    public let advertisedHDR10: Bool
+    public let advertisedProfile81MaxLevel: Int?
+    public let forcedServerHLS: Bool
+    public let forcedCompatibility: Bool
+    public let qualityHeightLimit: Int?
+    public internal(set) var maximumStreamingBitrate: Int?
+    public internal(set) var audioSelectionRequested = false
+    public internal(set) var subtitleSelectionRequested = false
+    public internal(set) var subtitlesOffRequested = false
+    public internal(set) var serverDirectPlay: Bool?
+    public internal(set) var serverVideoCodec: VideoCodec?
+    public internal(set) var serverMaxHeight: Int?
+    public internal(set) var serverReasons: [Reason] = []
+    public internal(set) var unknownServerReason = false
+}
+
 public struct PlaybackDiagnosticSample: Codable, Sendable {
+    public var negotiation: PlaybackNegotiationDiagnostics?
+    public var lowPowerModeEnabled: Bool?
     public var modelID: UUID?
     public var playerID: UInt64?
     public var viewID: UInt64?

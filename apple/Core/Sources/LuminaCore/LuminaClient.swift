@@ -311,7 +311,20 @@ final class LuminaClient: @unchecked Sendable {
         if let audioStreamIndex, audioStreamIndex >= 0 { body["AudioStreamIndex"] = audioStreamIndex }
         if let subtitleStreamIndex { body["SubtitleStreamIndex"] = subtitleStreamIndex }
         if let mediaSourceID { body["MediaSourceId"] = mediaSourceID }
-        return try await json(request(origin: origin, path: "/Items/\(item.id)/PlaybackInfo", method: "POST", token: token, deviceID: deviceID, body: body))
+        var result: PlaybackInfo = try await json(request(origin: origin, path: "/Items/\(item.id)/PlaybackInfo", method: "POST", token: token, deviceID: deviceID, body: body))
+        let hevcProfile = (profile["CodecProfiles"] as? [[String: Any]])?.first { $0["Codec"] as? String == "hevc" }
+        let advertisedHDR10 = (hevcProfile?["Conditions"] as? [[String: String]])?.contains {
+            $0["Property"] == "VideoRangeType" && ($0["Value"] ?? "").split(separator: "|").contains("HDR10")
+        } == true
+        result.negotiationDiagnostics = capabilities.diagnostics(
+            advertisedHDR10: advertisedHDR10, forcedServerHLS: forceTranscode, forcedCompatibility: forceCompatibleVideo,
+            qualityHeightLimit: quality.maximumHeight
+        )
+        result.negotiationDiagnostics?.audioSelectionRequested = body["AudioStreamIndex"] != nil
+        result.negotiationDiagnostics?.maximumStreamingBitrate = body["MaxStreamingBitrate"] as? Int
+        result.negotiationDiagnostics?.subtitleSelectionRequested = body["SubtitleStreamIndex"] != nil
+        result.negotiationDiagnostics?.subtitlesOffRequested = body["SubtitleStreamIndex"] as? Int == -1
+        return result
     }
 
     private func nativePlaybackProfile(_ capabilities: NativeVideoCapabilities, quality: PlaybackQuality,
@@ -454,6 +467,15 @@ final class LuminaClient: @unchecked Sendable {
                          usesCompatibleVideo: Bool = false,
                          usesServerVideoRecovery: Bool = false) throws -> PlaybackRequest {
         let source = try preferredSource(in: result, mediaSourceID: mediaSourceID)
+        var negotiation = result.negotiationDiagnostics
+        negotiation?.serverDirectPlay = source.supportsDirectPlay
+        let query = source.transcodingURL.flatMap { URLComponents(string: $0)?.queryItems } ?? []
+        let value: (String) -> String? = { name in query.first { $0.name.lowercased() == name }?.value }
+        negotiation?.serverVideoCodec = value("videocodec").flatMap(PlaybackNegotiationDiagnostics.VideoCodec.init(rawValue:))
+        negotiation?.serverMaxHeight = value("maxheight").flatMap(Int.init).flatMap { (1...4320).contains($0) ? $0 : nil }
+        let reasons = (value("transcodereasons") ?? "").split(separator: ",")
+        negotiation?.serverReasons = reasons.prefix(16).compactMap { PlaybackNegotiationDiagnostics.Reason(rawValue: String($0)) }
+        negotiation?.unknownServerReason = reasons.count > 16 || reasons.contains { PlaybackNegotiationDiagnostics.Reason(rawValue: String($0)) == nil }
         let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
         let sourceChapters = source.chapters.map {
             sanitizedPlaybackChapters(
@@ -508,7 +530,7 @@ final class LuminaClient: @unchecked Sendable {
                                    bitRate: source.bitRate, sourceContainer: source.container, m2tsSeekIndex: seekIndex,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                    subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
-                                   resolvedQuality: quality)
+                                   resolvedQuality: quality, negotiationDiagnostics: negotiation)
         }
         guard source.supportsTranscoding, let raw = source.transcodingURL,
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
@@ -519,7 +541,7 @@ final class LuminaClient: @unchecked Sendable {
                                bitRate: source.bitRate, sourceContainer: source.container,
                                mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
-                               resolvedQuality: quality)
+                               resolvedQuality: quality, negotiationDiagnostics: negotiation)
     }
 
     /// Selects the strongest source the current native profile can play directly. This keeps the
@@ -909,6 +931,8 @@ struct LibraryAlphabetPage: Decodable {
 struct PlaybackInfo: Decodable {
     let mediaSources: [MediaSource]
     let playSessionID: String
+    // Local request evidence is deliberately excluded from server decoding.
+    var negotiationDiagnostics: PlaybackNegotiationDiagnostics? = nil
     enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources", playSessionID = "PlaySessionId" }
 }
 

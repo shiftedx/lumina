@@ -1655,3 +1655,44 @@ The final shared-code tvOS simulator build also passed with shipping flags and
 code signing disabled. tvOS runtime and physical HDR display output were not
 qualified in this change. Build caches and owned simulators are disposable;
 useful logs/results remain in ignored `output/ios-hdr-quality/`.
+
+
+### Physical iOS HDR downgrade investigation (2026-10-30, open)
+
+An owner-supplied physical-phone recording identifies app build 41 on iOS 27.2.
+After the prior player closes, the next model is created with client packaging
+disabled. It installs one HLS item, reports an 8 Mbps indicated bitrate and
+advances playback without an error-log event or another item replacement.
+Together with the reported 1080p H.264/SDR output, this shows HLS was
+already selected before this player started its decoder. It does not identify
+which capability, earlier negotiation or source-selection constraint rejected
+the original. Production's relevant playback modules match the checked-out main;
+read-only policy checks found no member resolution ceiling or active household
+bandwidth allocation. Private evidence is retained in ignored
+`output/duo-hdr-session/`.
+
+A separate probe in the local Duo simulator reports a playable Main 10 MP4
+query but no hardware HEVC decoder or HDR display eligibility. The existing
+policy consequently advertises only H.264 there. This reproduces a simulator
+policy limitation, not the physical phone's runtime values or cause. No decoder,
+Dolby Vision, HDR eligibility or fallback policy has been broadened by this
+investigation.
+
+Negotiation diagnostics now travel with their exact PlaybackInfo response and
+selected playback request. The local recording can include the request's
+hardware/Main 10/HDR/Dolby runtime observations, the sent HEVC/HDR10/P8.1 claims,
+forced HLS/compatibility flags, quality/selection flags and an allowlisted subset
+of the server URL's codec, height and rejection reasons. Unknown reasons become
+a Boolean; URLs, tokens, titles and identifiers are excluded. Forced compatibility
+has no inferred hardware observations. Starting a recording captures the active
+request; model/start events and adopted replacements retain the corresponding
+request's evidence, including Start Over. Low-power state is sampled separately
+at recording time. Supplementary basic/Level 5.0 HEVC queries distinguish an
+exact Level 5.1 MIME rejection; they do not broaden codec eligibility. The existing bounded writer, local-only storage and explicit
+share workflow remain in place.
+
+Ten focused Core/recording checks and the arm64 iOS and tvOS simulator builds passed.
+The added fields are absent from build 41. A recording from an updated app on
+the affected physical phone is still required to identify the rejecting gate;
+this change does not establish a physical playback fix. No beta archive,
+TestFlight upload or production deployment was performed for this investigation.

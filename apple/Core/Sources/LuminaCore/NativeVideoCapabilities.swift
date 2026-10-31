@@ -48,12 +48,14 @@ struct NativeVideoCapabilities: Equatable, Sendable {
     /// M2TS pair conversion is a separately qualified transport path. It is
     /// never inferred from the Matroska declaration at the protocol boundary.
     let transportDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion]
+    let runtimeProbe: RuntimeProbe?
 
     init(directMP4: [Codec: Set<Range>], directMP4BitDepth: [Codec: Int],
          hls: [Codec: Set<Range>], hlsBitDepth: [Codec: Int],
          directMP4DolbyVisionProfiles: [DolbyVisionProfile] = [],
          matroskaDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = [],
-         transportDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = []) {
+         transportDolbyVisionPackagingConversions: [DolbyVisionPackagingConversion] = [],
+         runtimeProbe: RuntimeProbe? = nil) {
         self.directMP4 = directMP4
         self.directMP4BitDepth = directMP4BitDepth
         self.hls = hls
@@ -61,6 +63,7 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         self.directMP4DolbyVisionProfiles = directMP4DolbyVisionProfiles
         self.matroskaDolbyVisionPackagingConversions = matroskaDolbyVisionPackagingConversions
         self.transportDolbyVisionPackagingConversions = transportDolbyVisionPackagingConversions
+        self.runtimeProbe = runtimeProbe
     }
 
     /// The established compatibility request never relies on a modern decoder
@@ -91,7 +94,7 @@ struct NativeVideoCapabilities: Equatable, Sendable {
 
     /// Injection keeps the capability policy table-testable without claiming
     /// that a simulator's display route is a physical Dolby Vision result.
-    struct RuntimeProbe: Sendable {
+    struct RuntimeProbe: Equatable, Sendable {
         let hevcHardwareDecode: Bool
         let dolbyVisionHardwareDecode: Bool
         let av1HardwareDecode: Bool
@@ -167,7 +170,26 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         return Self(directMP4: direct, directMP4BitDepth: directBitDepth, hls: hls,
                     hlsBitDepth: hlsBitDepth, directMP4DolbyVisionProfiles: dolbyVisionProfiles,
                     matroskaDolbyVisionPackagingConversions: matroskaConversions,
-                    transportDolbyVisionPackagingConversions: matroskaConversions)
+                    transportDolbyVisionPackagingConversions: matroskaConversions,
+                    runtimeProbe: probe)
+    }
+
+    func diagnostics(advertisedHDR10: Bool, forcedServerHLS: Bool, forcedCompatibility: Bool,
+                     qualityHeightLimit: Int?) -> PlaybackNegotiationDiagnostics {
+        PlaybackNegotiationDiagnostics(
+            hevcHardwareDecode: runtimeProbe?.hevcHardwareDecode,
+            hevcMain10MP4Playable: runtimeProbe.map { $0.playableMP4Codecs.contains(Self.hevcMain10Codec) },
+            hevcMain10Level50MP4Playable: runtimeProbe.map { $0.playableMP4Codecs.contains(Self.hevcMain10Level50Codec) },
+            hevcBasicMP4Playable: runtimeProbe.map { $0.playableMP4Codecs.contains("hvc1") },
+            hdrDisplayEligible: runtimeProbe?.hdrEligible,
+            dolbyVisionDisplayAvailable: runtimeProbe?.dolbyVisionRoute,
+            profile81RuntimeSupported: runtimeProbe?.p81Supported,
+            advertisedHEVC: !(hls[.hevc] ?? []).isEmpty,
+            advertisedHDR10: advertisedHDR10,
+            advertisedProfile81MaxLevel: directMP4DolbyVisionProfiles.filter { $0.profile == 8 && $0.compatibilityIDs.contains(1) }.map(\.maxLevel).max(),
+            forcedServerHLS: forcedServerHLS, forcedCompatibility: forcedCompatibility,
+            qualityHeightLimit: qualityHeightLimit
+        )
     }
 
     func ranges(for codec: Codec, delivery: Delivery) -> Set<Range> {
@@ -191,9 +213,12 @@ struct NativeVideoCapabilities: Equatable, Sendable {
 
     private static let av1Codec: CMVideoCodecType = 0x6176_3031 // `av01`
     private static let hevcMain10Codec = "hvc1.2.4.L153.B0"
+    private static let hevcMain10Level50Codec = "hvc1.2.4.L150.B0"
     private static let av1Main8Codec = "av01.0.13M.08"
     private static let av1Main10Codec = "av01.0.13M.10"
-    private static let mp4CodecQueries = [hevcMain10Codec, av1Main8Codec, av1Main10Codec]
+    // Lower HEVC queries distinguish an exact Level 5.1 rejection from missing
+    // codec support in diagnostics; they do not widen the eligibility policy.
+    private static let mp4CodecQueries = [hevcMain10Codec, hevcMain10Level50Codec, "hvc1", av1Main8Codec, av1Main10Codec]
         + (1...9).flatMap { level in
             [dolbyVisionCodec(profile: 5, level: level), dolbyVisionCodec(profile: 8, level: level)]
         }

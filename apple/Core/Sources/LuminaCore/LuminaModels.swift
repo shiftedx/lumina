@@ -413,6 +413,9 @@ public struct PlaybackRequest: Identifiable, Sendable {
     /// True when a client-packaged original first recovered through the server's
     /// normal validated HLS profile, before the conservative compatibility retry.
     public let usesServerVideoRecovery: Bool
+    /// True after native playback retried a one-variant server master through
+    /// its selected media playlist, without changing the server session.
+    public let usesServerMediaRecovery: Bool
     public let methodLabel: String
     public let usesClientDemux: Bool
     /// The selected source's server-reported bitrate, when it is a sane positive value.
@@ -437,6 +440,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
                 isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false,
                 usesCompatibleVideo: Bool = false,
                 usesServerVideoRecovery: Bool = false,
+                usesServerMediaRecovery: Bool = false,
                 bitRate: Int? = nil, sourceContainer: String? = nil,
                 m2tsSeekIndex: M2TSSeekIndexReference? = nil,
                 mediaStreams: [PlaybackStream] = [], audioStreamIndex: Int? = nil,
@@ -451,6 +455,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.isTranscoding = isTranscoding
         self.usesCompatibleVideo = usesCompatibleVideo
         self.usesServerVideoRecovery = usesServerVideoRecovery
+        self.usesServerMediaRecovery = usesServerMediaRecovery
         self.methodLabel = methodLabel
         self.usesClientDemux = usesClientDemux
         self.bitRate = bitRate

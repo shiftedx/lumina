@@ -1696,3 +1696,53 @@ The added fields are absent from build 41. A recording from an updated app on
 the affected physical phone is still required to identify the rejecting gate;
 this change does not establish a physical playback fix. No beta archive,
 TestFlight upload or production deployment was performed for this investigation.
+
+### Server HLS master startup recovery (2026-10-31)
+
+The build-42 physical recording reports hardware HEVC, playable Main 10, HDR
+eligibility and advertised HDR10. Its initial server HLS decision uses HEVC;
+a subsequent compatibility request removes HEVC/HDR and caps output at 1080p.
+The original startup exception was not included in that recording, so it does
+not establish the physical device's exact AVFoundation error code.
+
+A bounded, read-only production-source qualification isolates a reproducible
+master/media difference locally. The original 3840×2160 HEVC Main 10/PQ asset
+renders and seeks through client packaging. Server-shaped fMP4 media playlists
+also decode and advance; their single-variant masters fail before decoding with
+CoreMedia `-12927`. Audio-copy/AAC and raw/stripped Dolby Vision controls retain
+the same result. Metadata-only master changes do not fix that failure. A fully
+PQ-declared master separately encounters the Mac's HDR display eligibility
+gate; that result is not evidence against the physical phone's HDR capability.
+
+Startup recovery now tries the already-negotiated server media playlist before
+requesting H.264/SDR. The existing authenticated, same-origin resolver requires
+a single muxed variant. The retry retains the server session, source, quality,
+resume position, track selections and negotiation evidence. It does not create
+a second encode or change video samples. Network/authentication/display errors,
+selected sidecars and alternate-audio/multivariant masters are not silently
+converted into this route. A failed media attempt still has the final bounded
+compatibility tier. Adoption must not stop its reused server session.
+
+The server also independently constrains HLS audio copy to explicit fMP4 HLS
+profiles: direct EAC3 support no longer overrides an AAC-only HLS request.
+Original direct audio stays intact; recovery copies eligible video and converts
+only audio. No Dolby Vision eligibility or metadata-stripping policy changed.
+
+The opt-in `RealMediaPlaybackTests.testConfiguredServerHLSMasterRecoveryRetainsVideoAndSeeks`
+reproduces the master error, resolves the same rendition, verifies native
+3840×2160 HEVC/PQ format descriptions, decodes frames and seeks successfully.
+The retained local four-case matrix has identical decoded-picture hashes and
+passes every media-playlist control. Evidence and a repeatable local harness
+are in ignored `output/physical-hdr-negotiation/`. No production deployment,
+app packaging or upload occurred; physical-phone confirmation remains pending
+a build containing this recovery change.
+
+Focused validation passed: 169 planner cases, four native-profile Jellyfin API
+cases, 14 Core/capture checks and two serial native iOS recovery workflows.
+The workflows prove normal master-to-media recovery reuses one PlaybackInfo
+request, and master-plus-media failure makes exactly one final compatibility
+request; both retain source/options and advancing playback. The isolated iPhone
+17 simulator runs iOS 26.5. Its entry uses the visible Library control and
+landscape playback to avoid unrelated old navigation helpers and the known
+portrait Play obstruction. iOS test-source and final tvOS simulator builds
+passed. These checks do not qualify physical HDR output; no full suite ran.

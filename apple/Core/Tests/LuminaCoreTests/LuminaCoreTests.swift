@@ -2535,6 +2535,94 @@ final class LuminaCoreTests: XCTestCase {
         }
     }
 
+    func testServerMediaRecoveryKeepsTheApprovedHLSRequestAndSession() async throws {
+        let saved = syntheticKeychainSession()
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Videos/source-4k/master.m3u8":
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "application/vnd.apple.mpegurl"])!, Data("""
+                #EXTM3U
+                #EXT-X-STREAM-INF:BANDWIDTH=24000000
+                hls/session-4k/index.m3u8
+                """.utf8))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let master = PlaybackRequest(
+            id: "approved-session", item: item,
+            url: URL(string: "http://127.0.0.1:8765/Videos/source-4k/master.m3u8?ApiKey=playback-token")!,
+            startPositionSeconds: 11.25, mediaSourceID: "source-4k", isTranscoding: true,
+            methodLabel: "HLS", bitRate: 24_000_000, sourceContainer: "mkv",
+            mediaStreams: [
+                .init(index: 3, type: .audio, label: "English", codec: "eac3", channels: 6),
+                .init(index: 7, type: .subtitle, label: "English", codec: "pgs"),
+            ],
+            audioStreamIndex: 3, subtitleStreamIndex: 7,
+            chapters: [.init(id: 10_000_000, title: "Opening")], resolvedQuality: .automatic
+        )
+
+        let recoveredRequest = try await store.prepareServerMediaRecovery(
+            after: master, error: NSError(domain: "CoreMediaErrorDomain", code: -12927)
+        )
+        let recovered = try XCTUnwrap(recoveredRequest)
+
+        XCTAssertEqual(recovered.id, master.id)
+        XCTAssertEqual(recovered.url.path, "/Videos/source-4k/hls/session-4k/index.m3u8")
+        XCTAssertEqual(URLComponents(url: recovered.url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "playback-token")
+        XCTAssertTrue(recovered.usesServerMediaRecovery)
+        XCTAssertFalse(recovered.usesCompatibleVideo)
+        XCTAssertEqual(recovered.mediaSourceID, master.mediaSourceID)
+        XCTAssertEqual(recovered.startPositionSeconds, master.startPositionSeconds)
+        XCTAssertEqual(recovered.resolvedQuality, master.resolvedQuality)
+        XCTAssertEqual(recovered.audioStreamIndex, master.audioStreamIndex)
+        XCTAssertEqual(recovered.subtitleStreamIndex, master.subtitleStreamIndex)
+        XCTAssertEqual(recovered.mediaStreams, master.mediaStreams)
+        XCTAssertEqual(recovered.chapters, master.chapters)
+        XCTAssertEqual(requests.all.map { $0.url?.path }.filter { $0?.contains("master.m3u8") == true }, ["/Videos/source-4k/master.m3u8"])
+
+        let sidecarMaster = PlaybackRequest(
+            id: "sidecar-session", item: item, url: master.url,
+            startPositionSeconds: master.startPositionSeconds, mediaSourceID: master.mediaSourceID,
+            isTranscoding: true, methodLabel: master.methodLabel,
+            mediaStreams: [.init(index: 7, type: .subtitle, label: "English", codec: "vtt",
+                                 isExternal: true,
+                                 subtitleDeliveryURL: URL(string: "http://127.0.0.1:8765/Videos/source-4k/subtitles/7.vtt")!)],
+            subtitleStreamIndex: 7
+        )
+        let sidecarRecovery = try await store.prepareServerMediaRecovery(
+            after: sidecarMaster, error: NSError(domain: "CoreMediaErrorDomain", code: -12927)
+        )
+        XCTAssertNil(sidecarRecovery)
+
+        let repeatedMaster = PlaybackRequest(
+            id: master.id, item: master.item, url: master.url,
+            startPositionSeconds: master.startPositionSeconds, mediaSourceID: master.mediaSourceID,
+            isTranscoding: master.isTranscoding, methodLabel: master.methodLabel,
+            usesServerMediaRecovery: true
+        )
+        let repeatedRecovery = try await store.prepareServerMediaRecovery(
+            after: repeatedMaster, error: NSError(domain: "CoreMediaErrorDomain", code: -12927)
+        )
+        XCTAssertNil(repeatedRecovery)
+        let transportRecovery = try await store.prepareServerMediaRecovery(
+            after: master, error: URLError(.notConnectedToInternet)
+        )
+        XCTAssertNil(transportRecovery)
+        let displayRecovery = try await store.prepareServerMediaRecovery(
+            after: master, error: NSError(domain: AVFoundationErrorDomain, code: -11868)
+        )
+        XCTAssertNil(displayRecovery)
+        XCTAssertEqual(requests.all.map { $0.url?.path }.filter { $0?.contains("master.m3u8") == true }, ["/Videos/source-4k/master.m3u8"])
+    }
+
     func testExternalVTTDownloadRejectsOversizedOrMalformedBodies() async throws {
         let client = LuminaClient(configuration: mockConfiguration())
         let origin = URL(string: "http://127.0.0.1:8765")!

@@ -285,6 +285,15 @@ def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
     fake.write_text(FAKE_FFMPEG)
     fake.chmod(0o755)
     monkeypatch.setattr(local_playback, "media_tool", lambda db, name: str(fake) if name == "ffmpeg" else None)
+    commands: list[list[str]] = []
+    ffmpeg_command = lps.ffmpeg_command
+
+    def capture_command(*args, **kwargs):  # noqa: ANN002, ANN003
+        command = ffmpeg_command(*args, **kwargs)
+        commands.append(command)
+        return command
+
+    monkeypatch.setattr(lps, "ffmpeg_command", capture_command)
     make_media(vault.media / SEASON / "Vault Show - S01E01.mkv")
     scan(vault.admin, vault.media)
     profile = INFUSE_PROFILE
@@ -337,9 +346,12 @@ def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
         assert "VideoCodec=hevc" in fallback["TranscodingUrl"]
         assert "MaxHeight=" not in fallback["TranscodingUrl"]
         assert session.key[4] == "copy"
+        assert session.key[5] == "encode"
         assert session.info["video"]["height"] == 2160
         assert session.info["video"]["tonemap"] is False
         assert session.info["video"]["range"] == "DOVIWithHDR10"
+        assert session.info["audio"] == {"from": "eac3", "to": "aac"}
+        assert any(command[command.index("-c:a") + 1] == "aac" for command in commands)
     lps.sessions.close_all()
 
 

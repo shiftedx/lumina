@@ -83,6 +83,8 @@ class ClientCaps:
     # Explicit HDR HLS output support. SDR remains governed by transcode_video.
     transcode_ranges: Mapping[str, frozenset[str]] = field(default_factory=dict)
     hls_video_copy: frozenset[str] = HLS_VIDEO_COPY  # Direct AV1 support need not include AV1 fMP4 HLS.
+    # A declared fMP4 HLS row may be narrower than direct-play audio support.
+    hls_audio_copy: frozenset[str] = HLS_AUDIO_COPY
 
 
 @dataclass(frozen=True)
@@ -534,7 +536,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     copy_video = video is not None and not video_reasons and video.get("codec") in HLS_VIDEO_COPY & client.hls_video_copy
     if video is not None and not video_reasons and video.get("codec") in HLS_VIDEO_COPY - client.hls_video_copy:
         reasons.append("VideoCodecNotSupported")
-    copy_audio = audio is not None and not codec_reasons and audio.get("codec") in HLS_AUDIO_COPY
+    copy_audio = audio is not None and not codec_reasons and audio.get("codec") in HLS_AUDIO_COPY & client.hls_audio_copy
     height = bitrate = channels = None
     tonemap = False
     output_codec = "h264"
@@ -764,7 +766,9 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         direct.append(valid_transport_rows[0])
     transcode_video: set[str] = set()
     fmp4_hls_video: set[str] = set()
+    fmp4_hls_audio: set[str] = set()
     has_hls_video_profile = False
+    has_fmp4_hls_audio_profile = False
     hls_video_copy = set(HLS_VIDEO_COPY - {"av1"})
     for entry in _dicts(profile.get("TranscodingProfiles")):
         if entry.get("Type") != "Video" or str(entry.get("Protocol") or "").lower() != "hls":
@@ -773,6 +777,9 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         # Lumina emits fragmented MP4 HLS with AAC. A profile for TS/WebM or
         # another audio codec is not an authorization to use this rendition.
         containers, vids, auds = _tokens(entry.get("Container")), _tokens(entry.get("VideoCodec")), _tokens(entry.get("AudioCodec"))
+        if containers & {"mp4", "fmp4", "m4v"}:
+            has_fmp4_hls_audio_profile = True
+            fmp4_hls_audio |= HLS_AUDIO_COPY if "*" in auds else auds & HLS_AUDIO_COPY
         if containers & {"mp4", "fmp4", "m4v"} and "av1" in vids and "aac" in auds:
             hls_video_copy.add("av1")
         video_codecs |= vids
@@ -849,4 +856,5 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         transcode_video=final_transcode_video,
         transcode_ranges=transcode_ranges,
         hls_video_copy=frozenset(hls_video_copy),
+        hls_audio_copy=frozenset(fmp4_hls_audio) if has_fmp4_hls_audio_profile else HLS_AUDIO_COPY,
     )

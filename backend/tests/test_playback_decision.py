@@ -156,6 +156,38 @@ def test_explicit_dolby_vision_profile_seven_keeps_the_existing_base_layer_hls_f
     assert (decision.mode, decision.video, decision.reasons) == ("remux", "copy", ("ContainerNotSupported",))
 
 
+def test_qualified_dolby_vision_81_hls_keeps_4k_video_but_obeys_aac_only_audio_profile() -> None:
+    """Direct EAC3 support must not leak into an explicit AAC fMP4 recovery."""
+    caps = caps_from_device_profile({
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "hevc", "AudioCodec": "eac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "hevc", "AudioCodec": "aac"}],
+        "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
+            {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
+            {"Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "HDR10"},
+        ]}],
+    })
+    source = hdr_v(dv=8, compat=1, dv_level=6, rpu=True, el=False, bl=True, height=2160, width=3840)
+
+    decision = decide(replace(caps, direct=()), facts(MKV, source, a("eac3", 6)))
+
+    assert caps.hls_audio_copy == frozenset({"aac"})
+    assert (decision.mode, decision.video, decision.audio, decision.height) == (
+        "transcode", "copy", "encode", None,
+    )
+
+
+def test_legacy_non_fmp4_hls_profile_retains_established_audio_copy_fallback() -> None:
+    caps = caps_from_device_profile({
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "eac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264", "AudioCodec": "aac"}],
+    })
+
+    decision = decide(replace(caps, direct=()), facts(MKV, v(), a("eac3", 6)))
+
+    assert caps.hls_audio_copy == frozenset({"aac", "mp3", "ac3", "eac3", "flac", "opus"})
+    assert (decision.mode, decision.video, decision.audio) == ("remux", "copy", "copy")
+
+
 P7_TO_81 = [{
     "SourceProfile": 7,
     "SourceCompatibilityIDs": [6],
@@ -542,7 +574,7 @@ ROWS = [
     ("native_flac32_audio_only_encode", NATIVE_AVKIT, facts(MP4, v(), a("flac", bit_depth=32)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
     ("native_flac_unknown_depth_audio_only_encode", NATIVE_AVKIT, facts(MKV, v(), a("flac", bit_depth=None)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
     ("native_mp4_flac_direct", NATIVE_AVKIT, facts(MP4, v(), a("flac", 8, bit_depth=24)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
-    ("native_mkv_mp3_keeps_server_remux", NATIVE_AVKIT, facts(MKV, v(), a("mp3")), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_mkv_mp3_uses_the_declared_aac_hls_recovery", NATIVE_AVKIT, facts(MKV, v(), a("mp3")), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("ContainerNotSupported",))),
     ("native_mkv_flac_direct", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("flac", 6)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_flac_channel_limit", NATIVE_AVKIT, facts(MP4, v(), a("flac", 9)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioChannelsNotSupported",))),
     ("native_mp4_mp3_direct", NATIVE_AVKIT, facts(MP4, v(), a("mp3")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),

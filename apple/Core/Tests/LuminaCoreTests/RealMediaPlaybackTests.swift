@@ -23,6 +23,54 @@ private final class QualificationRedirectGuard: NSObject, URLSessionTaskDelegate
 /// The manifest deliberately contains an alias rather than a library title, path, or credential.
 @MainActor
 final class RealMediaPlaybackTests: XCTestCase {
+    func testConfiguredServerHLSMasterRecoveryRetainsVideoAndSeeks() async throws {
+        guard let raw = ProcessInfo.processInfo.environment["LUMINA_REAL_HLS_MASTER_URL"],
+              let master = URL(string: raw), master.scheme == "http",
+              master.host == "127.0.0.1" else {
+            throw XCTSkip("Set LUMINA_REAL_HLS_MASTER_URL to a locally retained server HLS master")
+        }
+        let configuration = try configuredAsset()
+        let player = AVPlayer(url: master)
+        player.volume = 0
+        defer { player.replaceCurrentItem(with: nil) }
+        do {
+            try await NativeVideoSource.waitUntilReady(player, timeout: .seconds(10))
+            XCTFail("The qualification master must reproduce the startup format rejection")
+        } catch {
+            XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(error))
+        }
+
+        // Resolve the server's selected rendition, without another PlaybackInfo,
+        // a new encoder, or a different source/quality decision.
+        let media = try await LuminaClient().hlsMediaVariant(
+            origin: master.deletingLastPathComponent(), token: "qualification-token",
+            deviceID: "qualification-device", masterURL: master
+        )
+        XCTAssertNotEqual(media, master)
+        let owner = NativeVideoSource()
+        do {
+            let item = try await owner.prepare(url: media, usesClientDemux: false)
+            let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(frames)
+            player.replaceCurrentItem(with: item)
+            let deadline = ContinuousClock.now + .seconds(15)
+            try await NativeVideoSource.waitUntilReady(player, timeout: remaining(until: deadline))
+            try await render(0, item: item, player: player, frames: frames,
+                             label: "server-media-recovery", deadline: deadline)
+            try await assertMediaFormatDescriptions(item, expected: configuration.expected)
+            try await render(2, item: item, player: player, frames: frames,
+                             label: "server-media-recovery-seek", deadline: deadline)
+            player.replaceCurrentItem(with: nil)
+            await owner.stop().value
+        } catch {
+            player.replaceCurrentItem(with: nil)
+            await owner.stop().value
+            throw error
+        }
+    }
+
     func testConfiguredAssetRendersAndSeeks() async throws {
         let configuration = try configuredAsset()
         try await assertSourceBinding(configuration)

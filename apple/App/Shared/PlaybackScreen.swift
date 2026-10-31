@@ -2593,9 +2593,13 @@ final class PlaybackModel {
 
     func recordPlaybackDiagnostic(_ event: PlaybackDiagnosticEvent, seekTarget: Double? = nil,
                                   requestedPosition: Double? = nil, nativeReason: Int? = nil,
-                                  rateReason: AVPlayer.RateDidChangeReason? = nil, seekFinished: Bool? = nil) {
+                                  rateReason: AVPlayer.RateDidChangeReason? = nil, seekFinished: Bool? = nil,
+                                  includeNegotiation: Bool = false) {
         guard !request.item.isAudio, PlaybackDiagnostics.shared.isCapturing else { return }
         var sample = PlaybackDiagnosticSample()
+        if includeNegotiation || event == .modelCreated || event == .start {
+            sample.negotiation = request.negotiationDiagnostics
+        }
         let item = player.currentItem
         sample.modelID = UUID(uuidString: lifecycleToken)
         sample.playerID = PlaybackDiagnostics.identity(player)
@@ -2611,6 +2615,9 @@ final class PlaybackModel {
         sample.seekTargetSeconds = seekTarget
         sample.requestedPositionSeconds = requestedPosition
         sample.sceneState = UIApplication.shared.applicationState.rawValue
+        #if os(iOS)
+        sample.lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+        #endif
         sample.usesClientDemux = request.usesClientDemux
         sample.nativeReason = nativeReason
         sample.seekFinished = seekFinished
@@ -4605,7 +4612,8 @@ final class PlaybackModel {
     private func enqueue(_ event: PlaybackEvent, paused: Bool,
                          for requestOverride: PlaybackRequest? = nil, position: Double? = nil) {
         traceContinuity("report-enqueue=\(event)")
-        recordPlaybackDiagnostic(.reportQueued, requestedPosition: position ?? elapsedSeconds, nativeReason: diagnosticReportCode(event))
+        recordPlaybackDiagnostic(.reportQueued, requestedPosition: position ?? elapsedSeconds,
+                                 nativeReason: diagnosticReportCode(event), includeNegotiation: event == .start)
         let reportedRequest = requestOverride ?? request
         let reportedPosition = position ?? elapsedSeconds
         if requestOverride == nil { lastReport = elapsedSeconds }

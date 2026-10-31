@@ -1303,7 +1303,8 @@ let tickScale = 10_000_000.0
                 m2tsSeekIndex: request.m2tsSeekIndex, mediaStreams: request.mediaStreams,
                 audioStreamIndex: request.audioStreamIndex,
                 subtitleStreamIndex: request.subtitleStreamIndex,
-                chapters: request.chapters, resolvedQuality: request.resolvedQuality
+                chapters: request.chapters, resolvedQuality: request.resolvedQuality,
+                negotiationDiagnostics: request.negotiationDiagnostics
             )
         }
         // HLS sessions carry the original offset and must be negotiated at zero.

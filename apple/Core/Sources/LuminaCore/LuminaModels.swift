@@ -431,6 +431,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
     /// The device quality preference used to obtain this server playback decision.
     /// Playback replacements retain it instead of silently returning to an uncapped request.
     public let resolvedQuality: PlaybackQuality
+    public let negotiationDiagnostics: PlaybackNegotiationDiagnostics?
 
     public init(id: String, item: MediaItem, url: URL, startPositionSeconds: Double, mediaSourceID: String,
                 isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false,
@@ -440,7 +441,8 @@ public struct PlaybackRequest: Identifiable, Sendable {
                 m2tsSeekIndex: M2TSSeekIndexReference? = nil,
                 mediaStreams: [PlaybackStream] = [], audioStreamIndex: Int? = nil,
                 subtitleStreamIndex: Int? = nil, chapters: [PlaybackChapter] = [],
-                resolvedQuality: PlaybackQuality = .automatic) {
+                resolvedQuality: PlaybackQuality = .automatic,
+                negotiationDiagnostics: PlaybackNegotiationDiagnostics? = nil) {
         self.id = id
         self.item = item
         self.url = url
@@ -459,6 +461,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.subtitleStreamIndex = subtitleStreamIndex
         self.chapters = chapters
         self.resolvedQuality = resolvedQuality
+        self.negotiationDiagnostics = negotiationDiagnostics
     }
 
     /// Format recovery is normally startup-only. A detected P7 metadata

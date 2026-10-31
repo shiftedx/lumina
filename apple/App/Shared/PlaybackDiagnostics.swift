@@ -127,7 +127,7 @@ struct PlaybackDiagnosticsControls: View {
             } else {
                 Button(diagnostics.exportURL == nil ? "Start recording" : "Start new recording") {
                     diagnostics.start()
-                    playback.recordPlaybackDiagnostic(.sample)
+                    playback.recordPlaybackDiagnostic(.sample, includeNegotiation: true)
                 }
                 .accessibilityIdentifier("playbackDiagnosticsStartButton")
                 if let url = diagnostics.exportURL {

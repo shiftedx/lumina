@@ -1779,3 +1779,27 @@ sample. This is a segment-generation measurement, not physical end-to-end seek
 latency. Private evidence is retained in ignored `output/hls-full-timeline/`.
 This server-only fix requires deployment; no native rebuild, production rollout
 or physical-device seek qualification occurred in this fix operation.
+
+
+### Full-timeline production rollout (2026-10-31)
+
+The full image from main `c0b9f6a59762e5fd80a75eac97bee684fe260311` is now
+deployed as `lumina:build43-c0b9f6a59762`. Isolated image startup passed. Live
+revision/source hashes, internal health, public HTTPS, existing household,
+frontend and native public API checks passed; schema remains 42. Protected
+runtime configuration, media mounts, devices, networks, proxy labels and keys
+were preserved; effective Compose configuration changed only its image.
+
+The deployed planner publishes the real source's full indexed VOD timeline in
+about one second, retaining copied 2160p HDR video with AAC-only HLS audio
+conversion and no tone mapping. The image containing this exact code previously
+passed the focused contracts and real-source segment qualification above.
+Build 43 requires no rebuild: close and reopen existing playback before testing
+deep forward/backward seeks. Physical-device seek confirmation remains pending.
+
+A fresh, consistent schema-42 database snapshot passed integrity and streaming
+checksum verification. The backup pinned its read transaction so live writes
+could not restart the chunked copy. Protected configuration/key copies and the
+stopped prior-image rollback pin were verified, including cleanup exclusion.
+Unused build cache was cleared to finish unpacking the built image; retained
+rollback images and backups were preserved. No native packaging or upload ran.

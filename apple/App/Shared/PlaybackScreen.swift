@@ -2739,6 +2739,10 @@ final class PlaybackModel {
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     nonisolated(unsafe) private var playbackDiagnosticObservers: [NSObjectProtocol] = []
+    #if LUMINA_UI_TESTING
+    private var uiTestingInjectedClientDemuxFailure = false
+    private var uiTestingInjectedServerVideoRecoveryFailure = false
+    #endif
     #if os(iOS)
     // NotificationCenter permits unregistering its token during nonisolated deinit.
     nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
@@ -3055,35 +3059,53 @@ final class PlaybackModel {
         guard !closed, !didSeek, compatibilityRetryRequestID != failed.id,
               failed.canRetryCompatibleVideo(after: error) else { throw error }
         compatibilityRetryRequestID = failed.id
-        let candidateSource = NativeVideoSource()
-        var candidateRequest: PlaybackRequest?
-        do {
-            let next = try await store.prepareCompatiblePlayback(after: failed, error: error)
-            candidateRequest = next
-            try Task.checkCancellation()
-            guard !closed, request.id == failed.id else { throw CancellationError() }
-            let subtitle = next.mediaStreams.first { $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle }
-            let item = try await prepareVideoItem(next, source: candidateSource, externalSubtitle: subtitle)
-            try Task.checkCancellation()
-            guard !closed, request.id == failed.id else { throw CancellationError() }
-            replaceNativeItem(item)
-            try await awaitInitialPlayback(positionSeconds: next.startPositionSeconds)
-            try Task.checkCancellation()
-            guard !closed, request.id == failed.id else { throw CancellationError() }
-            let previousSource = videoSource
-            enqueue(.stop, paused: true, for: failed, position: failed.startPositionSeconds)
-            request = next
-            videoSource = candidateSource
-            attachedVideoSubtitle = subtitle
-            subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
-            selectedEmbeddedSubtitleStreamIndex = subtitle == nil ? next.subtitleStreamIndex : nil
-            previousSource.stop()
-        } catch {
-            candidateSource.stop()
-            if let candidateRequest {
-                enqueue(.stop, paused: true, for: candidateRequest, position: failed.startPositionSeconds)
+        var recoveryError = error
+        var recoveryRequest = failed
+        var retriedServerVideoRecovery = false
+        while true {
+            let candidateSource = NativeVideoSource()
+            var candidateRequest: PlaybackRequest?
+            var candidateItem: AVPlayerItem?
+            do {
+                let next = try await store.prepareCompatiblePlayback(after: recoveryRequest, error: recoveryError)
+                candidateRequest = next
+                try Task.checkCancellation()
+                guard !closed, request.id == failed.id else { throw CancellationError() }
+                let subtitle = next.mediaStreams.first { $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle }
+                let item = try await prepareVideoItem(next, source: candidateSource, externalSubtitle: subtitle)
+                try Task.checkCancellation()
+                guard !closed, request.id == failed.id else { throw CancellationError() }
+                replaceNativeItem(item)
+                candidateItem = item
+                try await awaitInitialPlayback(positionSeconds: next.startPositionSeconds)
+                try Task.checkCancellation()
+                guard !closed, request.id == failed.id else { throw CancellationError() }
+                let previousSource = videoSource
+                enqueue(.stop, paused: true, for: failed, position: failed.startPositionSeconds)
+                request = next
+                videoSource = candidateSource
+                attachedVideoSubtitle = subtitle
+                subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
+                selectedEmbeddedSubtitleStreamIndex = subtitle == nil ? next.subtitleStreamIndex : nil
+                previousSource.stop()
+                return
+            } catch {
+                let candidateError = await candidateSource.playbackError(for: error)
+                candidateSource.stop()
+                if let candidateItem, player.currentItem === candidateItem { replaceNativeItem(nil) }
+                if let candidateRequest {
+                    enqueue(.stop, paused: true, for: candidateRequest, position: failed.startPositionSeconds)
+                }
+                try Task.checkCancellation()
+                guard !closed, request.id == failed.id else { throw CancellationError() }
+                guard let candidateRequest,
+                      !retriedServerVideoRecovery,
+                      candidateRequest.usesServerVideoRecovery,
+                      candidateRequest.canRetryCompatibleVideo(after: candidateError) else { throw error }
+                retriedServerVideoRecovery = true
+                recoveryRequest = candidateRequest
+                recoveryError = candidateError
             }
-            throw error
         }
     }
 
@@ -3781,6 +3803,20 @@ final class PlaybackModel {
 
     private func prepareVideoItem(_ next: PlaybackRequest, source: NativeVideoSource,
                                   externalSubtitle: PlaybackStream?, subtitleDelay: Double? = nil) async throws -> AVPlayerItem {
+        #if LUMINA_UI_TESTING
+        if !uiTestingInjectedClientDemuxFailure,
+           next.usesClientDemux,
+           ProcessInfo.processInfo.arguments.contains("--ui-testing-client-demux-format-failure") {
+            uiTestingInjectedClientDemuxFailure = true
+            throw NativeVideoSource.SelectionError.subtitleMasterUnavailable
+        }
+        if !uiTestingInjectedServerVideoRecoveryFailure,
+           next.usesServerVideoRecovery,
+           ProcessInfo.processInfo.arguments.contains("--ui-testing-server-video-recovery-format-failure") {
+            uiTestingInjectedServerVideoRecoveryFailure = true
+            throw NativeVideoSource.SelectionError.subtitleMasterUnavailable
+        }
+        #endif
         let externalSubtitle = externalSubtitle ?? next.mediaStreams.first {
             $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle
         }
@@ -3817,7 +3853,9 @@ final class PlaybackModel {
     private func replaceVideoStream(audioIndex: Int?, externalSubtitle: PlaybackStream?,
                                     selectsExternalSubtitle: Bool, changesAudio: Bool,
                                     subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil,
-                                    resumePosition: Double? = nil, compatibilityError: Error? = nil) async -> Bool {
+                                    resumePosition: Double? = nil, compatibilityError: Error? = nil,
+                                    retryingServerVideoRecovery: Bool = false,
+                                    failedRecoveryRequest: PlaybackRequest? = nil) async -> Bool {
         guard !isCasting, !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
               let previousItem = player.currentItem else {
             return false
@@ -3844,8 +3882,11 @@ final class PlaybackModel {
             if resumePosition == nil { updatePosition() }
             let next: PlaybackRequest
             if let compatibilityError {
-                next = try await store.prepareCompatiblePlayback(after: request, error: compatibilityError,
-                                                                 positionSeconds: commitPosition)
+                let recoveryRequest = failedRecoveryRequest ?? request
+                next = try await store.prepareCompatiblePlayback(
+                    after: recoveryRequest, error: compatibilityError, positionSeconds: commitPosition,
+                    hasAdvanced: videoAdvancedRequestID == recoveryRequest.id
+                )
             } else {
                 next = try await store.preparePlayback(
                     for: request.item,
@@ -3929,7 +3970,7 @@ final class PlaybackModel {
             replacementInstalled = true
             try await NativeVideoSource.waitUntilReady(player, seekingTo: position.seconds)
             guard await seekNativePlayer(to: position, toleranceBefore: .zero, toleranceAfter: .zero),
-                  nextItem.status == .readyToPlay else { throw POSIXError(.EIO) }
+                  nextItem.status == .readyToPlay else { throw nextItem.error ?? POSIXError(.EIO) }
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
             elapsedSeconds = commitPosition
@@ -3960,6 +4001,7 @@ final class PlaybackModel {
             previousSource.stop()
             return true
         } catch {
+            let candidateError = await candidateSource.playbackError(for: error)
             candidatePlayer.replaceCurrentItem(with: nil)
             if replacementInstalled, !closed {
                 replaceNativeItem(previousItem)
@@ -3975,6 +4017,22 @@ final class PlaybackModel {
                 enqueue(.stop, paused: true, for: candidateRequest, position: commitPosition)
             }
             guard !closed else { return false }
+            if let candidateRequest,
+               !retryingServerVideoRecovery,
+               candidateRequest.usesServerVideoRecovery,
+               candidateRequest.canRetryCompatibleVideo(after: candidateError),
+               !Task.isCancelled,
+               request.id == previousRequest.id,
+               player.currentItem === previousItem {
+                isSwitchingVideoStream = false
+                return await replaceVideoStream(
+                    audioIndex: audioIndex, externalSubtitle: externalSubtitle,
+                    selectsExternalSubtitle: selectsExternalSubtitle, changesAudio: changesAudio,
+                    subtitleDelay: subtitleDelay, quality: quality, resumePosition: commitPosition,
+                    compatibilityError: candidateError, retryingServerVideoRecovery: true,
+                    failedRecoveryRequest: candidateRequest
+                )
+            }
             request = previousRequest
             if !(error is CancellationError) {
                 if error as? NativeVideoSource.SelectionError == .subtitleDelayUnavailable {

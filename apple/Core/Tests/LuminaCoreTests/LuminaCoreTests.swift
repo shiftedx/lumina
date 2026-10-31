@@ -2072,6 +2072,64 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(request.mediaStreams[2].isExternal)
     }
 
+    func testPlaybackRequestKeepsAutomaticSubtitleUnselectedForClientPackaging() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        for (container, clientPackaging) in [("mkv", nil), ("m2ts", "p7_m2ts_to_p81_drop_el")] {
+            var source: [String: Any] = [
+                "Id": "source-\(container)", "Container": container,
+                "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "DefaultSubtitleStreamIndex": 5,
+                "MediaStreams": [["Index": 5, "Type": "Subtitle", "Codec": "subrip"]],
+            ]
+            if let clientPackaging { source["LuminaClientPackaging"] = clientPackaging }
+            let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+                "PlaySessionId": "automatic-subtitle-\(container)", "MediaSources": [source],
+            ]))
+
+            let automatic = try LuminaClient().playbackRequest(
+                origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info
+            )
+            let explicit = try LuminaClient().playbackRequest(
+                origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+                subtitleStreamIndex: 5
+            )
+            let off = try LuminaClient().playbackRequest(
+                origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+                subtitleStreamIndex: -1
+            )
+
+            XCTAssertTrue(automatic.usesClientDemux, "\(container) must retain its qualified local packaging route.")
+            XCTAssertNil(automatic.subtitleStreamIndex, "Automatic must not turn a source default into an explicit embedded selection.")
+            XCTAssertEqual(explicit.subtitleStreamIndex, 5)
+            XCTAssertEqual(off.subtitleStreamIndex, -1)
+        }
+
+        let mp4 = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "default-subtitle-mp4", "MediaSources": [[
+                "Id": "source-mp4", "Container": "mp4", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "DefaultSubtitleStreamIndex": 5,
+            ]],
+        ]))
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: mp4
+        )
+        XCTAssertEqual(request.subtitleStreamIndex, 5, "Non-packaged routes retain the server-default subtitle behavior.")
+
+        let hls = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "default-subtitle-hls", "MediaSources": [[
+                "Id": "source-mkv-hls", "Container": "mkv", "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                "TranscodingUrl": "/Videos/source-mkv-hls/master.m3u8?ApiKey=test-token",
+                "DefaultSubtitleStreamIndex": 5,
+            ]],
+        ]))
+        let serverRequest = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: hls
+        )
+        XCTAssertFalse(serverRequest.usesClientDemux)
+        XCTAssertEqual(serverRequest.subtitleStreamIndex, 5,
+                       "A server HLS delivery retains its default captions even when the original container was MKV.")
+    }
+
     func testPlaybackRequestCarriesSanitizedDetailChapters() throws {
         var payload = movie()
         payload["Chapters"] = [
@@ -2498,7 +2556,7 @@ final class LuminaCoreTests: XCTestCase {
 
         let request = try await store.preparePlayback(for: item, quality: .upTo720p, audioStreamIndex: 3,
                                                        subtitleStreamIndex: -1, mediaSourceID: "source-2",
-                                                       startPositionSeconds: 11.25)
+                                                       startPositionSeconds: 11.25, usesServerVideoRecovery: true)
 
         XCTAssertTrue(request.isTranscoding, "The server fallback remains authoritative for an incompatible selection.")
         XCTAssertEqual(request.startPositionSeconds, 11.25)
@@ -2526,6 +2584,7 @@ final class LuminaCoreTests: XCTestCase {
 
         let restarted = try await store.preparePlaybackFromBeginning(after: request)
         XCTAssertTrue(restarted.isTranscoding)
+        XCTAssertTrue(restarted.usesServerVideoRecovery, "Start Over must retain the quality-preserving recovery tier.")
         XCTAssertEqual(restarted.startPositionSeconds, 0)
         let negotiations = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
         XCTAssertEqual(negotiations.count, 2, "HLS must obtain a fresh zero-position server session.")
@@ -2575,6 +2634,7 @@ final class LuminaCoreTests: XCTestCase {
 
         XCTAssertTrue(retry.isTranscoding)
         XCTAssertTrue(retry.usesCompatibleVideo)
+        XCTAssertFalse(retry.usesServerVideoRecovery)
         XCTAssertEqual(retry.mediaSourceID, "source-2")
         XCTAssertEqual(retry.resolvedQuality, .upTo720p)
         XCTAssertEqual(retry.audioStreamIndex, 3)
@@ -2606,6 +2666,120 @@ final class LuminaCoreTests: XCTestCase {
             origin: saved.serverURL, token: saved.accessToken, item: item, result: ignoredFallback,
             mediaSourceID: "source-2", usesCompatibleVideo: true
         )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
+        XCTAssertThrowsError(try client.playbackRequest(
+            origin: saved.serverURL, token: saved.accessToken, item: item, result: ignoredFallback,
+            mediaSourceID: "source-2", usesServerVideoRecovery: true
+        )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
+
+        let playbackRequests = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
+        do {
+            _ = try await store.prepareCompatiblePlayback(after: original, error: URLError(.cannotConnectToHost))
+            XCTFail("Transport failures must not start a compatibility request.")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }.count, playbackRequests.count)
+    }
+
+    func testPrepareCompatiblePlaybackUsesNormalHLSBeforeConservativeRetryForClientPackaging() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let capabilities = NativeVideoCapabilities(
+            directMP4: [.h264: [.sdr], .hevc: [.sdr, .hdr10, .hlg]],
+            directMP4BitDepth: [.h264: 8, .hevc: 10],
+            hls: [.h264: [.sdr], .hevc: [.sdr, .hdr10, .hlg]],
+            hlsBitDepth: [.h264: 8, .hevc: 10]
+        )
+        let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: { capabilities })
+        let store = LuminaStore(client: client, credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "server-recovery", "MediaSources": [[
+                    "Id": "source-4k", "Container": "mkv", "Bitrate": 25_000_000,
+                    "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "TranscodingUrl": "/Videos/source-4k/master.m3u8?ApiKey=test-token",
+                    "DefaultAudioStreamIndex": 3,
+                    "MediaStreams": [
+                        ["Index": 0, "Type": "Video", "Codec": "hevc", "Height": 2160],
+                        ["Index": 3, "Type": "Audio", "Codec": "eac3"],
+                        ["Index": 7, "Type": "Subtitle", "Codec": "subrip"],
+                    ],
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let local = PlaybackRequest(
+            id: "local-package", item: item, url: URL(string: "http://127.0.0.1:8765/Videos/movie-1/stream")!,
+            startPositionSeconds: 11.25, mediaSourceID: "source-4k", isTranscoding: false,
+            methodLabel: "Direct", usesClientDemux: true, audioStreamIndex: 3, subtitleStreamIndex: 7,
+            resolvedQuality: .automatic
+        )
+        let formatFailure = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue)
+
+        let serverRecovery = try await store.prepareCompatiblePlayback(after: local, error: formatFailure)
+
+        XCTAssertTrue(serverRecovery.isTranscoding)
+        XCTAssertTrue(serverRecovery.usesServerVideoRecovery)
+        XCTAssertFalse(serverRecovery.usesCompatibleVideo)
+        XCTAssertEqual(serverRecovery.mediaSourceID, "source-4k")
+        XCTAssertEqual(serverRecovery.audioStreamIndex, 3)
+        XCTAssertEqual(serverRecovery.subtitleStreamIndex, 7)
+        XCTAssertEqual(serverRecovery.startPositionSeconds, 11.25)
+        XCTAssertEqual(serverRecovery.resolvedQuality, .automatic)
+        let modernRequest = try XCTUnwrap(requests.all.first { $0.url?.path == "/Items/movie-1/PlaybackInfo" })
+        let modern = try body(modernRequest)
+        XCTAssertEqual(modern["EnableDirectPlay"] as? Bool, false)
+        XCTAssertEqual(modern["MediaSourceId"] as? String, "source-4k")
+        XCTAssertEqual(modern["AudioStreamIndex"] as? Int, 3)
+        XCTAssertEqual(modern["SubtitleStreamIndex"] as? Int, 7)
+        XCTAssertEqual(modern["StartTimeTicks"] as? Int64, 112_500_000)
+        let modernProfile = try XCTUnwrap(modern["DeviceProfile"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(modernProfile["TranscodingProfiles"] as? [[String: Any]])).first?["VideoCodec"] as? String, "h264,hevc")
+        let hevc = try XCTUnwrap((modernProfile["CodecProfiles"] as? [[String: Any]])?.first { $0["Codec"] as? String == "hevc" })
+        let hevcConditions = try XCTUnwrap(hevc["Conditions"] as? [[String: String]])
+        XCTAssertTrue(hevcConditions.contains([
+            "Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR|HDR10|HLG",
+        ]))
+        XCTAssertTrue(hevcConditions.contains([
+            "Property": "Height", "Condition": "LessThanEqual", "Value": "2160",
+        ]))
+
+        let conservative = try await store.prepareCompatiblePlayback(after: serverRecovery, error: formatFailure)
+
+        XCTAssertTrue(conservative.isTranscoding)
+        XCTAssertFalse(conservative.usesServerVideoRecovery)
+        XCTAssertTrue(conservative.usesCompatibleVideo)
+        XCTAssertEqual(conservative.mediaSourceID, "source-4k")
+        XCTAssertEqual(conservative.audioStreamIndex, 3)
+        XCTAssertEqual(conservative.subtitleStreamIndex, 7)
+        XCTAssertEqual(conservative.startPositionSeconds, 11.25)
+        XCTAssertEqual(conservative.resolvedQuality, .automatic)
+        XCTAssertFalse(conservative.canRetryCompatibleVideo(after: formatFailure))
+        let compatibility = try body(try XCTUnwrap(requests.all.last { $0.url?.path == "/Items/movie-1/PlaybackInfo" }))
+        let compatibilityProfile = try XCTUnwrap(compatibility["DeviceProfile"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(compatibilityProfile["TranscodingProfiles"] as? [[String: Any]])).first?["VideoCodec"] as? String, "h264")
+        XCTAssertEqual(compatibility["EnableDirectPlay"] as? Bool, false)
+
+        let conversion = try await store.prepareCompatiblePlayback(
+            after: local, error: NativeVideoSource.SelectionError.invalidDolbyVisionConversion
+        )
+        XCTAssertTrue(conversion.usesCompatibleVideo,
+                      "A failed Profile 7 conversion must not retry as normal HEVC HLS.")
+        XCTAssertFalse(conversion.usesServerVideoRecovery)
+
+        do {
+            _ = try await store.prepareCompatiblePlayback(after: conservative, error: formatFailure)
+            XCTFail("The conservative request must be the final recovery tier.")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
     }
 
     func testPlaybackRequestChoosesTheExplicitReturnedMediaSourceAndBoundsStartPosition() throws {
@@ -3279,6 +3453,15 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(playback.usesClientDemux)
         XCTAssertEqual(playback.startPositionSeconds, 0)
         XCTAssertNotNil(store.offline.artworkURL(for: item.id))
+        do {
+            _ = try await store.prepareCompatiblePlayback(
+                after: playback,
+                error: NSError(domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue)
+            )
+            XCTFail("Offline originals cannot masquerade as server-HLS recovery.")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
     }
 }
 

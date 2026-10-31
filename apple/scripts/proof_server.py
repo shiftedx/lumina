@@ -101,6 +101,7 @@ MAX_ARTWORK_METRICS_BYTES = 1 * 1024 * 1024
 PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
 VIDEO_FORMAT_FAILURE_ENV = "LUMINA_NATIVE_VIDEO_FORMAT_FAILURE"
+CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY_ENV = "LUMINA_NATIVE_CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY"
 REQUEST_MOVIE_KEY = "movie:603"
 REQUEST_MOVIE_TITLE = "The Matrix"
 REQUEST_SHOW_KEY = "show:1399"
@@ -413,7 +414,8 @@ def install_showcase_art_fixture(state_root: Path) -> None:
         if getattr(route, "path", None) == "/proof/requests-art/{index}"
     )
     frontend_index = next(
-        index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"
+        (index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"),
+        len(app.router.routes),
     )
     app.router.routes.remove(request_art_route)
     app.router.routes.insert(frontend_index, request_art_route)
@@ -574,6 +576,7 @@ def install_initial_video_format_failure(app: Any) -> Callable[[str], None]:
     initial: dict[str, Any] | None = None
     compatible: list[dict[str, Any]] = []
     normalized_item_id: str | None = None
+    verified_source_id: str | None = None
     payload = b"not-a-real-mp4\n" * 32_768
 
     def target_item(path: list[str]) -> bool:
@@ -624,13 +627,16 @@ def install_initial_video_format_failure(app: Any) -> Callable[[str], None]:
     def snapshot() -> dict[str, Any]:
         with lock:
             retry = compatible[-1] if compatible else None
+            first_recovery = compatible[0] if compatible else None
             initial_options = option_values(initial) if initial else None
             retry_options = option_values(retry) if retry else None
+            expected_source_id = direct_source_id or verified_source_id or (initial or {}).get("MediaSourceId")
             return {
                 "faultedDirectStream": faulted,
                 "compatibilityRequests": len(compatible),
                 "compatibilityProfile": bool(retry and compatibility_profile(retry)),
-                "sameMediaSource": bool(retry and direct_source_id and retry.get("MediaSourceId") == direct_source_id),
+                "normalRecoveryProfile": bool(first_recovery and not compatibility_profile(first_recovery)),
+                "sameMediaSource": bool(retry and expected_source_id and retry.get("MediaSourceId") == expected_source_id),
                 "preservedOptions": bool(
                     initial_options and retry_options
                     and retry_options["StartTimeTicks"] >= initial_options["StartTimeTicks"]
@@ -638,20 +644,32 @@ def install_initial_video_format_failure(app: Any) -> Callable[[str], None]:
                 ),
             }
 
-    def activate(verified_public_item_id: str) -> None:
-        nonlocal active, normalized_item_id
+    def activate(verified_public_item_id: str, source_id: str | None = None) -> None:
+        nonlocal active, normalized_item_id, verified_source_id
         normalized = verified_public_item_id.replace("-", "").lower()
         if not normalized:
             raise ValueError("verified public item ID is required")
         with lock:
             normalized_item_id = normalized
+            verified_source_id = source_id
             active = True
+
+    def reset() -> None:
+        nonlocal faulted, direct_source_id, initial
+        with lock:
+            faulted = False
+            direct_source_id = None
+            initial = None
+            compatible.clear()
 
     @app.middleware("http")
     async def initial_video_format_failure(request, call_next):  # noqa: ANN001, ANN202
         nonlocal direct_source_id, faulted, initial
         path = request.url.path.split("/")
         if request.method == "GET" and request.url.path == "/Lumina/Proof/initial-video-format-recovery":
+            return JSONResponse(snapshot())
+        if request.method == "POST" and request.url.path == "/Lumina/Proof/initial-video-format-recovery/reset":
+            reset()
             return JSONResponse(snapshot())
         with lock:
             enabled = active
@@ -1529,6 +1547,10 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     )
     if not any(candidate.get("SupportsTranscoding") for candidate in converted_playback.get("MediaSources", [])):
         raise RuntimeError("The compatibility fixture did not negotiate a transcode source.")
+    converted_source = next((candidate for candidate in converted_playback.get("MediaSources", [])
+                             if isinstance(candidate.get("Id"), str)), None)
+    if not isinstance(converted_source, dict):
+        raise RuntimeError("The compatibility fixture did not expose its original media source.")
 
     capped_profile = {
         **profile,
@@ -1571,8 +1593,10 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         **expected,
         "directItemID": str(direct["Id"]),
         "directItemTitle": DIRECT_TITLE,
+        "directMediaSourceID": str(source["Id"]),
         "convertedItemID": str(converted["Id"]),
         "convertedItemTitle": CONVERTED_TITLE,
+        "convertedMediaSourceID": str(converted_source["Id"]),
         "matrixItemID": str(matrix["Id"]),
         "matrixItemTitle": MATRIX_TITLE,
     }
@@ -1673,7 +1697,10 @@ def main() -> None:
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
         if activate_video_format_failure is not None:
-            activate_video_format_failure(verified["directItemID"])
+            client_demux_target = os.environ.get(CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY_ENV) == "1"
+            target = verified["convertedItemID"] if client_demux_target else verified["directItemID"]
+            source = verified["convertedMediaSourceID"] if client_demux_target else verified["directMediaSourceID"]
+            activate_video_format_failure(target, source)
         if activate_restore_failure is not None:
             activate_restore_failure()
         if performance_request_log is not None:

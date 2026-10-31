@@ -47,6 +47,11 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
         return {"LUMINA_NATIVE_AUDIO_FORMAT_FAILURE": "1"}
     if test_class == "NativeVideoFormatRecoveryTests":
         return {"LUMINA_NATIVE_VIDEO_FORMAT_FAILURE": "1"}
+    if test_class == "NativeClientDemuxVideoFormatRecoveryTests":
+        return {
+            "LUMINA_NATIVE_VIDEO_FORMAT_FAILURE": "1",
+            "LUMINA_NATIVE_CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY": "1",
+        }
     if test_class == "NativeAudioAlbumPlayAfterUnavailableRestoreTests":
         return {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"}
     return {}

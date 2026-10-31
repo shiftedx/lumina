@@ -84,8 +84,12 @@ final class NativeClientDemuxVideoFormatRecoveryTests: NativeProofJourney {
         try await journeyClientDemuxVideoFormatRecovery(failServerCandidate: false)
     }
 
-    func testClientDemuxServerRecoveryFailureUsesFinalCompatibilityProfile() async throws {
+    func testClientDemuxServerMasterFailureUsesItsSelectedMediaPlaylist() async throws {
         try await journeyClientDemuxVideoFormatRecovery(failServerCandidate: true)
+    }
+
+    func testClientDemuxServerMasterAndMediaFailureUsesFinalCompatibilityProfile() async throws {
+        try await journeyClientDemuxVideoFormatRecovery(failServerCandidate: true, failMediaCandidate: true)
     }
 }
 
@@ -1871,7 +1875,7 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
-    func journeyClientDemuxVideoFormatRecovery(failServerCandidate: Bool) async throws {
+    func journeyClientDemuxVideoFormatRecovery(failServerCandidate: Bool, failMediaCandidate: Bool = false) async throws {
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
@@ -1883,10 +1887,23 @@ class NativeProofJourney: XCTestCase {
 
         var arguments = ["--ui-testing-client-demux-format-failure"]
         if failServerCandidate { arguments.append("--ui-testing-server-video-recovery-format-failure") }
+        if failMediaCandidate { arguments.append("--ui-testing-server-media-recovery-format-failure") }
         try launchAndResetSession(extraLaunchArguments: arguments)
         try signIn(using: fixture, waitsForAccount: false)
         #if os(iOS)
-        try selectDestination("Video", screen: "libraryScreen")
+        // Authenticate in the fixture helper's portrait viewport, then enter
+        // playback in landscape to avoid the known portrait detail Play overlap.
+        // This proves recovery without claiming that separate layout issue fixed.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        if usesStandardPhonePushedChrome {
+            // Use the standard-phone Library selector, which taps the visible
+            // tab frame before choosing Movies without returning through the
+            // stale Home Browse tour entry.
+            try selectLibraryCategory("movies", screen: "libraryScreen")
+        } else {
+            try selectDestination("Video", screen: "libraryScreen")
+        }
         let item = try revealLibraryItem(id: fixture.convertedItemID, named: "recovery item")
         item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("detailScreen"), timeout: 25, named: "detail screen")
@@ -1908,12 +1925,12 @@ class NativeProofJourney: XCTestCase {
 
         let evidence = try await api.initialVideoFormatRecovery()
         XCTAssertFalse(evidence.faultedDirectStream, "The client-demux fault must not replace the source bytes.")
-        XCTAssertEqual(evidence.compatibilityRequests, failServerCandidate ? 2 : 1,
-                       "Recovery must request normal server HLS once, then at most one final compatible rendition.")
+        XCTAssertEqual(evidence.compatibilityRequests, failMediaCandidate ? 2 : 1,
+                       "The selected media playlist must reuse the normal server session; only its failure may request final compatibility.")
         XCTAssertTrue(evidence.normalRecoveryProfile,
                       "The first client-demux recovery must retain the normal server capability profile.")
-        XCTAssertEqual(evidence.compatibilityProfile, failServerCandidate,
-                       "Only a rejected normal server candidate may request H.264/SDR compatibility.")
+        XCTAssertEqual(evidence.compatibilityProfile, failMediaCandidate,
+                       "A master rejection alone must retain normal HEVC/HDR capability; only media failure may request H.264/SDR compatibility.")
         XCTAssertTrue(evidence.sameMediaSource, "Recovery must retain the selected media source.")
         XCTAssertTrue(evidence.preservedOptions, "Recovery must retain the selected tracks and resume position.")
         try closePlayer()

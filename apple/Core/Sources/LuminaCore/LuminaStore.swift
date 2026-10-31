@@ -1299,6 +1299,7 @@ let tickScale = 10_000_000.0
                 usesClientDemux: request.usesClientDemux,
                 usesCompatibleVideo: request.usesCompatibleVideo,
                 usesServerVideoRecovery: request.usesServerVideoRecovery,
+                usesServerMediaRecovery: request.usesServerMediaRecovery,
                 bitRate: request.bitRate, sourceContainer: request.sourceContainer,
                 m2tsSeekIndex: request.m2tsSeekIndex, mediaStreams: request.mediaStreams,
                 audioStreamIndex: request.audioStreamIndex,
@@ -1341,6 +1342,32 @@ let tickScale = 10_000_000.0
         )
         guard recovered.isTranscoding else { throw LuminaError.malformedResponse }
         return recovered
+    }
+
+    /// Retry a rejected one-variant HLS master through its already selected
+    /// media playlist, retaining the existing server session and negotiation.
+    public func prepareServerMediaRecovery(after request: PlaybackRequest, error: Error) async throws -> PlaybackRequest? {
+        guard request.isTranscoding, !request.usesClientDemux,
+              !request.usesCompatibleVideo, !request.usesServerMediaRecovery,
+              request.canRetryCompatibleVideo(after: error),
+              request.mediaStreams.first(where: { $0.index == request.subtitleStreamIndex })?.hasExternalSubtitle != true else {
+            return nil
+        }
+        let mediaURL = try await hlsMediaVariant(for: request)
+        guard mediaURL != request.url else { return nil }
+        return PlaybackRequest(
+            id: request.id, item: request.item, url: mediaURL,
+            startPositionSeconds: request.startPositionSeconds, mediaSourceID: request.mediaSourceID,
+            isTranscoding: true, methodLabel: request.methodLabel,
+            usesClientDemux: false, usesCompatibleVideo: false,
+            usesServerVideoRecovery: request.usesServerVideoRecovery,
+            usesServerMediaRecovery: true,
+            bitRate: request.bitRate, sourceContainer: request.sourceContainer,
+            m2tsSeekIndex: request.m2tsSeekIndex, mediaStreams: request.mediaStreams,
+            audioStreamIndex: request.audioStreamIndex, subtitleStreamIndex: request.subtitleStreamIndex,
+            chapters: request.chapters, resolvedQuality: request.resolvedQuality,
+            negotiationDiagnostics: request.negotiationDiagnostics
+        )
     }
 
     /// Mints a brief, receiver-scoped Chromecast capability. The returned media URL is safe to

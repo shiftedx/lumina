@@ -2594,7 +2594,7 @@ final class PlaybackModel {
     func recordPlaybackDiagnostic(_ event: PlaybackDiagnosticEvent, seekTarget: Double? = nil,
                                   requestedPosition: Double? = nil, nativeReason: Int? = nil,
                                   rateReason: AVPlayer.RateDidChangeReason? = nil, seekFinished: Bool? = nil,
-                                  includeNegotiation: Bool = false) {
+                                  includeNegotiation: Bool = false, failure: Error? = nil) {
         guard !request.item.isAudio, PlaybackDiagnostics.shared.isCapturing else { return }
         var sample = PlaybackDiagnosticSample()
         if includeNegotiation || event == .modelCreated || event == .start {
@@ -2641,7 +2641,16 @@ final class PlaybackModel {
             sample.accessObservedBitrate = log.observedBitrate
             sample.accessIndicatedBitrate = log.indicatedBitrate
         }
-        if event == .errorLog, let log = item?.errorLog()?.events.last {
+        if let failure {
+            let error = failure as NSError
+            sample.errorCode = error.code
+            switch error.domain {
+            case AVFoundationErrorDomain: sample.errorDomain = .avFoundation
+            case NSURLErrorDomain: sample.errorDomain = .url
+            case NSOSStatusErrorDomain: sample.errorDomain = .osStatus
+            default: sample.errorDomain = .other
+            }
+        } else if event == .errorLog, let log = item?.errorLog()?.events.last {
             sample.errorCode = log.errorStatusCode
             switch log.errorDomain {
             case AVFoundationErrorDomain: sample.errorDomain = .avFoundation
@@ -2756,6 +2765,7 @@ final class PlaybackModel {
     #if LUMINA_UI_TESTING
     private var uiTestingInjectedClientDemuxFailure = false
     private var uiTestingInjectedServerVideoRecoveryFailure = false
+    private var uiTestingInjectedServerMediaRecoveryFailure = false
     #endif
     #if os(iOS)
     // NotificationCenter permits unregistering its token during nonisolated deinit.
@@ -3075,14 +3085,37 @@ final class PlaybackModel {
         compatibilityRetryRequestID = failed.id
         var recoveryError = error
         var recoveryRequest = failed
-        var retriedServerVideoRecovery = false
+        var retriedServerMediaRecovery = false
+        var pendingSessions: [String: PlaybackRequest] = [:]
+        var adoptedSessionID: String?
+        defer {
+            for candidate in pendingSessions.values where candidate.id != failed.id && candidate.id != adoptedSessionID {
+                enqueue(.stop, paused: true, for: candidate, position: failed.startPositionSeconds)
+            }
+        }
         while true {
             let candidateSource = NativeVideoSource()
             var candidateRequest: PlaybackRequest?
             var candidateItem: AVPlayerItem?
             do {
-                let next = try await store.prepareCompatiblePlayback(after: recoveryRequest, error: recoveryError)
+                let next: PlaybackRequest
+                if !retriedServerMediaRecovery,
+                   let mediaRecovery = try await store.prepareServerMediaRecovery(
+                    after: recoveryRequest, error: recoveryError
+                   ) {
+                    retriedServerMediaRecovery = true
+                    next = mediaRecovery
+                } else {
+                    // Keep a server session alive while trying its media rendition,
+                    // but release a failed candidate before opening another encode.
+                    if let superseded = pendingSessions.removeValue(forKey: recoveryRequest.id),
+                       superseded.id != failed.id {
+                        enqueue(.stop, paused: true, for: superseded, position: failed.startPositionSeconds)
+                    }
+                    next = try await store.prepareCompatiblePlayback(after: recoveryRequest, error: recoveryError)
+                }
                 candidateRequest = next
+                pendingSessions[next.id] = next
                 try Task.checkCancellation()
                 guard !closed, request.id == failed.id else { throw CancellationError() }
                 let subtitle = next.mediaStreams.first { $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle }
@@ -3095,8 +3128,12 @@ final class PlaybackModel {
                 try Task.checkCancellation()
                 guard !closed, request.id == failed.id else { throw CancellationError() }
                 let previousSource = videoSource
-                enqueue(.stop, paused: true, for: failed, position: failed.startPositionSeconds)
+                if next.id != failed.id {
+                    enqueue(.stop, paused: true, for: failed, position: failed.startPositionSeconds)
+                }
+                adoptedSessionID = next.id
                 request = next
+                if next.usesServerMediaRecovery { compatibilityRetryRequestID = nil }
                 videoSource = candidateSource
                 attachedVideoSubtitle = subtitle
                 subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
@@ -3107,16 +3144,13 @@ final class PlaybackModel {
                 let candidateError = await candidateSource.playbackError(for: error)
                 candidateSource.stop()
                 if let candidateItem, player.currentItem === candidateItem { replaceNativeItem(nil) }
-                if let candidateRequest {
-                    enqueue(.stop, paused: true, for: candidateRequest, position: failed.startPositionSeconds)
-                }
                 try Task.checkCancellation()
                 guard !closed, request.id == failed.id else { throw CancellationError() }
+                // These tiers advance only toward compatibility: original package,
+                // server master, selected server media, then H.264/SDR.
                 guard let candidateRequest,
-                      !retriedServerVideoRecovery,
-                      candidateRequest.usesServerVideoRecovery,
+                      candidateRequest.usesServerVideoRecovery || candidateRequest.usesServerMediaRecovery,
                       candidateRequest.canRetryCompatibleVideo(after: candidateError) else { throw error }
-                retriedServerVideoRecovery = true
                 recoveryRequest = candidateRequest
                 recoveryError = candidateError
             }
@@ -3161,6 +3195,10 @@ final class PlaybackModel {
             return
         } catch {
             do {
+                // Startup errors do not reliably create an AVPlayer error-log entry.
+                // Record only its typed domain/code and the exact request evidence before recovery.
+                recordPlaybackDiagnostic(.errorLog, requestedPosition: request.startPositionSeconds,
+                                         includeNegotiation: true, failure: error)
                 let failedSource = videoSource
                 let failedRequestID = request.id
                 let playbackError = await failedSource.playbackError(for: error)
@@ -3830,6 +3868,12 @@ final class PlaybackModel {
             uiTestingInjectedServerVideoRecoveryFailure = true
             throw NativeVideoSource.SelectionError.subtitleMasterUnavailable
         }
+        if !uiTestingInjectedServerMediaRecoveryFailure,
+           next.usesServerMediaRecovery,
+           ProcessInfo.processInfo.arguments.contains("--ui-testing-server-media-recovery-format-failure") {
+            uiTestingInjectedServerMediaRecoveryFailure = true
+            throw NativeVideoSource.SelectionError.subtitleMasterUnavailable
+        }
         #endif
         let externalSubtitle = externalSubtitle ?? next.mediaStreams.first {
             $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle
@@ -3868,8 +3912,20 @@ final class PlaybackModel {
                                     selectsExternalSubtitle: Bool, changesAudio: Bool,
                                     subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil,
                                     resumePosition: Double? = nil, compatibilityError: Error? = nil,
-                                    retryingServerVideoRecovery: Bool = false,
+                                    recoveryAttempts: Int = 0,
                                     failedRecoveryRequest: PlaybackRequest? = nil) async -> Bool {
+        var candidateRequest: PlaybackRequest?
+        var transferredRecovery = false
+        var releasedSessions: Set<String> = []
+        var commitPosition = resumePosition ?? elapsedSeconds
+        defer {
+            if !transferredRecovery {
+                for unused in [candidateRequest, failedRecoveryRequest].compactMap({ $0 })
+                    where unused.id != request.id && releasedSessions.insert(unused.id).inserted {
+                    enqueue(.stop, paused: true, for: unused, position: commitPosition)
+                }
+            }
+        }
         guard !isCasting, !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
               let previousItem = player.currentItem else {
             return false
@@ -3885,22 +3941,31 @@ final class PlaybackModel {
         videoStreamError = nil
         defer { isSwitchingVideoStream = false; isCommittingVideoStream = false }
         let candidateSource = NativeVideoSource()
-        var candidateRequest: PlaybackRequest?
         let candidatePlayer = AVPlayer()
         configureDeviceAudioLanguage(candidatePlayer, preferences: store.playbackPreferences)
         let previousRequest = request
         let previousSource = videoSource
         var replacementInstalled = false
-        var commitPosition = resumePosition ?? elapsedSeconds
         do {
             if resumePosition == nil { updatePosition() }
             let next: PlaybackRequest
             if let compatibilityError {
                 let recoveryRequest = failedRecoveryRequest ?? request
-                next = try await store.prepareCompatiblePlayback(
-                    after: recoveryRequest, error: compatibilityError, positionSeconds: commitPosition,
-                    hasAdvanced: videoAdvancedRequestID == recoveryRequest.id
-                )
+                if videoAdvancedRequestID != recoveryRequest.id,
+                   let mediaRecovery = try await store.prepareServerMediaRecovery(
+                    after: recoveryRequest, error: compatibilityError
+                   ) {
+                    next = mediaRecovery
+                } else {
+                    if recoveryRequest.id != previousRequest.id,
+                       releasedSessions.insert(recoveryRequest.id).inserted {
+                        enqueue(.stop, paused: true, for: recoveryRequest, position: commitPosition)
+                    }
+                    next = try await store.prepareCompatiblePlayback(
+                        after: recoveryRequest, error: compatibilityError, positionSeconds: commitPosition,
+                        hasAdvanced: videoAdvancedRequestID == recoveryRequest.id
+                    )
+                }
             } else {
                 next = try await store.preparePlayback(
                     for: request.item,
@@ -3988,8 +4053,9 @@ final class PlaybackModel {
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
             elapsedSeconds = commitPosition
-            enqueue(.stop, paused: true)
+            if next.id != previousRequest.id { enqueue(.stop, paused: true) }
             request = next
+            if next.usesServerMediaRecovery { compatibilityRetryRequestID = nil }
             videoSource = candidateSource
             if videoSpeed < 1, !nextItem.canPlaySlowForward { setStoredPreferredVideoRate(1) }
             player.defaultRate = videoSpeed
@@ -4027,23 +4093,21 @@ final class PlaybackModel {
             candidateSource.stop()
             isCommittingVideoStream = false
             if !closed, resumePosition == nil { updatePosition() }
-            if let candidateRequest {
-                enqueue(.stop, paused: true, for: candidateRequest, position: commitPosition)
-            }
             guard !closed else { return false }
             if let candidateRequest,
-               !retryingServerVideoRecovery,
-               candidateRequest.usesServerVideoRecovery,
+               recoveryAttempts < 2,
+               candidateRequest.isTranscoding,
                candidateRequest.canRetryCompatibleVideo(after: candidateError),
                !Task.isCancelled,
                request.id == previousRequest.id,
                player.currentItem === previousItem {
                 isSwitchingVideoStream = false
+                transferredRecovery = true
                 return await replaceVideoStream(
                     audioIndex: audioIndex, externalSubtitle: externalSubtitle,
                     selectsExternalSubtitle: selectsExternalSubtitle, changesAudio: changesAudio,
                     subtitleDelay: subtitleDelay, quality: quality, resumePosition: commitPosition,
-                    compatibilityError: candidateError, retryingServerVideoRecovery: true,
+                    compatibilityError: candidateError, recoveryAttempts: recoveryAttempts + 1,
                     failedRecoveryRequest: candidateRequest
                 )
             }

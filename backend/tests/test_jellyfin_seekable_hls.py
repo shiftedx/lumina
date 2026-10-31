@@ -242,7 +242,8 @@ def test_tv_retry_serves_decodable_media_from_the_primary_source_alias(
 
 
 @needs_ffmpeg
-def test_a_resumed_copy_lists_the_whole_file_and_serves_any_segment_of_it(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
+def test_a_resumed_copy_lists_the_whole_file_and_serves_any_segment_of_it(vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    monkeypatch.setattr(jh, "read_video_cues", lambda *args: None)  # retain packet-scanned multi-segment run coverage
     who, open_master = clip_session(vault)
     source, base, play_session = open_master(HLS_COPY, resume=47)
     assert "StartTimeTicks" not in source["TranscodingUrl"]  # Jellyfin keeps it out of HLS URLs: the client seeks inside the full timeline
@@ -281,7 +282,10 @@ def test_a_resumed_encode_lists_the_whole_file_on_the_encoders_grid(vault: Vault
 
 
 @needs_ffmpeg
-def test_segments_requested_together_do_not_pile_up_ffmpeg_runs(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
+@pytest.mark.parametrize("indexed", [False, True])
+def test_segments_requested_together_do_not_pile_up_ffmpeg_runs(vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, indexed: bool) -> None:  # noqa: F811
+    if not indexed:
+        monkeypatch.setattr(jh, "read_video_cues", lambda *args: None)
     who, open_master = clip_session(vault)
     _, base, play_session = open_master(HLS_COPY)
     starts, _ = listed(vault, who, base)
@@ -295,11 +299,34 @@ def test_segments_requested_together_do_not_pile_up_ffmpeg_runs(vault: Vault, tm
     last = len(starts) - 1
     with ThreadPoolExecutor(6) as pool:  # a player prefetching the tail of the file while the first run is far behind
         codes = list(pool.map(lambda index: vault.jf.get(f"{base}/seg{index}.m4s", headers=who.headers).status_code, [last, last - 1, last, last - 2, last - 1, last]))
-    assert codes == [200] * 6 and len(spawned) == 1 and threading.active_count() < 50
+    assert codes == [200] * 6 and len(spawned) == (3 if indexed else 1) and threading.active_count() < 50
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("sparse", [False, True])
+def test_copy_has_full_timeline_and_cold_seek_while_packet_scan_is_pending(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sparse: bool) -> None:  # noqa: F811
+    monkeypatch.setattr(jh, "keyframes", lambda *args, **kwargs: None)
+    if sparse:
+        read_cues = jh.read_video_cues
+        monkeypatch.setattr(jh, "read_video_cues", lambda *args: read_cues(*args)[::2])
+    who, open_master = clip_session(vault)
+    _, base, play_session = open_master(HLS_COPY)
+    session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == play_session)
+    assert session.plan is not None, "A pending packet scan must not restrict a seek-indexed movie to its buffered window"
+    starts, text = listed(vault, who, base)
+    assert "PLAYLIST-TYPE:VOD" in text and "#EXT-X-ENDLIST" in text
+    assert sum(session.plan.durations) == pytest.approx(60, abs=0.1)
+    init = fetch(vault, who, base, "init.mp4", tmp_path)
+    for target in (49, 7, 41):
+        index = session.plan.index_at(target)
+        segment = fetch(vault, who, base, f"seg{index}.m4s", tmp_path)
+        assert segment_start(tmp_path, segment.name, init) == pytest.approx(starts[index], abs=0.15)
+        subprocess.run(["ffmpeg", "-v", "error", "-i", f"concat:{init}|{segment}", "-map", "0:v:0", "-frames:v", "1", "-f", "null", "-"], check=True, capture_output=True, timeout=15)
 
 
 @needs_ffmpeg
 def test_a_copy_without_keyframes_keeps_the_growing_playlist_from_zero(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:  # noqa: F811
+    monkeypatch.setattr(jh, "read_video_cues", lambda *args: None)  # unindexed/unsupported source
     monkeypatch.setattr(jh, "keyframes", lambda *args, **kwargs: None)  # the scan has not finished (a big file on a slow disk)
     who, open_master = clip_session(vault)
     _, base, play_session = open_master(HLS_COPY, resume=47)
@@ -378,3 +405,33 @@ def test_roku_hls_exposes_separate_audible_audio_through_resume_and_seek(
     monkeypatch.setattr(audio_delivery.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1))
     error = vault.jf.get(f"{base}/audio-init.mp4", headers=who.headers)
     assert error.status_code == 502 and not error.content
+
+
+def test_indexed_copy_plan_selects_video_track_and_rejects_bad_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jh, "keyframes", lambda *args: None)
+
+    def element(identifier: int, payload: bytes) -> bytes:
+        tag = identifier.to_bytes((identifier.bit_length() + 7) // 8, "big")
+        return tag + (0x4000 | len(payload)).to_bytes(2, "big") + payload
+
+    def uint(identifier: int, value: int) -> bytes:
+        return element(identifier, value.to_bytes(max(1, (value.bit_length() + 7) // 8), "big"))
+
+    def source(later: int, *, bad_position: bool = False) -> bytes:
+        tracks = element(0xAE, uint(0xD7, 9) + uint(0x83, 2)) + element(0xAE, uint(0xD7, 3) + uint(0x83, 1))
+        cues = b"".join(element(0xBB, uint(0xB3, stamp) + element(0xB7, uint(0xF7, track) + uint(0xF1, 999999 if bad_position else 0)))
+                        for stamp, track in [(0, 3), (1000, 9), (later, 3)])
+        return element(0x1A45DFA3, b"") + element(0x18538067, element(0x1549A966, uint(0x2AD7B1, 1000000)) + element(0x1654AE6B, tracks) + element(0x1C53BB6B, cues))
+
+    path = tmp_path / "indexed.mkv"
+    path.write_bytes(source(7000))
+    assert jh.plan_for("copy", "ffprobe", path, {"duration": 60}, 0) is None  # stream 0 is audio
+    plan = jh.plan_for("copy", "ffprobe", path, {"duration": 60}, 1)
+    assert plan.starts == (0, 7) and plan.durations == (7, 53)
+    assert plan.run_for(1).single_segment and plan.run_for(1).seek == 7
+    path.write_bytes(source(9000))
+    assert jh.plan_for("copy", "ffprobe", path, {"duration": 60}, 1).starts == (0, 9)
+    for index, data in enumerate((source(7000, bad_position=True), source(7000)[:-4], b"\0" * 20)):
+        broken = tmp_path / f"invalid-{index}.mkv"
+        broken.write_bytes(data)
+        assert jh.plan_for("copy", "ffprobe", broken, {"duration": 60}, 1) is None

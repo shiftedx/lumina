@@ -23,6 +23,7 @@ from app.routers.local_playback import playback_limits
 from app.services import jellyfin as jf
 from app.services import track_preferences
 from app.services.jellyfin_hls import keyframes
+from app.services.matroska_cues import read_video_cues
 from app.services.library import LibraryService
 from app.services.media_probe import MediaProbeService, media_tool
 from app.services.media_titles import from_ticks, jellyfin_id, parse_item_id
@@ -255,7 +256,9 @@ def annotate_media_sources(
         if decision.mode in ("remux", "transcode"):
             if decision.video == "copy" and (ffprobe := media_tool(db, "ffprobe")):  # the master playlist needs the cut points
                 with contextlib.suppress(FileNotFoundError, ValueError):
-                    keyframes(ffprobe, library.resolve_media_path(item), decision.video_index)
+                    path = library.resolve_media_path(item)
+                    if read_video_cues(path, decision.video_index) is None:
+                        keyframes(ffprobe, path, decision.video_index)
             pending_transcodes.put(play_session_id, PendingTranscode(
                 user.id, device, item.id, source_caps, audio, subtitle, request.max_bitrate, start_seconds, limits.encode_codecs, limits.encode_ranges,
             ))

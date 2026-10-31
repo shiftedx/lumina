@@ -326,7 +326,7 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     return [
         ffmpeg, "-nostdin", "-v", "error", "-progress", str(directory / "progress"), *pre,
         *LOCAL_INPUT_ARGS, *seek, "-i", str(source), *offset, *length, "-sn", "-dn", *out,
-        "-f", "hls", "-hls_time", str(SEGMENT_SECONDS), *first_segment, *playlist,
+        "-f", "hls", "-hls_time", str(run.length + 1 if run and run.single_segment else SEGMENT_SECONDS), *first_segment, *playlist,
         "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", run.init if run else "init.mp4",
         "-hls_segment_filename", str(directory / "seg%d.m4s"),
         "-hls_flags", "temp_file+independent_segments", str(directory / ("ffmpeg.m3u8" if run else "index.m3u8")),
@@ -825,6 +825,22 @@ class LocalPlaybackSessions:
         index = int(match[1]) if match else None
         if index is not None and index >= len(session.plan.starts):
             return None
+        if session.plan.indexed and index is not None:
+            # A sparse container index supplies independent segments. Finish one
+            # requested segment before another prefetch can replace its child.
+            path = session.directory / name
+            with session.seek_lock:
+                if not path.is_file():
+                    self._restart(session, session.plan.run_for(index))
+                deadline = time.monotonic() + MANIFEST_WAIT_SECONDS
+                while not path.is_file():
+                    with self._lock:
+                        if self._sessions.get(session.id) is not session:
+                            return None
+                    if session.process.poll() is not None or time.monotonic() >= deadline:
+                        return None
+                    time.sleep(MANIFEST_POLL_SECONDS)
+                return self.file(session, name)
         with session.seek_lock:
             if index is not None and not (session.directory / name).is_file() and self._needs_run(session, index):
                 self._restart(session, session.plan.run_for(index))
@@ -866,7 +882,7 @@ class LocalPlaybackSessions:
                 return
         _terminate(session.process)
         for stale in session.directory.glob("*seg*.m4s"):  # split renditions must be invalidated with their source
-            if (match := BUFFER_SEGMENT.fullmatch(stale.name)) and int(match[1]) >= run.index:
+            if not session.plan.indexed and (match := BUFFER_SEGMENT.fullmatch(stale.name)) and int(match[1]) >= run.index:
                 with contextlib.suppress(OSError):
                     stale.unlink()
         run = replace(run, init="init-restart.mp4")

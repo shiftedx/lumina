@@ -24,6 +24,7 @@ struct NativeRequestsView: View {
     let store: LuminaStore
     let session: LuminaSession
     var isActive: Bool
+    var usesPortraitNavigationRail: Bool
     @State private var catalog: LuminaRequests
     @State private var selected: RequestCatalogItem?
     @State private var myRequestsPresented = false
@@ -45,10 +46,11 @@ struct NativeRequestsView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
 
-    init(store: LuminaStore, session: LuminaSession, isActive: Bool) {
+    init(store: LuminaStore, session: LuminaSession, isActive: Bool, usesPortraitNavigationRail: Bool = false) {
         self.store = store
         self.session = session
         self.isActive = isActive
+        self.usesPortraitNavigationRail = usesPortraitNavigationRail
         _catalog = State(initialValue: LuminaRequests(session: session))
     }
 
@@ -92,7 +94,10 @@ struct NativeRequestsView: View {
                                         Text(kind == .movie ? "Films" : kind == .show ? "Series" : "Anime").font(.title2.bold())
                                         Text([sections.first { $0.0 == section }?.1, genres.first { $0.id == genre }?.name].compactMap { $0 }.joined(separator: " · "))
                                             .font(.subheadline).foregroundStyle(.secondary)
-                                    }.padding(.horizontal, 20).padding(.top, 12)
+                                    }
+                                    .padding(.horizontal, 20)
+                                    .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
+                                    .padding(.top, 12)
                                 }
                                 if loadingResults && resultPage == 0 { ProgressView("Searching the catalog…").padding(24) }
                                 if items.isEmpty && !loadingResults {
@@ -115,7 +120,10 @@ struct NativeRequestsView: View {
                                             }
                                         }
                                     }
-                                }.padding(.horizontal, 20).padding(.top, 12)
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
+                                .padding(.top, 12)
                                 if let searchError {
                                     Text(searchError).foregroundStyle(.secondary).padding(.horizontal, 20)
                                     Button("Try again") { Task { await loadResults(reset: resultPage == 0) } }.padding(.horizontal, 20)
@@ -131,6 +139,8 @@ struct NativeRequestsView: View {
                                 if let item = featured {
                                     feature(item)
                                         .frame(minHeight: typeSize.isAccessibilitySize ? 680 : min(720, max(430, geometry.size.height * (compact ? 0.75 : 0.72))))
+                                        .accessibilityElement(children: .contain)
+                                        .accessibilityIdentifier("requestsFeaturedHero")
                                 }
                                 ForEach(catalog.home?.rails ?? [], id: \.id) { rail in
                                     if !rail.items.isEmpty { posterRail(rail.title, items: rail.items) }
@@ -138,7 +148,9 @@ struct NativeRequestsView: View {
                             }
                         }.padding(.bottom, 32)
                     }
+                    .ignoresSafeArea(.container, edges: usesPortraitNavigationRail && !browsingResults && !searchVisible ? .top : [])
                     .scrollClipDisabled()
+                    .modifier(HomeHeroScrollEdge(isEnabled: usesPortraitNavigationRail && !browsingResults))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable {
                         if browsingResults { await loadResults(reset: true) } else { await catalog.loadHome() }
@@ -154,47 +166,19 @@ struct NativeRequestsView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Search requests", glyph: .search) {
-                    searchVisible.toggle()
-                }.labelStyle(.titleAndIcon).accessibilityIdentifier("requestsSearchButton")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    if query.isEmpty {
-                        Picker("Browse", selection: $kind) {
-                            Text("Everything").tag(nil as RequestCatalogKind?)
-                            ForEach([RequestCatalogKind.movie, .show, .anime], id: \.self) { value in
-                                Text(value == .movie ? "Films" : value == .show ? "Series" : "Anime").tag(Optional(value))
-                            }
-                        }
-                    }
-                    if kind != nil && query.isEmpty {
-                        Picker("Discover", selection: $section) {
-                            ForEach(sections, id: \.0) { Text($0.1).tag($0.0) }
-                        }
-                        if !genres.isEmpty {
-                            Picker("Genre", selection: $genre) {
-                                Text("All genres").tag(nil as String?)
-                                ForEach(genres) { Text($0.name).tag(Optional($0.id)) }
-                            }
-                        }
-                    }
-                    if kind != nil || genre != nil {
-                        Button("Clear filters", glyph: .filter) {
-                            kind = nil; genre = nil; section = "trending"
-                        }
-                    }
-                    Divider()
-                    Button("My requests", glyph: .history) { myRequestsPresented = true }
-                        .accessibilityIdentifier("requestsMyListButton")
-                } label: { Label("Requests options", glyph: .moreHorizontal) }
-                .accessibilityIdentifier("requestsOptionsMenu")
+            if !usesPortraitNavigationRail {
+                ToolbarItem(placement: .topBarLeading) { searchButton.labelStyle(.titleAndIcon) }
+                ToolbarItem(placement: .topBarTrailing) { optionsMenu }
             }
         }
-        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Search all films, series, and anime"))
+        .portraitNavigationRail(isEnabled: usesPortraitNavigationRail, store: store) {
+            searchButton
+            optionsMenu
+        }
+        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible,
+            prompt: "Search all films, series, and anime", usesInlineSearch: usesPortraitNavigationRail))
         .accessibilityElement(children: .contain)
-        .ignoresSafeArea(.container, edges: .horizontal)
+        .ignoresSafeArea(.container, edges: usesPortraitNavigationRail && !browsingResults && !searchVisible ? [.top, .horizontal] : .horizontal)
         .accessibilityIdentifier("requestsScreen")
         .sheet(item: $selected) { RequestDetailSheet(item: $0, store: store, catalog: catalog) }
         .sheet(isPresented: $myRequestsPresented) { RequestHistorySheet(catalog: catalog) }
@@ -224,6 +208,46 @@ struct NativeRequestsView: View {
             featuredTrailer = detail.trailers.compactMap(\.youtubeURL).first
             trailerItemID = item.id
         }
+    }
+
+    private var searchButton: some View {
+        Button("Search requests", glyph: .search) {
+            searchVisible.toggle()
+        }
+        .accessibilityIdentifier("requestsSearchButton")
+    }
+
+    private var optionsMenu: some View {
+        Menu {
+            if query.isEmpty {
+                Picker("Browse", selection: $kind) {
+                    Text("Everything").tag(nil as RequestCatalogKind?)
+                    ForEach([RequestCatalogKind.movie, .show, .anime], id: \.self) { value in
+                        Text(value == .movie ? "Films" : value == .show ? "Series" : "Anime").tag(Optional(value))
+                    }
+                }
+            }
+            if kind != nil && query.isEmpty {
+                Picker("Discover", selection: $section) {
+                    ForEach(sections, id: \.0) { Text($0.1).tag($0.0) }
+                }
+                if !genres.isEmpty {
+                    Picker("Genre", selection: $genre) {
+                        Text("All genres").tag(nil as String?)
+                        ForEach(genres) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                }
+            }
+            if kind != nil || genre != nil {
+                Button("Clear filters", glyph: .filter) {
+                    kind = nil; genre = nil; section = "trending"
+                }
+            }
+            Divider()
+            Button("My requests", glyph: .history) { myRequestsPresented = true }
+                .accessibilityIdentifier("requestsMyListButton")
+        } label: { Label("Requests options", glyph: .moreHorizontal) }
+        .accessibilityIdentifier("requestsOptionsMenu")
     }
 
     private func loadResults(reset: Bool) async {

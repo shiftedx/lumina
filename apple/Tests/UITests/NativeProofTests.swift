@@ -327,6 +327,14 @@ final class NativeStandardPhoneAppearanceChromeTests: NativeProofJourney {
     }
 }
 @MainActor
+final class NativeOpenDuoEmptyWatchlistTests: NativeProofJourney {
+    func testEmptyWatchlistCentersBelowCategoriesAndPopulates() async throws { try await journeyEmptyWatchlistCentering() }
+}
+@MainActor
+final class NativeOpenDuoRequestsHeaderTests: NativeProofJourney {
+    func testRequestsArtworkAndActionsClearPortraitStatus() throws { try journeyRequestsPortraitHeader() }
+}
+@MainActor
 final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
     func testCategoryArtworkExtendsUnderFloatingNavigation() throws {
         try journeyCategoryArtworkUnderNavigation()
@@ -5209,6 +5217,121 @@ class NativeProofJourney: XCTestCase {
                 XCTAssertFalse(control.frame.intersects(region), "Navigation must clear the camera punch hole: \(region).")
             }
         }
+    }
+
+    func journeyEmptyWatchlistCentering() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: false)
+        try launchAndResetSession()
+        let viewport = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              viewport.width >= 600, viewport.height > viewport.width else {
+            throw XCTSkip("Use the actual open Duo portrait display for empty Watchlist verification.")
+        }
+        func tapVisibleControl(_ control: XCUIElement) throws {
+            try waitForExistence(control, timeout: 15, named: "Watchlist navigation control")
+            guard hasVisibleFrame(control) else { throw ProofFailure.ui("Watchlist control must be on screen.") }
+            let frame = control.frame
+            try applicationWindow().coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - viewport.minX) / viewport.width,
+                dy: (frame.midY - viewport.minY) / viewport.height)).tap()
+        }
+        try signIn(using: fixture)
+        try waitForExistence(element("featuredTitleButton"), timeout: 20, named: "loaded Home hero")
+        try tapVisibleControl(element("homeBrowse-watchlist"))
+        let title = application!.staticTexts["No matches on Home"]
+        let message = application!.staticTexts["Choose Home or add something to your watchlist."]
+        try waitForExistence(title, timeout: 20, named: "empty Watchlist title")
+        try waitForExistence(message, timeout: 10, named: "empty Watchlist guidance")
+        let categories = element("homeBrowsingRow").frame
+        let group = title.frame.union(message.frame)
+        XCTAssertGreaterThan(group.minY, categories.maxY + 80,
+                             "The empty Watchlist must clear the category row.")
+        XCTAssertEqual(group.midY, viewport.midY, accuracy: viewport.height * 0.15,
+                       "Empty Watchlist guidance belongs in the middle of the page.")
+        try attachFrame(named: "Open Duo portrait empty Watchlist centered below categories")
+
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: true)
+        application!.terminate()
+        application!.launch()
+        try waitForExistence(element("homeScreen"), timeout: 25, named: "Home after saved Watchlist relaunch")
+        try tapVisibleControl(element("homeBrowse-watchlist"))
+        let populated = element("featuredTitleButton")
+        try waitForExistence(populated, timeout: 25, named: "populated Watchlist hero after relaunch")
+        XCTAssertEqual(populated.label, fixture.directItemTitle)
+        XCTAssertFalse(title.exists, "A populated Watchlist must replace the empty state.")
+        XCTAssertGreaterThan(populated.frame.minY, categories.maxY,
+                             "Populated Watchlist content must retain normal hero placement.")
+        try attachFrame(named: "Open Duo portrait populated Watchlist retains its hero")
+    }
+
+    func journeyRequestsPortraitHeader() throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        let viewport = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              viewport.width >= 600, viewport.height > viewport.width else {
+            throw XCTSkip("Use the actual open Duo portrait display for Requests header verification.")
+        }
+        func tapVisibleControl(_ control: XCUIElement) throws {
+            guard hasVisibleFrame(control) else { throw ProofFailure.ui("Requests control must be visibly on screen before tapping.") }
+            let frame = control.frame
+            let viewport = try applicationViewport()
+            try applicationWindow().coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - viewport.minX) / viewport.width,
+                dy: (frame.midY - viewport.minY) / viewport.height)).tap()
+        }
+        try signIn(using: fixture)
+        let tab = try waitForHittable(destinationControl("Requests"), timeout: 15, named: "visible Requests tab")
+        let tabFrame = tab.frame
+        let tabEvidence = XCTAttachment(string: "viewport=\(viewport) Requests=\(tabFrame)")
+        tabEvidence.name = "Open Duo Requests tab geometry"
+        tabEvidence.lifetime = .keepAlways
+        add(tabEvidence)
+        try tapVisibleControl(tab)
+        try waitForExistence(element("requestsScreen"), timeout: 20, named: "Requests from its visible tab")
+        let movieKey = try XCTUnwrap(fixture.requestMovieKey)
+        try waitForExistence(element("requestDetails-\(movieKey)"), timeout: 30, named: "Requests featured title")
+        try attachFrame(named: "Open Duo portrait Requests header")
+
+        let search = element("requestsSearchButton")
+        let options = element("requestsOptionsMenu")
+        for control in [search, options] {
+            XCTAssertTrue(hasVisibleFrame(control))
+            XCTAssertGreaterThan(control.frame.minX, viewport.maxX - 90, "Requests actions belong on the right utility rail.")
+            XCTAssertGreaterThanOrEqual(control.frame.minY, viewport.minY + 88, "Requests actions must clear the physical status corner.")
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
+        XCTAssertFalse(search.frame.intersects(options.frame))
+
+        let hero = element("requestsFeaturedHero")
+        try waitForExistence(hero, timeout: 10, named: "Requests hero artwork")
+        XCTAssertLessThanOrEqual(hero.frame.minY, viewport.minY + 1,
+                                 "Requests artwork must extend to the top edge beneath navigation.")
+
+        try tapVisibleControl(search)
+        let field = element("searchField")
+        try waitForExistence(field, timeout: 10, named: "Requests search on the open display")
+        try tapVisibleControl(field)
+        field.typeText(try XCTUnwrap(fixture.requestUnavailableShowTitle) + "\n")
+        let result = try revealRequestPoster(try XCTUnwrap(fixture.requestUnavailableShowKey), named: "Requests search result")
+        XCTAssertLessThanOrEqual(result.frame.maxX, options.frame.minX - 8,
+                                 "Requests results must leave room for the utility rail.")
+        try attachFrame(named: "Open Duo portrait Requests search")
+        try tapVisibleControl(application!.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close"])).firstMatch)
+        XCTAssertTrue(disappears(field, timeout: 10))
+        try tapVisibleControl(options)
+        try activate(element("requestsMyListButton"))
+        try waitForExistence(element("requestHistoryScreen"), timeout: 15, named: "Requests history from right overflow")
+        try activate(menuAction("Done"))
+        XCTAssertTrue(disappears(element("requestHistoryScreen"), timeout: 10))
+        try attachFrame(named: "Open Duo portrait Requests after Search and history")
     }
 
     func journeyPortraitNavigationWithMusic() async throws {

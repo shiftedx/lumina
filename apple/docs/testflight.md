@@ -443,3 +443,34 @@ The matching full production server image is deployed and healthy at the same
 `df8511a7` source, with schema 42, protected rollback images and verified
 pre-upgrade database/key backups. This replaces the earlier chapter-only image
 overlay; native physical-device qualification remains pending.
+
+
+### Internal dogfood package 40, 2026-10-30
+
+Version **0.1.0 (40)** is signed and staged for **iOS and tvOS** from clean main
+`63eb0ccb9818fb60d6e9b37595bec1283c6f4049`, with the unchanged immutable
+PrismCore revision `db42eb269ee629fe8ea81614b187fe290d2ec2d0`. There were no
+open PRs at source capture. The package includes quality-preserving native
+format recovery, responsive Start Over for prepared originals, open Duo
+Requests artwork and the empty Watchlist positioning fix.
+
+Both device Release archives, automatic distribution-signing exports, signed
+IPAs and signed Organizer references passed local validation. Executable/dSYM
+UUIDs match; framework requirements, version/build, device families,
+artwork/privacy and test-fixture exclusion passed. The two focused packaging
+safeguards passed, and the shipping binaries exclude the recovery fault hooks.
+No full suite or new physical HDR/HDMI/audio qualification ran during packaging.
+
+Xcode Organizer visibly contains **Lumina iOS 0.1.0 (40) — Signed for Upload**
+and **Lumina tvOS 0.1.0 (40) — Signed for Upload**, with the signing team.
+**The owner will upload; neither build was uploaded by this operation.** These
+are TestFlight Internal Only packages with automatic build-number changes
+disabled. Local validation and staging do not establish Apple's upload
+validation, processing or tester availability.
+
+Preserve ignored `apple/Distribution/0.1.0-40/`: source archives, signed IPAs,
+matching-symbol Organizer references, native source snapshot/input hashes,
+release manifest, checksums, validation/export logs and What to Test notes.
+Build 40 avoids the earlier build-38 uploads and temporary build-39 validation
+copy. Prior release packages remain preserved. No server deployment occurred;
+production remains at the separately deployed source `df8511a7`.

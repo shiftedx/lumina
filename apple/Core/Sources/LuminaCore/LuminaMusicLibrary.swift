@@ -18,6 +18,8 @@ import Observation
     private var generation = 0
     private var playlistGeneration = 0
     private let checkpointWriter = CheckpointWriter()
+    private var cacheLoad: Task<Void, Never>?
+    private var checkpointGeneration = 0
 
     public convenience init() { self.init(client: LuminaClient()) }
 
@@ -34,8 +36,10 @@ import Observation
 
     public func configure(session: LuminaSession?) {
         guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL || self.session?.userID != session?.userID else { return }
-        checkpointWriter.flushSynchronously()
         generation += 1
+        checkpointGeneration += 1
+        cacheLoad?.cancel()
+        cacheLoad = nil
         self.session = session
         playlists = []; metadata = [:]; metadataOrder = []; lyricCache = [:]; cachedSession = nil
         isBusy = false; errorMessage = nil
@@ -44,14 +48,28 @@ import Observation
                 .map { String(format: "%02x", $0) }.joined()
         }
         guard let directory = ownerDirectory else { return }
-        if let data = try? Data(contentsOf: directory.appending(path: "queue.json")), data.count <= 8 * 1024 * 1024 {
-            cachedSession = try? JSONDecoder().decode(MusicListeningSnapshot.self, from: data)
-            remember(cachedSession?.queue ?? [])
-        }
-        if let data = try? Data(contentsOf: directory.appending(path: "lyrics.json")), data.count <= 4 * 1024 * 1024 {
-            lyricCache = (try? JSONDecoder().decode([String: MusicLyrics].self, from: data)) ?? [:]
+        let owner = sessionIdentity
+        let loadGeneration = generation
+        let checkpointGeneration = checkpointGeneration
+        let writer = checkpointWriter
+        cacheLoad = Task { [weak self, writer] in
+            let persisted = await writer.load(directory: directory)
+            guard !Task.isCancelled, let self,
+                  self.generation == loadGeneration,
+                  self.sessionIdentity == owner
+            else { return }
+            if self.checkpointGeneration == checkpointGeneration {
+                self.cachedSession = persisted.snapshot
+                self.rememberPersisted(persisted.snapshot?.queue ?? [])
+            }
+            for (id, lyrics) in persisted.lyrics where self.lyricCache.count < 100 && self.lyricCache[id] == nil {
+                self.lyricCache[id] = lyrics
+            }
         }
     }
+
+    /// Waits for the configured member's bounded persisted snapshot before restoring playback.
+    public func waitForPersistentCache() async { await cacheLoad?.value }
 
     public func refresh() async {
         let current = generation
@@ -123,10 +141,7 @@ import Observation
             let value: MusicLyrics = try await request("tracks/\(try safeID(item.id))/lyrics", query: [URLQueryItem(name: "retry", value: retry ? "true" : "false")])
             lyricCache[item.id] = value
             if lyricCache.count > 100, let key = lyricCache.keys.first(where: { $0 != item.id }) { lyricCache.removeValue(forKey: key) }
-            if let directory = ownerDirectory, let data = try? JSONEncoder().encode(lyricCache), data.count <= 4 * 1024 * 1024 {
-                try? prepareDirectory(directory)
-                try? data.write(to: directory.appending(path: "lyrics.json"), options: .atomic)
-            }
+            if let directory = ownerDirectory { checkpointWriter.enqueueLyrics(lyricCache, directory: directory) }
             return value
         } catch {
             guard owner == generation else { throw CancellationError() }
@@ -166,6 +181,7 @@ import Observation
 
     public func persistCheckpoint(snapshot: MusicListeningSnapshot, owner: String? = nil) {
         guard sessionIdentity != nil, owner == nil || owner == sessionIdentity else { return }
+        checkpointGeneration += 1
         cachedSession = snapshot
         guard let directory = ownerDirectory else { return }
         checkpointWriter.enqueue(snapshot: snapshot, directory: directory)
@@ -201,17 +217,6 @@ import Observation
 
     private var ownerDirectory: URL? { sessionIdentity.map { root.appending(path: $0, directoryHint: .isDirectory) } }
 
-    private func prepareDirectory(_ directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var resource = directory
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try resource.setResourceValues(values)
-        #if os(iOS)
-        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
-        #endif
-    }
-
     private func remember(_ tracks: [MusicTrack]) {
         for track in tracks {
             if let previous = metadata[track.id] {
@@ -228,6 +233,12 @@ import Observation
             }
         }
         metadataOrder.removeFirst(excess)
+    }
+
+    private func rememberPersisted(_ tracks: [MusicTrack]) {
+        let capacity = max(0, 512 - metadataOrder.count)
+        guard capacity > 0 else { return }
+        remember(Array(tracks.lazy.filter { self.metadata[$0.id] == nil && self.metadata[$0.nativeID] == nil }.prefix(capacity)))
     }
 
     private func safeID(_ value: String) throws -> String {
@@ -260,18 +271,27 @@ private struct Deleted: Decodable { var deleted: Bool }
 /// Keeps checkpoint work off the main actor while retaining only an active write and its newest replacement.
 private final class CheckpointWriter: @unchecked Sendable {
     private struct Work: Sendable {
-        let snapshot: MusicListeningSnapshot
+        var snapshot: MusicListeningSnapshot?
+        var lyrics: [String: MusicLyrics]?
         let directory: URL
+    }
+
+    struct PersistedCache: Sendable {
+        let snapshot: MusicListeningSnapshot?
+        let lyrics: [String: MusicLyrics]
     }
 
     private let queue = DispatchQueue(label: "app.lumina.music-checkpoint", qos: .utility)
     private let lock = NSLock()
-    private var pending: Work?
+    private var pending = [URL: Work]()
+    private var pendingOrder = [URL]()
     private var draining = false
 
     func enqueue(snapshot: MusicListeningSnapshot, directory: URL) {
         lock.lock()
-        pending = Work(snapshot: snapshot, directory: directory)
+        var work = pendingWork(for: directory)
+        work.snapshot = snapshot
+        pending[directory] = work
         if !draining {
             draining = true
             queue.async { self.drain() }
@@ -279,7 +299,25 @@ private final class CheckpointWriter: @unchecked Sendable {
         lock.unlock()
     }
 
-    func flushSynchronously() { queue.sync {} }
+    func enqueueLyrics(_ lyrics: [String: MusicLyrics], directory: URL) {
+        lock.lock()
+        var work = pendingWork(for: directory)
+        work.lyrics = lyrics
+        pending[directory] = work
+        if !draining {
+            draining = true
+            queue.async { self.drain() }
+        }
+        lock.unlock()
+    }
+
+    func load(directory: URL) async -> PersistedCache {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                continuation.resume(returning: self?.read(directory: directory) ?? .init(snapshot: nil, lyrics: [:]))
+            }
+        }
+    }
 
     func flush() async {
         await withCheckedContinuation { continuation in
@@ -294,16 +332,27 @@ private final class CheckpointWriter: @unchecked Sendable {
     private func next() -> Work? {
         lock.lock()
         defer { lock.unlock() }
-        guard let pending else {
+        guard let directory = pendingOrder.first, let work = pending.removeValue(forKey: directory) else {
             draining = false
             return nil
         }
-        self.pending = nil
-        return pending
+        pendingOrder.removeFirst()
+        return work
+    }
+
+    private func pendingWork(for directory: URL) -> Work {
+        if let work = pending[directory] { return work }
+        pendingOrder.append(directory)
+        return Work(snapshot: nil, lyrics: nil, directory: directory)
     }
 
     private func write(_ work: Work) {
-        var safe = work.snapshot
+        if let snapshot = work.snapshot { writeSnapshot(snapshot, directory: work.directory) }
+        if let lyrics = work.lyrics { writeLyrics(lyrics, directory: work.directory) }
+    }
+
+    private func writeSnapshot(_ snapshot: MusicListeningSnapshot, directory: URL) {
+        var safe = snapshot
         func sanitized(_ track: MusicTrack) -> MusicTrack {
             var value = track
             value.audioURL = ""
@@ -318,15 +367,39 @@ private final class CheckpointWriter: @unchecked Sendable {
         }
         guard let data = try? JSONEncoder().encode(safe), data.count <= 8 * 1024 * 1024 else { return }
         do {
-            try FileManager.default.createDirectory(at: work.directory, withIntermediateDirectories: true)
-            var resource = work.directory
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            try resource.setResourceValues(values)
-            #if os(iOS)
-            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: work.directory.path)
-            #endif
-            try data.write(to: work.directory.appending(path: "queue.json"), options: .atomic)
+            try prepareDirectory(directory)
+            try data.write(to: directory.appending(path: "queue.json"), options: .atomic)
         } catch {}
+    }
+
+    private func writeLyrics(_ lyrics: [String: MusicLyrics], directory: URL) {
+        guard let data = try? JSONEncoder().encode(lyrics), data.count <= 4 * 1024 * 1024 else { return }
+        do {
+            try prepareDirectory(directory)
+            try data.write(to: directory.appending(path: "lyrics.json"), options: .atomic)
+        } catch {}
+    }
+
+    private func read(directory: URL) -> PersistedCache {
+        let snapshot: MusicListeningSnapshot?
+        if let data = try? Data(contentsOf: directory.appending(path: "queue.json"), options: .mappedIfSafe), data.count <= 8 * 1024 * 1024 {
+            snapshot = try? JSONDecoder().decode(MusicListeningSnapshot.self, from: data)
+        } else { snapshot = nil }
+        let lyrics: [String: MusicLyrics]
+        if let data = try? Data(contentsOf: directory.appending(path: "lyrics.json"), options: .mappedIfSafe), data.count <= 4 * 1024 * 1024 {
+            lyrics = (try? JSONDecoder().decode([String: MusicLyrics].self, from: data)) ?? [:]
+        } else { lyrics = [:] }
+        return .init(snapshot: snapshot, lyrics: lyrics)
+    }
+
+    private func prepareDirectory(_ directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var resource = directory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try resource.setResourceValues(values)
+        #if os(iOS)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
+        #endif
     }
 }

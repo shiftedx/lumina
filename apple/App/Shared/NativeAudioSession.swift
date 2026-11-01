@@ -73,8 +73,9 @@ final class NativeAudioSession {
     private(set) var pendingSpeakerStop: String?
     private(set) var remoteVolumeDraft: Float?
     private var volumeTask: Task<Void, Never>?
-    private var interruptionObserver: NSObjectProtocol?
-    private var routeObserver: NSObjectProtocol?
+    // NotificationCenter permits unregistering its tokens during nonisolated deinit.
+    nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var routeObserver: NSObjectProtocol?
     private var store: LuminaStore?
     private var identity: String?
     private var restoreTask: Task<Void, Never>?
@@ -155,6 +156,11 @@ final class NativeAudioSession {
             let unplugged = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
             if unplugged { Task { @MainActor in self?.transport?.pause() } }
         }
+    }
+
+    deinit {
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
     }
 
     func adoptForPlayback(_ model: PlaybackModel) async throws {
@@ -434,6 +440,9 @@ final class NativeAudioSession {
                 #endif
             }
         }
+        await store.music.waitForPersistentCache()
+        guard token == generation, owner == store.music.sessionIdentity,
+              isCurrentRestoreTask(restoreTaskID), !Task.isCancelled else { return }
         dirty = LuminaPreferences.defaults.bool(forKey: "lumina.music.dirty.\(owner)")
         let cached = store.music.cachedSession
         if let cached { snapshot = cached }

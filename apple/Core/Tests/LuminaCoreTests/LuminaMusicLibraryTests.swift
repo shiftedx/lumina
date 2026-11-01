@@ -151,6 +151,7 @@ final class LuminaMusicLibraryTests: XCTestCase {
         library.persistCheckpoint(snapshot: checkpoint, owner: aliceIdentity)
         XCTAssertEqual(library.cachedSession?.revision, 1, "A stale owner's checkpoint must not replace the new owner's in-memory queue")
         library.configure(session: alice)
+        await library.waitForPersistentCache()
         XCTAssertEqual(library.cachedSession?.revision, 4)
         XCTAssertEqual(library.cachedSession?.queue.map(\.id), [musicTrackID, musicTrackTwoID, musicTrackID])
         XCTAssertEqual(library.cachedSession?.positionSeconds, 7)
@@ -170,6 +171,7 @@ final class LuminaMusicLibraryTests: XCTestCase {
             XCTAssertFalse(text.contains("/Items/"))
         }
         library.configure(session: bob)
+        await library.waitForPersistentCache()
         XCTAssertEqual(library.cachedSession?.revision, 1)
         XCTAssertEqual(library.cachedSession?.queue.count, 0)
     }
@@ -191,6 +193,7 @@ final class LuminaMusicLibraryTests: XCTestCase {
         await library.flushCheckpoint()
         library.configure(session: nil)
         library.configure(session: alice)
+        await library.waitForPersistentCache()
         XCTAssertEqual(library.cachedSession?.revision, 105)
         XCTAssertEqual(library.cachedSession?.positionSeconds, 7, "A deliberate rewind must win over an earlier higher position")
         XCTAssertEqual(library.cachedSession?.queue.map(\.id), [musicTrackID, musicTrackTwoID, musicTrackID])
@@ -201,8 +204,10 @@ final class LuminaMusicLibraryTests: XCTestCase {
         final.revision = 106; final.positionSeconds = 6
         library.persistCheckpoint(snapshot: final)
         library.configure(session: nil)
+        await library.flushCheckpoint()
         let restored = self.library(root: root)
         restored.configure(session: alice)
+        await restored.waitForPersistentCache()
         XCTAssertEqual(restored.cachedSession?.revision, 106, "Signing out must drain an accepted checkpoint before a new library restores it")
         XCTAssertEqual(restored.cachedSession?.positionSeconds, 6)
         restored.configure(session: bob)
@@ -210,7 +215,59 @@ final class LuminaMusicLibraryTests: XCTestCase {
         await restored.flushCheckpoint()
         XCTAssertNil(restored.cachedSession, "A former member cannot replace the active member's checkpoint")
         restored.configure(session: alice)
+        await restored.waitForPersistentCache()
         XCTAssertEqual(restored.cachedSession?.revision, 106, "A rejected stale checkpoint must not overwrite the member's latest queue")
+    }
+
+    func testPersistedLyricsLoadWithTheQueueAndANewerCheckpointWins() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alice = session()
+        let track = try JSONDecoder().decode(MusicTrack.self, from: musicJSON(trackJSON()))
+        let secondTrack = try JSONDecoder().decode(MusicTrack.self, from: musicJSON(trackJSON(id: musicTrackTwoID)))
+        let saved = library(root: root)
+        saved.configure(session: alice)
+        MusicURLProtocol.handler = { transport in
+            let plain = transport.request.url?.path.contains(secondTrack.nativeID) == true ? "Later lyrics" : "Cached lyrics"
+            transport.respond(["plain": plain, "cues": [], "source": "fixture"])
+        }
+        _ = try await saved.lyrics(for: track.mediaItem)
+        _ = try await saved.lyrics(for: secondTrack.mediaItem)
+        let original = try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(snapshotJSON(revision: 4, position: 7)))
+        saved.persistCheckpoint(snapshot: original)
+        await saved.flushCheckpoint()
+
+        let restored = library(root: root)
+        restored.configure(session: alice)
+        let newer = try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(snapshotJSON(revision: 5, position: 3)))
+        restored.persistCheckpoint(snapshot: newer)
+        await restored.waitForPersistentCache()
+        XCTAssertEqual(restored.cachedSession?.revision, 5, "A late disk read must not replace an accepted in-memory checkpoint")
+        XCTAssertEqual(restored.cachedLyrics(for: track.nativeID)?.plain, "Cached lyrics")
+        XCTAssertEqual(restored.cachedLyrics(for: secondTrack.nativeID)?.plain, "Later lyrics")
+    }
+
+    func testLatePersistedQueueDoesNotReplaceForegroundTrackMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alice = session()
+        var cached = snapshotJSON(revision: 4, position: 7)
+        cached["queue"] = [trackJSON(title: "Cached title")]
+        let saved = library(root: root)
+        saved.configure(session: alice)
+        saved.persistCheckpoint(snapshot: try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(cached)))
+        await saved.flushCheckpoint()
+
+        let restored = library(root: root)
+        restored.configure(session: alice)
+        MusicURLProtocol.handler = { transport in
+            var live = snapshotJSON(revision: 5, position: 3)
+            live["queue"] = [trackJSON(title: "Live title")]
+            transport.respond(live)
+        }
+        _ = try await restored.loadSession()
+        await restored.waitForPersistentCache()
+        XCTAssertEqual(restored.cachedTrack(for: musicTrackID)?.title, "Live title", "A late persisted queue must only fill missing track metadata")
     }
 
     func testDownloadRequestUsesOwnOriginNativeFormatAndMediaBrowserHeaderOnly() throws {
@@ -276,8 +333,8 @@ final class LuminaMusicLibraryTests: XCTestCase {
 private let musicTrackID = "00000000-0000-0000-0000-000000000001"
 private let musicTrackTwoID = "00000000-0000-0000-0000-000000000002"
 
-private func trackJSON(id: String = musicTrackID) -> [String: Any] {
-    ["id": id, "title": "Synthetic track", "artist": "Artist", "album_artist": "Artist", "album": "Album",
+private func trackJSON(id: String = musicTrackID, title: String = "Synthetic track") -> [String: Any] {
+    ["id": id, "title": title, "artist": "Artist", "album_artist": "Artist", "album": "Album",
      "audio_url": "https://media.example.test/Audio/\(id)/stream?ApiKey=music-test-token-alice",
      "artwork_url": "/Items/album/Images/Primary?ApiKey=music-test-token-alice", "gain_is_manual": false, "genres": []]
 }

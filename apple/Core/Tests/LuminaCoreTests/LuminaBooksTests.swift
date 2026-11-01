@@ -93,6 +93,13 @@ final class LuminaBooksTests: XCTestCase {
         let prepared = try XCTUnwrap(BookPagePreparation.image(from: encoded as Data, maximumPixelSize: 1024))
         XCTAssertEqual(prepared.width, 1024); XCTAssertEqual(prepared.height, 512)
         XCTAssertLessThan(prepared.bytesPerRow * prepared.height, image.bytesPerRow * image.height / 8)
+        let twoScale = try XCTUnwrap(BookPagePreparation.image(from: encoded as Data, maximumPixelSize: 2048))
+        let threeScale = try XCTUnwrap(BookPagePreparation.image(from: encoded as Data, maximumPixelSize: 3072))
+        XCTAssertEqual(twoScale.width, 2048)
+        XCTAssertEqual(twoScale.height, 1024)
+        XCTAssertLessThan(twoScale.bytesPerRow * twoScale.height, threeScale.bytesPerRow * threeScale.height / 2,
+                          "A 2x display must not pay for a 3x page's decoded backing")
+        print("LUMINA_READER_DECODE twoScaleBytes=\(twoScale.bytesPerRow * twoScale.height) threeScaleBytes=\(threeScale.bytesPerRow * threeScale.height)")
         XCTAssertNil(BookPagePreparation.image(from: Data("not an image".utf8), maximumPixelSize: 1024))
     }
 

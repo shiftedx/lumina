@@ -46,7 +46,7 @@ private final class BookReaderModel {
         } catch is CancellationError { }
         catch { self.error = error.localizedDescription }
     }
-    func prepare(size: CGSize, expanded: Bool, fontSize: CGFloat, color: UIColor, curl: Bool) async {
+    func prepare(size: CGSize, displayScale: CGFloat, expanded: Bool, fontSize: CGFloat, color: UIColor, curl: Bool) async {
         guard let manifest, !closed else { return }
         generation += 1; let current = generation
         busy = true; ready = false; error = nil
@@ -92,7 +92,7 @@ private final class BookReaderModel {
                 var result = [Int: UIImage]()
                 for page in visible {
                     let data = try await window.bytes(page)
-                    let pixelSize = min(BookPagePreparation.maximumPixelSize, Int(max(size.width, size.height) * 3))
+                    let pixelSize = min(BookPagePreparation.maximumPixelSize, max(1, Int((max(size.width, size.height) * displayScale).rounded(.up))))
                     let prepared = try await preparation.image(data, pixels: pixelSize)
                     try Task.checkCancellation()
                     guard current == generation else { return }
@@ -106,11 +106,11 @@ private final class BookReaderModel {
         } catch is CancellationError { }
         catch { if current == generation { self.error = error.localizedDescription } }
     }
-    func artwork(_ index: Int, size: CGSize) async throws -> UIImage {
+    func artwork(_ index: Int, size: CGSize, displayScale: CGFloat) async throws -> UIImage {
         guard !closed else { throw CancellationError() }
         let data = try await api.page(id: id, index: index)
         try Task.checkCancellation()
-        let image = try await preparation.image(data, pixels: min(2048, Int(max(size.width, size.height) * 3)))
+        let image = try await preparation.image(data, pixels: min(2048, max(1, Int((max(size.width, size.height) * displayScale).rounded(.up)))))
         try Task.checkCancellation()
         return UIImage(cgImage: image)
     }
@@ -189,6 +189,7 @@ struct NativeBookReader: View {
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .body) private var fontSize = 20.0
     init(session: LuminaSession, book: BookItem, covers: BookCoverCache? = nil) {
         self.session = session; self.book = book; self.covers = covers
@@ -210,9 +211,9 @@ struct NativeBookReader: View {
                             doublePage: layout.companion != nil, rightToLeft: manifest.readingDirection == "rtl",
                             fillDisplay: fillArtwork, pageSize: layout.primary.size,
                             spineInset: layout.companion.map { max(0, frame.width / 2 - $0.width) } ?? 0,
-                            load: model.artwork, onSelect: model.jump, onTurn: turnPage,
+                            load: { index, size in try await model.artwork(index, size: size, displayScale: displayScale) }, onSelect: model.jump, onTurn: turnPage,
                             onControls: { controlsVisible.toggle() })
-                            .id("\(model.id):\(layout.companion != nil):\(layout.primary.size):\(fillArtwork)")
+                            .id("\(model.id):\(layout.companion != nil):\(layout.primary.size):\(displayScale):\(fillArtwork)")
                             .frame(width: frame.width, height: frame.height)
                             .position(x: frame.midX, y: frame.midY)
                     } else {
@@ -221,9 +222,9 @@ struct NativeBookReader: View {
                     }
                 }
                 .environment(\.layoutDirection, .leftToRight)
-                .task(id: RenderKey(unit: model.unit, size: layout.primary.size, font: fontSize * textScale, expanded: layout.companion != nil, dark: colorScheme == .dark, loaded: model.manifest != nil, retry: retry, curl: curl)) {
+                .task(id: RenderKey(unit: model.unit, size: layout.primary.size, displayScale: displayScale, font: fontSize * textScale, expanded: layout.companion != nil, dark: colorScheme == .dark, loaded: model.manifest != nil, retry: retry, curl: curl)) {
                     spread = layout.companion != nil
-                    await model.prepare(size: layout.primary.size, expanded: spread, fontSize: fontSize * textScale,
+                    await model.prepare(size: layout.primary.size, displayScale: displayScale, expanded: spread, fontSize: fontSize * textScale,
                                         color: colorScheme == .dark ? .white : .black, curl: curl)
                 }
             }
@@ -408,6 +409,7 @@ struct NativeBookReader: View {
     private struct RenderKey: Equatable {
         let unit: Int
         let size: CGSize
+        let displayScale: CGFloat
         let font: Double
         let expanded: Bool
         let dark: Bool
@@ -636,8 +638,6 @@ private struct NativeBookCurlPager: UIViewControllerRepresentable {
                 if parent.doublePage { retained.insert(primary + 1) }
             }
             for key in Array(leaves.keys) where !retained.contains(key) { leaves.removeValue(forKey: key)?.cancel() }
-            // Stage only adjacent leaves, never a whole book. Preparation remains on the reader's worker lane.
-            for index in retained { _ = leaf(index) }
             for leaf in controller?.viewControllers ?? [] {
                 guard let leaf = leaf as? BookCurlLeafController else { continue }
                 leaf.view.accessibilityIdentifier = leaf === controller?.viewControllers?.last ? "bookPrimaryPage" : "bookCompanionPage"

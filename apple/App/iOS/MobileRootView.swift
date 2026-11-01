@@ -12,6 +12,13 @@ struct MobileRootView: View {
     @State private var videoSession = NativeVideoSession()
     @State private var userSettings = LuminaUserSettings()
     @State private var hasShownOnlineShell = false
+    @State private var artworkReclamationGeneration = 0
+    @State private var foregroundRefreshTask: Task<Void, Never>?
+    @State private var foregroundRefreshID: UUID?
+    @State private var needsForegroundRefresh = false
+    #if LUMINA_UI_TESTING
+    @State private var foregroundRefreshStarts = 0
+    #endif
     @AppStorage("lumina.appearance") private var appearance = "dark"
     @AppStorage("native.appearance") private var deviceAppearance = "account"
     @Environment(\.scenePhase) private var scenePhase
@@ -47,10 +54,29 @@ struct MobileRootView: View {
         .environment(videoSession)
         .environment(audioSession)
         .environment(userSettings)
+        .environment(\.luminaArtworkReclamationGeneration, artworkReclamationGeneration)
+        #if LUMINA_UI_TESTING
+        .overlay(alignment: .bottomLeading) {
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-ios-lifecycle") {
+                Button("Simulate memory warning") {
+                    NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+                }
+                .font(.caption2)
+                .padding(8)
+                .background(.black)
+                .accessibilityIdentifier("iosLifecycleProbe")
+                .accessibilityValue("refreshes=\(foregroundRefreshStarts) reclamations=\(artworkReclamationGeneration) phase=\(scenePhase)")
+            }
+        }
+        #endif
         .modifier(NativeMetadataPresentation(store: store))
         .preferredColorScheme(effectiveAppearance == "system" ? nil : effectiveAppearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop(); videoSession.dismiss() }
+        }
+        .onChange(of: MobileHomeSessionScope(store.session)) { _, _ in
+            cancelForegroundRefresh()
+            needsForegroundRefresh = false
         }
         .onChange(of: store.isOffline) { _, _ in audioSession.connectivityDidChange() }
         .task { store.startConnectivityMonitoring() }
@@ -72,24 +98,20 @@ struct MobileRootView: View {
                 ArtworkImageCache.shared.setBackgrounded(false)
                 store.setCatalogBackgrounded(false)
                 audioSession.resumeAfterActivation()
-                Task {
-                    await store.refreshConnectivity()
-                    if !store.isOffline { await store.metadata.reloadPermissions() }
-                    await audioSession.refreshSharedQueue()
-                    if store.session != nil, !store.isOffline {
-                        await userSettings.load()
-                        if userSettings.hasLoaded { appearance = userSettings.theme }
-                    }
-                }
+                refreshAfterForegrounding()
             } else if phase == .background {
                 ArtworkImageCache.shared.setBackgrounded(true)
+                artworkReclamationGeneration &+= 1
                 store.setCatalogBackgrounded(true)
                 audioSession.enterBackground()
+                needsForegroundRefresh = true
+                cancelForegroundRefresh()
                 Task { await audioSession.flushCheckpoint() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             ArtworkImageCache.shared.trimMemory()
+            artworkReclamationGeneration &+= 1
         }
         .onOpenURL { link in
             guard store.session == nil else {
@@ -103,6 +125,7 @@ struct MobileRootView: View {
             incomingPairingLink = nil
             pairingLinkMessage = "Sign out before connecting another server."
         }
+        .onDisappear { cancelForegroundRefresh() }
         .alert("Mobile connect", isPresented: Binding(
             get: { pairingLinkMessage != nil },
             set: { if !$0 { pairingLinkMessage = nil } }
@@ -115,6 +138,46 @@ struct MobileRootView: View {
 
     private var effectiveAppearance: String {
         deviceAppearance == "account" ? appearance : deviceAppearance
+    }
+
+    private func refreshAfterForegrounding() {
+        guard needsForegroundRefresh, foregroundRefreshTask == nil,
+              let owner = MobileHomeSessionScope(store.session) else { return }
+        let id = UUID()
+        needsForegroundRefresh = false
+        #if LUMINA_UI_TESTING
+        foregroundRefreshStarts += 1
+        #endif
+        foregroundRefreshID = id
+        foregroundRefreshTask = Task {
+            defer {
+                if foregroundRefreshID == id {
+                    foregroundRefreshTask = nil
+                    foregroundRefreshID = nil
+                }
+            }
+            await store.refreshConnectivity()
+            guard ownsForegroundRefresh(id, owner: owner) else { return }
+            if !store.isOffline {
+                await store.metadata.reloadPermissions()
+                guard ownsForegroundRefresh(id, owner: owner) else { return }
+            }
+            await audioSession.refreshSharedQueue()
+            guard ownsForegroundRefresh(id, owner: owner), !store.isOffline else { return }
+            await userSettings.load()
+            guard ownsForegroundRefresh(id, owner: owner) else { return }
+            if userSettings.hasLoaded { appearance = userSettings.theme }
+        }
+    }
+
+    private func cancelForegroundRefresh() {
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
+        foregroundRefreshID = nil
+    }
+
+    private func ownsForegroundRefresh(_ id: UUID, owner: MobileHomeSessionScope) -> Bool {
+        !Task.isCancelled && foregroundRefreshID == id && MobileHomeSessionScope(store.session) == owner
     }
 
 }

@@ -19,11 +19,25 @@ private struct BillboardArtwork: View {
     @State private var loadedURL: URL?
     @State private var source: UIImage?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    #if os(iOS)
+    @Environment(\.luminaArtworkReclamationGeneration) private var artworkReclamationGeneration
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
+    @State private var reloadGeneration = 0
+    #endif
 
     private var backdropURL: URL? { store.backdropURL(for: item) }
     private var url: URL? { backdropURL ?? store.imageURL(for: item, maxWidth: 1920) }
     private var displayedSource: UIImage? {
         loadedURL == url ? source : nil
+    }
+
+    private var loadKey: ArtworkLoadKey {
+        #if os(iOS)
+        ArtworkLoadKey(url: url, reloadGeneration: reloadGeneration)
+        #else
+        ArtworkLoadKey(url: url)
+        #endif
     }
 
     private var isWide: Bool {
@@ -61,8 +75,31 @@ private struct BillboardArtwork: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
         }
-        .onDisappear { source = nil; loadedURL = nil }
-        .task(id: url) {
+        #if os(iOS)
+        .onAppear {
+            isVisible = true
+            reloadArtworkIfVisible()
+        }
+        .onChange(of: artworkReclamationGeneration) { _, _ in
+            reclaimArtwork()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { reclaimArtwork() }
+            else if phase == .active { reloadArtworkIfVisible() }
+        }
+        #endif
+        .onDisappear {
+            #if os(iOS)
+            isVisible = false
+            #endif
+            source = nil
+            loadedURL = nil
+        }
+        .task(id: loadKey) {
+            #if os(iOS)
+            guard isVisible, scenePhase == .active else { return }
+            #endif
+            if loadedURL == url, source != nil { return }
             source = nil
             framing = nil
             loadedURL = nil
@@ -86,6 +123,20 @@ private struct BillboardArtwork: View {
         #endif
         .allowsHitTesting(false)
     }
+
+    #if os(iOS)
+    private func reclaimArtwork() {
+        source = nil
+        loadedURL = nil
+        framing = nil
+        reloadGeneration &+= 1
+    }
+
+    private func reloadArtworkIfVisible() {
+        guard isVisible, scenePhase == .active, source == nil else { return }
+        reloadGeneration &+= 1
+    }
+    #endif
 }
 
 /// Changes the normalized source crop so Home motion remains subject-safe instead of

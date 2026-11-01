@@ -24,6 +24,8 @@ The shared decoder applies the URL's requested width after accounting for image 
 
 The [TV qualification record](../../apple/docs/tvos-performance-2026-10-29.md) covers source-specific scores, remote playback, full-catalog navigation, and a 503-title synthetic memory workload. It records cache targets separately from whole-process footprint and does not claim physical-device energy or cold-network fling guarantees.
 
+On iOS, backgrounding and memory warnings also invalidate decoded artwork held by mounted views, including a Library root retained behind a pushed detail. Hidden views release their local image references without reloading; visible artwork rehydrates from the existing cache when active or when it reappears, even if its URL is unchanged. Ordinary navigation keeps its warm-return behavior. This lifecycle policy does not change tvOS artwork retention.
+
 ## Amendment: private browsing metadata and TV shelf artwork (2026-10-29)
 
 Native stores now retain small Home, detail, related-title and season/episode snapshots in a separate disposable device cache. It composes the existing bounded disk byte store in `LuminaMetadata`, with a 32 MiB disk ceiling, an 8 MiB encoded-memory target, 128 resident records and a 1 MiB/2,000-item per-record ceiling. JSON encoding/decoding and disk I/O run off the main actor. Keys hash the server, member, credential and resource; snapshots contain media DTOs, never request headers or session credentials. The same directory/file protection, backup exclusion and generation-safe clearing rules apply as for artwork.

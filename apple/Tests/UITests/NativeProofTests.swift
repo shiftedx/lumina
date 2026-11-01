@@ -630,19 +630,14 @@ class NativeProofJourney: XCTestCase {
         for book in [comic, pdf] { try await api.seedBookProgress(identity: identity, bookID: book) }
         try launchAndResetSession()
         try signIn(using: fixture, waitsForAccount: false)
-        // Standard phones expose Books from Home's compact Browse menu rather
-        // than the wide Home category rail. The shared tour helper follows
-        // that public route while retaining the iPad behavior.
+        // Follow the public Library chooser on phones and the category rail on iPad.
         try selectTourBooksRoot()
-        if compactLayoutOnly {
-            try revealBookItem(element("bookCatalogButton"))
-            try activate(element("bookCatalogButton"))
-        }
+        let catalog = try revealBookItem(element("bookCatalogButton"))
+        catalog.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         for book in [comic, pdf] {
             let card = element("book-\(book)")
-            try waitForExistence(card, timeout: 25, named: "book cover")
-            if compactLayoutOnly { try revealBookItem(card); try activate(card) }
-            else { card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap() }
+            let visibleCard = try revealBookItem(card)
+            visibleCard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let pager = element("bookCurlPager")
             try waitForExistence(pager, timeout: 30, named: "native paper curl reader")
             try waitForExistence(application!.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Page 1 of")).firstMatch,
@@ -739,12 +734,14 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(element("bookCloseButton"), timeout: 15, named: "reading controls restored")
     }
 
-    private func revealBookItem(_ item: XCUIElement) throws {
+    @discardableResult
+    private func revealBookItem(_ item: XCUIElement) throws -> XCUIElement {
         let viewport = try applicationViewport()
         for _ in 0..<8 {
-            if hasVisibleFrame(item) && item.isHittable { return }
+            let candidates = application!.descendants(matching: .any).matching(identifier: item.identifier).allElementsBoundByIndex
+            if let visible = candidates.first(where: { hasVisibleFrame($0) && $0.isEnabled }) { return visible }
             // The outer Duo display can place navigation over a trailing catalog action.
-            try dragVertically(in: viewport, anchorX: viewport.midX, up: true)
+            try dragVertically(in: viewport, anchorX: viewport.midX, up: !item.exists || item.frame.midY >= viewport.midY)
         }
         throw ProofFailure.ui("The Books catalog item could not be revealed.")
     }
@@ -4635,7 +4632,7 @@ class NativeProofJourney: XCTestCase {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
-        try launchAndResetSession()
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-ios-lifecycle"])
         try signIn(using: fixture)
         guard UIDevice.current.userInterfaceIdiom != .pad else {
             throw XCTSkip("iPad uses its unified category navigation instead of the native Library tab.")
@@ -4663,11 +4660,20 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Movies Library root before detail")
         movie.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("detailScreen"), timeout: 20, named: "movie detail")
+        let lifecycle = element("iosLifecycleProbe")
+        try waitForExistence(lifecycle, timeout: 10, named: "iOS lifecycle probe")
+        let beforePressure = accessibilityText(lifecycle)
+        try activate(lifecycle)
+        XCTAssertTrue(waitUntil(timeout: 10) { self.accessibilityText(lifecycle) != beforePressure },
+                      "A system memory warning must reclaim mounted artwork without changing its URL")
+        try waitForExistence(element("detailScreen"), timeout: 10, named: "detail retained after memory pressure")
         try attachFrame(named: "Movie detail before Library tab return")
 
-        let libraryTab = destinationControl("Library")
-        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from movie detail")
-        try activate(libraryTab)
+        let viewport = try applicationViewport()
+        let libraryTab = try XCTUnwrap(application!.buttons.matching(NSPredicate(format: "label == %@", "Library"))
+            .allElementsBoundByIndex.first { self.hasVisibleFrame($0) && $0.frame.midY > viewport.midY },
+            "The visible Library tab must remain available from detail")
+        libraryTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies Library after tab return")
         let returnedMovie = element(movieIdentifier)
         try waitForExistence(returnedMovie, timeout: 15, named: "returned deeply scrolled Movies fixture")
@@ -4677,6 +4683,17 @@ class NativeProofJourney: XCTestCase {
                        "Library tab return must retain the visible Movies catalog position.")
         try waitForPreparedLibraryArtwork()
         try attachFrame(named: "Movies Library root after tab return")
+        let beforeInterruption = accessibilityText(lifecycle)
+        let window = try applicationWindow()
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.01))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.72)))
+        XCTAssertTrue(waitUntil(timeout: 10) { self.accessibilityText(lifecycle).contains("phase=inactive") },
+                      "Control Center must make the scene inactive before dismissing it")
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+            .press(forDuration: 0.05, thenDragTo: springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        XCTAssertTrue(waitUntil(timeout: 15) { self.accessibilityText(lifecycle) == beforeInterruption },
+                      "A brief interruption must not start another refresh or reclaim artwork")
 
         // Re-enter the same category through the visible Library chooser (or
         // Home's category row on wider phones). The retained Movies root and
@@ -4703,10 +4720,17 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "TV Library root before show detail")
         show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "TV show detail")
+        let beforeBackground = accessibilityText(lifecycle)
+        try backgroundApplication()
+        application!.activate()
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "detail retained after background")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            let value = self.accessibilityText(lifecycle)
+            return value.contains("phase=active") && value != beforeBackground && value.contains("refreshes=1")
+        }, "A real background return must refresh once and reclaim hidden artwork")
         try attachFrame(named: "TV show detail before Library tab return")
 
-        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from TV show detail")
-        try activate(libraryTab)
+        libraryTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Library after tab return")
         let returnedShow = element("libraryItem-\(fixture.showID)")
         try waitForExistence(returnedShow, timeout: 15, named: "returned TV show fixture")
@@ -9448,17 +9472,7 @@ class NativeProofJourney: XCTestCase {
 
     private func selectTourLibraryCategory(_ category: String, screen: String) throws {
         if usesStandardPhonePushedChrome {
-            // Standard phones intentionally have no persistent Library category
-            // rail. Home's Browse menu is the public way to both choose a
-            // category and reset the retained Library stack for a fresh tour.
-            try selectDestination("Home", screen: "homeScreen")
-            let browse = element("compactBrowseMenu")
-            try waitForHittable(browse, timeout: 15, named: "Home Browse for \(category)")
-            try activate(browse)
-            try activate(element("compactCategory-\(category)"))
-            guard waitUntil(timeout: 25, condition: { self.hasVisibleFrame(self.element(screen)) }) else {
-                throw ProofFailure.timeout("Home Browse \(category) did not open \(screen).")
-            }
+            try selectLibraryCategory(category, screen: screen)
             return
         }
         if try selectUnifiedIPadLibraryCategoryIfVisible(category, screen: screen) { return }

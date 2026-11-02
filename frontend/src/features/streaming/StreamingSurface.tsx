@@ -3,7 +3,7 @@ import { ContextualSearch } from '../../app/ContextualSearch';
  * Streaming (2.3.0): one page for YouTube, Twitch and Kick. It composes the Live, Explore and Subscriptions screens in
  * their embedded mode behind a provider switch (shown only when the member turned another provider on). Home is
  * Explore's front page for YouTube and Live for Twitch/Kick; "live" is the Live screen; "search" is Explore's results;
- * "channels" is the Subscriptions screen LuminaApp builds. A provider the member turned off never appears: its results
+ * "channels" is the Subscriptions screen LuminaApp builds; "library" is the saved-provider video wall. A provider the member turned off never appears: its results
  * are filtered out here and the switch does not offer it.
  */
 import { Search } from '../../luminaIcons';
@@ -20,7 +20,8 @@ import { isProviderVisible } from './providers';
 import type { RemoteEntry } from '../../types';
 
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
-export type StreamingView = 'home' | 'live' | 'search' | 'channels';
+export type { StreamingView } from '../../app/routes';
+import type { StreamingView } from '../../app/routes';
 export interface StreamingSurfaceProps {
   view: StreamingView;
   provider: StreamingProvider;
@@ -31,17 +32,19 @@ export interface StreamingSurfaceProps {
   live: ComponentProps<typeof LiveSurface>;
   explore: ComponentProps<typeof ExploreSurface>;
   channels: ReactNode;
+  library?: ReactNode;
+  discoveryEnabled?: boolean;
   /** Latest uploads from followed channels (the Your channels feed), for the "From your channels" row. */
   fromChannels?: RemoteEntry[];
 }
 
-const VIEWS: Array<{ value: StreamingView; label: string }> = [{ value: 'home', label: 'Browse' }, { value: 'live', label: 'Live now' }, { value: 'channels', label: 'Your channels' }];
+const VIEWS: Array<{ value: StreamingView; label: string }> = [{ value: 'home', label: 'Browse' }, { value: 'live', label: 'Live now' }, { value: 'channels', label: 'Your channels' }, { value: 'library', label: 'Library' }];
 
-export function StreamingSurface({ view: requestedView, provider: requested, providers, query = '', rail, onNavigate, live, explore, channels, fromChannels }: StreamingSurfaceProps) {
+export function StreamingSurface({ view: requestedView, provider: requested, providers, query = '', rail, onNavigate, live, explore, channels, library, discoveryEnabled = true, fromChannels }: StreamingSurfaceProps) {
   const { access } = useAccess();
   const liveBlocked = providerBlocked(access, 'live');
   // A followed-only member sees only followed channels; with Live blocked, a provider's front page is its followed channels too.
-  const view: StreamingView = access?.followed_only ? 'channels' : liveBlocked && requestedView === 'home' && requested !== 'youtube' ? 'channels' : requestedView;
+  const view: StreamingView = !discoveryEnabled ? 'library' : requestedView === 'library' ? 'library' : access?.followed_only ? 'channels' : liveBlocked && requestedView === 'home' && requested !== 'youtube' ? 'channels' : requestedView;
   // A provider the member turned off (or the household blocked) falls back to the first one left, YouTube when it is on.
   const provider = providers.includes(requested) ? requested : providers[0] ?? 'youtube';
   const name = SOURCE_LABELS[provider];
@@ -70,11 +73,12 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
   const goLive = () => onNavigate({ view: 'live', provider });
   const channelsView = isValidElement(channels) ? cloneElement(channels as ReactElement<{ embedded?: boolean; provider?: string; key?: string }>, { embedded: true, provider: provider === 'youtube' ? undefined : provider, key: provider }) : channels;
   const current = view === 'search' ? 'home' : view;
-  const views = access?.followed_only ? VIEWS.filter((entry) => entry.value === 'channels') : liveBlocked ? VIEWS.filter((entry) => entry.value !== 'live') : VIEWS;
-  const searchable = provider === 'youtube' && !access?.followed_only && !providerBlocked(access, 'open_search');
+  const views = !discoveryEnabled ? VIEWS.filter((entry) => entry.value === 'library') : access?.followed_only ? VIEWS.filter((entry) => entry.value === 'channels' || entry.value === 'library') : liveBlocked ? VIEWS.filter((entry) => entry.value !== 'live') : VIEWS;
+  const searchable = view !== 'library' && provider === 'youtube' && !access?.followed_only && !providerBlocked(access, 'open_search');
 
   let body: ReactNode;
-  if (view === 'live' && liveBlocked) body = <BlockedSurface what="Live" />;
+  if (view === 'library') body = library;
+  else if (view === 'live' && liveBlocked) body = <BlockedSurface what="Live" />;
   else if (view === 'channels') body = channelsView;
   else if (view === 'live' || (provider !== 'youtube' && view === 'home')) body = <LiveSurface {...liveProps} embedded onRailChange={(next) => onNavigate({ view: 'live', provider, rail: next ?? undefined })} provider={provider} rail={rail ?? null} />;
   else body = <ExploreSurface {...explore} {...results} popular={popularProp} liveSnapshot={liveProps.snapshot} liveError={liveProps.error} embedded fromChannels={fromChannels} onSeeAllChannels={() => onNavigate({ view: 'channels', provider })} onSeeAllLive={goLive} provider={provider} query={view === 'search' ? query : ''} />;
@@ -84,7 +88,7 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
     <div className="surface gallery g-streaming" onKeyDown={(event) => { if (rail && !query && (view === 'home' || view === 'live') && isBackKey(event)) { event.preventDefault(); window.history.back(); return; } if (event.target === event.currentTarget.querySelector('h1')) moveFocus(event); }}>
       <div className="g-toolbar g-streaming-bar" onKeyDown={moveFocus}>
         {views.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">View</span><SegmentedControl hideLegend legend="Streaming view" onChange={(next) => onNavigate({ view: next, provider })} options={views} value={current} /></div> : null}
-        {providers.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">Provider</span><SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /></div> : null}
+        {view !== 'library' && providers.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">Provider</span><SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /></div> : null}
       </div>
       <Masthead
         actions={!searchable ? undefined : (

@@ -26,6 +26,8 @@ import '../library/youtubeBrowse.css';
 
 export type StillWallProps = {
   kind: StillKind;
+  /** A parent surface supplies the page header; keep the saved grid compact. */
+  embedded?: boolean;
   shape: 'still' | 'square';
   /** The wall's query string without '?': sort=recent|title, source=youtube|twitch|kick|other_web, and search for video. */
   wall?: string;
@@ -103,7 +105,7 @@ export function usePagedLibrary(query: LibraryPageQuery | null) {
 }
 
 // non-virtualised DOM; virtualise (reuse WallGrid with an item store) when any member's tab exceeds 2,000 items.
-export function StillWall({ kind, shape, wall, onWallChange, lenses, header, viewSwitch, count, onPlay, canDelete, onItemChanged }: StillWallProps) {
+export function StillWall({ kind, embedded = false, shape, wall, onWallChange, lenses, header, viewSwitch, count, onPlay, canDelete, onItemChanged }: StillWallProps) {
   const query = parseStillQuery(kind, wall);
   const paged = usePagedLibrary({ kind, sort: query.sort, search: kind === 'video' ? query.search : undefined, source: kind === 'video' ? query.source || 'saved' : undefined, status: kind === 'video' ? 'available' : undefined, group: query.channel, limit: STILL_PAGE });
   const [searchDraft, setSearchDraft] = useState(query.search ?? '');
@@ -202,7 +204,7 @@ export function StillWall({ kind, shape, wall, onWallChange, lenses, header, vie
     );
   }
 
-  const hero = kind === 'video' && !query.search && !paged.error ? visible[0] : undefined;
+  const hero = !embedded && kind === 'video' && !query.search && !paged.error ? visible[0] : undefined;
   const heroArt = hero ? libraryThumbnail(hero) : null;
   const heroChannel = hero?.uploader?.trim() || null;
   return (

@@ -13,10 +13,10 @@ def test_navigation_reflects_sources_features_and_member_access(walls):  # noqa:
     assert first.headers["cache-control"] == "no-store"
     assert first.json() == {
         "categories": ["movies", "tv", "anime", "music", "youtube"],
-        "features": {"streaming": False, "requests": False},
+        "features": {"streaming": True, "requests": False},
     }
     with walls.db() as db:
-        db.add(AppSettings(id=1, temp_root="/tmp", archive_path="/tmp/archive", native_streaming_enabled=True, requests_enabled=True))
+        db.add(AppSettings(id=1, temp_root="/tmp", archive_path="/tmp/archive", native_streaming_enabled=False, requests_enabled=True))
         db.add(MemberAccess(user_id=BOB, sections=["shows"], streaming={"youtube": False, "twitch": False, "kick": False}))
         db.add_all([RequestPolicy(id=f"deny-{kind}", user_id=BOB, kind=kind, can_request=False) for kind in ("movie", "show", "anime")])
         db.add(BookItem(id="book", storage_key="book.epub", format="epub", kind="ebook", title="Book", owner_user_id=ALICE, visibility="private"))
@@ -45,14 +45,14 @@ def test_navigation_requires_authentication(api_client):  # noqa: ANN001
     assert api_client(base_url="http://localhost").get("/api/navigation").status_code == 401
 
 
-def test_saved_recordings_do_not_require_streaming(walls):  # noqa: ANN001, F811
+def test_saved_recordings_do_not_require_native_streaming(walls):  # noqa: ANN001, F811
     with walls.db() as db:
         add_file(db, walls.root, "recordings/saved.mkv", item_id=uid(998), title_id=None,
                  owner=ALICE, visibility="private", title="Recording", kind="recording")
         db.commit()
     assert "recordings" in walls.get("/api/navigation").json()["categories"]
     assert "recordings" not in walls.get("/api/navigation", member="bob").json()["categories"]
-    assert walls.get("/api/navigation").json()["features"]["streaming"] is False
+    assert walls.get("/api/navigation").json()["features"]["streaming"] is True
 
 
 def test_navigation_large_unavailable_series_uses_bounded_database_work(walls):  # noqa: ANN001, F811

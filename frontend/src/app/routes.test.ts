@@ -246,6 +246,7 @@ describe('routeFocusKey: a new key means a new page, so focus moves to its headi
       { surface: 'streaming', view: 'search', query: 'a b&c' }, { surface: 'streaming', view: 'channels' },
       { surface: 'streaming', view: 'home', provider: 'twitch' }, { surface: 'streaming', view: 'live', provider: 'kick', rail: 'irl' },
       { surface: 'streaming', view: 'search', provider: 'twitch', query: 'speedrun' },
+      { surface: 'streaming', view: 'library' }, { surface: 'streaming', view: 'library', wall: 'source=twitch&sort=title&search=live+set' },
     ];
     for (const route of routes) {
       const url = new URL(routePath(route), 'http://lumina.test');

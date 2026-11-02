@@ -182,3 +182,20 @@ describe('Streaming page', () => {
     expect(onRailChange).toHaveBeenCalledWith('popular-gaming');
   });
 });
+
+
+it('opens the saved streaming library from the shared view control', async () => {
+  const view = setup({ view: 'library', providers: ['youtube', 'twitch'], library: <section aria-label="Saved streaming videos">Saved fixture</section> });
+  expect(screen.getByRole('heading', { level: 1, name: 'Streaming' })).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Saved streaming videos' })).toBeTruthy();
+  expect(screen.queryByRole('searchbox', { name: 'Search YouTube' })).toBeNull();
+  expect(screen.queryByRole('group', { name: 'Provider' })).toBeNull();
+  await userEvent.click(screen.getByRole('radio', { name: 'Browse' }));
+  expect(view.onNavigate).toHaveBeenCalledWith({ view: 'home', provider: 'youtube' });
+});
+
+it('keeps saved videos accessible when remote discovery is unavailable', () => {
+  setup({ discoveryEnabled: false, library: <section aria-label="Saved streaming videos" /> });
+  expect(screen.getByRole('region', { name: 'Saved streaming videos' })).toBeTruthy();
+  expect(screen.queryByRole('searchbox')).toBeNull();
+});

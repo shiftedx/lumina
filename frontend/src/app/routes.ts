@@ -12,7 +12,7 @@ export type ChannelPageTab = (typeof CHANNEL_PAGE_TABS)[number];
 
 export type VideoLibraryView = 'movies' | 'shows' | 'anime' | 'youtube' | 'recordings';
 
-export type StreamingView = 'home' | 'live' | 'search' | 'channels';
+export type StreamingView = 'home' | 'live' | 'search' | 'channels' | 'library';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 
 /** Signed-in surfaces. Video, Audio and Books are separate; Library remains a bookmark alias. */
@@ -52,7 +52,7 @@ export type AppRoute =
   | BooksRoute
   | PhotosRoute
   | RequestsRoute
-  | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string }
+  | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string; wall?: string }
   | { surface: 'subscriptions'; youtubeChannelId: string; tab?: ChannelPageTab }
   | { surface: 'subscriptions'; channelUrl: string }
   | { surface: 'settings'; section?: SettingsSectionId; page?: string; space?: SettingsSpace }
@@ -164,9 +164,10 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   }
   // Old addresses (Live, Explore, Subscriptions) resolve to their Streaming equivalent; the app's first address sync replaces them.
   const streamingPath = path === '/live' ? '/streaming/live' : path === '/explore' ? (params.get('q')?.trim() ? '/streaming/search' : '/streaming') : path === '/subscriptions' ? '/streaming/channels' : path;
-  const streaming = /^\/streaming(?:\/(live|search|channels))?$/.exec(streamingPath);
+  const streaming = /^\/streaming(?:\/(live|search|channels|library))?$/.exec(streamingPath);
   if (streaming) {
     const view = (streaming[1] ?? 'home') as StreamingView;
+    if (view === 'library') return { surface: 'streaming', view, ...(params.size ? { wall: params.toString() } : {}) };
     const found = PROVIDERS.find((value) => value === params.get('provider'));
     const query = view === 'search' ? (params.get('q') || '').trim().slice(0, MAX_QUERY) : '';
     const rail = view === 'live' || view === 'home' ? railOf(params) : null;
@@ -286,6 +287,7 @@ export function routePath(route: AppRoute): string {
     return route.view === 'discover' ? '/requests' : `/requests/${route.view}`;
   }
   if (route.surface === 'streaming') {
+    if (route.view === 'library') return `/streaming/library${route.wall ? `?${route.wall}` : ''}`;
     const params = [route.query ? `q=${encodeURIComponent(route.query)}` : '', route.rail ? `rail=${route.rail}` : '', route.provider && route.provider !== 'youtube' ? `provider=${route.provider}` : ''].filter(Boolean).join('&');
     return `/streaming${route.view === 'home' ? '' : `/${route.view}`}${params ? `?${params}` : ''}`;
   }

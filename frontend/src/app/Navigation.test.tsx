@@ -13,7 +13,7 @@ const enabledNavigation: ServerNavigation = {
 describe('NavigationPopover', () => {
   it('makes each enabled video library a primary destination, without an aggregate All video item', () => {
     expect(navGroups.map((group) => [group.label, group.items.map((item) => item.label)])).toEqual([
-      ['Watch', ['Home', 'Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Music', 'Books', 'Photos', 'Streaming', 'Requests']],
+      ['Watch', ['Home', 'Movies', 'Shows', 'Anime', 'Streaming', 'Recordings', 'Music', 'Books', 'Photos', 'Requests']],
       ['Vault', ['Downloads', 'My Settings']],
     ]);
     render(<NavigationPopover navigation={enabledNavigation} activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="audio" />);
@@ -54,8 +54,9 @@ describe('NavigationPopover', () => {
     render(<NavigationPopover navigation={restricted} activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface="video" videoView="movies" />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).getByRole('button', { name: 'Movies' })).toBeTruthy();
-    expect(within(nav).getByRole('button', { name: 'YouTube' })).toBeTruthy();
-    expect(within(nav).queryByRole('button', { name: /^(Shows|Anime|Recordings|All video|Streaming)$/ })).toBeNull();
+    expect(within(nav).getByRole('button', { name: 'Streaming' })).toBeTruthy();
+    expect(within(nav).queryByRole('button', { name: 'YouTube' })).toBeNull();
+    expect(within(nav).queryByRole('button', { name: /^(Shows|Anime|Recordings|All video)$/ })).toBeNull();
     expect(within(nav).getByRole('button', { name: 'Requests' })).toBeTruthy();
   });
 });

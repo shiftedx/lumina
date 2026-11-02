@@ -16,12 +16,11 @@ export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[]
     { surface: 'video', label: 'Movies', icon: 'movies', view: 'movies' },
     { surface: 'video', label: 'Shows', icon: 'shows', view: 'shows' },
     { surface: 'video', label: 'Anime', icon: 'anime', view: 'anime' },
-    { surface: 'video', label: 'YouTube', icon: 'youtube', view: 'youtube' },
+    { surface: 'streaming', label: 'Streaming', icon: 'live' },
     { surface: 'video', label: 'Recordings', icon: 'live', view: 'recordings' },
     { surface: 'audio', label: 'Music', icon: 'music' },
     { surface: 'books', label: 'Books', icon: 'books' },
     { surface: 'photos', label: 'Photos', icon: 'photos' },
-    { surface: 'streaming', label: 'Streaming', icon: 'live' },
     { surface: 'requests', label: 'Requests', icon: 'requests' },
   ] },
   { label: 'Vault', items: [

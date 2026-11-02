@@ -16,7 +16,7 @@
 .t-page:not(.is-plain) .t-hero::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 1; height: 140px; background: linear-gradient(color-mix(in srgb, var(--g-overlay-halo) 50%, transparent), color-mix(in srgb, var(--g-overlay-halo) 30%, transparent) 35%, color-mix(in srgb, var(--g-overlay-halo) 12%, transparent) 70%, transparent); pointer-events: none; }
 /* Rings on the hero take the text colour: white on art, the colour field's ink on a plain hero. */
 .gallery.t-page .t-hero :focus-visible { outline-color: currentColor; }
-.gallery.t-page .t-back { position: absolute; top: var(--g-space-4); left: max(var(--g-gutter), (100% - var(--g-page-width)) / 2); z-index: 2; display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-1); padding: 0 var(--g-space-2) 0 0; border: 0; background: none; color: var(--g-on-art); text-shadow: 0 1px 3px color-mix(in srgb, var(--g-overlay-halo) 60%, transparent); cursor: pointer; }
+.gallery.t-page .t-back { position: absolute; top: calc(var(--g-topbar) + env(safe-area-inset-top) + var(--g-space-3)); left: max(var(--g-gutter), (100% - var(--g-page-width)) / 2); z-index: 2; display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-1); padding: 0 var(--g-space-2) 0 0; border: 0; background: none; color: var(--g-on-art); text-shadow: 0 1px 3px color-mix(in srgb, var(--g-overlay-halo) 60%, transparent); cursor: pointer; }
 .gallery.t-page .t-back svg { width: 16px; height: 16px; }
 .gallery.t-page.is-plain .t-back { color: inherit; text-shadow: none; }
 .t-page.is-plain .t-headline { position: relative; max-width: var(--g-page-width); }

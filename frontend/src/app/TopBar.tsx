@@ -126,7 +126,7 @@ export function TopBar(props: TopBarProps) {
         <a aria-label="Lumina home" className="g-topbar-brand" href="/" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); props.onHome(); }}>
           <BrandMark compact size="bar" />
         </a>
-        <span className="g-topbar-context">{props.contextLabel}</span>
+        {props.contextLabel ? <span className="g-topbar-context">{props.contextLabel}</span> : null}
       </div>
       {props.hideSearch ? <span /> : <button aria-label={`Search Lumina, ${shortcut}`} className="g-search-trigger" onClick={props.onSearch} type="button">
         <Search aria-hidden="true" />

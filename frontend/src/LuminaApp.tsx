@@ -1737,6 +1737,7 @@ export default function LuminaApp() {
     <AccessProvider value={accessValue}>
     <StreamingProvidersProvider enabled={state.preferences.streamingProviders} onChange={setStreamingProviders}>
     <AppShell
+      hideContextLabel={Boolean(libraryLocation.titleId) && ['video', 'library', 'audio'].includes(surface)}
       videoView={libraryLocation.view}
       onVideoView={(view) => openRoute({ surface: 'video', view })}
       contextualSearch={(((surface === 'video' || surface === 'library') && !libraryLocation.titleId && ['movies', 'shows', 'anime'].includes(libraryLocation.view ?? 'all')) || (surface === 'audio' && !libraryLocation.titleId && !new URLSearchParams(libraryLocation.wall).has('pane'))) || (surface === 'photos' && photosRoute.view === 'timeline') || surface === 'requests' || surface === 'streaming' || (surface === 'books' && booksRoute.view !== 'read')}

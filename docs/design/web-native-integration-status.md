@@ -256,3 +256,10 @@ The selected web drawer item now uses a straight brand-gold underline without th
 
 
 The drawer underline is live at production source `c3f4a5acfdd126620f779198a49cb32751c852e7`. Service/configuration and public route/asset checks passed; all 399 recorded application files and 9 entry assets match the build. The previous review image remains protected by a stopped rollback pin; all 22 retained pins are stopped. Exact evidence is in ignored `output/web-native-deployment-c3f4a5ac/`. Native Home/header/focus follow-up work is isolated on `codex/native-home-navigation` at `370a9c4`; it is simulator-verified source, not a native distribution release.
+
+
+## Follow-up: detail navigation without duplicate context
+
+The owner reported the detail Back control overlapping the menu/mark and an incorrect All video header, then chose the cleaner design with no redundant category label beside the logo. Media detail routes now omit that global context label; their existing Back control remains the navigation context and retains its real destination. Its hero position clears the fixed header and safe area. Browse views retain their normal header labels, and returning to Movies restores its header and exact card focus. No title metadata, route, API or history model changed.
+
+The regression reproduced both the overlap and header pointer interception before the fix. Final focused evidence: `output/detail-navigation/test-minimal.log` — **7 passed**, covering movie/show/anime direct links at 320/390/1440px in light/dark, Back clearance, related-title navigation and exact card focus. `output/detail-navigation/unit-minimal.log` — **58 passed** across GalleryTitlePage/AppShell/TopBar. Application/E2E typecheck and production build passed (`typecheck-minimal.log`, `build-minimal.log` in the same directory); CSS is 81.9 KB gzip within 82 KB and shared core 7.3 within 7.4 KB. `git diff --check` passed. Reviewed artwork-backed desktop/phone captures and hashes are in `output/detail-navigation/index.html` and `captures.json`; they use synthetic fixtures. No full repository/native suite, merge, push, marketing change or native release was performed.

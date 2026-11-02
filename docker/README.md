@@ -528,6 +528,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before TV enrollment pairing (schema 43) | `DROP TABLE device_pairings; PRAGMA user_version = 43` (all pending TV enrollment requests are revoked; TV app passwords already claimed remain separate revocable connected apps) |
 | Before request language preferences (schema 42) | `PRAGMA user_version = 42` (retain the additive `media_requests.audio_language` and `subtitle_language` columns; older images ignore them. Older images cannot preserve language-specific request behavior; upgrading again rechecks available language requests before marking them available.) |
 | Before episode-autoplay presence policy (schema 41) | `PRAGMA user_version = 41` (keep the additive `app_settings.autoplay_presence` JSON column; older images ignore it and upgrading again restores the saved household policy.) |
 | Before the durable OMDb budget (schema 40) | `UPDATE app_settings SET omdb_api_key = NULL; PRAGMA user_version = 40` (also remove `LUMINA_OMDB_API_KEY` from the older container's environment: 0.5.0 has no request cap. Keep `omdb_rating_cache` and `omdb_request_reservations` so upgrading again retains cache, retry and budget history.) |
@@ -902,6 +903,10 @@ docker compose exec lumina python -m app.services.two_factor reset <username>
 ```
 
 **App passwords.** Jellyfin apps (Infuse, Swiftfin) and HTTP Basic clients cannot ask for a code, so an account with two-step verification refuses its account password there ("Use an app password from Lumina → Settings → Connected apps") and accepts an **app password** instead: **Settings → Connected apps → Add an app** makes one per device, shows the server address, username and password once, and stores only a digest. Revoking it signs out the app that used it; changing or resetting the account password revokes all of them. Accounts without two-step verification keep signing in to apps with their normal password, and turning it on does not sign out apps that already signed in (**Sign out all apps** does, keeping app passwords). An app password works only for app and HTTP Basic sign-in, never on the web sign-in form. Over HTTP Basic it only browses and plays media (reads, playback progress, watched): it is never a vault owner and cannot manage accounts, settings, connected apps or two-step verification. Password reset links, two-step resets, role and active changes, invitations, the public address and backup downloads need a signed-in browser (never an agent token or HTTP Basic), and an owner turns their own two-step verification off under Settings → You, not with the member reset.
+
+### Connect an Apple TV from an enrolled phone
+
+With Media apps enabled and updated iOS/tvOS apps, enter the server address on the TV and choose phone approval. Scan its QR with an already enrolled iPhone, or open **Account → Connect a TV** in Lumina and enter the eight-character code. Confirm the TV, member and server, then approve. Codes expire after five minutes; the phone stays signed in and the TV receives its own independently revocable Connected app. Manual TV sign-in remains available. Both devices need to reach the same Lumina server; LAN and public addresses may differ.
 
 ### Mobile connect
 

@@ -51,6 +51,111 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertThrowsError(try MobilePairingPayload(scannedCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"https://lumina.example:\",\"token\":\"one-time\"}"))
     }
 
+    func testTVPairingApprovalLinkOnlyAcceptsBoundedExpectedDeepLinks() throws {
+        let payload = """
+        {"type":"lumina-tv-pair","version":1,"server_url":"https://lumina.example:8443","server_id":"server-1","code":"ABCDEFGH"}
+        """
+        let accepted = try TVPairingApprovalLink(scannedCode: payload)
+        XCTAssertEqual(accepted.serverURL.absoluteString, "https://lumina.example:8443")
+        XCTAssertEqual(accepted.code, "ABCDEFGH")
+        var link = URLComponents()
+        link.scheme = "lumina"
+        link.host = "approve-tv"
+        link.fragment = payload
+        XCTAssertEqual(try TVPairingApprovalLink(deepLink: XCTUnwrap(link.url)), accepted)
+        XCTAssertThrowsError(try TVPairingApprovalLink(deepLink: URL(string: "lumina://approve-tv?code=ABCDEFGH#x")!))
+        XCTAssertThrowsError(try TVPairingApprovalLink(scannedCode: "{\"type\":\"lumina-tv-pair\",\"version\":1,\"server_url\":\"https://lumina.example/path\",\"server_id\":\"server-1\",\"code\":\"ABCDEFGH\"}"))
+        XCTAssertThrowsError(try TVPairingApprovalLink(scannedCode: "{\"type\":\"lumina-tv-pair\",\"version\":1,\"server_url\":\"https://lumina.example\",\"server_id\":\"server-1\",\"code\":\"O0IL1234\"}"))
+    }
+
+    func testTVApprovalNeverUsesScannedOriginOrChangesPhoneSession() async throws {
+        let active = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "phone-token",
+                                   userID: "member-1", username: "member", serverName: "Lumina", deviceID: "phone-device")
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "member-1", "Name": "member"])
+            case "/Lumina/DevicePairing/Inspect":
+                return response(request, json: ["code": "ABCDEFGH", "device_name": "Living room TV",
+                                                "expires_at": "2026-11-02T12:00:00.123456Z", "server_id": "server-1", "status": "pending"])
+            case "/Lumina/DevicePairing/Approve": return response(request, json: ["status": "approved"])
+            case "/Items", "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: active))
+        await store.restore()
+        let scanned = try TVPairingApprovalLink(scannedCode: """
+        {"type":"lumina-tv-pair","version":1,"server_url":"https://elsewhere.example","server_id":"server-1","code":"ABCDEFGH"}
+        """)
+
+        let inspection = try await store.inspectTVPairing(code: scanned.code)
+        try await store.approveTVPairing(code: inspection.code)
+
+        let managed = requests.all.filter { $0.url?.path.hasPrefix("/Lumina/DevicePairing/") == true }
+        XCTAssertEqual(managed.map { $0.url?.host }, ["127.0.0.1", "127.0.0.1"])
+        XCTAssertTrue(managed.allSatisfy { $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"phone-token\"") == true })
+        XCTAssertEqual(store.session?.serverURL, active.serverURL)
+        XCTAssertEqual(store.session?.accessToken, active.accessToken)
+    }
+
+    func testTVPairingClaimsIntoNormalValidatedSession() async throws {
+        let request = try JSONDecoder().decode(TVPairingRequest.self, from: json([
+            "id": "00000000-0000-0000-0000-000000000001", "device_secret": String(repeating: "s", count: 32),
+            "code": "ABCDEFGH", "expires_at": "2026-11-02T12:00:00.123456Z", "poll_interval_seconds": 3, "server_id": "server-1",
+        ]))
+        let credentials = TestCredentials()
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { http in
+            requests.append(http)
+            switch http.url!.path {
+            case "/Lumina/DevicePairing/Claim": return response(http, json: ["username": "member", "password": "one-use-password"])
+            case "/System/Info/Public": return response(http, json: ["ServerName": "Lumina"])
+            case "/Users/AuthenticateByName": return response(http, json: ["AccessToken": "tv-token", "User": ["Id": "member-1", "Name": "member", "ServerName": "Lumina"]])
+            case "/Users/Me": return response(http, json: ["Id": "member-1", "Name": "member"])
+            case "/Items", "/Shows/NextUp", "/UserItems/Resume": return response(http, json: page(items: []))
+            default: return response(http, status: 404)
+            }
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
+
+        try await store.completeTVPairing(server: "http://127.0.0.1:8765", request: request)
+
+        let claim = try XCTUnwrap(requests.all.first { $0.url?.path == "/Lumina/DevicePairing/Claim" })
+        XCTAssertEqual(try body(claim)["device_secret"] as? String, request.deviceSecret)
+        let signIn = try XCTUnwrap(requests.all.first { $0.url?.path == "/Users/AuthenticateByName" })
+        XCTAssertEqual(try body(signIn)["Pw"] as? String, "one-use-password")
+        XCTAssertEqual(store.session?.accessToken, "tv-token")
+        XCTAssertEqual(credentials.stored?.accessToken, "tv-token")
+    }
+
+    func testCancelledTVPairingDoesNotClaimOrPersistCredentials() async throws {
+        let request = try JSONDecoder().decode(TVPairingRequest.self, from: json([
+            "id": "00000000-0000-0000-0000-000000000001", "device_secret": String(repeating: "s", count: 32),
+            "code": "ABCDEFGH", "expires_at": "2026-11-02T12:00:00.123456Z", "poll_interval_seconds": 3, "server_id": "server-1",
+        ]))
+        let credentials = TestCredentials()
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { http in
+            calls.append(http)
+            return response(http, status: 500)
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
+        let task = Task { @MainActor in
+            try await store.completeTVPairing(server: "http://127.0.0.1:8765", request: request)
+        }
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("A cancelled enrollment must not continue to claim credentials.")
+        } catch is CancellationError { }
+        XCTAssertTrue(calls.all.isEmpty)
+        XCTAssertNil(credentials.stored)
+        XCTAssertNil(store.session)
+    }
+
     func testMobilePairingClaimsOnlyScannedOriginAndStoresSession() async throws {
         let credentials = TestCredentials()
         let client = LuminaClient(configuration: mockConfiguration())

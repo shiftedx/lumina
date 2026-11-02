@@ -24,7 +24,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your household Lumina server to browse and play your library.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan a Lumina mobile connection code.</string>
+	<string>Scan Lumina codes to connect this device or approve an Apple TV.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

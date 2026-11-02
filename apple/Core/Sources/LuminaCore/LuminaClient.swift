@@ -53,8 +53,56 @@ final class LuminaClient: @unchecked Sendable {
         try await json(request(origin: origin, path: "/api/mobile-connect/claim", method: "POST", body: ["token": token, "name": name]))
     }
 
+    func startTVPairing(origin: URL, deviceID: String, deviceName: String) async throws -> TVPairingRequest {
+        guard TVPairingRequest.validName(deviceName) else { throw LuminaError.malformedResponse }
+        return try await json(request(origin: origin, path: "/Lumina/DevicePairing/Start", method: "POST",
+                                      deviceID: deviceID, body: ["device_name": deviceName]))
+    }
+
+    func tvPairingStatus(origin: URL, deviceID: String, request pairing: TVPairingRequest) async throws -> TVPairingStatus {
+        let response: TVPairingStatusResponse = try await json(request(
+            origin: origin, path: "/Lumina/DevicePairing/Status", method: "POST", deviceID: deviceID,
+            body: ["id": pairing.id, "device_secret": pairing.deviceSecret]
+        ))
+        guard TVPairingRequest.validExpiry(response.expiresAt) else { throw LuminaError.malformedResponse }
+        return response.status
+    }
+
+    func inspectTVPairing(origin: URL, token: String, deviceID: String, code: String) async throws -> TVPairingInspection {
+        guard TVPairingRequest.validCode(code) else { throw LuminaError.malformedResponse }
+        return try await json(request(origin: origin, path: "/Lumina/DevicePairing/Inspect", method: "POST",
+                                      token: token, deviceID: deviceID, body: ["code": code]))
+    }
+
+    func approveTVPairing(origin: URL, token: String, deviceID: String, code: String) async throws {
+        try await updateTVPairing(origin: origin, token: token, deviceID: deviceID, code: code, action: "Approve", expected: .approved)
+    }
+
+    func denyTVPairing(origin: URL, token: String, deviceID: String, code: String) async throws {
+        try await updateTVPairing(origin: origin, token: token, deviceID: deviceID, code: code, action: "Deny", expected: .denied)
+    }
+
+    func claimTVPairing(origin: URL, deviceID: String, request pairing: TVPairingRequest) async throws -> TVPairingClaim {
+        let claim: TVPairingClaim = try await json(request(
+            origin: origin, path: "/Lumina/DevicePairing/Claim", method: "POST", deviceID: deviceID,
+            body: ["id": pairing.id, "device_secret": pairing.deviceSecret]
+        ))
+        guard claim.validates() else { throw LuminaError.malformedResponse }
+        return claim
+    }
+
     func me(origin: URL, token: String, deviceID: String) async throws -> UserInfo {
         try await json(request(origin: origin, path: "/Users/Me", token: token, deviceID: deviceID))
+    }
+
+    private func updateTVPairing(origin: URL, token: String, deviceID: String, code: String,
+                                 action: String, expected: TVPairingStatus) async throws {
+        guard TVPairingRequest.validCode(code) else { throw LuminaError.malformedResponse }
+        let response: TVPairingActionResponse = try await json(request(
+            origin: origin, path: "/Lumina/DevicePairing/\(action)", method: "POST", token: token,
+            deviceID: deviceID, body: ["code": code]
+        ))
+        guard response.status == expected else { throw LuminaError.malformedResponse }
     }
 
     func logout(origin: URL, token: String, deviceID: String) async throws {

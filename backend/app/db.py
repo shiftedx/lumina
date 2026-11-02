@@ -303,6 +303,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "WHERE status IN ('available', 'partially_available') "
         "AND (language IN ('dub', 'sub') OR audio_language IS NOT NULL OR subtitle_language IS NOT NULL)",
     ),
+    44: (),  # TV enrollment pairing requests are a new table; rollback drops device_pairings.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

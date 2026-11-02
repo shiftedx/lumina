@@ -6,6 +6,7 @@ import LuminaCore
 struct NativeAccountSettingsView: View {
     let store: LuminaStore
     let onOpenRequests: (() -> Void)?
+    let onConnectTV: (() -> Void)?
     @Environment(LuminaUserSettings.self) private var settings
     @AppStorage("lumina.appearance") private var accountAppearance = "dark"
     @State private var query = ""
@@ -17,9 +18,10 @@ struct NativeAccountSettingsView: View {
     @State private var profileError: String?
     @FocusState private var searchFocused: Bool
 
-    init(store: LuminaStore, onOpenRequests: (() -> Void)? = nil) {
+    init(store: LuminaStore, onOpenRequests: (() -> Void)? = nil, onConnectTV: (() -> Void)? = nil) {
         self.store = store
         self.onOpenRequests = onOpenRequests
+        self.onConnectTV = onConnectTV
     }
 
     var body: some View {
@@ -74,7 +76,7 @@ struct NativeAccountSettingsView: View {
                             .buttonStyle(.plain)
                     }
                 }
-                if matches("account security password sign out logout requests") {
+                if matches("account security password sign out logout requests tv television connect") {
                     LuminaSettingsSection("Account") {
                         if let onOpenRequests {
                             Button(action: onOpenRequests) {
@@ -89,6 +91,13 @@ struct NativeAccountSettingsView: View {
                                 LuminaSettingsActionLabel("Account & security", glyph: .externalLink)
                             }
                             .buttonStyle(.plain).accessibilityIdentifier("accountWebSettingsLink")
+                        }
+                        if let onConnectTV {
+                            Button(action: onConnectTV) {
+                                LuminaSettingsActionLabel("Connect a TV", glyph: .television)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("connectTVButton")
                         }
                         Button("Sign out", glyph: .logout, role: .destructive) {
                             Task { store.clearError(); await store.signOut() }

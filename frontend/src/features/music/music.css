@@ -118,13 +118,4 @@
 }
 
 .audio-space { position: relative; }
-.audio-tools { position: absolute; z-index: 6; top: 28px; right: var(--g-gutter); }
-.audio-tools > summary { display: flex; align-items: center; min-height: 44px; color: var(--g-ink-2); font: var(--g-type-ui-strong); cursor: pointer; }
-.audio-tools .audio-local-nav { position: absolute; right: 0; top: 48px; display: grid; min-width: 240px; padding: 12px 20px; border: 0; border-radius: var(--g-radius-sheet); background: var(--g-paper-3); box-shadow: var(--g-elev-1); gap: 4px; }
-.audio-tools .audio-offline-link { margin-left: 0; }
-.audio-tools .audio-local-nav a { white-space: nowrap; }
-@media (max-width: 680px) { .audio-tools { top: 22px; } }
-
-.audio-tools > summary { gap: 8px; }
-.audio-tools > summary svg { width: 16px; height: 16px; }
-.audio-tools[open] > summary svg { transform: rotate(180deg); }
+.audio-space > .gallery { width: 100%; max-width: none; }

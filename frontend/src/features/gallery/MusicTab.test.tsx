@@ -1,5 +1,5 @@
 import { chooseSelect } from '../../test/selectChoice';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -89,20 +89,29 @@ describe('MusicTab', () => {
   });
 
   it('leads albums with real recently played and recently added shelves before the complete catalog', async () => {
-    const played = albumSummary('played-album', { name: 'Played album' });
+    const played = Array.from({ length: 6 }, (_, index) => albumSummary(`played-${index}`, { name: `Played ${index}` }));
     const added = albumSummary('added-album', { name: 'Added album' });
-    vi.spyOn(api, 'listRecentlyPlayedAlbums').mockResolvedValue({ items: [played] });
+    vi.spyOn(api, 'listRecentlyPlayedAlbums').mockResolvedValue({ items: played });
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([added], { total: 1 }));
     vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
-    const { onWallChange } = tab();
+    tab();
     expect(await screen.findByRole('heading', { level: 2, name: 'Recently played' })).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Recently played' })).getAllByRole('button', { name: /^Played/ })).toHaveLength(6);
     expect(screen.getByRole('heading', { level: 2, name: 'Recently added' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 2, name: 'All albums' })).toBeTruthy();
-    expect(screen.getByText('All albums').closest('details')?.open).toBe(false);
-    await userEvent.click(screen.getByText('All albums'));
-    expect(onWallChange).toHaveBeenCalledWith('view=albums&catalog=1');
+    expect(screen.getByRole('region', { name: 'All albums' }).querySelector('.g-wall')).toBeTruthy();
     expect(api.listRecentlyPlayedAlbums).toHaveBeenCalledWith({ limit: 24 });
     expect(api.listTitles).toHaveBeenCalledWith({ type: 'album', sort: 'created', limit: 24 });
+  });
+
+  it('reports saved audio errors and retries without hiding the catalog', async () => {
+    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
+    vi.spyOn(api, 'listLibrary').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [stillItem('saved', { kind: 'audio' })], next_cursor: null });
+    tab();
+    expect(await screen.findByText('Saved audio could not be loaded.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'All albums' })).toBeTruthy();
+    await userEvent.click(within(screen.getByRole('region', { name: 'Saved audio' })).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: /^Harbor walk at dawn/ })).toBeTruthy();
   });
 
   it('uses the remembered view only for bare Music and keeps an explicit Albums choice in the address', async () => {

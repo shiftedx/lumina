@@ -141,3 +141,14 @@ describe('LibraryTabs', () => {
     await waitFor(() => expect(names().slice(-2)).toEqual(['Collections', 'Deleted']));
   });
 });
+
+
+it('refreshes visible library sections when returning to the app after server changes', async () => {
+  const fetch = vi.spyOn(api, 'getLibrarySections').mockResolvedValueOnce(librarySections({ albums: 0, artists: 0, saved_audio: 0 })).mockResolvedValueOnce(librarySections({ albums: 12, artists: 4, saved_audio: 0 }));
+  render(<Harness />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  expect(screen.queryByRole('link', { name: 'Music' })).toBeNull();
+  fireEvent(document, new Event('visibilitychange'));
+  await screen.findByRole('link', { name: 'Music' });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

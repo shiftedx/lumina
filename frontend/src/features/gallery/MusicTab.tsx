@@ -6,6 +6,7 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 
 import { Search } from '../../luminaIcons';
+import { ContextualSearch } from '../../app/ContextualSearch';
 import { listLibrary, listRecentlyPlayedAlbums, listTitles, searchLibrary } from '../../api';
 import type { LibraryItem, LibrarySections, TitleSummary } from '../../types';
 import { useFetched } from '../titles/titleModel';
@@ -17,6 +18,7 @@ import { StillWall } from './StillWall';
 import './music.css';
 
 export type MusicTabProps = {
+  tools?: ReactNode;
   /** The tab's query string without '?': view=albums|artists|saved plus that view's own wall keys. */
   state?: string;
   onWallChange: (state: string) => void;
@@ -35,7 +37,6 @@ export type MusicTabProps = {
 export type MusicView = 'albums' | 'artists' | 'saved';
 const VIEWS: ReadonlyArray<[MusicView, string]> = [['albums', 'Albums'], ['artists', 'Artists'], ['saved', 'Saved audio']];
 const SHELF_LIMIT = 24;
-const RECENCY_VISIBLE = 4;
 
 /** The tab's view and the rest of its address, which belongs to that view's wall; an unknown view is Albums. */
 export function parseMusicState(state: string | undefined): { view: MusicView; wall: string; hasExplicitView: boolean } {
@@ -50,35 +51,32 @@ export const serializeMusicState = (view: MusicView, wall = ''): string => [`vie
 
 /** Up to 24 saved audio items, newest first, as square cards in one scroller. Hidden while loading or failed. */
 function SavedAudioShelf({ onPlay, onSeeAll }: { onPlay: (item: LibraryItem) => void; onSeeAll: () => void }) {
-  const saved = useFetched('music:saved-audio', () => listLibrary({ kind: 'audio', sort: 'recent', limit: SHELF_LIMIT }));
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => { const refresh = () => { if (document.visibilityState === 'visible') setAttempt((value) => value + 1); }; document.addEventListener('visibilitychange', refresh); return () => document.removeEventListener('visibilitychange', refresh); }, []);
+  const saved = useFetched('music:saved-audio', () => listLibrary({ kind: 'audio', sort: 'recent', limit: SHELF_LIMIT }), attempt);
   const items = saved.data?.items ?? [];
-  if (!items.length) return null;
   return (
     <section aria-labelledby="g-saved-audio" className="g-shelf">
-      <header className="g-shelf-head">
-        <h2 className="g-h2" id="g-saved-audio">Saved audio</h2>
-        <button className="g-text-button g-button-text" onClick={onSeeAll} type="button">See all</button>
-      </header>
-      <ul className="g-shelf-row">
-        {items.map((item, index) => <li key={item.id}><StillCard item={item} kind="audio" onPlay={onPlay} position={index} priority={3} shape="square" sizes="(max-width: 599px) 28vw, 168px" /></li>)}
-      </ul>
+      <header className="g-shelf-head"><h2 className="g-h2" id="g-saved-audio">Saved audio</h2><button className="g-text-button g-button-text" onClick={onSeeAll} type="button">See all</button></header>
+      {saved.loading && !saved.data ? <p role="status">Loading saved audio…</p> : saved.error ? <div role="alert"><p>Saved audio could not be loaded.</p><button className="g-text-button g-button-text" onClick={() => setAttempt((value) => value + 1)} type="button">Try again</button></div> : !items.length ? <p>No saved audio yet.</p> : <ul className="g-shelf-row">{items.map((item, index) => <li key={item.id}><StillCard item={item} kind="audio" onPlay={onPlay} position={index} priority={3} shape="square" sizes="(max-width: 599px) 28vw, 168px" /></li>)}</ul>}
     </section>
   );
 }
 
 function AlbumShelf({ title, albums, onOpen }: { title: string; albums: TitleSummary[]; onOpen: (title: TitleSummary) => void }) {
-  if (!albums.length) return null;
   const id = `g-${title.replaceAll(' ', '-')}`;
   return <section aria-labelledby={id} className="g-shelf g-music-recency">
     <header className="g-shelf-head"><h2 className="g-h2" id={id}>{title}</h2></header>
-    <ul className="g-shelf-row">{albums.slice(0, RECENCY_VISIBLE).map((album, index) => <li key={album.id}><AlbumCard onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 42vw, (max-width: 1023px) 30vw, 280px" title={album} /></li>)}</ul>
+    {albums.length ? <ul className="g-shelf-row">{albums.map((album, index) => <li key={album.id}><AlbumCard onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 42vw, (max-width: 1023px) 30vw, 280px" title={album} /></li>)}</ul> : <p>{title === 'Recently played' ? 'No recently played albums yet.' : 'No recently added albums yet.'}</p>}
   </section>;
 }
 
 function AlbumShelves({ onOpen }: { onOpen: (title: TitleSummary) => void }) {
-  const played = useFetched('music:recently-played-albums', () => listRecentlyPlayedAlbums({ limit: SHELF_LIMIT }));
-  const added = useFetched('music:recently-added-albums', () => listTitles({ type: 'album', sort: 'created', limit: SHELF_LIMIT }));
-  return <>{played.error || added.error ? <p role="status">Some recent albums could not be loaded. The complete catalog is still available below.</p> : null}<AlbumShelf albums={played.data?.items ?? []} onOpen={onOpen} title="Recently played" /><AlbumShelf albums={added.data?.items ?? []} onOpen={onOpen} title="Recently added" /></>;
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => { const refresh = () => { if (document.visibilityState === 'visible') setAttempt((value) => value + 1); }; document.addEventListener('visibilitychange', refresh); return () => document.removeEventListener('visibilitychange', refresh); }, []);
+  const played = useFetched('music:recently-played-albums', () => listRecentlyPlayedAlbums({ limit: SHELF_LIMIT }), attempt);
+  const added = useFetched('music:recently-added-albums', () => listTitles({ type: 'album', sort: 'created', limit: SHELF_LIMIT }), attempt);
+  return <>{played.error || added.error ? <div role="alert"><p>Some recent albums could not be loaded. The complete catalog is still available below.</p><button className="g-text-button g-button-text" onClick={() => setAttempt((value) => value + 1)} type="button">Try again</button></div> : null}{played.loading || added.loading ? <p role="status">Loading recent albums…</p> : null}{played.data ? <AlbumShelf albums={played.data.items} onOpen={onOpen} title="Recently played" /> : null}{added.data ? <AlbumShelf albums={added.data.items} onOpen={onOpen} title="Recently added" /> : null}</>;
 }
 
 function MusicSearch({ query, onChange, onOpen }: { query: string; onChange: (query: string) => void; onOpen: (title: TitleSummary) => void }) {
@@ -88,12 +86,12 @@ function MusicSearch({ query, onChange, onOpen }: { query: string; onChange: (qu
   const titles = (data?.matches ?? []).flatMap((match) => match.kind === 'title' && match.media_title && (match.media_title.type === 'album' || match.media_title.type === 'artist') ? [match.media_title] : []);
   const unique = titles.filter((title, index) => titles.findIndex((other) => other.id === title.id) === index);
   const submit = (event: FormEvent) => { event.preventDefault(); onChange(draft.trim().slice(0, 200)); };
-  return <section className="g-music-search" aria-label="Search music"><form className="g-search" onSubmit={submit} role="search"><Search aria-hidden="true" /><input aria-label="Search music" className="g-input" maxLength={200} onChange={(event) => setDraft(event.target.value)} placeholder="Search music" type="search" value={draft} /><button className="g-button g-button-text" type="submit">Search</button></form>
+  return <section className="g-music-search" aria-label="Search music"><ContextualSearch label="Search music"><form className="g-search" onSubmit={submit} role="search"><Search aria-hidden="true" /><input aria-label="Search music" className="g-input" maxLength={200} onChange={(event) => setDraft(event.target.value)} placeholder="Search music" type="search" value={draft} /><button className="g-button g-button-text" type="submit">Search</button></form></ContextualSearch>
     {query ? <section aria-busy={loading} aria-label={`Music results for “${query}”`} className="g-music-results"><header className="g-results-head"><h2 className="g-h2">Results for “{query}”</h2><button className="g-text-button g-button-text" onClick={() => onChange('')} type="button">Clear</button></header>{error ? <p className="g-inline-error" role="alert">Search is unavailable right now.</p> : loading && !data ? <p className="g-empty-result">Searching…</p> : data && !unique.length ? <p className="g-empty-result">Nothing in your music matches “{query}”.</p> : null}{unique.length ? <ul className="g-shelf-row">{unique.map((title, index) => <li key={title.id}><AlbumCard onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 28vw, 168px" title={title} /></li>)}</ul> : null}</section> : null}
   </section>;
 }
 
-export function MusicTab({ state, onWallChange, lenses, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'albums', onBrowseViewChange }: MusicTabProps) {
+export function MusicTab({ tools, state, onWallChange, lenses, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'albums', onBrowseViewChange }: MusicTabProps) {
   const parsed = parseMusicState(state);
   const view = parsed.hasExplicitView || state ? parsed.view : preferredView;
   const wall = parsed.wall;
@@ -120,7 +118,7 @@ export function MusicTab({ state, onWallChange, lenses, sections, onOpen, onPlay
           <button aria-pressed={view === value} className="g-chip g-button-text" key={value} onClick={() => show(value)} type="button">{label}</button>
             ))}
           </div>
-          {savedCount > 0 || view === 'saved' ? <button aria-label="Saved audio" aria-pressed={view === 'saved'} className="g-text-button g-button-text g-music-saved-link" onClick={() => show('saved')} type="button"><span aria-hidden="true">Saved audio{savedCount ? ` · ${savedCount}` : ''}</span></button> : null}
+          <div className="g-music-head-actions">{savedCount > 0 || view === 'saved' ? <button aria-label="Saved audio" aria-pressed={view === 'saved'} className="g-text-button g-button-text g-music-saved-link" onClick={() => show('saved')} type="button"><span aria-hidden="true">Saved audio{savedCount ? ` · ${savedCount}` : ''}</span></button> : null}{tools}</div>
         </div>
         <p className="g-label g-music-library-count">{[counts, sortedBy ? `Sorted by ${sortedBy}` : null].filter(Boolean).join(' · ')}</p>
       </header>
@@ -133,10 +131,7 @@ export function MusicTab({ state, onWallChange, lenses, sections, onOpen, onPlay
   }
   if (search) return <div className="surface gallery">{lenses}{header(null)}</div>;
   if (view === 'albums') {
-    const params = new URLSearchParams(wall);
-    const catalogOpen = params.get('catalog') === '1' || [...params.keys()].some((key) => key !== 'catalog');
-    const toggleCatalog = () => { catalogOpen ? params.delete('catalog') : params.set('catalog', '1'); onWallChange(serializeMusicState('albums', params.toString())); };
-    return <div className="surface gallery g-music-browse">{lenses}{header(null)}<details className="g-music-catalog" open={catalogOpen}><summary onClick={(event) => { event.preventDefault(); toggleCatalog(); }}><span><span className="g-label g-kicker">Music library</span><h2 className="g-music-catalog-heading">All albums</h2></span><span className="g-label">{catalogOpen ? 'Show less' : `${sections?.albums ?? 0} albums`}</span></summary>{catalogOpen ? <GalleryWall header={() => null} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState('albums', ['catalog=1', next].filter(Boolean).join('&')))} state={wall} wall="albums" /> : null}</details></div>;
+    return <div className="surface gallery g-music-browse">{lenses}{header(null)}<section aria-labelledby="g-all-albums" className="g-music-catalog"><h2 className="g-music-catalog-heading" id="g-all-albums">All albums</h2><GalleryWall header={() => null} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState('albums', next))} state={wall} wall="albums" /></section></div>;
   }
   return <GalleryWall header={header} key={view} lenses={lenses} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState(view, next))} state={wall} wall={view} />;
 }

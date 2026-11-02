@@ -54,6 +54,7 @@ export function useLibrarySections(member: string): { sections: LibrarySections 
   useEffect(() => {
     const controller = new AbortController();
     getLibrarySections({ signal: controller.signal }).then((sections) => {
+      if (controller.signal.aborted) return;
       storeSections(member, sections);
       setState({ member, sections, failed: false });
     }, () => {
@@ -65,6 +66,11 @@ export function useLibrarySections(member: string): { sections: LibrarySections 
     setState((previous) => ({ ...previous, failed: false }));
     setAttempt((value) => value + 1);
   }, []);
+  useEffect(() => {
+    const foreground = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => document.removeEventListener('visibilitychange', foreground);
+  }, [refresh]);
   return { sections: current.sections, failed: current.failed, refresh };
 }
 

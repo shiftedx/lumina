@@ -1,6 +1,6 @@
 import { flushSync } from 'react-dom';
 import { Menu as MenuIcon, Plus, Search } from '../luminaIcons';
-import { type CSSProperties, type RefObject, useState } from 'react';
+import { type CSSProperties, type RefObject, useEffect, useState } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker, requestHomeEdit } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
@@ -82,6 +82,13 @@ export function activityLabel(downloads: TopBarProps['activity'], library: Libra
 
 export function TopBar(props: TopBarProps) {
   const { user, mobile, compact, activity, libraryActivity, theme } = props;
+  const [scrolled, setScrolled] = useState(() => window.scrollY > 8);
+  useEffect(() => {
+    const update = () => setScrolled(window.scrollY > 8);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
   const ringSize = useDeviceRingSize();
   const canAddLink = !providerBlocked(useAccess().access, 'open_search');
   const name = user.display_name || user.username;
@@ -113,7 +120,7 @@ export function TopBar(props: TopBarProps) {
     </button>
   );
   return (
-    <header className="g-topbar">
+    <header className={`g-topbar${scrolled ? ' is-scrolled' : ''}`}>
       <div className="g-topbar-start">
         <IconButton aria-controls="primary-navigation" aria-expanded={props.menuExpanded} aria-haspopup="dialog" icon={<MenuIcon />} onPointerDownCapture={(event) => { event.currentTarget.dataset.navigationKeyboard = 'false'; }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.currentTarget.dataset.navigationKeyboard = 'true'; }} label={props.menuLabel} onClick={props.onMenu} ref={props.menuButtonRef} />
         <a aria-label="Lumina home" className="g-topbar-brand" href="/" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); props.onHome(); }}>

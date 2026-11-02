@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { mockApi, signIn } from './lumina-mock';
 import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
+import { homeMovie, mockHome } from './home-mock';
 import { mockGalleryTitle } from './gallery-title-mock';
 import { albumSummary, movieSummary, titleDetail } from '../src/test/galleryFixtures';
 
@@ -211,5 +213,43 @@ for (const scheme of ['dark', 'light'] as const) {
       await page.goBack();
       await expect(page.locator('#g-chapter-movies .g-chapter-head a')).toBeFocused();
     });
+  }
+}
+
+for (const scheme of ['dark', 'light'] as const) {
+  for (const surface of ['home', 'movies', 'all'] as const) {
+    for (const width of [1440, 390]) {
+      test(`hero navigation reveals artwork until scrolling on ${surface} in ${scheme} at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+        await mockApi(page, {});
+        await mockGalleryWall(page, { total: 60, artwork: true });
+        if (surface === 'home') {
+          await mockHome(page, { newest: Array.from({ length: 12 }, (_, index) => homeMovie(index)) });
+          const artwork = readFileSync(new URL('./fixtures/open-films/sintel-backdrop.jpg', import.meta.url));
+          await page.route('**/api/art/**', (route) => route.fulfill({ contentType: 'image/jpeg', body: artwork }));
+        }
+        await page.goto(surface === 'home' ? '/' : surface === 'all' ? '/video' : '/video/movies'); await signIn(page);
+        await expect(page.locator(surface === 'home' ? '.h-hero' : surface === 'all' ? '.g-all.is-stage-led' : '.g-browse-hero')).toBeVisible();
+        const header = page.locator('.g-topbar');
+        const opacity = () => header.evaluate((node) => {
+          const color = getComputedStyle(node).backgroundColor;
+          if (color.includes('/')) return Number(color.split('/').at(-1)?.replace(')', '').trim());
+          return color.startsWith('rgba') ? Number(color.split(',').at(-1)?.replace(')', '')) : 1;
+        });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await expect.poll(opacity, { message: 'opening hero remains visible through the header' }).toBeLessThanOrEqual(0.2);
+        await page.screenshot({ path: `../output/translucent-nav/${surface}-${scheme}-${width}-top.png` });
+        await page.evaluate(() => window.scrollTo(0, 300));
+        await expect.poll(opacity).toBe(1);
+        expect((await header.boundingBox())!.y).toBe(0);
+        await page.screenshot({ path: `../output/translucent-nav/${surface}-${scheme}-${width}-scrolled.png` });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await expect.poll(opacity).toBeLessThanOrEqual(0.2);
+        await page.goto('/settings');
+        await expect(page.locator('.g-settings')).toBeVisible();
+        await expect.poll(opacity, { message: 'ordinary forms keep a readable opaque header' }).toBe(1);
+      });
+    }
   }
 }

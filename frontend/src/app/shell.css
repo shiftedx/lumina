@@ -40,8 +40,8 @@
 .g-search-trigger:focus-visible { border-bottom-color: var(--g-gold-ink); outline-color: transparent; box-shadow: 0 1px 0 var(--g-gold-ink); }
 @media (hover: hover) { .g-search-trigger:hover { border-bottom-color: var(--g-ink); } }
 .g-activity { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; justify-content: center; gap: 6px; padding: 0 6px; border: 0; background: none; color: var(--g-ink); cursor: pointer; }
-.g-activity-ring { width: 20px; height: 20px; border-radius: var(--g-radius-round); background: conic-gradient(var(--g-gold) var(--progress, 0deg), var(--g-rule-soft) 0); mask: radial-gradient(circle, transparent 6px, currentColor 6.5px); }
-.g-activity-ring.is-indeterminate { background: conic-gradient(var(--g-gold) 0 72deg, transparent 72deg 150deg, var(--g-gold) 150deg 222deg, var(--g-rule-soft) 222deg); animation: g-activity-spin 1.4s linear infinite; }
+.g-activity-ring { width: 20px; height: 20px; border-radius: var(--g-radius-round); background: conic-gradient(var(--g-gold) var(--progress, 0deg), var(--topbar-activity-track, var(--g-rule-soft)) 0); mask: radial-gradient(circle, transparent 6px, currentColor 6.5px); }
+.g-activity-ring.is-indeterminate { background: conic-gradient(var(--g-gold) 0 72deg, transparent 72deg 150deg, var(--g-gold) 150deg 222deg, var(--topbar-activity-track, var(--g-rule-soft)) 222deg); animation: g-activity-spin 1.4s linear infinite; }
 .g-activity-count { font: var(--g-type-small); font-variant-numeric: tabular-nums; }
 .g-activity-popover { display: grid; width: min(320px, calc(100vw - 32px)); gap: 16px; padding: 8px 16px 12px; }
 .g-activity-popover section + section { padding-top: 16px; border-top: var(--g-rule); }
@@ -90,7 +90,7 @@
 .g-topbar { padding-inline: 30px; }
 .g-topbar-start { gap: 16px; }
 .g-topbar-start > .g-icon-button { flex: none; border-radius: 50%; background: var(--g-paper-2); color: var(--g-ink); }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: fixed; inset: 0 0 auto; }
+.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: fixed; inset: 0 0 auto; --topbar-opening-background: color-mix(in srgb, var(--g-overlay-halo) 12%, transparent); --topbar-opening-ink: var(--g-on-art); --topbar-activity-track: var(--g-overlay-track); --topbar-opening-control: color-mix(in srgb, var(--g-overlay-halo) 20%, transparent); }
 .g-profile-trigger .g-avatar { font-family: var(--g-sans); font-style: normal; }
 .g-nav-item { min-height: 48px; border-radius: 10px; }
 .g-nav-group-label { margin-block: 12px 8px; font: var(--g-type-small); }
@@ -133,3 +133,13 @@
   .lumina-app[data-surface='settings']:has(.watch-mini) .lumina-main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
   .lumina-app[data-surface='settings']:has(.watch-mini) .g-save-bar.is-pending { bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
+
+/* Keep opening artwork visible, then restore the adaptive reading surface on scroll. */
+.g-topbar { transition: background-color 180ms ease-out; }
+.g-topbar.is-scrolled { --topbar-activity-track: var(--g-rule-soft); }
+.g-topbar:not(.is-scrolled) { background: var(--topbar-opening-background, var(--g-paper)); }
+.g-topbar:not(.is-scrolled) .g-topbar-context { color: var(--topbar-opening-ink, var(--g-ink-2)); }
+.g-topbar:not(.is-scrolled) .g-search-trigger { color: var(--topbar-opening-ink, var(--g-ink-3)); }
+.g-topbar:not(.is-scrolled) :is(.g-topbar-start > .g-icon-button, .g-topbar-end > .g-button, .g-activity) { color: var(--topbar-opening-ink, var(--g-ink)); }
+.g-topbar:not(.is-scrolled) .g-topbar-start > .g-icon-button { background: var(--topbar-opening-control, var(--g-paper-2)); }
+@media (forced-colors: active) { .g-topbar:not(.is-scrolled) { --topbar-opening-background: Canvas; --topbar-opening-ink: CanvasText; --topbar-opening-control: Canvas; } }

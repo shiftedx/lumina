@@ -229,6 +229,11 @@ def test_views_list_the_libraries_a_member_has(jf: TestClient) -> None:
     assert {"Movies", "Shows", "Collections"} <= {v["Name"] for v in views["Items"]}
     assert {v["CollectionType"] for v in views["Items"]} >= {"movies", "tvshows", "boxsets"}
     assert get(jf, f"/Users/{HEX(ALICE)}/Views").json() == views
+    collections = next(view for view in views["Items"] if view["CollectionType"] == "boxsets")
+    page = get(jf, "/Items", ParentId=collections["Id"], IncludeItemTypes="BoxSet", Recursive="true").json()
+    assert [(item["Id"], item["Type"]) for item in page["Items"]] == [(HEX(BOXSET), "BoxSet")]
+    children = get(jf, "/Items", ParentId=page["Items"][0]["Id"], IncludeItemTypes="Movie", SortBy="ProductionYear,SortName").json()
+    assert [(item["Id"], item["Type"]) for item in children["Items"]] == [(HEX(MOVIE), "Movie")]
 
 
 def test_series_crawl_pages_and_hides_private(jf: TestClient) -> None:

@@ -44,6 +44,9 @@ public struct TVRootView: View {
                         onPlayback: { playbackRequest = $0 }
                     )
                         .onPlayPauseCommand(perform: toggleAudioPlayback)
+                } else if item.type == "BoxSet" || item.type == "Playlist" {
+                    TVMovieCollectionView(item: item, store: store, onOpen: { path.append($0) })
+                        .onPlayPauseCommand(perform: toggleAudioPlayback)
                 } else if item.isCollection {
                     TVVideoCollectionView(item: item, store: store, onOpen: { path.append($0) }, onPlayback: { playbackRequest = $0 })
                         .onPlayPauseCommand(perform: toggleAudioPlayback)
@@ -132,6 +135,73 @@ public struct TVRootView: View {
 }
 
 @MainActor
+struct TVMovieCollectionView: View {
+    let item: MediaItem
+    let store: LuminaStore
+    let onOpen: (MediaItem) -> Void
+    @State private var children = [MediaItem]()
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    private var title: String { item.type == "BoxSet" ? "Movies" : "Titles" }
+
+    var body: some View {
+        TVHeroScrollView {
+            VStack(alignment: .leading, spacing: 34) {
+                MediaBillboard(item: item, store: store, context: "", showsOverview: false, showsContext: false,
+                               artworkFirst: true, wideMinimumHeight: 620) {
+                    Text(title)
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                if isLoading {
+                    ProgressView("Loading \(title.lowercased())…")
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if let errorMessage {
+                    TVMessageView(title: "Could not load this collection", message: errorMessage, actionTitle: "Try again") {
+                        Task { await load() }
+                    }
+                } else if children.isEmpty {
+                    TVMessageView(title: item.type == "Playlist" ? "No playable video titles" : "No movies yet", message: item.type == "Playlist" ? "This list has no video titles Lumina can play here." : "Add movies to Lumina, then refresh this collection.", actionTitle: "Refresh") {
+                        Task { await load() }
+                    }
+                } else {
+                    Text(title)
+                        .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                        .foregroundStyle(LuminaTheme.ink)
+                        .padding(.horizontal, 82)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
+                        ForEach(children) { child in
+                            TVMediaCard(item: child, store: store, poster: true, showsCaption: false, artworkWidth: 480) { onOpen(child) }
+                                .accessibilityIdentifier("movieCollectionItem-\(child.id)")
+                        }
+                    }
+                    .padding(.horizontal, 82)
+                    .focusSection()
+                }
+            }
+            .padding(.bottom, 76)
+        }
+        .ignoresSafeArea(.container, edges: [.horizontal, .top])
+        .background(LuminaTheme.theater.ignoresSafeArea())
+        .accessibilityIdentifier("movieCollectionScreen")
+        .task(id: item.id) { await load() }
+    }
+
+    private func load() async {
+        isLoading = children.isEmpty
+        errorMessage = nil
+        do {
+            children = try await store.loadChildren(of: item)
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = "Check your connection and try again."
+        }
+        isLoading = false
+    }
+}
+
 private struct TVEpisodeCollectionDestination: View {
     let item: MediaItem
     let store: LuminaStore
@@ -691,13 +761,14 @@ private enum TVDestination: String, CaseIterable {
 }
 
 private enum TVLibraryCategory: String, CaseIterable {
-    case movies, tv, anime, music
+    case movies, tv, anime, collections, music
 
     var title: String {
         switch self {
         case .movies: "Movies"
         case .tv: "TV"
         case .anime: "Anime"
+        case .collections: "Collections"
         case .music: "Music"
         }
     }
@@ -706,6 +777,7 @@ private enum TVLibraryCategory: String, CaseIterable {
         switch self {
         case .tv: .shows
         case .anime: .anime
+        case .collections: .collections
         default: .movies
         }
     }
@@ -817,7 +889,7 @@ private struct TVLibraryView: View {
             homeSessionScope = TVHomeSessionScope(store.session)
         }
         .onChange(of: store.availableLibraryCategories) { _, available in
-            if destination == .library, !available.contains(libraryCategory.rawValue) {
+            if destination == .library, libraryCategory != .collections, !available.contains(libraryCategory.rawValue) {
                 selectHomeDestination(.all)
             }
         }
@@ -941,6 +1013,17 @@ private struct TVLibraryView: View {
                     .accessibilityIdentifier("homeBrowse-\(category.rawValue)")
                     .id(category.rawValue)
                 }
+                let collectionsSelected = destination == .library && libraryCategory == .collections
+                Button {
+                    selectLibraryCategory(.collections)
+                    selectDestination(.library)
+                } label: {
+                    Text("Collections")
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: collectionsSelected, alignsWithMasthead: true))
+                .accessibilityValue(collectionsSelected ? "Selected" : "")
+                .accessibilityAddTraits(collectionsSelected ? .isSelected : [])
+                .accessibilityIdentifier("homeBrowse-collections")
             }
             .frame(maxWidth: .infinity)
 
@@ -989,6 +1072,7 @@ private struct TVLibraryView: View {
             case .tv: .tv
             case .anime: .anime
             case .music: .music
+            case .collections: nil
             }
         case .requests:
             nil
@@ -1390,21 +1474,28 @@ private struct TVVideoView: View {
             ScrollViewReader { proxy in
                 HStack(alignment: .center, spacing: 0) {
                     ScrollView {
-                        if store.isBusy && store.items.isEmpty {
+                        if store.isBusy && store.items.isEmpty && store.householdCollections.isEmpty {
                             ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
-                        } else if store.items.isEmpty {
-                            TVMessageView(title: browse.query.isEmpty && !hasFilters ? "No videos here yet" : "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") { Task { await reload(forceRefresh: true) } }
+                        } else if store.items.isEmpty && (browse.kind != .collections || store.householdCollections.isEmpty) {
+                            let title = browse.kind == .collections && browse.query.isEmpty && !hasFilters ? "No collections yet" : "No matching videos"
+                            let message = store.errorMessage ?? store.householdCollectionsError ?? (browse.kind == .collections ? "Movie franchises and your saved lists will appear here." : "Try another search or choose a different category.")
+                            TVMessageView(title: title, message: message, actionTitle: "Refresh") { Task { await reload(forceRefresh: true) } }
                         } else {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
-                                ForEach(store.items) { item in
-                                    TVMediaCard(item: item, store: store, poster: true, showsCaption: false, artworkWidth: 480) { onOpen(item) }
-                                        .focused($focusedItemID, equals: item.id)
-                                        .id(item.id)
-                                        .accessibilityIdentifier("libraryItem-\(item.id)")
-                                        .onAppear { itemDidAppear(item) }
-                                        .onScrollVisibilityChange(threshold: 0.01) { visible in
-                                            if visible { lastVisibleItemID = item.id }
-                                        }
+                            VStack(alignment: .leading, spacing: 42) {
+                                if browse.kind == .collections {
+                                TVCollectionGrid(title: "Movie collections", items: store.items, store: store,
+                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear,
+                                                 onVisible: { lastVisibleItemID = $0 })
+                                TVCollectionGrid(title: "Your lists", items: store.householdCollections, store: store,
+                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: { _ in },
+                                                 onVisible: { lastVisibleItemID = $0 })
+                                if let householdError = store.householdCollectionsError {
+                                    TVMessageView(title: "Your lists could not load", message: householdError, actionTitle: "Try again") { Task { await reload(forceRefresh: true) } }
+                                }
+                                } else {
+                                TVCollectionGrid(title: nil, items: store.items, store: store,
+                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear,
+                                                 onVisible: { lastVisibleItemID = $0 })
                                 }
                             }
                             .padding(.horizontal, 80)
@@ -1456,7 +1547,7 @@ private struct TVVideoView: View {
                             isFocused: alphabetFocused,
                             onReturn: {
                                 alphabetFocused = false
-                                focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+                                focusedItemID = displayedItems.first { $0.id == browse.focusedItemID }?.id ?? displayedItems.first?.id
                             },
                             onSelect: { letter in
                                 guard canBrowseAlphabet,
@@ -1477,7 +1568,7 @@ private struct TVVideoView: View {
                         .focused($alphabetFocused)
                         .onExitCommand {
                             alphabetFocused = false
-                            focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+                            focusedItemID = displayedItems.first { $0.id == browse.focusedItemID }?.id ?? displayedItems.first?.id
                         }
                         .padding(.trailing, 32)
                     }
@@ -1489,7 +1580,7 @@ private struct TVVideoView: View {
         .onChange(of: focusedItemID) { _, itemID in
             if let itemID {
                 browse.focusedItemID = itemID
-                if let index = store.items.firstIndex(where: { $0.id == itemID }) {
+                if let index = displayedItems.firstIndex(where: { $0.id == itemID }) {
                     let forward = index >= lastFocusedIndex
                     if movingForward != forward { movingForward = forward }
                     lastFocusedIndex = index
@@ -1502,7 +1593,7 @@ private struct TVVideoView: View {
             pendingRestoredItemID = browse.focusedItemID
             restoreLastSelectionIfAvailable()
         }
-        .onChange(of: store.items.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
+        .onChange(of: displayedItems.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
         .task(id: "\(lastVisibleItemID ?? "")-\(store.items.count)-\(movingForward)", priority: .utility) {
             // Warm the poster window at its displayed rendition within the shared cache and four-load budgets.
             await store.prefetchArtwork(after: lastVisibleItemID, in: store.items, maxWidth: 480,
@@ -1533,8 +1624,12 @@ private struct TVVideoView: View {
             .compactMap { $0 }.joined(separator: " · ")
     }
 
+    private var displayedItems: [MediaItem] {
+        browse.kind == .collections ? store.items + store.householdCollections : store.items
+    }
+
     private func focusVisibleGridItem() {
-        focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+        focusedItemID = displayedItems.first { $0.id == browse.focusedItemID }?.id ?? displayedItems.first?.id
     }
 
     private func itemDidAppear(_ item: MediaItem) {
@@ -1545,7 +1640,7 @@ private struct TVVideoView: View {
 
     private func restoreLastSelectionIfAvailable() {
         guard let itemID = pendingRestoredItemID,
-              store.items.contains(where: { $0.id == itemID }) else { return }
+              displayedItems.contains(where: { $0.id == itemID }) else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
     }
@@ -1553,6 +1648,42 @@ private struct TVVideoView: View {
     private func reload(forceRefresh: Bool = false) async {
         await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters,
                                 forceRefresh: forceRefresh, preloadCatalog: true)
+    }
+}
+
+private struct TVCollectionGrid: View {
+    let title: String?
+    let items: [MediaItem]
+    let store: LuminaStore
+    let focusedItemID: FocusState<String?>.Binding
+    let onOpen: (MediaItem) -> Void
+    let onItemDidAppear: (MediaItem) -> Void
+    let onVisible: (String) -> Void
+
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 24) {
+                if let title {
+                    Text(title)
+                        .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                        .foregroundStyle(LuminaTheme.ink)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
+                    ForEach(items) { item in
+                        TVMediaCard(item: item, store: store, poster: true, showsCaption: false, artworkWidth: 480) { onOpen(item) }
+                            .focused(focusedItemID, equals: item.id)
+                            .id(item.id)
+                            .accessibilityIdentifier("libraryItem-\(item.id)")
+                            .onAppear { onItemDidAppear(item) }
+                            .onScrollVisibilityChange(threshold: 0.01) { visible in
+                                if visible { onVisible(item.id) }
+                            }
+                    }
+                }
+                .focusSection()
+            }
+        }
     }
 }
 

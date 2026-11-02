@@ -14,7 +14,9 @@ import {
 import type { CollectionVisibility, FormatSelection, HouseholdCollection, LibraryItem, OutputProfile, TitleSummary, YouTubeSearchResult } from '../../types';
 import { Button, Dialog, EmptyState, ErrorState, Field, Input, Masthead, SegmentedControl, Select, Skeleton, fieldProps } from '../../ui';
 import { GalleryArt } from '../gallery/GalleryArt';
-import { cardColour } from '../gallery/galleryModel';
+import { cardColour, wallKey, wallListQuery, wallQueryFor } from '../gallery/galleryModel';
+import { WallGrid } from '../gallery/WallGrid';
+import { type TitleLister, useWallStore } from '../gallery/wallPages';
 import { useEnrichment } from '../watch/TranscriptPanel';
 import { CollectionDetail } from './CollectionDetail';
 import { SmartCollectionBuilder } from './SmartCollectionBuilder';
@@ -205,9 +207,31 @@ type CollectionsPageProps = {
   onOpenTitle?: (title: TitleSummary) => void;
   formatSelection?: FormatSelection;
   outputProfile?: OutputProfile;
+  /** Franchise boxsets are ordinary read-only media titles, paged separately from household collections. */
+  listFranchises?: TitleLister;
 };
 
 const TILES_EMBEDDED = 6;
+
+function FranchiseCollections({ list, onCount, onOpenTitle }: { list?: TitleLister; onCount: (count: number) => void; onOpenTitle?: (title: TitleSummary) => void }) {
+  const query = wallQueryFor('boxsets', undefined);
+  const store = useWallStore(wallKey('boxsets', query), wallListQuery('boxsets', query), list);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (store.total !== null) onCount(store.total); }, [onCount, store.total]);
+  if (store.total === 0) return null;
+  return (
+    <section aria-labelledby="movie-collections" className="g-franchise-collections">
+      <h2 className="g-h2" id="movie-collections" ref={heading} tabIndex={-1}>Movie collections</h2>
+      {store.failed && store.total === null ? <div className="g-inline-error" role="alert"><p>Lumina could not load movie collections.</p><button className="g-button g-button-text" onClick={() => store.retry()} type="button">Try again</button></div>
+        : store.total === null ? <Skeleton count={6} label="Loading movie collections…" shape="poster" /> : (
+        <>
+          <WallGrid featured={false} label="Movie collections" metricLabel="boxsets" onExitUp={() => heading.current?.focus()} onOpen={(title) => onOpenTitle?.(title)} query={query} stickyOffset={() => 0} store={store} />
+          {store.failed ? <div className="g-inline-error" role="alert"><p>Lumina could not load movie collections.</p><button className="g-button g-button-text" onClick={() => store.retry()} type="button">Try again</button></div> : null}
+        </>
+      )}
+    </section>
+  );
+}
 
 function CollectionTile({ collection, onOpen }: { collection: HouseholdCollection; onOpen: (id: string) => void }) {
   const posters = (collection.titles ?? []).slice(0, 4);
@@ -254,10 +278,11 @@ function NewCollectionDialog({ error, onClose, onCreate }: { error?: string | nu
 /** The Collections Library page: a poster-mosaic tile per collection, the detail by route. */
 export function CollectionsPage({
   route, embedded = false, lenses, onOpenCollection, onBackToList, onRouteHandled, api = collectionApi, currentUserId, library: _library,
-  onOpenLibrary, onOpenRemote, onQueueRemote, isQueueing, onOpenTitle, formatSelection, outputProfile,
+  onOpenLibrary, onOpenRemote, onQueueRemote, isQueueing, onOpenTitle, formatSelection, outputProfile, listFranchises,
 }: CollectionsPageProps) {
   const mounted = useRef(true);
   const [collections, setCollections] = useState<HouseholdCollection[] | null>(null);
+  const [franchiseCount, setFranchiseCount] = useState<number | null>(embedded ? 0 : null);
   const [failed, setFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -318,6 +343,7 @@ export function CollectionsPage({
   const all = collections ?? [];
   const tiles = embedded ? all.slice(0, TILES_EMBEDDED) : all;
   const actions = <><Button onClick={() => setCreating(true)} variant="primary">New collection</Button><Button icon={<Sparkles />} onClick={() => setBuilding(true)}>New smart collection</Button></>;
+  const emptyAction = embedded ? <Button onClick={onBackToList}>See movie collections</Button> : actions;
 
   if (detailId && known && detail?.id === detailId) {
     return (
@@ -352,8 +378,9 @@ export function CollectionsPage({
       {failed ? <ErrorState onRetry={() => { setRetrying(true); void load(); }} retrying={retrying} title="Lumina could not load your collections." />
         : detailId && known && detailFailed ? <ErrorState onRetry={() => setDetailTry((n) => n + 1)} title="Lumina could not load this collection." />
         : collections === null || (detailId && known && detail?.id !== detailId) ? <Skeleton count={embedded ? 3 : 6} label="Loading collections…" shape="still" />
-          : all.length === 0 ? <EmptyState action={embedded ? undefined : actions} body="Group titles your household loves, or let a smart collection gather them." size={embedded ? 'inline' : 'page'} title="No collections yet." />
+          : all.length === 0 ? (embedded || franchiseCount === 0 ? <EmptyState action={emptyAction} body="Group titles your household loves, or let a smart collection gather them." size={embedded ? 'inline' : 'page'} title={embedded ? 'No household collections yet.' : 'No collections yet.'} /> : null)
             : <ul className="g-collection-grid">{tiles.map((entry) => <li key={entry.id}><CollectionTile collection={entry} onOpen={onOpenCollection} /></li>)}</ul>}
+      {!embedded && (collections !== null || failed) ? <FranchiseCollections list={listFranchises} onCount={setFranchiseCount} onOpenTitle={onOpenTitle} /> : null}
       {embedded && all.length ? <a className="g-collections-all" href="/library/collections" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); onBackToList(); }}>See all</a> : null}
       {creating ? <NewCollectionDialog error={createError} onClose={() => { setCreating(false); setCreateError(null); }} onCreate={createPlain} /> : null}
       {building ? <SmartCollectionBuilder aiAvailable={Boolean(enrichment?.ai_summaries)} create={api.create} mode="new" onCancel={() => setBuilding(false)} onCreated={(made) => { added(made); setBuilding(false); }} open /> : null}

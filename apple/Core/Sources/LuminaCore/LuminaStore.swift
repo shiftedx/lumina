@@ -24,6 +24,8 @@ let tickScale = 10_000_000.0
                     libraryAlphabetTask = nil
                     libraryGeneration += 1
                     items = []
+                    householdCollections = []
+                    householdCollectionsError = nil
                     recentItems = []
                     resumeItems = []
                     nextUpItems = []
@@ -51,6 +53,10 @@ let tickScale = 10_000_000.0
     /// Device-local choices applied to each native video preparation. They never mutate member settings.
     public let playbackPreferences: NativePlaybackPreferences
     public private(set) var items = [MediaItem]()
+    /// Member-visible manual and smart collections. These remain distinct from
+    /// TMDB movie box sets, which use the ordinary paginated `items` wall.
+    public private(set) var householdCollections = [MediaItem]()
+    public private(set) var householdCollectionsError: String?
     public private(set) var recentItems = [MediaItem]()
     public private(set) var audioItems = [MediaItem]()
     public private(set) var audioHasMore = false
@@ -74,7 +80,7 @@ let tickScale = 10_000_000.0
               videoSort == .name else { return false }
         return switch videoKind {
         case .all, .movies, .shows, .anime: true
-        case .youtube, .episodes: false
+        case .collections, .youtube, .episodes: false
         }
     }
 
@@ -98,6 +104,8 @@ let tickScale = 10_000_000.0
     private struct LibrarySnapshot {
         let query: LibraryQuery
         let items: [MediaItem]
+        let householdCollections: [MediaItem]
+        let householdCollectionsError: String?
         let nextIndex: Int
         let hasMore: Bool
         let parentID: String?
@@ -424,6 +432,8 @@ let tickScale = 10_000_000.0
             hasMore = snapshot.hasMore
             libraryAlphabet = snapshot.alphabet
             items = snapshot.items
+            householdCollections = snapshot.householdCollections
+            householdCollectionsError = snapshot.householdCollectionsError
             loadedLibraryQuery = query
             catalogEnabled = query.preloadCatalog
             errorMessage = nil
@@ -437,7 +447,8 @@ let tickScale = 10_000_000.0
     private func retainLibrarySnapshot() {
         guard let query = loadedLibraryQuery else { return }
         librarySnapshots.removeAll { $0.query == query }
-        librarySnapshots.append(LibrarySnapshot(query: query, items: items, nextIndex: nextIndex,
+        librarySnapshots.append(LibrarySnapshot(query: query, items: items, householdCollections: householdCollections,
+            householdCollectionsError: householdCollectionsError, nextIndex: nextIndex,
             hasMore: hasMore, parentID: videoParentID, sourceProvider: videoSourceProvider,
             category: videoLuminaCategory, alphabet: libraryAlphabet))
         while librarySnapshots.count > 8 || librarySnapshots.reduce(0, { $0 + $1.items.count }) > 10_000 {
@@ -550,9 +561,43 @@ let tickScale = 10_000_000.0
                 if videoParentID == nil { items = []; hasMore = false; nextIndex = 0; return }
                 if kind == .youtube { videoSourceProvider = "youtube" }
             }
+            async let householdTask: HouseholdCollectionLoad = kind == .collections
+                ? loadHouseholdCollections(active, search: search)
+                : .empty
+            if kind == .collections {
+                async let franchiseTask = loadFranchiseCollections(active, search: search, sort: sort, filters: filters)
+                let (franchises, household) = await (franchiseTask, householdTask)
+                guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
+                if case let .failure(error) = franchises, Self.isAuthenticationFailure(error) {
+                    handleRequestFailure(error, for: active)
+                    return
+                }
+                if let failure = household.failure, Self.isAuthenticationFailure(failure) {
+                    handleRequestFailure(failure, for: active)
+                    return
+                }
+                householdCollections = household.items
+                householdCollectionsError = household.errorMessage
+                switch franchises {
+                case let .success(page):
+                    items = page.items.filter { $0.type == "BoxSet" }
+                    nextIndex = (page.startIndex ?? 0) + page.items.count
+                    hasMore = !page.items.isEmpty && nextIndex < page.total
+                case let .failure(error):
+                    items = []
+                    nextIndex = 0
+                    hasMore = false
+                    errorMessage = Self.message(for: error, signingIn: false)
+                }
+                loadedLibraryQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters, preloadCatalog: false)
+                return
+            }
             let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters, catalog: catalogEnabled)
+            let household = await householdTask
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
+            householdCollections = household.items
+            householdCollectionsError = household.errorMessage
             loadedLibraryQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters, preloadCatalog: catalogEnabled)
             nextIndex = (page.startIndex ?? 0) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
@@ -578,6 +623,46 @@ let tickScale = 10_000_000.0
         } catch {
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             handleRequestFailure(error, for: active)
+        }
+    }
+
+    private struct HouseholdCollectionLoad {
+        let items: [MediaItem]
+        let errorMessage: String?
+        let failure: Error?
+        static let empty = Self(items: [], errorMessage: nil, failure: nil)
+    }
+
+    private func loadFranchiseCollections(_ active: LuminaSession, search: String, sort: VideoSort, filters: VideoFilters) async -> Result<ItemPage, Error> {
+        do {
+            return .success(try await client.items(
+                origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                search: search, start: 0, types: VideoBrowseKind.collections.itemTypes, sort: sort, filters: filters
+            ))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func loadHouseholdCollections(_ active: LuminaSession, search: String) async -> HouseholdCollectionLoad {
+        do {
+            let views = try await client.views(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard let playlists = views.items.first(where: { $0.collectionType == "playlists" }) else { return .empty }
+            var loaded = [MediaItem]()
+            var start = 0
+            while !Task.isCancelled {
+                let page = try await client.items(
+                    origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                    search: "", start: start, types: "Playlist", sort: .name, parentID: playlists.id, limit: 500
+                )
+                loaded.append(contentsOf: page.items.filter { $0.type == "Playlist" })
+                start = (page.startIndex ?? start) + page.items.count
+                if page.items.isEmpty || start >= page.total { break }
+            }
+            let term = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            return HouseholdCollectionLoad(items: term.isEmpty ? loaded : loaded.filter { $0.name.localizedCaseInsensitiveContains(term) }, errorMessage: nil, failure: nil)
+        } catch {
+            return HouseholdCollectionLoad(items: [], errorMessage: Self.message(for: error, signingIn: false), failure: error)
         }
     }
 
@@ -847,10 +932,24 @@ let tickScale = 10_000_000.0
         while true {
             let page = try await client.children(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, item: item, start: start)
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
-            result.append(contentsOf: page.items.filter { item.type == "Series" ? $0.type == "Season" : $0.type == "Episode" })
+            let supported: [String] = switch item.type {
+            case "Series": ["Season"]
+            case "Season": ["Episode"]
+            case "BoxSet": ["Movie"]
+            case "Playlist": ["Movie", "Series", "Season", "Episode", "Video"]
+            default: []
+            }
+            result.append(contentsOf: page.items.filter { supported.contains($0.type) })
             start += page.items.count
             if item.type == "Series" || page.items.isEmpty || start >= page.total {
-                let ordered = result.sorted { ($0.indexNumber ?? Int.max, $0.id) < ($1.indexNumber ?? Int.max, $1.id) }
+                let ordered: [MediaItem]
+                if item.type == "Playlist" {
+                    ordered = result
+                } else if item.type == "BoxSet" {
+                    ordered = result.sorted { ($0.productionYear ?? Int.max, $0.name, $0.id) < ($1.productionYear ?? Int.max, $1.name, $1.id) }
+                } else {
+                    ordered = result.sorted { ($0.indexNumber ?? Int.max, $0.id) < ($1.indexNumber ?? Int.max, $1.id) }
+                }
                 if useCache { await metadataCache?.store(ordered, for: cacheKey) }
                 guard isCurrent(active) else { throw LuminaError.notSignedIn }
                 return ordered
@@ -1569,7 +1668,7 @@ let tickScale = 10_000_000.0
 
     private func handleRequestFailure(_ error: Error, for active: LuminaSession) {
         guard isCurrent(active) else { return }
-        if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
+        if Self.isAuthenticationFailure(error) {
             clearSession()
             errorMessage = Self.message(for: error, signingIn: false)
         } else if Self.isConnectionFailure(error) {
@@ -1578,6 +1677,11 @@ let tickScale = 10_000_000.0
         } else {
             errorMessage = Self.message(for: error, signingIn: false)
         }
+    }
+
+    private static func isAuthenticationFailure(_ error: Error) -> Bool {
+        guard let failure = error as? LuminaError else { return false }
+        return failure == .http(401) || failure == .http(403)
     }
 
     private static func isConnectionFailure(_ error: Error) -> Bool {

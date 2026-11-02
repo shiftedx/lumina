@@ -439,7 +439,7 @@ class LibraryImportService:
         if normalized is not None:
             run.scope = normalized  # never assigned for a full run: the column stays SQL NULL
         with write_transaction(self.db, name="import_start"):  # the idle check and the insert are one transaction
-            self._require_idle(root_id)
+            self._require_idle(root_id, manager_scope=trigger == "manager" and normalized is not None)
             self.db.add(run)
         _run_changes[run.id] = ImportChanges()
         return run
@@ -487,12 +487,18 @@ class LibraryImportService:
         return run
 
     def _require_newest(self, run: ImportRun) -> None:
-        newer = self.db.query(ImportRun.id).filter(ImportRun.root_id == run.root_id, ImportRun.created_at > run.created_at).first()
+        query = self.db.query(ImportRun.id).filter(ImportRun.root_id == run.root_id, ImportRun.created_at > run.created_at)
+        if run.scope is None:
+            query = query.filter(or_(func.coalesce(ImportRun.trigger, "") != "manager", ImportRun.scope.is_(None)))
+        newer = query.first()
         if newer is not None:
             raise ImportRunError("A newer import ran for this folder. Rescan instead.")
 
-    def _require_idle(self, root_id: str) -> None:
-        if self.db.query(ImportRun.id).filter(ImportRun.root_id == root_id, ImportRun.state.in_(ACTIVE_STATES)).first():
+    def _require_idle(self, root_id: str, *, manager_scope: bool = False) -> None:
+        active = self.db.query(ImportRun).filter(ImportRun.root_id == root_id, ImportRun.state.in_(ACTIVE_STATES)).all()
+        # Root locks still serialize each batch. One manager folder can reconcile
+        # between full-scan batches without waiting for the entire root walk.
+        if active and not (manager_scope and len(active) == 1 and active[0].scope is None and active[0].state == "running"):
             raise ImportRunError("An import is already running for this root.")
 
     def step(self, run_id: str) -> bool:
@@ -538,6 +544,16 @@ class LibraryImportService:
             _clear_live_walk(run_id)
             _run_changes.pop(run_id, None)
             return True
+        if run.scope is None:
+            priority = self.db.scalar(select(ImportRun.id).where(
+                ImportRun.root_id == run.root_id, ImportRun.trigger == "manager", ImportRun.scope.is_not(None),
+                ImportRun.state.in_(ACTIVE_STATES), ImportRun.created_at > run.created_at,
+            ).order_by(ImportRun.created_at).limit(1))
+            if priority is not None:
+                # Scheduled full scans and manager work share a driver lane. Drain
+                # the folder first, retaining the full scan's durable cursor.
+                self._step(priority)
+                return False
         root = self.db.get(StorageRoot, run.root_id)
         if root is None or not self._online(run, root):
             # A missing or swapped mount is never read as an empty library.
@@ -1167,6 +1183,11 @@ class LibraryImportService:
             MediaArtifact.root_id == root.id,
             MediaArtifact.lifecycle == "available",
             or_(MediaArtifact.last_seen_run_id.is_(None), MediaArtifact.last_seen_run_id != run.id),
+            # A manager folder scan may have indexed a replacement after this
+            # older walk captured its directory listing. Preserve that observation.
+            or_(MediaArtifact.last_seen_run_id.is_(None), MediaArtifact.last_seen_run_id.notin_(
+                select(ImportRun.id).where(ImportRun.root_id == root.id, ImportRun.created_at > run.created_at)
+            )),
         )
         if counters.get("inspected", 0) == 0 and unseen.first() is not None:
             # An empty listing of a root that held media looks like a lost mount, not a deleted library.

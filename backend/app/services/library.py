@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -26,7 +27,7 @@ from app.services.artifact_quarantine import ArtifactQuarantineService
 from app.services.chapters import normalize_chapters
 from app.services.media_artifacts import MediaArtifactService
 from app.services.reco.events import library_channel_key
-from app.services.storage_roots import ONLINE_STATES
+from app.services.storage_roots import ONLINE_STATES, StorageRootService
 from app.services.webhooks import WebhookService
 
 
@@ -444,6 +445,53 @@ class LibraryService:
     def resolve_media_path(self, item: LibraryItem) -> Path:
         """The item's registered artifact file; never a raw stored path."""
         return MediaArtifactService(self.db).locate(item)[0]
+
+    def playback_item(self, item: LibraryItem, user: User) -> LibraryItem:
+        """Recover a stale playback choice using a visible, live version of the same leaf title.
+
+        Offline roots, quarantine, permission errors and unsafe paths are not deletion
+        evidence. This read-only fallback never changes history or file lifecycle.
+        """
+        artifacts = MediaArtifactService(self.db)
+        found = artifacts.artifact_for(item.id)
+        if found is None or not self.can_view(item, user):
+            raise FileNotFoundError("Media file is not available.")
+        artifact, root = found
+        roots = StorageRootService(self.db)
+        if not roots.is_online(root) or artifact.lifecycle not in {"available", "missing"}:
+            raise FileNotFoundError("Media file is not available.")
+        try:
+            artifacts.locate(item)
+            return item
+        except FileNotFoundError:
+            path = Path(root.path) / artifact.relative_path
+            if os.path.realpath(path) != str(path):
+                raise
+            try:
+                os.lstat(path)
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileNotFoundError("Media file is not available.")
+        title = self.db.get(MediaTitle, item.title_id) if item.title_id else None
+        if title is None or title.type not in {"movie", "episode"} or item.extra_type is not None:
+            raise FileNotFoundError("Media file is not available.")
+        from app.services.titles import TitleService
+
+        batch = TitleService(self.db).load(user, [title], with_artwork=False)
+        preferred = batch.preferred_version(title.id)
+        for other in sorted(batch.versions.get(title.id, []), key=lambda row: (row.id != getattr(preferred, "id", None), -(row.file_size or 0))):
+            if other.id == item.id:
+                continue
+            candidate = artifacts.artifact_for(other.id)
+            if candidate is None or not roots.is_online(candidate[1]):
+                continue
+            try:
+                artifacts.locate(other)
+            except (FileNotFoundError, OSError):
+                continue
+            return other
+        raise FileNotFoundError("Media file is not available.")
 
     def upsert_from_info(self, info: dict, owner_user_id: str | None = None, visibility: str = "private") -> LibraryItem:
         extractor = info.get("extractor_key") or info.get("extractor")

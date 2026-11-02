@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 /**
  * Local-only auth and provider-auth route absence, end to end.
  *
@@ -116,10 +117,7 @@ test('local-only auth: no provider buttons, local login boots, Settings has no T
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 
   // Settings surface has NO Twitch connection card (label absence).
-  // At the 1536x960 desktop viewport the sidebar is open by default (the
-  // account control is visible), so click it directly.
-  await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('button', { name: 'My Settings' }).click();
+  await navigateApp(page, 'My Settings');
   await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
   await expect(page.getByText('Twitch chat identity')).toHaveCount(0);
   await expect(page.locator('.twitch-connection-card')).toHaveCount(0);

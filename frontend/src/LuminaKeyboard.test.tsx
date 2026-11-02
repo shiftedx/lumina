@@ -305,12 +305,6 @@ function cancelDialog() {
   act(() => { document.querySelector('dialog[open]')!.dispatchEvent(new Event('cancel', { cancelable: true })); });
 }
 
-/** The profile menu: open it from the account trigger and pick an entry. */
-async function chooseFromAccountMenu(browser: ReturnType<typeof userEvent.setup>, label: string) {
-  await browser.click(screen.getByRole('button', { name: 'One Person, account menu' }));
-  await browser.click(await screen.findByRole('button', { name: label, hidden: true }));
-}
-
 async function openPalette(browser: ReturnType<typeof userEvent.setup>) {
   await browser.click(screen.getByRole('button', { name: /^Search Lumina, / }));
   return screen.findByRole('combobox', { name: 'Search Lumina' });
@@ -1274,7 +1268,7 @@ describe('Media acquisition shell integration', () => {
     }));
 
     render(<LuminaApp />);
-    await chooseFromAccountMenu(browser, 'My Settings');
+    await navigateWithMenu(browser, 'Settings');
     await browser.click(within(await screen.findByRole('navigation', { name: 'Settings sections' })).getByRole('link', { name: 'Downloads' }));
     chooseSelect(await screen.findByRole('combobox', { name: 'Default quality' }), 'Video · 1080p');
     // Nothing hides behind a disclosure: Container is one row away.

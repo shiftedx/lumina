@@ -161,7 +161,7 @@ describe('TopBar', () => {
     expect(screen.getByRole('button', { name: 'Library activity unavailable' })).toBeTruthy();
   });
 
-  it('offers the profile menu: switch member, settings, theme and sign out', async () => {
+  it('offers saved-member switching, personal actions, theme and sign out', async () => {
     const p = props({ theme: 'dark' });
     const picker = vi.fn();
     const stop = onCommand(MEMBER_PICKER_EVENT, picker);

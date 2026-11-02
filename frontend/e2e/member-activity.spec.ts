@@ -24,7 +24,12 @@ for (const [width, scheme] of [[1440, 'light'], [1440, 'dark'], [390, 'dark']] a
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Good (morning|afternoon|evening)/)).toBeVisible();
     await expect(dialog.getByText('UTC', { exact: false }).first()).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'My Settings' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /My Settings|Manage Server|Sign in as someone else/ })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Edit home' })).toBeVisible();
+    const bars = await dialog.locator('ol li > span').all();
+    const sizes = await Promise.all(bars.map((bar) => bar.boundingBox()));
+    expect(Math.max(...sizes.map((size) => size!.width))).toBeLessThanOrEqual(10);
+    expect(Math.max(...sizes.map((size) => size!.height))).toBeGreaterThan(50);
     expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(width);
     expect((await new AxeBuilder({ page }).include('.member-activity-dialog').analyze()).violations).toEqual([]);
     mkdirSync('../output/member-activity', { recursive: true });
@@ -36,7 +41,11 @@ for (const [width, scheme] of [[1440, 'light'], [1440, 'dark'], [390, 'dark']] a
     await expect(dialog.getByRole('button', { name: /Retry|Try again/ })).toBeVisible();
     failed = false; await dialog.getByRole('button', { name: /Retry|Try again/ }).click();
     await expect(dialog.getByRole('button', { name: /Retry|Try again/ })).toHaveCount(0);
-    await dialog.getByRole('button', { name: 'My Settings' }).click();
-    await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(/\/settings/);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: 'Primary' });
+    await expect(navigation.getByRole('button', { name: 'Manage Server', exact: true })).toBeVisible();
+    await navigation.getByRole('button', { name: 'My Settings', exact: true }).click();
+    await expect(page).toHaveURL(/\/settings/);
   });
 }

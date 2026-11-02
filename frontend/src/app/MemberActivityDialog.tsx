@@ -32,12 +32,9 @@ export interface MemberActivityDialogProps {
   user: UserProfile;
   theme: ThemePreference;
   onTheme: (theme: ThemePreference) => void;
-  switchMemberLabel: string;
-  onSwitchMember: () => void;
+  onSwitchMember?: () => void;
   onEditHome: () => void;
   onMobileConnect: () => void;
-  onSettings: () => void;
-  onManageServer?: () => void;
   onSignOut: () => void;
   activityState: MemberActivityState;
   activity: MemberActivitySummary | null;
@@ -109,11 +106,9 @@ export function MemberActivityDialog(props: MemberActivityDialogProps) {
       <section aria-labelledby="member-account-heading" className="member-activity-account">
         <h3 id="member-account-heading">Account</h3>
         <div className="member-activity-actions">
-          <Button onClick={closeThen(props.onSwitchMember)} variant="quiet">{props.switchMemberLabel}</Button>
+          {props.onSwitchMember ? <Button onClick={closeThen(props.onSwitchMember)} variant="quiet">Switch member…</Button> : null}
           <Button onClick={closeThen(props.onEditHome)} variant="quiet">Edit home</Button>
           <Button onClick={closeThen(props.onMobileConnect)} variant="quiet">Mobile connect</Button>
-          <Button onClick={closeThen(props.onSettings)} variant="quiet">My Settings</Button>
-          {props.onManageServer ? <Button onClick={closeThen(props.onManageServer)} variant="quiet">Manage Server</Button> : null}
         </div>
       </section>
       <fieldset className="member-activity-themes">

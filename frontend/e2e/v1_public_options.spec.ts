@@ -165,8 +165,7 @@ async function login(page: Page) {
 }
 
 async function openSettings(page: Page) {
-  await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('button', { name: 'My Settings' }).click();
+  await navigateApp(page, 'My Settings');
   await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
 }
 

@@ -116,6 +116,18 @@ describe('the request sheet', () => {
     await waitFor(() => expect(within(rail).getByText('Requested')).toBeTruthy());
   });
 
+  it('can request all anime seasons from a mapped card while optional season details are pending', async () => {
+    api.getCatalogTitle.mockImplementation(() => new Promise(() => undefined));
+    api.createRequest.mockResolvedValue(request({ kind: 'anime', key: anime.key, status: 'pending' }));
+    renderSurface();
+    const rail = (await screen.findByRole('heading', { name: 'This season in anime · Fall 2026' })).closest('section')!;
+    await userEvent.click(within(rail).getByRole('button', { name: 'Request Attack on Titan' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Request Attack on Titan' });
+    await userEvent.click(within(sheet).getByRole('radio', { name: /English audio/ }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Request' }));
+    expect(api.createRequest).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anime', seasons: 'all', language: 'dub', audio_language: 'en' }));
+  });
+
   it('reverts the ribbon and says why when the quota is used up', async () => {
     api.createRequest.mockRejectedValue(new ApiRequestError('quota_exceeded', 429, null, null, { detail: 'quota_exceeded' }));
     renderSurface();
@@ -171,9 +183,11 @@ describe('language variants', () => {
     renderSurface({ surface: 'requests', view: 'title', kind: 'anime', id: 16498 });
     expect(await screen.findByRole('button', { name: 'Open in Library' })).toBeTruthy();
     expect(screen.getByText('Checking English availability…')).toBeTruthy();
+    api.getCatalogTitle.mockImplementation(() => new Promise(() => undefined));
     await userEvent.click(screen.getByRole('button', { name: 'Request another language' }));
     const sheet = await screen.findByRole('dialog', { name: 'Request Attack on Titan' });
     await within(sheet).findByText('3 of 10 left this week');
+    expect(api.getCatalogTitle).toHaveBeenCalledTimes(1);
     await userEvent.click(within(sheet).getByRole('radio', { name: /English audio/ }));
     await userEvent.click(within(sheet).getByRole('button', { name: 'Request' }));
     expect(api.createRequest).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anime', language: 'dub', audio_language: 'en' }));

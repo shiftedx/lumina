@@ -43,7 +43,12 @@ def availability(db, user, title_id):  # noqa: ANN001, ANN201
     if not title_id:
         return {"state": "unknown", "files": [], "truncated": False, "total_files": 0}
     leaf, season = aliased(MediaTitle), aliased(MediaTitle)
-    base = select(LibraryItem, MediaArtifact, leaf.index_number, season.index_number).join(
+    season_ids = select(MediaTitle.id).where(MediaTitle.parent_id == title_id).correlate(None)
+    episode_ids = select(MediaTitle.id).where(MediaTitle.parent_id.in_(season_ids))
+    base = select(
+        LibraryItem.kind, LibraryItem.metadata_json, MediaArtifact.probe, MediaArtifact.size, MediaArtifact.mtime_ns,
+        leaf.index_number, season.index_number,
+    ).select_from(LibraryItem).join(
         leaf, leaf.id == LibraryItem.title_id,
     ).outerjoin(season, season.id == leaf.parent_id).outerjoin(
         LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id,
@@ -52,14 +57,13 @@ def availability(db, user, title_id):  # noqa: ANN001, ANN201
     ).where(
         LibraryItem.status != "missing", LibraryItem.extra_type.is_(None), LibraryService.visible_predicate(user),
         or_(LibraryItemArtifact.artifact_id.is_(None), (MediaArtifact.lifecycle == "available") & StorageRoot.enabled.is_(True)),
-        or_(leaf.id == title_id, season.parent_id == title_id),
+        or_(LibraryItem.title_id == title_id, LibraryItem.title_id.in_(episode_ids)),
     )
     rows = db.execute(base.order_by(LibraryItem.id).limit(LIMIT + 1)).all()
     total = db.scalar(select(func.count()).select_from(base.order_by(None).subquery())) or 0
     files = []
-    for item, artifact, episode_number, season_number in rows[:LIMIT]:
-        probe = artifact.probe if artifact else None
-        if isinstance(probe, dict) and artifact.size is not None and artifact.mtime_ns is not None and probe.get("fingerprint") != f"{artifact.size}:{artifact.mtime_ns}":
+    for kind, metadata_json, probe, size, mtime_ns, episode_number, season_number in rows[:LIMIT]:
+        if isinstance(probe, dict) and size is not None and mtime_ns is not None and probe.get("fingerprint") != f"{size}:{mtime_ns}":
             probe = None
         streams = probe.get("streams") if isinstance(probe, dict) and not probe.get("error") else None
         streams = streams if isinstance(streams, list) else None
@@ -76,9 +80,9 @@ def availability(db, user, title_id):  # noqa: ANN001, ANN201
                     unknown_subtitles = True
             else:
                 (audios if stream["type"] == "audio" else subtitles).add(language)
-        if item.metadata_json is not None and not isinstance(item.metadata_json, dict):
+        if metadata_json is not None and not isinstance(metadata_json, dict):
             unknown_subtitles = True
-        metadata = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+        metadata = metadata_json if isinstance(metadata_json, dict) else {}
         sidecars = metadata.get("lumina_subtitles", [])
         if not isinstance(sidecars, list):
             unknown_subtitles = True
@@ -92,8 +96,8 @@ def availability(db, user, title_id):  # noqa: ANN001, ANN201
             unknown_audio = True
         files.append({"audio_languages": sorted(audios), "subtitle_languages": sorted(subtitles),
                       "audio_known": not unknown_audio, "subtitles_known": not unknown_subtitles,
-                      "season": season_number if season_number is not None and item.kind == "episode" else None,
-                      "episode": episode_number if item.kind == "episode" else None})
+                      "season": season_number if season_number is not None and kind == "episode" else None,
+                      "episode": episode_number if kind == "episode" else None})
     known = sum(f["audio_known"] and f["subtitles_known"] for f in files)
     state = "known" if files and known == len(files) and total <= LIMIT else "partial" if known or any(f["audio_languages"] or f["subtitle_languages"] for f in files) else "unknown"
     return {"state": state, "files": files, "truncated": total > LIMIT, "total_files": total}

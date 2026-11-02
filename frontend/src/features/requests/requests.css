@@ -250,4 +250,11 @@
 .rq-surface.is-title .rq-title-toolbar .g-search input::placeholder { color: var(--g-overlay-ink-2); }
 .rq-surface.is-title .rq-title-hero { min-height: 360px; }
 
-.rq-language-evidence { margin-block: var(--g-space-6); max-width: 75ch; }
+.rq-language-evidence { margin-block: var(--g-space-6); max-width: 960px; }
+.rq-language-evidence header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.rq-language-evidence h2 { font: var(--g-type-h3); }
+.rq-language-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 24px; }
+.rq-language-summary td { text-align: end; white-space: nowrap; }
+.rq-language-evidence summary { cursor: pointer; padding-block: 12px; font: var(--g-type-small); }
+.rq-language-files { max-height: 320px; overflow: auto; }
+.rq-language-files thead { position: sticky; top: 0; background: var(--g-paper); }

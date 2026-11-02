@@ -173,9 +173,13 @@ describe('language variants', () => {
     api.getCatalogTitle.mockResolvedValue(available);
     api.createRequest.mockResolvedValue(request({ kind: 'show', status: 'pending' }));
     renderSurface({ surface: 'requests', view: 'title', kind: 'show', id: 1399 });
-    expect(await screen.findByText('Season 1, episode 1: Audio: English · Subtitles: Japanese')).toBeTruthy();
-    expect(screen.getByText('Season 1, episode 2: Audio: Japanese · Subtitles: unknown')).toBeTruthy();
-    expect(screen.getByText('Showing 2 of 3 files.')).toBeTruthy();
+    const evidence = await screen.findByRole('region', { name: 'Languages in your library' });
+    expect(within(evidence).getByText('Showing language coverage for 2 of 3 files. Files may contain multiple languages. Some language information is unknown.')).toBeTruthy();
+    expect(within(evidence).getAllByText('1 / 2 files')).toHaveLength(4);
+    expect(within(evidence).getByText('File details · 2 files').closest('details')?.open).toBe(false);
+    await userEvent.click(within(evidence).getByText('File details · 2 files'));
+    const rows = within(within(evidence).getByRole('region', { name: 'File language details' })).getAllByRole('row');
+    expect(rows.slice(1).map((row) => row.textContent)).toEqual(['S1 · E1EnglishJapanese', 'S1 · E2JapaneseUnknown']);
     await userEvent.click(screen.getByRole('button', { name: 'Request another language' }));
     const sheet = await screen.findByRole('dialog', { name: 'Request Game of Thrones' });
     const send = within(sheet).getByRole('button', { name: 'Request' });

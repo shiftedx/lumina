@@ -11,7 +11,7 @@ import { useLoad, useRequests } from './requestsContext';
 import { catalogId, errorCopy, isActive, KIND_LABEL, type SeasonMode, seasonsPayload, stateLabel, timeline } from './requestsModel';
 import { Chips } from './Browse';
 import { Art } from './parts';
-import { LanguageChoice, SeasonPicker } from './RequestSheet';
+import { languageName, LanguagePreferences, SeasonPicker } from './RequestSheet';
 
 const POLL_MS = 15_000;
 
@@ -30,7 +30,7 @@ function RequestRow({ request, showRequester, children }: { request: MediaReques
   const { openLibrary, go } = useRequests();
   const id = catalogId(request);
   const open = () => (request.status === 'available' && request.library_title_id ? openLibrary(request.library_title_id) : id ? go({ surface: 'requests', view: 'title', kind: request.kind, id }) : undefined);
-  const details = [request.year, KIND_LABEL[request.kind], seasonsText(request.seasons), languageText(request.language)].filter(Boolean).join(' · ');
+  const details = [request.year, KIND_LABEL[request.kind], seasonsText(request.seasons), request.audio_language || request.subtitle_language ? [request.audio_language ? `${languageName(request.audio_language)} audio` : null, request.subtitle_language ? `${languageName(request.subtitle_language)} subtitles` : null].filter(Boolean).join(', ') : languageText(request.language), request.fulfillment_mode === 'manual' ? 'Manual review' : null].filter(Boolean).join(' · ');
   const people = [showRequester ? `Asked by ${request.requested_by.name}` : null, request.followers.length ? `also wanted by ${request.followers.map((member) => member.name).join(', ')}` : null].filter(Boolean).join(', ');
   return (
     <li className="rq-request">
@@ -92,18 +92,21 @@ function AmendDialog({ request, onClose, onApproved }: { request: MediaRequest; 
   const detail = useLoad(series && id ? `${request.kind}:${id}` : '', (signal) => (series && id ? getCatalogTitle(request.kind, id, signal) : Promise.resolve(null)));
   const [mode, setMode] = useState<SeasonMode>(request.seasons === 'all' ? 'all' : 'pick');
   const [picked, setPicked] = useState<number[]>(Array.isArray(request.seasons) ? request.seasons : []);
-  const [language, setLanguage] = useState<Language | null>(request.language);
+  const [audio, setAudio] = useState(request.audio_language ?? (request.language === 'dub' ? 'en' : request.language === 'sub' ? 'ja' : ''));
+  const [subtitles, setSubtitles] = useState(request.subtitle_language ?? (request.language === 'sub' ? 'en' : ''));
+  const [languageChanged, setLanguageChanged] = useState(false);
   const [busy, setBusy] = useState(false);
   const seasons = seasonsPayload(mode, picked, detail.data?.seasons ?? []);
   const approve = async () => {
-    const amend: Amend = { ...(series && seasons ? { seasons } : {}), ...(request.kind === 'anime' && series && language ? { language } : {}) };
+    const amend: Amend = { ...(series && seasons ? { seasons } : {}), ...(languageChanged ? { audio_language: audio || null, subtitle_language: subtitles || null } : {}) };
     setBusy(true);
     try { await approveRequest(request.id, amend); toast({ tone: 'success', message: `Approved ${request.title}.` }); onApproved(); onClose(); } catch (failure) { toast({ tone: 'error', message: errorCopy(errorCode(failure), "Lumina couldn't approve that request.") }); setBusy(false); }
   };
   return (
     <Dialog busy={busy} footer={<><Button onClick={onClose} variant="quiet">Cancel</Button><Button aria-disabled={(series && !seasons) || undefined} busy={busy} onClick={() => { if (!series || seasons) void approve(); }} variant="primary">Approve</Button></>} onClose={onClose} open title={`Approve ${request.title}`}>
-      {series ? (detail.data ? <SeasonPicker mode={mode} onMode={setMode} onPicked={setPicked} picked={picked} seasons={detail.data.seasons} /> : detail.error ? null : <Skeleton count={3} label="Loading seasons" shape="line" />) : <p className="rq-muted">Films have nothing to change; this approves as asked.</p>}
-      {request.kind === 'anime' && series ? <LanguageChoice onChange={setLanguage} value={language} /> : null}
+      {series ? (detail.data ? <SeasonPicker mode={mode} onMode={setMode} onPicked={setPicked} picked={picked} seasons={detail.data.seasons} /> : detail.error ? null : <Skeleton count={3} label="Loading seasons" shape="line" />) : <p className="rq-muted">Review the requested language below.</p>}
+      <LanguagePreferences audio={audio} onAudio={(value) => { setAudio(value); setLanguageChanged(true); }} onSubtitles={(value) => { setSubtitles(value); setLanguageChanged(true); }} subtitles={subtitles} />
+      <p className="rq-muted">Language-specific requests may need manual search. Automatic anime searches follow the manager's settings and may replace an existing version.</p>
     </Dialog>
   );
 }

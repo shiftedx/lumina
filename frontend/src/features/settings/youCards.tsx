@@ -358,12 +358,12 @@ export function PresetFallback({ formatPreset, onFormatChange }: { formatPreset:
 
 /** Settings → Streaming: YouTube is always on; Twitch and Kick are the member's to switch. */
 export function StreamingProvidersCard() {
-  const { providers, setEnabled } = useStreamingProviders();
+  const { enabled, setEnabled } = useStreamingProviders();
   return (
     <fieldset className="g-fieldset"><legend className="sr-only">Streaming providers</legend>
       <p className="g-setting-note">YouTube — Always on</p>
-      <SettingSwitch checked={providers.includes('twitch')} label="Twitch" onChange={(on) => void setEnabled('twitch', on)} />
-      <SettingSwitch checked={providers.includes('kick')} label="Kick" onChange={(on) => void setEnabled('kick', on)} />
+      <SettingSwitch checked={enabled.includes('twitch')} label="Twitch" onChange={(on) => void setEnabled('twitch', on)} />
+      <SettingSwitch checked={enabled.includes('kick')} label="Kick" onChange={(on) => void setEnabled('kick', on)} />
       <p className="g-setting-note">Kick chat needs an account; playback works.</p>
     </fieldset>
   );

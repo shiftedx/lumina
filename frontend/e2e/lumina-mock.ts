@@ -1,4 +1,5 @@
 import { expect, type Page, type Route } from '@playwright/test';
+import type { ServerNavigation } from '../src/types';
 import { SETTINGS_CATEGORIES } from '../src/features/settings/navigation';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_LENGTH, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 
@@ -30,7 +31,9 @@ const rules = { include_title: [], exclude_title: [], include_uploader: [], excl
 const downloadDefaults = { format_selection: formatSelection, output_profile: outputProfile };
 const automationDefaults = { cron_expression: '0 */6 * * *', auto_download: false, format_selection: formatSelection, output_profile: outputProfile, rules, duplicate_policy: 'skip_same_source', max_items_per_run: 20, max_items_per_day: null, backfill_limit: 10 };
 
-export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
+export const DEFAULT_NAVIGATION: ServerNavigation = { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } };
+
+export async function mockApi(page: Page, uiPrefs: Record<string, unknown>, navigation: ServerNavigation = DEFAULT_NAVIGATION) {
   const saved: Record<string, unknown>[] = [];
   // Server-owned search history: a per-member in-memory list, most-recent-first, deduped case-insensitively.
   const searchHistory: { id: string; query: string; searched_at: string }[] = [];
@@ -82,6 +85,7 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     }
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });
+    if (path === '/api/navigation') return json(navigation);
     if (path === '/api/library/sections') return json({ movies: 1, shows: 1, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 1, recordings: 0, deleted: 0 });
     if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
     if (path === '/api/books/shelves') return json([]);

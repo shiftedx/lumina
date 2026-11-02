@@ -63,11 +63,62 @@ public enum RequestSeasonSelection: Codable, Sendable, Equatable {
     }
 }
 
+public struct RequestLanguageAvailability: Codable, Hashable, Sendable {
+    public struct File: Codable, Hashable, Sendable {
+        public let audioLanguages: [String]
+        public let subtitleLanguages: [String]
+        public let audioKnown: Bool
+        public let subtitlesKnown: Bool
+        public let season: Int?
+        public let episode: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case audioLanguages = "audio_languages", subtitleLanguages = "subtitle_languages"
+            case audioKnown = "audio_known", subtitlesKnown = "subtitles_known"
+            case season, episode
+        }
+
+        public var description: String {
+            let location: String
+            if let season, let episode { location = "Season \(season), episode \(episode)" }
+            else if let season { location = "Season \(season)" }
+            else { location = "File" }
+            let audio = Self.trackDescription(audioLanguages, known: audioKnown)
+            let subtitles = Self.trackDescription(subtitleLanguages, known: subtitlesKnown)
+            return "\(location) · Audio: \(audio) · Subtitles: \(subtitles)"
+        }
+
+        private static func trackDescription(_ languages: [String], known: Bool) -> String {
+            let names = languages.map(RequestLanguageOptions.label).joined(separator: ", ")
+            if known { return names.isEmpty ? "None identified" : names }
+            return names.isEmpty ? "Unknown" : "\(names); other tracks unknown"
+        }
+    }
+    public let state: String
+    public let files: [File]
+    public let truncated: Bool
+    public let totalFiles: Int
+    enum CodingKeys: String, CodingKey { case state, files, truncated; case totalFiles = "total_files" }
+}
+
+public enum RequestLanguageOptions {
+    public static func label(_ code: String) -> String {
+        Locale.current.localizedString(forLanguageCode: code) ?? code.uppercased()
+    }
+    public static func codes(_ availability: RequestLanguageAvailability?) -> [String] {
+        let observed = (availability?.files ?? []).flatMap { $0.audioLanguages + $0.subtitleLanguages }
+        return Array(Set(["en", "ja", "es", "fr", "de", "ko", "zh"] + observed)).sorted { label($0).localizedCaseInsensitiveCompare(label($1)) == .orderedAscending }
+    }
+}
+
 public struct RequestCatalogStatus: Codable, Hashable, Sendable {
     public let state: RequestState
     public let requestID: String?
     public let progress: Double?
     public let libraryTitleID: String?
+    public let languageAvailability: RequestLanguageAvailability?
+
+    public var canRequestLanguageVariant: Bool { languageAvailability != nil }
 
     public var label: String {
         guard state == .processing, let progress else { return state.label }
@@ -84,6 +135,7 @@ public struct RequestCatalogStatus: Codable, Hashable, Sendable {
         case requestID = "request_id"
         case progress
         case libraryTitleID = "library_title_id"
+        case languageAvailability = "language_availability"
     }
 }
 
@@ -348,14 +400,28 @@ public struct RequestRecord: Codable, Identifiable, Sendable {
     public let posterURL: URL?
     public let seasons: RequestSeasonSelection?
     public let language: RequestLanguage?
+    public let audioLanguage: String?
+    public let subtitleLanguage: String?
+    public let fulfillmentMode: String?
     public let status: RequestState
     public let progress: Double?
     public let requestedBy: RequestMember
     public let followers: [RequestMember]
     public let libraryTitleID: String?
 
+    public var languageDescription: String? {
+        var parts = [String]()
+        if let audioLanguage { parts.append("Audio: \(RequestLanguageOptions.label(audioLanguage))") }
+        if let subtitleLanguage { parts.append("Subtitles: \(RequestLanguageOptions.label(subtitleLanguage))") }
+        if parts.isEmpty, let language { parts.append(language == .dub ? "English dub" : "Japanese + subtitles") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, kind, key, title, year, seasons, language, status, progress, followers
+        case audioLanguage = "audio_language"
+        case subtitleLanguage = "subtitle_language"
+        case fulfillmentMode = "fulfillment_mode"
         case mediaType = "media_type"
         case tmdbID = "tmdb_id"
         case tvdbID = "tvdb_id"
@@ -491,9 +557,9 @@ public enum RequestAPIError: LocalizedError, Sendable, Equatable {
         return try await request("/catalog/title/\(kind.rawValue)/\(id)")
     }
 
-    public func create(_ item: RequestCatalogItem, seasons: RequestSeasonSelection? = nil, language: RequestLanguage? = nil) async throws -> RequestRecord {
-        guard item.canRequest, item.status.canCreateRequest else { throw RequestAPIError.invalidRequest }
-        let submission = try RequestSubmission(item: item, seasons: seasons, language: language)
+    public func create(_ item: RequestCatalogItem, seasons: RequestSeasonSelection? = nil, language: RequestLanguage? = nil, audioLanguage: String? = nil, subtitleLanguage: String? = nil) async throws -> RequestRecord {
+        guard item.canRequest, item.status.canCreateRequest || (item.status.canRequestLanguageVariant && (audioLanguage != nil || subtitleLanguage != nil)) else { throw RequestAPIError.invalidRequest }
+        let submission = try RequestSubmission(item: item, seasons: seasons, language: language, audioLanguage: audioLanguage, subtitleLanguage: subtitleLanguage)
         return try await request("", method: "POST", body: submission)
     }
 
@@ -558,7 +624,10 @@ private struct RequestSubmission: Encodable {
     let seasons: RequestSeasonSelection?
     let language: RequestLanguage?
 
-    init(item: RequestCatalogItem, seasons: RequestSeasonSelection?, language: RequestLanguage?) throws {
+    let audioLanguage: String?
+    let subtitleLanguage: String?
+
+    init(item: RequestCatalogItem, seasons: RequestSeasonSelection?, language: RequestLanguage?, audioLanguage: String?, subtitleLanguage: String?) throws {
         guard item.catalogID != nil else { throw RequestAPIError.invalidRequest }
         kind = item.kind
         tmdbID = item.tmdbID
@@ -567,10 +636,14 @@ private struct RequestSubmission: Encodable {
         mediaType = item.kind == .anime && item.mediaType == .movie ? .movie : nil
         self.seasons = item.mediaType == .tv ? seasons ?? .all : nil
         self.language = item.kind == .anime && item.mediaType == .tv ? language : nil
+        self.audioLanguage = audioLanguage
+        self.subtitleLanguage = subtitleLanguage
     }
 
     enum CodingKeys: String, CodingKey {
         case kind, seasons, language
+        case audioLanguage = "audio_language"
+        case subtitleLanguage = "subtitle_language"
         case tmdbID = "tmdb_id"
         case tvdbID = "tvdb_id"
         case anilistID = "anilist_id"

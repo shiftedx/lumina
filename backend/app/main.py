@@ -49,7 +49,7 @@ from app.routers import music as music_routes
 from app.services import metadata_history, tmdb
 from app.routers import hero_framing as hero_framing_routes, jellyfin, photo_faces as photo_face_routes, photos, titles
 from app.routers import requests_catalog, showcase as showcase_routes
-from app.routers import library_sections  # library gallery sections
+from app.routers import library_sections, navigation  # member navigation and library sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
 from app.services.requests.catalog import warm_loop as catalog_warm_loop
 from app.services.requests.sync import request_sync_loop
@@ -1112,6 +1112,7 @@ household_transfer.register(app)
 oauth_routes.register(app)
 jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its catch-all
 admin_media_server.register(app)
+navigation.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below
 requests_routes.register(app)
 arr_observations.register(app)

@@ -306,31 +306,12 @@ def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, An
 
 
 @router.get("/navigation")
-def get_navigation(response: Response, caller: Caller, db: Db) -> dict[str, list[str]]:
-    """Native menus reflect the complete visible catalog, never just a Home page of titles."""
-    from app.book_models import BookItem
-    from app.models import LibraryItem, MediaTitle
-    from app.services.books import BookService
-    from app.services.library import LibraryService
-    from app.services.titles import TitleService
+def get_navigation(response: Response, caller: Caller, db: Db) -> dict:
+    """Native and browser menus share the same member-visible destinations."""
+    from app.services.navigation import navigation
 
-    user = _live_user(db, caller)
-    categories = set()
-    for category in db.scalars(select(MediaTitle.category).where(
-        MediaTitle.type.in_(("movie", "series")), TitleService.visible(user),
-    ).distinct()):
-        if category in ("movies", "shows", "anime"):
-            categories.add("tv" if category == "shows" else category)
-    if db.scalar(select(LibraryItem.id).where(
-        LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(user),
-    ).limit(1)):
-        categories.add("music")
-    if db.scalar(select(BookItem.id).where(
-        BookService(db).catalog_predicate(user), BookItem.available.is_(True),
-    ).limit(1)):
-        categories.add("books")
     _no_store(response)
-    return {"categories": [key for key in ("movies", "tv", "anime", "music", "books") if key in categories]}
+    return navigation(db, _live_user(db, caller))
 
 
 def _resource_jobs(db: Session, user: User) -> list[dict[str, str]]:

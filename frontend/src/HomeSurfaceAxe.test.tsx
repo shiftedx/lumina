@@ -1,3 +1,4 @@
+import type { ServerNavigation } from './types';
 import axe from 'axe-core';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -22,11 +23,13 @@ homeApi.listTitles.mockResolvedValue({ items: [] });
 homeApi.getHomeTitleRows.mockResolvedValue({ rows: [] });
 homeApi.listHouseholdCollections.mockResolvedValue([]);
 
+const navigation: ServerNavigation = { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } };
+
 const noop = vi.fn();
 const user = { id: 'user-1', username: 'one', display_name: 'One Person', role: 'viewer', is_active: true } as UserProfile;
 
 function libraryItem(id: string): LibraryItem {
-  return { id, remote_id: `remote-${id}`, title: `Saved ${id}`, uploader: `Owner ${id}`, status: 'available', webpage_url: `https://example.test/${id}`, duration: 600 } as LibraryItem;
+  return { id, remote_id: `remote-${id}`, title: `Saved ${id}`, kind: 'video', uploader: `Owner ${id}`, status: 'available', webpage_url: `https://example.test/${id}`, duration: 600 } as LibraryItem;
 }
 
 function playback(id: string): PlaybackProgress {
@@ -43,6 +46,7 @@ function remoteItem(id: string): YouTubeSearchResult {
 function renderSeededHome() {
   return render(
     <HomeSurface
+      navigation={navigation}
       channels={[{ id: 'ch-1', label: 'Followed', source_type: 'channel' } as never]}
       continueWatching={[playback('a'), playback('b')]}
       homeShelves={null}
@@ -72,6 +76,7 @@ function renderSeededHome() {
 function renderLoadingHome() {
   return render(
     <HomeSurface
+      navigation={navigation}
       channels={[{ id: 'ch-1', label: 'Followed', source_type: 'channel' } as never]}
       continueWatching={[]}
       homeShelves={null}

@@ -20,9 +20,9 @@ from typing import Any, Iterable
 from sqlalchemy import select
 
 from app.db import session_scope
-from app.models import AppMaintenanceState, ArrServer, ImportRun, MediaRequest, StorageRoot, User, utcnow
+from app.models import AppMaintenanceState, ArrObservedItem, ArrServer, ImportRun, MediaRequest, StorageRoot, User, utcnow
 from app.persistence import write_transaction
-from app.services.requests import notify
+from app.services.requests import languages, notify
 from app.services.requests.arr import ArrClient, ArrError
 from app.services.requests.engine import ACTIVE
 from app.services.requests.status import library_title_for
@@ -265,13 +265,15 @@ def _observe(client: ArrClient, req: MediaRequest, queue: list[dict[str, Any]]) 
     else:
         series = client.call("GET", f"series/{req.arr_item_id}")
         files = count = 0
+        expected = {}
         for season in series.get("seasons") or []:
             number = season.get("seasonNumber", -1)
             if req.seasons == "all" and number > 0 or isinstance(req.seasons, list) and number in req.seasons:
                 stats = season.get("statistics") or {}
+                expected[number] = int(stats.get("episodeCount") or 0)
                 files += int(stats.get("episodeFileCount") or 0)
                 count += int(stats.get("episodeCount") or 0)
-        seen.update(complete=count > 0 and files >= count, partial=files > 0, folder=series.get("path"))
+        seen.update(complete=count > 0 and files >= count, partial=files > 0, folder=series.get("path"), expected=expected)
     return seen
 
 
@@ -280,6 +282,20 @@ def sync_once() -> None:
         if not YtDlpService(db).get_app_settings().requests_enabled:
             return
         servers = {s.id: s for s in db.scalars(select(ArrServer).where(ArrServer.enabled.is_(True)))}
+        manual = list(db.scalars(select(MediaRequest).where(MediaRequest.status.in_(ACTIVE), MediaRequest.arr_server_id.is_(None))))
+        for req in manual:
+            if languages.preference(req) == (None, None):
+                continue
+            requester = db.get(User, req.requested_by)
+            title_id = requester and library_title_for(db, requester, req.media_type, req.tmdb_id, req.tvdb_id)
+            if not title_id:
+                continue
+            facts = languages.availability(db, requester, title_id)
+            expected = _manual_expected(db, req, servers) if req.media_type == "tv" else {}
+            if _language_complete(req, facts, expected):
+                with write_transaction(db, name="manual_language_request_sync"):
+                    req.status, req.progress, req.library_title_id = "available", 1.0, title_id
+                    notify.request_event(db, req, "available")
         if not servers:
             return
         groups: dict[str, list[MediaRequest]] = defaultdict(list)
@@ -334,11 +350,59 @@ def _next_state(db: Any, server: ArrServer, req: MediaRequest, seen: dict[str, A
         requester = db.get(User, req.requested_by)
         title_id = requester and library_title_for(db, requester, req.media_type, req.tmdb_id, req.tvdb_id)
     if seen["complete"] and title_id:
-        return "available", 1.0, title_id
+        if languages.preference(req) == (None, None) or _language_complete(
+            req, languages.availability(db, requester, title_id), seen.get("expected", {}),
+        ):
+            return "available", 1.0, title_id
     if seen["downloading"]:
         return "processing", seen["progress"], title_id
     if seen["partial"] and req.media_type == "tv":
-        return "partially_available", None, title_id
+        if languages.preference(req) == (None, None) or title_id and any(
+            entry["season"] is not None and entry["episode"] is not None and languages.matches(entry, req)
+            and (req.seasons == "all" or isinstance(req.seasons, list) and entry["season"] in req.seasons)
+            for entry in languages.availability(db, requester, title_id)["files"]
+        ):
+            return "partially_available", None, title_id
     if seen["complete"]:  # the file is there; the vault has not met it yet
         return "processing", 1.0, title_id
     return req.status, req.progress, title_id
+
+
+def _language_complete(req, facts, expected):  # noqa: ANN001, ANN201
+    if facts["truncated"]:
+        return False
+    matches = [entry for entry in facts["files"] if languages.matches(entry, req)]
+    if req.media_type == "movie":
+        return bool(matches)
+    if not expected or any(not isinstance(count, int) or count <= 0 for count in expected.values()):
+        return False
+    if isinstance(req.seasons, list) and not set(req.seasons).issubset(expected):
+        return False
+    return all({entry["episode"] for entry in matches if entry["season"] == season}.issuperset(range(1, count + 1))
+               for season, count in expected.items())
+
+
+def _manual_expected(db, req, servers):  # noqa: ANN001, ANN201
+    """Read existing observed Sonarr inventory, never dispatch or change a manager profile."""
+    if not req.tvdb_id:
+        return {}
+    records = db.scalars(select(ArrObservedItem).where(
+        ArrObservedItem.media_type == "tv", ArrObservedItem.tvdb_id == req.tvdb_id,
+        ArrObservedItem.server_id.in_(servers),
+    ))
+    for item in records:
+        server = servers[item.server_id]
+        if server.kind != "sonarr":
+            continue
+        try:
+            series = ArrClient.of(server).call("GET", f"series/{item.upstream_id}")
+            expected = {}
+            for season in series.get("seasons") or []:
+                number = season.get("seasonNumber")
+                if type(number) is int and (req.seasons == "all" and number > 0 or isinstance(req.seasons, list) and number in req.seasons):
+                    expected[number] = int((season.get("statistics") or {}).get("episodeCount") or 0)
+            if expected:
+                return expected
+        except (ArrError, TypeError, ValueError, AttributeError):
+            continue
+    return {}

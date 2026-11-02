@@ -8,14 +8,17 @@ import { ChannelAvatar } from '../gallery/ChannelAvatar';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { cardColour } from '../gallery/galleryModel';
 import { remoteArt, remoteColour } from '../gallery/remoteModel';
-import type { LibraryItem, LocalSearchMatch, LocalSearchResponse, SearchHistoryEntry, SourceAutomation, TitleSummary, UserProfile, YouTubeSearchResult } from '../../types';
+import type { LibraryItem, ServerNavigation, LocalSearchMatch, LocalSearchResponse, SearchHistoryEntry, SourceAutomation, TitleSummary, UserProfile, YouTubeSearchResult } from '../../types';
 import { Dialog, EmptyState, ErrorState, Field, fieldProps, IconButton, Input, Kbd, Spinner, StatusText, TextButton, useToast } from '../../ui';
 import { filterActions, type PaletteContext, scanSummary } from './actions';
 import { buildPalette, cleanQuery, flatOptions, keepActive, moveActive, type PaletteOption } from './paletteModel';
+import { homeItemVisible, homeTitleVisible } from '../home/homeModel';
+import { isNavigationSurfaceAvailable } from '../../app/useServerNavigation';
 import { isApplePlatform } from '../../ui/platform';
 import './palette.css';
 
 export interface CommandPaletteProps {
+  navigation?: ServerNavigation | null;
   open: boolean;
   mode: PaletteMode;
   initialQuery?: string;
@@ -44,6 +47,7 @@ const NONE: Results = { session: '', query: '', local: null, remote: [], localFa
 const DEBOUNCE_MS = 200;
 
 export function CommandPalette(props: CommandPaletteProps) {
+  const streaming = Boolean(props.navigation?.features.streaming);
   const noOpen = providerBlocked(useAccess().access, 'open_search');
   const { open, mode, initialQuery = '', onClose, user, history, channels, context, sessionKey, captureSessionToken, isSessionTokenCurrent } = props;
   const [query, setQuery] = useState(initialQuery);
@@ -99,22 +103,36 @@ export function CommandPalette(props: CommandPaletteProps) {
         (local) => { if (current()) land({ local, localDone: true }); },
         () => { if (current()) land({ localFailed: true, localDone: true }); },
       );
-      (noOpen ? Promise.resolve({ items: [] }) : youtubeSearch({ query: typed, limit: 5 })).then(
+      (noOpen || !streaming ? Promise.resolve({ items: [] }) : youtubeSearch({ query: typed, limit: 5 })).then(
         (remote) => { if (current()) land({ remote: remote.items, remoteDone: true }); },
         () => { if (current()) land({ remoteFailed: true, remoteDone: true }); },
       );
     }, DEBOUNCE_MS);
     return () => { live = false; window.clearTimeout(timer); };
-  }, [open, mode, typed, retry, sessionKey, captureSessionToken, isSessionTokenCurrent, noOpen]);
+  }, [open, mode, typed, retry, sessionKey, captureSessionToken, isSessionTokenCurrent, noOpen, streaming]);
 
   // Answers belong to the member who asked: after a member change nothing of the previous one renders, even for a frame.
   const shown = results.session === sessionKey ? results : NONE;
   const groups = useMemo(() => buildPalette({
     query: typed, mode, user, history, channels,
-    local: shown.query === typed ? shown.local : null,
+    local: shown.query === typed && shown.local ? { ...shown.local, matches: (shown.local.matches ?? []).filter((match) => match.kind === 'title' ? Boolean(match.media_title && homeTitleVisible(match.media_title, props.navigation)) : match.kind === 'library' || match.kind === 'moment' ? Boolean(match.item && homeItemVisible(match.item, props.navigation)) : streaming) } : null,
     remote: shown.query === typed ? shown.remote : [],
-    actions: filterActions(typed, fullContext).filter((action) => !(noOpen && action.id === 'add-link')),
-  }).filter((group) => !(noOpen && (group.id === 'link' || group.id === 'everything' || group.id === 'youtube'))), [typed, mode, user, history, channels, shown, fullContext, noOpen]);
+    actions: filterActions(typed, fullContext).filter((action) => {
+      if (noOpen && action.id === 'add-link') return false;
+      if (['go-streaming', 'go-live', 'go-subscriptions'].includes(action.id)) return streaming;
+      if (action.id === 'go-channels') return Boolean(props.navigation?.categories.includes('youtube'));
+      if (action.id === 'new-collection' || action.id === 'new-smart-collection') return isNavigationSurfaceAvailable(props.navigation, 'library');
+      return true;
+    }),
+  }).filter((group) => !(noOpen && (group.id === 'link' || group.id === 'everything' || group.id === 'youtube')) && (streaming || !['everything', 'youtube', 'channels'].includes(group.id)))
+    .map((group) => ({ ...group, options: group.options.filter((option) => {
+      if (option.kind === 'title') return homeTitleVisible(option.title, props.navigation);
+      if (option.kind === 'video') return homeItemVisible(option.item, props.navigation);
+      if (option.kind === 'moment') return Boolean(option.match.item && homeItemVisible(option.match.item, props.navigation));
+      if (option.kind === 'goto' && option.path === '/library') return isNavigationSurfaceAvailable(props.navigation, 'library');
+      if (option.kind === 'goto' && option.path === '/photos') return isNavigationSurfaceAvailable(props.navigation, 'photos');
+      return true;
+    }) })).filter((group) => group.options.length), [typed, mode, user, history, channels, shown, fullContext, noOpen, streaming, props.navigation]);
   const options = flatOptions(groups);
   const current = keepActive(options, activeId);
   const loading = shown.session !== '' && shown.query === typed && !(shown.localDone && shown.remoteDone); // NONE (nothing asked yet) is not loading
@@ -153,7 +171,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     else if (event.key === 'Home' && event.ctrlKey) move('first');
     else if (event.key === 'End' && event.ctrlKey) move('last');
     else if (event.key === 'Enter' && event.nativeEvent.isComposing) return;
-    else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (typed && mode === 'search') { onClose(); props.onSearchEverything(typed); } }
+    else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (typed && mode === 'search' && streaming && !noOpen) { onClose(); props.onSearchEverything(typed); } }
     else if (event.key === 'Enter') {
       event.preventDefault();
       if (mode === 'link' && typed && !options.length) { setLinkError('Paste a public link starting with http:// or https://.'); return; }
@@ -219,8 +237,8 @@ export function CommandPalette(props: CommandPaletteProps) {
           );
         })}
       </div>
-      <p aria-hidden="true" className="g-palette-footer">{`↑↓ to move · ↵ to open · ${isApplePlatform() ? '⌘' : 'Ctrl'}↵ to open in Explore · esc to close`}</p>
-      <p className="sr-only" id={hintId}>Arrow keys move through results. Enter opens. Command or Control Enter searches everything in Explore. Escape clears, then closes.</p>
+      <p aria-hidden="true" className="g-palette-footer">{`↑↓ to move · ↵ to open${streaming && !noOpen ? ` · ${isApplePlatform() ? '⌘' : 'Ctrl'}↵ to open in Explore` : ''} · esc to close`}</p>
+      <p className="sr-only" id={hintId}>Arrow keys move through results. Enter opens. {streaming && !noOpen ? 'Command or Control Enter searches everything in Explore. ' : ''}Escape clears, then closes.</p>
       <div aria-live="polite" className="sr-only">{announcement}</div>
     </Dialog>
   );

@@ -12,7 +12,7 @@ vi.mock('./useLibraryActivity', () => libraryActivity);
 const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_active: true } as UserProfile;
 function Host({ focused = false, onNavigate = vi.fn(), onManageServer = vi.fn(), surface = 'home' as Surface, managingServer = false, mobile = false, videoView = undefined as string | undefined } = {}) {
   const [open, setOpen] = useState(false);
-  return <AppShell activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} focused={focused} mainRef={createRef()} menuButtonRef={createRef()} mobile={mobile}
+  return <AppShell navigation={{ categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'photos'], features: { streaming: true, requests: true } }} activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} focused={focused} mainRef={createRef()} menuButtonRef={createRef()} mobile={mobile}
     moreItems={null} navigationOpen={open} onAddLink={vi.fn()} onCloseNavigation={() => setOpen(false)} onMenu={() => setOpen((value) => !value)} onNavigate={onNavigate} onSearch={vi.fn()} onSettings={vi.fn()} onManageServer={onManageServer}
     onSignOut={vi.fn()} onTheme={vi.fn()} surface={surface} videoView={videoView} managingServer={managingServer} theme="system" user={user}><h1>Page</h1></AppShell>;
 }

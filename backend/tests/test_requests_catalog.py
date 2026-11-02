@@ -135,7 +135,7 @@ def test_movie_detail_trailers_logo_certification(client, fake) -> None:  # noqa
     assert body["cast"] == [{"name": "Keanu Reeves", "character": "Neo", "profile_url": "https://image.tmdb.org/t/p/w185/keanu.jpg"}]
     assert body["crew"] == [{"name": "Lana Wachowski", "job": "Director"}]
     assert [i["key"] for i in body["recommendations"]] == ["movie:604"] and body["recommendations"][0]["status"] == {"state": "none"}
-    assert body["studios"] == ["Warner Bros."] and body["seasons"] == [] and body["status"] == {"state": "none"}
+    assert body["studios"] == ["Warner Bros."] and body["seasons"] == [] and body["status"] == {"state": "none", "language_availability": {"state": "unknown", "files": [], "truncated": False, "total_files": 0}}
     request = next(q for path, q in fake.calls if path == "/3/movie/603")
     assert request["append_to_response"] == "videos,credits,recommendations,similar,external_ids,images,release_dates"
 
@@ -261,7 +261,7 @@ def test_statuses_are_looked_up_once_per_response_and_cached_data_is_not_pollute
     assert len(seen) == 1 and seen[0][1]["movie:603"]["tmdb_id"] == 603
     assert body["status"]["state"] == "available" and body["recommendations"][0]["status"] == {"state": "none"}
     monkeypatch.setattr(catalog, "catalog_statuses", lambda *_: {})
-    assert client.get(f"{BASE}/title/movie/603").json()["status"] == {"state": "none"}
+    assert client.get(f"{BASE}/title/movie/603").json()["status"] == {"state": "none", "language_availability": {"state": "unknown", "files": [], "truncated": False, "total_files": 0}}
     assert fake.paths().count("/3/movie/603") == 1  # the second answer came from the cache
 
 
@@ -320,3 +320,18 @@ def test_anilist_sends_a_client_user_agent_and_reports_a_challenge_page_by_statu
     monkeypatch.setattr(fake, "fetch", lambda *args, **kwargs: challenge)
     with pytest.raises(anilist.AniListError, match="HTTP 403"):
         anilist.genre_names()
+
+
+def test_detail_tolerates_malformed_sidecar_metadata(client, fake, db_factory) -> None:  # noqa: ANN001
+    from app.models import LibraryItem
+    from arr_fake import library_title
+
+    with db_factory() as db:
+        library_title(db, "movie", Tmdb="603")
+        db.get(LibraryItem, "item-title-1").metadata_json = {"lumina_subtitles": None}
+        db.commit()
+    response = client.get(f"{BASE}/title/movie/603")
+    assert response.status_code == 200
+    availability = response.json()["status"]["language_availability"]
+    assert availability["state"] == "unknown"
+    assert availability["files"][0]["subtitles_known"] is False

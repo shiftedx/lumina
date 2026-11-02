@@ -106,11 +106,11 @@ describe('the request sheet', () => {
     expect(within(sheet).getByText("Needs an admin's approval")).toBeTruthy();
     const send = within(sheet).getByRole('button', { name: 'Request' });
     expect(send.getAttribute('aria-disabled')).toBe('true'); // no language chosen yet
-    await userEvent.click(within(sheet).getByRole('radio', { name: /Japanese \+ subtitles/ }));
+    await userEvent.click(within(sheet).getByRole('radio', { name: /Japanese audio \+ English subtitles/ }));
     await userEvent.click(within(sheet).getByRole('radio', { name: 'Choose' }));
     await userEvent.click(within(sheet).getByRole('checkbox', { name: 'Season 1' }));
     await userEvent.click(send);
-    expect(api.createRequest).toHaveBeenCalledWith({ kind: 'anime', anilist_id: 16498, tmdb_id: 1429, tvdb_id: 267440, seasons: [1], language: 'sub' });
+    expect(api.createRequest).toHaveBeenCalledWith({ kind: 'anime', anilist_id: 16498, tmdb_id: 1429, tvdb_id: 267440, seasons: [1], language: 'sub', audio_language: 'ja', subtitle_language: 'en' });
     expect(window.localStorage.getItem('lumina:requests:language:u-1')).toBe('sub');
     await waitFor(() => expect(within(rail).getByText('Requested')).toBeTruthy());
   });
@@ -136,12 +136,12 @@ describe('engine answers', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Request' }));
     const sheet = await screen.findByRole('dialog', { name: 'Request Game of Thrones' });
     await within(sheet).findByText('3 of 10 left this week');
-    expect(within(sheet).queryByRole('radio', { name: /English dub/ })).toBeNull();
+    expect(within(sheet).queryByRole('radio', { name: /English audio/ })).toBeNull();
     await userEvent.click(within(sheet).getByRole('button', { name: 'Request' }));
     expect((await within(sheet).findByRole('alert')).textContent).toMatch(/This one is anime/);
-    await userEvent.click(within(sheet).getByRole('radio', { name: /English dub/ }));
+    await userEvent.click(within(sheet).getByRole('radio', { name: /English audio/ }));
     await userEvent.click(within(sheet).getByRole('button', { name: 'Request' }));
-    expect(api.createRequest).toHaveBeenLastCalledWith({ kind: 'show', tmdb_id: 1399, tvdb_id: 121361, seasons: 'all', language: 'dub' });
+    expect(api.createRequest).toHaveBeenLastCalledWith({ kind: 'show', tmdb_id: 1399, tvdb_id: 121361, seasons: 'all', language: 'dub', audio_language: 'en' });
   });
 
   it('confirms a seasons follow-up as its own request', async () => {
@@ -158,6 +158,39 @@ describe('engine answers', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(screen.getByText('Partly in your vault')).toBeTruthy(); // the title keeps its own status
     expect(await screen.findByText('Asked for season 2 of Game of Thrones; an admin will review.')).toBeTruthy();
+  });
+});
+
+describe('language variants', () => {
+  it('shows file-specific tracks and requests another language without hiding the library title', async () => {
+    const available = { ...showDetail, status: { state: 'available' as const, library_title_id: 'title-1', language_availability: {
+      state: 'partial' as const, total_files: 3, truncated: true, files: [
+        { season: 1, episode: 1, audio_languages: ['en'], subtitle_languages: ['ja'], audio_known: true, subtitles_known: true },
+        { season: 1, episode: 2, audio_languages: ['ja'], subtitle_languages: [], audio_known: true, subtitles_known: false },
+      ],
+    } } };
+    api.getCatalogTitle.mockResolvedValue(available);
+    api.createRequest.mockResolvedValue(request({ kind: 'show', status: 'pending' }));
+    renderSurface({ surface: 'requests', view: 'title', kind: 'show', id: 1399 });
+    expect(await screen.findByText('Season 1, episode 1: Audio: English · Subtitles: Japanese')).toBeTruthy();
+    expect(screen.getByText('Season 1, episode 2: Audio: Japanese · Subtitles: unknown')).toBeTruthy();
+    expect(screen.getByText('Showing 2 of 3 files.')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Request another language' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Request Game of Thrones' });
+    const send = within(sheet).getByRole('button', { name: 'Request' });
+    expect(send.getAttribute('aria-disabled')).toBe('true');
+    chooseSelect(within(sheet).getByRole('combobox', { name: 'Desired audio language' }), 'French');
+    await userEvent.click(send);
+    expect(api.createRequest).toHaveBeenCalledWith({ kind: 'show', tmdb_id: 1399, tvdb_id: 121361, seasons: 'all', audio_language: 'fr' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Open in Library' })).toBeTruthy();
+  });
+
+  it('keeps old-server available titles view-only', async () => {
+    api.getCatalogTitle.mockResolvedValue({ ...showDetail, status: { state: 'available', library_title_id: 'title-1' } });
+    renderSurface({ surface: 'requests', view: 'title', kind: 'show', id: 1399 });
+    expect(await screen.findByRole('button', { name: 'Open in Library' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Request another language' })).toBeNull();
   });
 });
 
@@ -214,6 +247,18 @@ describe('Manage', () => {
     await userEvent.type(within(dialog).getByRole('textbox'), 'Already on the shelf');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Decline' }));
     expect(api.declineRequest).toHaveBeenCalledWith('r-1', 'Already on the shelf');
+  });
+
+  it('lets an owner amend language preferences, including clearing subtitles', async () => {
+    api.listRequests.mockImplementation(({ status }: { status?: string }) => Promise.resolve({ items: status === 'pending' ? [request({ audio_language: 'ja', subtitle_language: 'en', fulfillment_mode: 'manual' })] : [], page: 1, total_pages: 1, counts: {} }));
+    api.approveRequest.mockResolvedValue(request({ status: 'approved' }));
+    renderSurface({ surface: 'requests', view: 'manage' }, admin);
+    expect(await screen.findByText(/Japanese audio, English subtitles/)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Approve with changes' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Approve Game of Thrones' });
+    chooseSelect(within(dialog).getByRole('combobox', { name: 'Desired subtitle language (optional)' }), 'No subtitle requirement');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Approve' }));
+    expect(api.approveRequest).toHaveBeenCalledWith('r-1', { seasons: [1], audio_language: 'ja', subtitle_language: null });
   });
 
   it('retains every status in the labelled phone selector and filters with the selected value', async () => {

@@ -411,6 +411,8 @@ private struct RequestDetailSheet: View {
     @State private var seasonMode = "all"
     @State private var pickedSeasons = Set<Int>()
     @State private var language: RequestLanguage?
+    @State private var audioLanguage = ""
+    @State private var subtitleLanguage = ""
     @State private var languageRequired = false
     @State private var vaultItem: MediaItem?
     @State private var openingVault = false
@@ -426,7 +428,9 @@ private struct RequestDetailSheet: View {
         return id
     }
     private var series: Bool { current.mediaType == .tv }
-    private var canRequestMore: Bool { vaultID != nil && series && current.status.state == .partiallyAvailable }
+    private var supportsLanguages: Bool { current.status.canRequestLanguageVariant }
+    private var canRequestMore: Bool { vaultID != nil && (supportsLanguages || series && current.status.state == .partiallyAvailable) }
+    private var canRequestChoice: Bool { current.status.canCreateRequest || supportsLanguages }
     private var asksLanguage: Bool { (current.kind == .anime && series) || languageRequired }
     private var seasons: RequestSeasonSelection? {
         guard series else { return nil }
@@ -438,9 +442,9 @@ private struct RequestDetailSheet: View {
         return .all
     }
     private var canSubmit: Bool {
-        (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest
+        (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && canRequestChoice && (current.status.canCreateRequest || !audioLanguage.isEmpty || !subtitleLanguage.isEmpty)
         && quota?.canRequest != false && quota?.remaining != 0
-        && (!series || seasons != nil) && (!asksLanguage || language != nil)
+        && (!series || seasons != nil) && (!asksLanguage || (supportsLanguages ? (!audioLanguage.isEmpty || !subtitleLanguage.isEmpty) : language != nil))
     }
 
     var body: some View {
@@ -483,6 +487,7 @@ private struct RequestDetailSheet: View {
                             if loading { ProgressView("Loading title details…") }
                             else if vaultID != nil {
                                 vaultAction
+                                languageEvidence
                                 if canRequestMore {
                                     if let created {
                                         Label(created.status.label, glyph: .check)
@@ -490,7 +495,7 @@ private struct RequestDetailSheet: View {
                                             .accessibilityIdentifier("requestSubmittedStatus")
                                         Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
                                             .foregroundStyle(.secondary)
-                                    } else if current.canRequest && current.status.canCreateRequest {
+                                    } else if current.canRequest && canRequestChoice {
                                         requestChoices
                                     }
                                 }
@@ -500,7 +505,7 @@ private struct RequestDetailSheet: View {
                                     .accessibilityIdentifier("requestSubmittedStatus")
                                 Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
                                     .foregroundStyle(.secondary)
-                            } else if current.canRequest && current.status.canCreateRequest {
+                            } else if current.canRequest && canRequestChoice {
                                 requestChoices
                             } else {
                                 Label(current.status.state == .none ? "Not available to request yet" : current.status.label, glyph: .info)
@@ -593,12 +598,45 @@ private struct RequestDetailSheet: View {
                 }
             }
             if asksLanguage {
-                Picker("Audio language", selection: $language) {
+                Picker("Anime language preset", selection: Binding(
+                    get: {
+                        guard supportsLanguages else { return language }
+                        if audioLanguage == "en" && subtitleLanguage.isEmpty { return .dub }
+                        if audioLanguage == "ja" && subtitleLanguage == "en" { return .sub }
+                        return nil
+                    },
+                    set: { selected in
+                        language = selected
+                        if supportsLanguages, let selected {
+                            audioLanguage = selected == .dub ? "en" : "ja"
+                            subtitleLanguage = selected == .dub ? "" : "en"
+                        }
+                    }
+                )) {
                     Text("Choose language").tag(nil as RequestLanguage?)
                     Text("English dub").tag(Optional(RequestLanguage.dub))
                     Text("Japanese + subtitles").tag(Optional(RequestLanguage.sub))
                 }.accessibilityIdentifier("requestLanguagePicker")
             }
+            if supportsLanguages {
+                Picker("Audio language", selection: $audioLanguage) {
+                    Text("Any audio language").tag("")
+                    ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
+                        Text(RequestLanguageOptions.label(code)).tag(code)
+                    }
+                }.accessibilityIdentifier("requestAudioLanguagePicker")
+                Picker("Subtitle language", selection: $subtitleLanguage) {
+                    Text("No subtitle preference").tag("")
+                    ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
+                        Text(RequestLanguageOptions.label(code)).tag(code)
+                    }
+                }.accessibilityIdentifier("requestSubtitleLanguagePicker")
+                if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
+                    Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+
             if let quota {
                 VStack(alignment: .leading, spacing: 6) {
                     if !quota.canRequest { Text("Your account can’t request this category. Ask an administrator.") }
@@ -617,6 +655,24 @@ private struct RequestDetailSheet: View {
             }
             .buttonStyle(LuminaMediaActionStyle(primary: true))
             .disabled(!canSubmit).accessibilityIdentifier("requestConfirmButton")
+        }
+    }
+
+    @ViewBuilder private var languageEvidence: some View {
+        if let availability = current.status.languageAvailability {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("In your vault").font(.headline)
+                if availability.files.isEmpty {
+                    Text(availability.state == "unknown" ? "Audio and subtitles are unknown." : "No playable files identified.")
+                }
+                ForEach(Array(availability.files.enumerated()), id: \.offset) { _, file in
+                    Text(file.description)
+                }
+                if availability.state != "known" { Text("Some track information is unknown.") }
+                if availability.truncated { Text("Showing \(availability.files.count) of \(availability.totalFiles) files.") }
+            }
+            .font(.subheadline).foregroundStyle(.secondary)
+            .accessibilityIdentifier("requestLanguageAvailability")
         }
     }
 
@@ -662,7 +718,12 @@ private struct RequestDetailSheet: View {
         submitting = true; problem = nil
         defer { submitting = false }
         do {
-            created = try await catalog.create(current, seasons: seasons, language: language)
+            let legacyLanguage: RequestLanguage? = supportsLanguages
+                ? (audioLanguage == "en" && subtitleLanguage.isEmpty ? .dub : audioLanguage == "ja" && subtitleLanguage == "en" ? .sub : nil)
+                : language
+            created = try await catalog.create(current, seasons: seasons, language: legacyLanguage,
+                                               audioLanguage: supportsLanguages && !audioLanguage.isEmpty ? audioLanguage : nil,
+                                               subtitleLanguage: supportsLanguages && !subtitleLanguage.isEmpty ? subtitleLanguage : nil)
             await catalog.loadQuotas()
             await catalog.loadHome()
         } catch {
@@ -707,14 +768,15 @@ private struct RequestHistorySheet: View {
                                 if record.status == .processing {
                                     ProgressView(value: min(1, max(0, record.progress ?? 0))).tint(LuminaTheme.brand)
                                 }
-                                if let language = record.language {
-                                    Text(language == .dub ? "English dub" : "Japanese + subtitles").font(.caption).foregroundStyle(.secondary)
+                                if let language = record.languageDescription {
+                                    Text(language).font(.caption).foregroundStyle(.secondary)
                                 }
+                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").font(.caption).foregroundStyle(.secondary) }
                             }
                         }.listRowBackground(Color.white.opacity(0.04))
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(record.title)
-                        .accessibilityValue([record.status.label, record.language.map { $0 == .dub ? "English dub" : "Japanese + subtitles" }].compactMap { $0 }.joined(separator: ", "))
+                        .accessibilityValue([record.status.label, record.languageDescription, record.fulfillmentMode == "manual" ? "Manual fulfillment" : nil].compactMap { $0 }.joined(separator: ", "))
                         .accessibilityIdentifier("requestHistory-\(record.key)")
                     }
                     if let result = catalog.myRequests, result.totalPages > 1 {

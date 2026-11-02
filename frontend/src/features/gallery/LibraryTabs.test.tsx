@@ -8,7 +8,7 @@ import { forgetStoredSections, type LibraryPlace, LibraryTabs, readStoredSection
 
 function Harness({ current = 'all', isAdmin = false, onOpen = vi.fn() }: { current?: LibraryPlace; isAdmin?: boolean; onOpen?: (place: LibraryPlace) => void }) {
   const { sections } = useLibrarySections('member-1');
-  return <div className="gallery"><LibraryTabs current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} /><button type="button">Sort</button></div>;
+  return <div className="gallery"><LibraryTabs navigation={sections ? { categories: [ ...(sections.movies ? ['movies' as const] : []), ...(sections.shows ? ['tv' as const] : []), ...(sections.anime ? ['anime' as const] : []), ...(sections.albums + sections.saved_audio ? ['music' as const] : []), ...(sections.youtube ? ['youtube' as const] : []), ...(sections.recordings ? ['recordings' as const] : []) ], features: { streaming: true, requests: false } } : null} current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} /><button type="button">Sort</button></div>;
 }
 const links = () => within(screen.getByRole('navigation', { name: 'Library' })).queryAllByRole('link');
 const names = () => links().map((link) => link.textContent);

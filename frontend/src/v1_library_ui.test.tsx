@@ -13,7 +13,7 @@ import type { TitleSummary } from './types';
 const member = { id: 'member-1', role: 'viewer' };
 
 function browser(overrides: Partial<LibraryBrowserProps> = {}) {
-  const props: LibraryBrowserProps = { currentUser: member, onItemChanged: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(), onPlayAt: vi.fn(), onViewChange: vi.fn(), onWallChange: vi.fn(), view: 'all', ...overrides };
+  const props: LibraryBrowserProps = { navigation: { categories: ['movies', 'tv', 'music', 'youtube', 'recordings'], features: { streaming: true, requests: true } }, currentUser: member, onItemChanged: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(), onPlayAt: vi.fn(), onViewChange: vi.fn(), onWallChange: vi.fn(), view: 'all', ...overrides };
   return { props, ...render(<ToastProvider><LibraryBrowser {...props} /></ToastProvider>) };
 }
 const series = (id: string, name: string): TitleSummary => ({ id, type: 'series', name, year: 2021, genres: [], added_at: '2026-09-01T00:00:00Z', poster_url: null, user_data: { played: false, is_favorite: false, position_seconds: 0, unplayed_count: 3 } });

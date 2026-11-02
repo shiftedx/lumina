@@ -98,7 +98,7 @@
    "archive_path",
    "asr_base_url",
    "asr_model",
-    "autoplay_presence",
+   "autoplay_presence",
    "backup_daily",
    "backup_keep",
    "concurrency",
@@ -586,6 +586,7 @@
    "anilist_id",
    "arr_item_id",
    "arr_server_id",
+   "audio_language",
    "created_at",
    "decided_at",
    "decided_by",
@@ -601,6 +602,7 @@
    "requested_by",
    "seasons",
    "status",
+   "subtitle_language",
    "title",
    "tmdb_id",
    "tvdb_id",
@@ -1364,5 +1366,5 @@
    "user_id"
   ]
  },
- "version": 42
+ "version": 43
 }

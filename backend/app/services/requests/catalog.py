@@ -528,6 +528,10 @@ def annotate(response: dict, session: Session, user: User) -> dict:
     statuses = catalog_statuses(session, user, sorted(sources), sources) if items else {}
     for item in items:
         item["status"] = statuses.get(item["key"], NONE_STATUS)
+    if "seasons" in response and "status" in response:
+        from app.services.requests.languages import availability
+
+        response["status"]["language_availability"] = availability(session, user, response["status"].get("library_title_id"))
     return response
 
 

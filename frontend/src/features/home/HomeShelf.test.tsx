@@ -29,7 +29,7 @@ class Observer {
 
 const actions = (): ShelfActions => ({ onOpenTitle: vi.fn(), onOpenLibrary: vi.fn(), onOpenRoute: vi.fn() });
 const shelf = (id: Parameters<typeof FetchedShelf>[0]['id'], props: Partial<Parameters<typeof FetchedShelf>[0]> = {}) =>
-  <FetchedShelf actions={actions()} id={id} onStatus={vi.fn()} userId="member-1" visit={createVisit()} {...props} />;
+  <FetchedShelf navigation={{ categories: ['movies', 'tv', 'anime', 'music', 'youtube', 'recordings', 'books', 'photos'], features: { streaming: true, requests: true } }} actions={actions()} id={id} onStatus={vi.fn()} userId="member-1" visit={createVisit()} {...props} />;
 
 beforeEach(() => {
   Observer.all = [];
@@ -41,6 +41,13 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); resetImageLoader(); });
 
 describe('FetchedShelf', () => {
+  it('filters cached titles when the server removes a category', () => {
+    rememberShelf('member-1', 'new_in_library', [{ key: 'new_in_library', heading: 'New in your library', shape: 'poster', titles: [movieSummary('film', { name: 'Cached film' }), movieSummary('anime', { name: 'Cached anime', category: 'anime' })], seeAll: { surface: 'library' } }]);
+    render(shelf('new_in_library', { navigation: { categories: ['movies'], features: { streaming: false, requests: false } } }));
+    expect(screen.getByRole('button', { name: /Cached film/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Cached anime/ })).toBeNull();
+  });
+
   it('makes no request until its placeholder is near, then loads once', async () => {
     api.listNextUp.mockResolvedValue([episodeSummary(2, 5)]);
     render(shelf('next_up'));

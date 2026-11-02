@@ -126,16 +126,16 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(screen.queryByText(/\/jellyfin|jf\./)).toBeNull();
   });
 
-  it('enables native external streaming without changing apps like Infuse', async () => {
+  it('enables streaming across apps without changing apps like Infuse', async () => {
     setup('media');
     api.updateMediaServerSettings.mockResolvedValue({ ...settings, native_streaming_enabled: true });
-    const toggle = await screen.findByRole('switch', { name: 'External streaming in the native app' });
+    const toggle = await screen.findByRole('switch', { name: 'Streaming' });
     expect((toggle as HTMLInputElement).checked).toBe(false);
     await userEvent.click(toggle);
     await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ native_streaming_enabled: true }));
-    expect(screen.getByText(/Browser Streaming and local playback stay unchanged/)).toBeTruthy();
-    expect(screen.getByText("Controls external providers and personal YouTube sessions in Lumina's native app.")).toBeTruthy();
+    expect(screen.getByText(/Lets members use external streaming providers and personal YouTube sessions across web and native apps/)).toBeTruthy();
+    expect(screen.getByText('Enable external streaming across web and native apps for everyone on this server.')).toBeTruthy();
   });
 
   it('falls back to this page’s origin when no public URL is configured', async () => {

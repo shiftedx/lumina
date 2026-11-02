@@ -67,7 +67,10 @@ public struct TVRootView: View {
                 ArtworkImageCache.shared.setBackgrounded(false)
                 store.setCatalogBackgrounded(false)
                 audioSession.resumeAfterActivation()
-                Task { await audioSession.refreshSharedQueue() }
+                Task {
+                    await store.refreshNavigationCategories()
+                    await audioSession.refreshSharedQueue()
+                }
             } else if phase == .background {
                 ArtworkImageCache.shared.setBackgrounded(true)
                 store.setCatalogBackgrounded(true)
@@ -808,7 +811,10 @@ private struct TVLibraryView: View {
                     onSignOut()
                     Task { await store.signOut() }
                 },
-                onClose: { deviceSettingsPresented = false }
+                onClose: {
+                    deviceSettingsPresented = false
+                    Task { await store.refreshNavigationCategories() }
+                }
             )
             .background(LuminaTheme.theater.ignoresSafeArea())
             .preferredColorScheme(.dark)
@@ -822,8 +828,15 @@ private struct TVLibraryView: View {
             if destination == .home, let focused { lastHomeHeaderCategory = focused }
         }
         .onChange(of: store.availableLibraryCategories) { _, available in
-            if destination == .library, !available.contains(libraryCategory.rawValue) {
-                selectHomeDestination(.all)
+            if !available.contains(libraryCategory.rawValue) {
+                destinationHistory.removeAll { $0 == .library }
+                if destination == .library { destination = .home; homeCategory = .all }
+            }
+        }
+        .onChange(of: store.requestsAvailable) { _, available in
+            if !available {
+                destinationHistory.removeAll { $0 == .requests }
+                if destination == .requests { destination = .home }
             }
         }
         .onExitCommand(perform: backAction)
@@ -965,7 +978,9 @@ private struct TVLibraryView: View {
                 .focused($searchFocused)
                 .accessibilityIdentifier("homeSearchButton")
 
-                utilityButton(.requests, glyph: .requests, identifier: "requestsButton")
+                if store.requestsAvailable {
+                    utilityButton(.requests, glyph: .requests, identifier: "requestsButton")
+                }
                 Button { deviceSettingsPresented = true } label: {
                     LuminaIcon(glyph: .userSettings,
                                variant: deviceSettingsPresented ? .solid : .outline, size: 28)

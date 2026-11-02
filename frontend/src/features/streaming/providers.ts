@@ -34,24 +34,26 @@ export function withStreamingProviders(uiPrefs: unknown, enabled: OptionalProvid
 export const isProviderVisible = (providers: readonly StreamingProvider[], source: string | null | undefined): boolean =>
   !(OPTIONAL as readonly string[]).includes(source ?? '') || providers.includes(source as OptionalProvider);
 
-type Value = { providers: StreamingProvider[]; setEnabled(p: OptionalProvider, on: boolean): Promise<void> };
+type Value = { providers: StreamingProvider[]; enabled: readonly OptionalProvider[]; setEnabled(p: OptionalProvider, on: boolean): Promise<void> };
 
-const DEFAULTS: Value = { providers: ['youtube', ...DEFAULT_OPTIONAL_PROVIDERS], setEnabled: async () => undefined };
+const DEFAULTS: Value = { providers: ['youtube', ...DEFAULT_OPTIONAL_PROVIDERS], enabled: DEFAULT_OPTIONAL_PROVIDERS, setEnabled: async () => undefined };
 const Context = createContext<Value>(DEFAULTS);
 
 /** Supplies the member's choice (the app shell owns persistence); without one, hooks read the defaults. */
-export function StreamingProvidersProvider({ enabled, onChange, children }: {
+export function StreamingProvidersProvider({ enabled, onChange, children, serverEnabled = true }: {
+  serverEnabled?: boolean;
   enabled: readonly OptionalProvider[];
   onChange: (next: OptionalProvider[]) => void;
   children: ReactNode;
 }) {
   const value = useMemo<Value>(() => ({
-    providers: ['youtube', ...enabled],
+    providers: serverEnabled ? ['youtube', ...enabled] : [],
+    enabled,
     setEnabled: async (provider, on) => {
       const without = enabled.filter((entry) => entry !== provider);
       onChange(OPTIONAL.filter((entry) => (entry === provider ? on : without.includes(entry))));
     },
-  }), [enabled, onChange]);
+  }), [enabled, onChange, serverEnabled]);
   return createElement(Context.Provider, { value }, children);
 }
 

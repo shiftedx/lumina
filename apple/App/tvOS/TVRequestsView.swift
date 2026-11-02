@@ -573,6 +573,8 @@ private struct TVRequestDetailView: View {
     @State private var seasonMode = TVSeasonMode.all
     @State private var selectedSeasons = Set<Int>()
     @State private var language: RequestLanguage?
+    @State private var audioLanguage = ""
+    @State private var subtitleLanguage = ""
     @State private var languageRequired = false
     @State private var trailerUnavailable = false
     @State private var openingVault = false
@@ -588,7 +590,9 @@ private struct TVRequestDetailView: View {
         return id
     }
     private var isSeries: Bool { current.mediaType == .tv }
-    private var canRequestMore: Bool { vaultID != nil && isSeries && current.status.state == .partiallyAvailable }
+    private var supportsLanguages: Bool { current.status.canRequestLanguageVariant }
+    private var canRequestMore: Bool { vaultID != nil && (supportsLanguages || isSeries && current.status.state == .partiallyAvailable) }
+    private var canRequestChoice: Bool { current.status.canCreateRequest || supportsLanguages }
     private var needsLanguage: Bool { languageRequired || (current.kind == .anime && current.mediaType == .tv) }
     private var seasons: RequestSeasonSelection? {
         guard isSeries else { return nil }
@@ -599,7 +603,7 @@ private struct TVRequestDetailView: View {
     }
     private var canSubmit: Bool {
         guard case .ready = quotaState, let quota else { return false }
-        return (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest && quota.canRequest && quota.remaining != 0 && (!isSeries || seasons != nil) && (!needsLanguage || language != nil)
+        return (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && canRequestChoice && (current.status.canCreateRequest || !audioLanguage.isEmpty || !subtitleLanguage.isEmpty) && quota.canRequest && quota.remaining != 0 && (!isSeries || seasons != nil) && (!needsLanguage || (supportsLanguages ? (!audioLanguage.isEmpty || !subtitleLanguage.isEmpty) : language != nil))
     }
 
     var body: some View {
@@ -687,13 +691,14 @@ private struct TVRequestDetailView: View {
 
             if vaultID != nil {
                 vaultAction
+                languageEvidence
                 if canRequestMore {
                     if let created {
                         Label(created.status.label, glyph: .check, variant: .solid, size: 24)
                             .font(.system(size: 26, weight: .semibold))
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("requestSubmittedStatus")
-                    } else if current.canRequest && current.status.canCreateRequest {
+                    } else if current.canRequest && canRequestChoice {
                         requestChoices
                     }
                 }
@@ -702,12 +707,12 @@ private struct TVRequestDetailView: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
-            } else if !current.status.label.isEmpty, !current.status.canCreateRequest {
+            } else if !current.status.label.isEmpty, !canRequestChoice {
                 Label(current.status.label, systemImage: "clock.fill")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestStatus")
-            } else if current.canRequest && current.status.canCreateRequest {
+            } else if current.canRequest && canRequestChoice {
                 requestChoices
             } else {
                 Label(current.unrequestableReason ?? "This title cannot be requested yet.", glyph: .info, size: 24)
@@ -762,7 +767,21 @@ private struct TVRequestDetailView: View {
             }
 
             if needsLanguage {
-                Picker("Audio language", selection: $language) {
+                Picker("Anime language preset", selection: Binding(
+                    get: {
+                        guard supportsLanguages else { return language }
+                        if audioLanguage == "en" && subtitleLanguage.isEmpty { return .dub }
+                        if audioLanguage == "ja" && subtitleLanguage == "en" { return .sub }
+                        return nil
+                    },
+                    set: { selected in
+                        language = selected
+                        if supportsLanguages, let selected {
+                            audioLanguage = selected == .dub ? "en" : "ja"
+                            subtitleLanguage = selected == .dub ? "" : "en"
+                        }
+                    }
+                )) {
                     Text("Choose language").tag(nil as RequestLanguage?)
                     Text("English dub").tag(Optional(RequestLanguage.dub))
                     Text("Japanese + subtitles").tag(Optional(RequestLanguage.sub))
@@ -770,6 +789,25 @@ private struct TVRequestDetailView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 760)
                 .accessibilityIdentifier("requestLanguagePicker")
+            }
+
+            if supportsLanguages {
+                Picker("Audio language", selection: $audioLanguage) {
+                    Text("Any audio language").tag("")
+                    ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
+                        Text(RequestLanguageOptions.label(code)).tag(code)
+                    }
+                }.accessibilityIdentifier("requestAudioLanguagePicker")
+                Picker("Subtitle language", selection: $subtitleLanguage) {
+                    Text("No subtitle preference").tag("")
+                    ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
+                        Text(RequestLanguageOptions.label(code)).tag(code)
+                    }
+                }.accessibilityIdentifier("requestSubtitleLanguagePicker")
+                if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
+                    Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
             }
 
             quotaNotice
@@ -786,6 +824,24 @@ private struct TVRequestDetailView: View {
             .controlSize(.large)
             .disabled(!canSubmit)
             .accessibilityIdentifier("requestConfirmButton")
+        }
+    }
+
+    @ViewBuilder private var languageEvidence: some View {
+        if let availability = current.status.languageAvailability {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("In your vault").font(.headline)
+                if availability.files.isEmpty {
+                    Text(availability.state == "unknown" ? "Audio and subtitles are unknown." : "No playable files identified.")
+                }
+                ForEach(Array(availability.files.enumerated()), id: \.offset) { _, file in
+                    Text(file.description)
+                }
+                if availability.state != "known" { Text("Some track information is unknown.") }
+                if availability.truncated { Text("Showing \(availability.files.count) of \(availability.totalFiles) files.") }
+            }
+            .font(.subheadline).foregroundStyle(.secondary)
+            .accessibilityIdentifier("requestLanguageAvailability")
         }
     }
 
@@ -913,7 +969,12 @@ private struct TVRequestDetailView: View {
         defer { submitting = false }
 
         do {
-            created = try await catalog.create(current, seasons: seasons, language: language)
+            let legacyLanguage: RequestLanguage? = supportsLanguages
+                ? (audioLanguage == "en" && subtitleLanguage.isEmpty ? .dub : audioLanguage == "ja" && subtitleLanguage == "en" ? .sub : nil)
+                : language
+            created = try await catalog.create(current, seasons: seasons, language: legacyLanguage,
+                                               audioLanguage: supportsLanguages && !audioLanguage.isEmpty ? audioLanguage : nil,
+                                               subtitleLanguage: supportsLanguages && !subtitleLanguage.isEmpty ? subtitleLanguage : nil)
             await refreshQuota()
             await catalog.loadHome()
         } catch {
@@ -952,6 +1013,8 @@ private struct TVRequestHistory: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(record.title).font(.system(size: 26, weight: .semibold))
                                 Text(record.status.label).foregroundStyle(LuminaTheme.accentInk)
+                                if let language = record.languageDescription { Text(language).foregroundStyle(LuminaTheme.muted) }
+                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").foregroundStyle(LuminaTheme.muted) }
                                 if record.status == .processing {
                                     ProgressView(value: min(1, max(0, record.progress ?? 0)))
                                         .frame(width: 360)
@@ -961,7 +1024,7 @@ private struct TVRequestHistory: View {
                         .padding(.vertical, 10)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(record.title)
-                        .accessibilityValue(record.status.label)
+                        .accessibilityValue([record.status.label, record.languageDescription, record.fulfillmentMode == "manual" ? "Manual fulfillment" : nil].compactMap { $0 }.joined(separator: ", "))
                         .accessibilityIdentifier("requestHistory-\(record.key)")
                     }
                     if let result = catalog.myRequests, result.totalPages > 1 {

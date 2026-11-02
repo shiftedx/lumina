@@ -1126,3 +1126,5 @@ export const retryAdminDownload = (id: string) => retryAdminTask('download', id)
 
 /** The authenticated member's albums ordered by actual track activity. */
 export const listRecentlyPlayedAlbums = ({ limit = 12 }: { limit?: number } = {}): Promise<{ items: TitleSummary[] }> => requestJson(`/api/music/albums/recently-played?limit=${limit}`);
+
+export const getServerNavigation = (options?: RequestJsonOptions): Promise<import('./types').ServerNavigation> => requestJson('/api/navigation', { cache: 'no-store' }, options);

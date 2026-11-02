@@ -1,3 +1,4 @@
+import type { ServerNavigation } from './types';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,6 +42,8 @@ vi.mock('./features/home/HomeEditor', () => ({
   ),
 }));
 
+const navigation: ServerNavigation = { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } };
+
 const AT = '2026-09-28T20:00:00Z';
 const user = { id: 'user-1', username: 'one', display_name: 'One Person', role: 'viewer', is_active: true } as UserProfile;
 const entry = (title: TitleSummary | null, patch: Partial<PlaybackProgress> = {}): PlaybackProgress => ({
@@ -53,6 +56,7 @@ const sections = () => [...document.querySelectorAll('[data-shelf-section]')].ma
 
 function renderHome(overrides: Partial<HomeSurfaceProps> = {}) {
   const props: HomeSurfaceProps = {
+    navigation,
     channels: [], continueWatching: [], homeShelves: null, isQueueing: () => false, library: [], libraryProblem: null, libraryRetrying: false, libraryState: 'ready',
     onHomeShelvesChange: vi.fn(), onNavigate: vi.fn(), onOpenLibrary: vi.fn(), onOpenRemote: vi.fn(), onOpenRoute: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(),
     onQueueRemote: vi.fn(), onRetryLibrary: vi.fn(), onSignIn: vi.fn(), recentLibrary: [], subscriptionOutcomes: [], subscriptionVideos: [], user, ...overrides,

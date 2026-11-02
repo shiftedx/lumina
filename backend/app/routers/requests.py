@@ -23,6 +23,7 @@ from app.security import get_admin_user, get_current_user
 from app.services.local_ai import validate_endpoint_url
 from app.services.rate_limit import enforce_rate_limit
 from app.services.requests import arr, engine, notify
+from app.services.requests.languages import code as language_code
 from app.services.user_settings import UserSettingsService
 from app.services.yt_dlp_service import YtDlpService
 
@@ -55,6 +56,15 @@ def _check_url(cls: type, value: str | None) -> str | None:  # noqa: ARG001
     return value
 
 
+def _check_language(cls: type, value: str | None) -> str | None:  # noqa: ARG001
+    if value is None:
+        return None
+    normalized = language_code(value)
+    if not normalized or normalized == "und":
+        raise ValueError("Enter a valid language code.")
+    return normalized
+
+
 class CreateBody(_Body):
     kind: Kind
     tmdb_id: int | None = Field(default=None, ge=1, le=2**31 - 1)
@@ -64,14 +74,22 @@ class CreateBody(_Body):
     seasons: Seasons | None = None
     language: Literal["dub", "sub"] | None = None
 
+    audio_language: str | None = Field(default=None, max_length=32)
+    subtitle_language: str | None = Field(default=None, max_length=32)
+
     _seasons = field_validator("seasons")(_check_seasons)
+    _languages = field_validator("audio_language", "subtitle_language")(_check_language)
 
 
 class ApproveBody(_Body):
     seasons: Seasons | None = None
     language: Literal["dub", "sub"] | None = None
 
+    audio_language: str | None = Field(default=None, max_length=32)
+    subtitle_language: str | None = Field(default=None, max_length=32)
+
     _seasons = field_validator("seasons")(_check_seasons)
+    _languages = field_validator("audio_language", "subtitle_language")(_check_language)
 
 
 class DeclineBody(_Body):
@@ -208,7 +226,8 @@ def get_quota(user: User = Depends(get_current_user), db: Session = Depends(get_
 def approve_request(request_id: str, body: ApproveBody | None = None, admin: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")):  # noqa: ANN201
     req = _load(db, request_id)
     try:
-        engine.approve(db, admin, req, body.seasons if body else None, body.language if body else None)
+        engine.approve(db, admin, req, body.seasons if body else None, body.language if body else None,
+                       body.model_dump(exclude_unset=True) if body else {})
     except engine.RequestError as error:
         return _fail(error)
     return _one(db, req)

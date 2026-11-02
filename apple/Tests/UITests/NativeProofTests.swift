@@ -411,6 +411,18 @@ final class NativeHomeLayoutReordersHidesAndPersistsTests: NativeProofJourney { 
 @MainActor
 final class NativeRequestsDiscoverSelectAndSubmitThroughTheServerTests: NativeProofJourney { func testNativeRequestsDiscoverSelectAndSubmitThroughTheServer() async throws { try await journeyNativeRequestsDiscoverSelectAndSubmitThroughTheServer() } }
 @MainActor
+final class NativeServerNavigationTests: NativeProofJourney {
+    func testServerFeaturesAndRemovedLibraryUpdateNavigation() async throws {
+        try await journeyServerNavigation()
+    }
+}
+@MainActor
+final class NativeServerMediaLanguageTests: NativeProofJourney {
+    func testExistingJapaneseAudioCanRequestEnglish() async throws {
+        try await journeyServerMediaLanguage()
+    }
+}
+@MainActor
 final class NativeRequestsVaultViewTests: NativeProofJourney {
     func testAvailableTitlesOpenTheirVaultDestinationsAndReturnToRequests() async throws {
         try await journeyNativeRequestsVaultView()
@@ -6592,6 +6604,114 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    func journeyServerNavigation() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        try await api.setNavigationFixture("off")
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try waitForExistence(element("homeScreen"), timeout: 25, named: "Home")
+        #if os(iOS)
+        XCTAssertFalse(application!.tabBars.buttons["Requests"].exists)
+        #else
+        XCTAssertFalse(element("requestsButton").exists)
+        #endif
+        XCTAssertEqual(application!.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "homeExternal-")).count, 0)
+        try await api.setNavigationFixture("on")
+        #if os(iOS)
+        try backgroundApplication()
+        #else
+        XCUIRemote.shared.press(.home)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.application!.state == .runningBackground || self.application!.state == .runningBackgroundSuspended
+        }, "Home must background the app before returning.")
+        #endif
+        application!.activate()
+        #if os(iOS)
+        try waitForExistence(application!.tabBars.buttons["Requests"], timeout: 30, named: "enabled Requests")
+        #else
+        try waitForExistence(element("requestsButton"), timeout: 30, named: "enabled Requests")
+        #endif
+        try selectDestination("Audio", screen: "audioScreen")
+        try await api.setNavigationFixture("remove-music")
+        #if os(iOS)
+        try backgroundApplication()
+        #else
+        XCUIRemote.shared.press(.home)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.application!.state == .runningBackground || self.application!.state == .runningBackgroundSuspended
+        }, "Home must background the app before returning.")
+        #endif
+        application!.activate()
+        #if os(tvOS)
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after music removal")
+        XCTAssertFalse(element("homeBrowse-music").exists)
+        #else
+        XCTAssertTrue(waitUntil(timeout: 30) { !self.element("audioScreen").exists }, "A removed selected category must leave its old library.")
+        #endif
+        try attachFrame(named: "Server-driven navigation after category removal")
+        completed = true
+    }
+
+    func journeyServerMediaLanguage() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let animeKey = try XCTUnwrap(fixture.requestAnimeKey)
+        let animeTitle = try XCTUnwrap(fixture.requestAnimeTitle)
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let before = Set(try await api.requestRecords(identity: identity).map(\.id))
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Requests", screen: "requestsScreen")
+        #if os(tvOS)
+        let search = element("requestsSearchField")
+        try enter(animeTitle, into: search)
+        #else
+        try activate(element("requestsSearchButton"))
+        let search = application!.searchFields.firstMatch
+        try waitForHittable(search, timeout: 10, named: "Requests search")
+        try activate(search)
+        search.typeText(animeTitle)
+        #endif
+        let anime = try revealRequestPoster(animeKey, named: "available anime")
+        try activate(anime)
+        try waitForExistence(element("requestDetailScreen"), timeout: 20, named: "anime detail")
+        let evidence = element("requestLanguageAvailability")
+        #if os(iOS)
+        try revealDetailElement(evidence, in: element("requestDetailScreen"), named: "track availability", requiresHittable: false)
+        #else
+        try waitForExistence(evidence, timeout: 15, named: "track availability")
+        #endif
+        XCTAssertTrue(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@", "Japanese", "English")).firstMatch.exists,
+                      "One file must show its Japanese audio and English subtitles together.")
+        XCTAssertTrue(element("requestViewVaultButton").exists)
+        #if os(tvOS)
+        let dub = element("requestLanguagePicker").buttons.matching(NSPredicate(format: "label == %@", "English dub")).firstMatch
+        try activate(dub)
+        #else
+        try revealDetailElement(element("requestLanguagePicker"), in: element("requestDetailScreen"), named: "anime preset", requiresHittable: true)
+        try activate(element("requestLanguagePicker"))
+        try activate(menuAction("English dub"))
+        try revealDetailElement(element("requestConfirmButton"), in: element("requestDetailScreen"), named: "request confirmation", requiresHittable: true)
+        #endif
+        try activate(element("requestConfirmButton"))
+        let submitted = try await waitForNativeRequest(api, identity: identity, key: animeKey, excluding: before)
+        XCTAssertEqual(submitted.language, "dub")
+        XCTAssertEqual(submitted.audioLanguage, "en")
+        try attachFrame(named: "Anime language evidence and English request")
+        completed = true
+    }
+
     func journeyNativeRequestsVaultView() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -9299,10 +9419,10 @@ class NativeProofJourney: XCTestCase {
         throw ProofFailure.timeout("The Account setting did not persist through the native Settings API.")
     }
 
-    private func waitForNativeRequest(_ api: ProofAPI, identity: APIIdentity, key: String) async throws -> APIRequestRecord {
+    private func waitForNativeRequest(_ api: ProofAPI, identity: APIIdentity, key: String, excluding: Set<String> = []) async throws -> APIRequestRecord {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
-            if let record = try await api.requestRecords(identity: identity).first(where: { $0.key == key }) {
+            if let record = try await api.requestRecords(identity: identity).first(where: { $0.key == key && !excluding.contains($0.id) }) {
                 return record
             }
             try await Task.sleep(for: .milliseconds(250))
@@ -11126,7 +11246,13 @@ private struct APIRequestRecord: Decodable {
     let id: String
     let key: String
     let language: String?
+    let audioLanguage: String?
     let seasons: APIRequestSeasons?
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, language, seasons
+        case audioLanguage = "audio_language"
+    }
 
     var seasonNumbers: [Int] {
         guard let seasons, case let .selected(values) = seasons else { return [] }
@@ -11223,6 +11349,12 @@ private struct ProofAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["included": included])
         let saved = try JSONDecoder().decode(APIWatchlistState.self, from: await send(request))
         guard saved.included == included else { throw ProofAPIError.malformedResponse }
+    }
+
+    func setNavigationFixture(_ mode: String) async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/navigation/\(mode)"))
+        request.httpMethod = "POST"
+        _ = try await send(request)
     }
 
     func requestRecords(identity: APIIdentity) async throws -> [APIRequestRecord] {

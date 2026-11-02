@@ -6,7 +6,7 @@
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useState } from 'react';
 
 import { getLibrarySections } from '../../api';
-import type { LibrarySections } from '../../types';
+import type { LibrarySections, ServerNavigation } from '../../types';
 import { TabScroller } from '../../ui';
 import { LENS_LABELS, LIBRARY_LENSES, type LibraryLens } from './libraryLens';
 
@@ -84,6 +84,7 @@ export function followInApp(event: MouseEvent<HTMLAnchorElement>, open: () => vo
 }
 
 export type LibraryTabsProps = {
+  navigation?: ServerNavigation | null;
   videoOnly?: boolean;
   current: LibraryPlace;
   sections: LibrarySections | null;
@@ -92,8 +93,14 @@ export type LibraryTabsProps = {
   onOpen: (place: LibraryPlace) => void;
 };
 
-export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false }: LibraryTabsProps) {
-  const shownTabs = TABS.filter((tab) => (!videoOnly || tab !== 'music') && tabShown(tab, sections));
+export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false, navigation }: LibraryTabsProps) {
+  const shownTabs = TABS.filter((tab) => {
+    if (tab === 'all') return true;
+    if (videoOnly && tab === 'music') return false;
+    if (tab === 'recordings') return Boolean(navigation?.categories.includes('recordings')) && tabShown(tab, sections);
+    const category = tab === 'shows' ? 'tv' : tab;
+    return Boolean(navigation?.categories.includes(category));
+  });
   const deletedShown = isAdmin || (sections?.deleted ?? 0) > 0;
   /** Left and Right step along the row and stop at its ends; Down leaves for the page's next control. */
   const keys = (event: KeyboardEvent<HTMLElement>) => {

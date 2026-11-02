@@ -10,6 +10,7 @@ import { useLoad, useNow, useRequests } from './requestsContext';
 import { canAskFor, countdown, formatLabel, metaLine, stateLabel, unrequestableCopy } from './requestsModel';
 import { accentStyle, Art, CardRail, LoadProblem, Rail, StatusRibbon } from './parts';
 import { TrailerStage } from './TrailerStage';
+import { languageName } from './RequestSheet';
 
 // a length heuristic for the More toggle (about five lines at reading width); measure overflow if it misfires.
 const LONG_OVERVIEW = 360;
@@ -74,8 +75,9 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           ) : null}
           {director || detail.networks.length ? <p className="rq-muted">{[director ? `${director.job} ${director.name}` : null, detail.networks.join(', ') || null].filter(Boolean).join(' · ')}</p> : null}
           <div className="rq-hero-actions" data-focus-row>
-            {canAskFor(shown) ? <Button data-focus-item icon={<Plus />} onClick={() => ask(detail)} variant="primary">{status.state === 'partially_available' ? 'Request more' : 'Request'}</Button> : null}
+            {canAskFor(shown) && status.state !== 'available' ? <Button data-focus-item icon={<Plus />} onClick={() => ask(detail)} variant="primary">{status.state === 'partially_available' ? 'Request more' : 'Request'}</Button> : null}
             {status.state === 'available' && status.library_title_id ? <Button data-focus-item icon={<Library />} onClick={() => openLibrary(status.library_title_id!)} variant="primary">Open in Library</Button> : null}
+            {status.state === 'available' && canAskFor(shown) ? <Button data-focus-item icon={<Plus />} onClick={() => ask(shown)}>Request another language</Button> : null}
             {status.state !== 'none' && status.state !== 'available' ? <StatusRibbon status={status} /> : null}
             {detail.trailers.length && !trailer ? <Button data-focus-item icon={<Clapperboard />} onClick={() => setTrailer(true)}>Trailer</Button> : null}
           </div>
@@ -83,6 +85,12 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           <AnimeFacts detail={detail} />
         </div>
       </div>
+      {detail.status.language_availability ? <section aria-label="Languages in your library" className="rq-language-evidence"><div><h2>Languages in your library</h2>
+        {detail.status.language_availability.state === 'unknown' ? <p>Language information is unknown.</p> : null}
+        {detail.status.language_availability.files.map((file, index) => <p key={index}>{file.season !== null ? `Season ${file.season}${file.episode !== null ? `, episode ${file.episode}` : ''}: ` : `File ${index + 1}: `}Audio: {file.audio_known ? file.audio_languages.map(languageName).join(', ') || 'none recorded' : 'unknown'} · Subtitles: {file.subtitles_known ? file.subtitle_languages.map(languageName).join(', ') || 'none recorded' : 'unknown'}</p>)}
+        {detail.status.language_availability.truncated ? <p>Showing {detail.status.language_availability.files.length} of {detail.status.language_availability.total_files} files.</p> : null}
+        {detail.status.language_availability.state === 'partial' ? <p>Some language information is unknown.</p> : null}
+      </div></section> : null}
       {seasons.length ? (
         <Rail count={seasons.length} id="seasons" title="Seasons">
           {seasons.map((season) => {

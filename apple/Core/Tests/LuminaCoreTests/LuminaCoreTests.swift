@@ -779,30 +779,41 @@ final class LuminaCoreTests: XCTestCase {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let credentials = TestCredentials(session: saved)
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: credentials)
-        func serve(_ categories: [String], status: Int = 200) {
+        func serve(_ categories: [String], features: [String: Bool]? = nil, status: Int = 200) {
             HomeDelayedURLProtocol.handler = { request in
                 switch request.url!.path {
                 case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
-                case "/Lumina/Settings/navigation": return response(request, status: status, json: ["categories": categories])
+                case "/Lumina/Settings/navigation":
+                    var body: [String: Any] = ["categories": categories]
+                    if let features { body["features"] = features }
+                    return response(request, status: status, json: body)
                 default: return response(request, json: page(items: []))
                 }
             }
         }
-        serve(["movies", "anime", "books"])
+        serve(["movies", "anime", "books"], features: ["requests": true, "streaming": false])
         await store.restore()
         XCTAssertEqual(store.availableLibraryCategories, ["movies", "anime", "books"])
-        serve(["tv"])
+        XCTAssertTrue(store.requestsAvailable)
+        XCTAssertFalse(store.streamingAvailable)
+        serve(["tv"], features: ["requests": false, "streaming": true])
         await store.refreshNavigationCategories()
         XCTAssertEqual(store.availableLibraryCategories, ["tv"])
+        XCTAssertFalse(store.requestsAvailable)
+        XCTAssertTrue(store.streamingAvailable)
         serve([], status: 503)
         await store.loadHome()
-        XCTAssertEqual(store.availableLibraryCategories, ["tv"], "Transient errors retain this server's last successful menu.")
+        XCTAssertTrue(store.availableLibraryCategories.isEmpty)
+        XCTAssertFalse(store.requestsAvailable)
+        XCTAssertFalse(store.streamingAvailable)
         await store.signOut()
         XCTAssertTrue(store.availableLibraryCategories.isEmpty)
         credentials.stored = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8766")!, accessToken: "other-token", userID: "user-1", username: "member", serverName: "Other", deviceID: "test-device")
         serve(["music"])
         await store.restore()
         XCTAssertEqual(store.availableLibraryCategories, ["music"], "A new server must never inherit another server's libraries.")
+        XCTAssertFalse(store.requestsAvailable, "Older servers without feature flags fail closed.")
+        XCTAssertFalse(store.streamingAvailable)
         serve([])
         await store.loadHome()
         XCTAssertTrue(store.availableLibraryCategories.isEmpty, "Removing the final library must clear its category.")

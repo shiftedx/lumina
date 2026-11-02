@@ -2462,3 +2462,8 @@ export interface HouseholdResources {
 export type ResourceOverrides = Partial<ResourceAllowances>;
 export interface MemberResources { overrides: ResourceOverrides; effective: ResourceAllowances }
 export interface ResourceJob { id: string; kind: string; state: string }
+
+export interface ServerNavigation {
+  categories: Array<'movies' | 'tv' | 'anime' | 'music' | 'books' | 'youtube' | 'recordings' | 'photos'>;
+  features: { streaming: boolean; requests: boolean };
+}

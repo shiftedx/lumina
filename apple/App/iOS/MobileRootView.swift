@@ -160,6 +160,7 @@ struct MobileRootView: View {
             guard ownsForegroundRefresh(id, owner: owner) else { return }
             if !store.isOffline {
                 await store.metadata.reloadPermissions()
+                await store.refreshNavigationCategories()
                 guard ownsForegroundRefresh(id, owner: owner) else { return }
             }
             await audioSession.refreshSharedQueue()
@@ -900,6 +901,7 @@ private struct LibraryShellView: View {
                 .onAppear { recordHomeNavigationDiagnostic("root") }
                 #endif
             }
+            if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
                                  usesPortraitRail: stacksCategoryHeader, path: $libraryPath) {
@@ -951,6 +953,8 @@ private struct LibraryShellView: View {
                         }
                 }
             }
+            }
+            if store.requestsAvailable {
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
                 destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
                                  usesPortraitRail: stacksCategoryHeader) {
@@ -961,9 +965,10 @@ private struct LibraryShellView: View {
                     }
                 }
             }
+            }
             Tab("Account", image: LuminaGlyph.userSettings.assetName(for: destination == .account ? .solid : .outline), value: .account) {
                 destinationStack(owner: .account, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
-                    NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation ? {
+                    NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation && store.requestsAvailable ? {
                         destination = .requests
                     } : nil)
                 }
@@ -976,11 +981,18 @@ private struct LibraryShellView: View {
         })
         .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
             guard !available.contains(category.rawValue) else { return }
+            libraryPath.removeAll()
             if let first = LibraryCategory.allCases.first(where: { available.contains($0.rawValue) }) {
                 category = first
             } else if destination == .library {
                 destination = .home
             }
+        }
+        .onChange(of: destination) { previous, next in
+            if previous == .account && next != .account { Task { await store.refreshNavigationCategories() } }
+        }
+        .onChange(of: store.requestsAvailable) { _, available in
+            if !available && destination == .requests { destination = .home }
         }
         .tint(LuminaTheme.ink)
     }
@@ -1043,6 +1055,7 @@ private struct LibraryShellView: View {
                     .accessibilityIdentifier("homeMenu-home")
                 Button("Watchlist") { homeCategory = .watchlist }
                     .accessibilityIdentifier("homeMenu-watchlist")
+                if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
                 Button("Library") {
                     var transaction = Transaction(animation: nil)
                     transaction.disablesAnimations = true
@@ -1052,6 +1065,7 @@ private struct LibraryShellView: View {
                     }
                 }
                     .accessibilityIdentifier("homeMenu-library")
+                }
                 Button("Account") { destination = .account }
                     .accessibilityIdentifier("homeMenu-account")
             } label: {
@@ -1549,7 +1563,7 @@ private struct HomeLibraryView<Header: View>: View {
                               wide: row.shape == .still && id != .continueWatching && id != .nextUp,
                               feed: feed, onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                     }
-                    if !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
+                    if store.streamingAvailable && !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
                 }
             } else {
             switch id.rawValue {

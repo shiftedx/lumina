@@ -249,3 +249,5 @@
 .rq-surface.is-title .rq-title-toolbar .g-search input { color: var(--g-on-art); border-color: var(--g-overlay-track); }
 .rq-surface.is-title .rq-title-toolbar .g-search input::placeholder { color: var(--g-overlay-ink-2); }
 .rq-surface.is-title .rq-title-hero { min-height: 360px; }
+
+.rq-language-evidence { margin-block: var(--g-space-6); max-width: 75ch; }

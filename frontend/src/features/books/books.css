@@ -1,4 +1,4 @@
-.books-surface { max-width: var(--g-page-width); min-height: calc(100svh - var(--g-topbar)); margin: 0 auto; padding: 32px var(--g-gutter) 96px; color: var(--g-ink); font: var(--g-type-ui); }
+.books-surface { width: 100%; max-width: none; min-height: calc(100svh - var(--g-topbar)); margin: 0 auto; padding: 32px var(--g-gutter) 96px; color: var(--g-ink); font: var(--g-type-ui); }
 .books-surface .g-masthead { margin-bottom: 16px; }
 .books-surface .g-masthead-meta { color: var(--g-ink-2); font: var(--g-type-ui); }
 .books-tabs { display: flex; gap: 32px; min-height: 48px; margin-bottom: 32px; border-bottom: var(--g-rule); }
@@ -355,7 +355,6 @@
 
 /* Approved A composition: real cover art makes the library feel like a place to read,
    while all catalog controls and actions remain in the ordinary content flow. */
-.books-surface { max-width: 1600px; }
 .books-overview { gap: 48px; }
 .books-overview.is-sparse.has-reading { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
 .books-overview-hero, .books-series-hero, .books-title-hero { position: relative; isolation: isolate; overflow: hidden; color: var(--g-overlay-ink); background: var(--g-reader-dark-paper); }

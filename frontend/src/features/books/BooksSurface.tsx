@@ -183,7 +183,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
     body = dataState(books, <div className="books-cover-grid">{allBooks.map((book) => card(book))}</div>);
   } else if (route.view === 'overview') {
     const data = overview.data;
-    const continuing = data?.continue_reading.slice(0, 3) ?? [];
+    const continuing = data?.continue_reading.slice(0, 4) ?? [];
     const heroBook = continuing[0] ?? readingCovers(data?.recently_added ?? [])[0];
     const readingIds = new Set(continuing.map((book) => book.id));
     const recent = readingCovers(data?.recently_added ?? []).filter((book) => !readingIds.has(book.id)).slice(0, 8);

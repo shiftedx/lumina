@@ -354,10 +354,10 @@ areaTest('onboarding', async ({ page, visit }) => {
   await page.route('**/api/discovery/interests', (route) => route.fulfill({ json: { categories, selected_keys: [] } }));
   await page.route('**/api/discovery/channels', (route) => route.fulfill({ json: { categories: [{ key: 'music', label: 'Music', state: 'ranked', channels: [candidate('Popular Music Channel', 'popular')] }] } }));
   await page.route('**/api/discovery/channels/search', (route) => route.fulfill({ json: { query: 'creator', channels: [candidate('Searched Creator', 'searched')] } }));
-  await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
+  await page.goto('/streaming');
+  await expect(page.getByRole('button', { name: 'Set up my Streaming' })).toBeVisible();
   await visit('welcome', 2);
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await visit('interests', true);
   await page.getByRole('checkbox', { name: 'Music' }).check();
@@ -366,11 +366,11 @@ areaTest('onboarding', async ({ page, visit }) => {
   await page.getByRole('searchbox').or(page.getByRole('textbox').first()).fill('creator');
   await visit('channels');
   await page.route('**/api/onboarding/complete', (route) => route.fulfill({ status: 500, json: { detail: 'boom' } }));
-  await page.getByRole('button', { name: 'Enter my Home' }).click();
+  await page.getByRole('button', { name: 'Open Streaming' }).click();
   await expect(page.getByRole('alert').first()).toBeVisible();
   await visit('error');
   await page.route('**/api/onboarding/complete', () => new Promise<void>(() => undefined)); // never answers: the preparing phase stays up
-  await page.getByRole('button', { name: 'Enter my Home' }).click();
+  await page.getByRole('button', { name: 'Open Streaming' }).click();
   await expect(page.getByRole('status').first()).toBeVisible();
   await visit('preparing');
 });

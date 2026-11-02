@@ -61,31 +61,31 @@ export function WelcomeSurface({ displayName, reducedMotion = false, busy = fals
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => { headingRef.current?.focus({ preventScroll: true }); }, []);
-  const greeting = displayName?.trim() ? `The vault is open, ${displayName.trim()}.` : 'The vault is open.';
+  const greeting = displayName?.trim() ? `Make Streaming yours, ${displayName.trim()}.` : 'Make Streaming yours.';
 
   return (
     <main className={`g-onboarding is-welcome g-dark${reducedMotion ? ' reduced-motion' : ''}`}>
       <JourneyHeader step="welcome" />
-      <section className="g-onboarding-welcome-art g-dark" aria-label="Welcome to Lumina">
+      <section className="g-onboarding-welcome-art g-dark" aria-label="Set up Streaming">
         <OnboardingArtwork eager scene="welcome" />
         <div className="g-onboarding-welcome-copy">
           <p className="g-onboarding-welcome-kicker">{greeting}</p>
-          <h1 ref={headingRef} tabIndex={-1}>Welcome to Lumina</h1>
-          <p className="g-onboarding-welcome-lede">Films, music, stories, and new discoveries with family and friends. Together in a vault that feels like you.</p>
+          <h1 ref={headingRef} tabIndex={-1}>Set up Streaming</h1>
+          <p className="g-onboarding-welcome-lede">Choose your interests and follow creators to personalize videos and live streams.</p>
           <div className="g-onboarding-welcome-invitation">
-            <span>A few interests. Your favorite creators. A Home of your own.</span>
+            <span>A few interests. Your favorite creators. Your Streaming feed.</span>
           </div>
           {error ? <p className="g-onboarding-error" role="alert">{error}</p> : null}
           <div className="g-onboarding-welcome-actions">
-            <Button busy={busy} disabled={busy} iconEnd={<ArrowRight />} onClick={onBegin} variant="primary">Personalize my Home</Button>
-            <Button disabled={busy} onClick={onSkip} variant="quiet">Explore without setup</Button>
+            <Button busy={busy} disabled={busy} iconEnd={<ArrowRight />} onClick={onBegin} variant="primary">Set up my Streaming</Button>
+            <Button disabled={busy} onClick={onSkip} variant="quiet">Back to Home</Button>
           </div>
         </div>
       </section>
       <section className="g-onboarding-welcome-details" aria-label="What waits inside">
         <div className="g-onboarding-welcome-features">
           <article><Library aria-hidden="true" /><div><h2>Your library</h2><p>The media shared with you, in one place.</p></div></article>
-          <article><Compass aria-hidden="true" /><div><h2>A Home of your own</h2><p>Discoveries shaped by your taste.</p></div></article>
+          <article><Compass aria-hidden="true" /><div><h2>Streaming for you</h2><p>Discoveries shaped by your taste.</p></div></article>
           <article><Play aria-hidden="true" /><div><h2>Ready on any screen</h2><p>In a browser or compatible media app.</p></div></article>
         </div>
       </section>
@@ -181,7 +181,7 @@ export function ChannelDiscoveryStep({
         <header className="g-onboarding-discovery-hero">
           <div className="g-onboarding-discovery-copy">
             <p className="sr-only">Step 2 of 2</p>
-            <Masthead headingRef={headingRef} lede="The voices you love. The perspectives you haven’t found yet. Bring a few YouTube favorites into your Home." title="Meet your next favorites" />
+            <Masthead headingRef={headingRef} lede="The voices you love. The perspectives you haven’t found yet. Choose creators to follow in Streaming." title="Meet your next favorites" />
           </div>
           <div aria-hidden="true" className="g-onboarding-discovery-scene">
             <OnboardingArtwork eager scene="creators" />
@@ -232,11 +232,11 @@ export function ChannelDiscoveryStep({
             <div className="g-onboarding-picks-panel">
               <h2>Your chosen creators</h2>
               {selected.length ? <ul aria-label="Your chosen creators" className="g-onboarding-picks">{selected.map((candidate) => <li key={candidate.channel_key}><CreatorPortrait candidate={candidate} /><span>{candidate.display_name}</span><Button disabled={busy} aria-label={`Remove ${candidate.display_name} from your picks`} icon={<X />} onClick={() => { toggle(candidate); document.querySelector<HTMLButtonElement>('.g-onboarding-picks-trigger')?.focus(); }} variant="quiet"><span className="sr-only">Remove</span></Button></li>)}</ul> : <p>Follow a creator that catches your eye. There’s no minimum, and you can add more later.</p>}
-              <p className="g-onboarding-assurance">Follows shape Home and Subscriptions. Downloads stay off unless you turn them on.</p>
+              <p className="g-onboarding-assurance">Follows shape your Streaming feed. Downloads stay off unless you turn them on.</p>
             </div>
           </Popover>
           {error ? <p className="g-onboarding-error" role="alert">{error}</p> : null}
-          <Button aria-label={follows.length ? `Enter my Home with ${follows.length} channel${follows.length === 1 ? '' : 's'}` : 'Enter my Home'} busy={busy} disabled={busy} iconEnd={<ArrowRight />} onClick={() => onContinue(follows)} variant="primary">Enter my Home</Button>
+          <Button aria-label={follows.length ? `Open Streaming with ${follows.length} channel${follows.length === 1 ? '' : 's'}` : 'Open Streaming'} busy={busy} disabled={busy} iconEnd={<ArrowRight />} onClick={() => onContinue(follows)} variant="primary">Open Streaming</Button>
         </footer>
       </div>
     </main>
@@ -270,9 +270,9 @@ export function OnboardingSurface({ categories, initialSelectedKeys = [], previe
       <div aria-live="polite" className="g-onboarding-preparing-status" role="status">
         <BrandMark size="hero" />
         <p className="g-onboarding-welcome-kicker">A few choices. Something entirely yours.</p>
-        <Masthead align="center" headingRef={headingRef} lede="Bringing your interests and favorite creators together. Your Home will open in a moment." title="Preparing your Home" />
+        <Masthead align="center" headingRef={headingRef} lede="Bringing your interests and favorite creators together. Streaming will open in a moment." title="Preparing Streaming" />
         {previewChannels.length ? <div aria-hidden="true" className="g-onboarding-preparing-creators">{previewChannels.slice(0, 4).map((candidate) => <figure key={candidate.channel_key}><Artwork alt="" className="g-onboarding-preparing-preview" fallback={<CreatorPortrait candidate={candidate} />} src={candidate.preview_artwork_url} /><figcaption>{candidate.display_name}</figcaption></figure>)}</div> : null}
-        <ProgressBar label="Preparing your Home" value={null} />
+        <ProgressBar label="Preparing Streaming" value={null} />
       </div>
     </main>
   );
@@ -286,7 +286,7 @@ export function OnboardingSurface({ categories, initialSelectedKeys = [], previe
         <JourneyHeader step="interests" />
         <section className="g-onboarding-interest-art" aria-label="Discover your taste">
           <OnboardingArtwork eager scene="interests" />
-          <div className="g-onboarding-art-copy"><p>One Home.</p><strong>Entirely your taste.</strong><span>For the things you come back to.<br />And the things you haven’t found yet.</span>
+          <div className="g-onboarding-art-copy"><p>Your Streaming.</p><strong>Entirely your taste.</strong><span>For the things you come back to.<br />And the things you haven’t found yet.</span>
             {selected.length ? <div aria-hidden="true" className="g-onboarding-taste-preview">{categories.filter((category) => selected.includes(category.key)).map((category) => <span key={category.key}>{category.label}</span>)}</div> : null}
           </div>
         </section>

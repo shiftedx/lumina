@@ -712,13 +712,16 @@ export default function LuminaApp() {
     void refreshSearchHistory();
   }, [state.authStage, state.currentUser?.id, refreshSearchHistory]);
 
-  // A newly created member resumes first-run setup on every device and reload
-  // until they complete or skip; the durable status closes the gate for good.
+  // Account enrollment opens Home. Streaming taste/follows are a separate web-only
+  // setup, resumed on Streaming entry until the member explicitly completes it.
   useEffect(() => {
-    if (state.authStage === 'ready' && state.currentUser?.onboarding_status === 'pending') {
+    const enteringStreaming = surface === 'subscriptions' || (surface === 'streaming' && streamingView !== 'library');
+    if (!enteringStreaming || !streamingEnabled) { setOnboarding(null); return; }
+    if (state.authStage === 'ready' && state.currentUser?.onboarding_status !== 'completed'
+      && state.currentUser?.onboarding_status && streamingEnabled && enteringStreaming) {
       setOnboarding((current) => current ?? { phase: 'welcome', keys: null });
     }
-  }, [state.authStage, state.currentUser?.id, state.currentUser?.onboarding_status]);
+  }, [state.authStage, state.currentUser?.id, state.currentUser?.onboarding_status, surface, streamingView, streamingEnabled]);
 
   const homeInterestKeys = memberInterests?.selected_keys?.join('|') || '';
   // Picks stay cached while away from Home, so returning shows them at once.
@@ -1267,7 +1270,8 @@ export default function LuminaApp() {
       const user = await completeAdminMediaSetup();
       if (!workspace.isSessionTokenCurrent(token)) return;
       workspace.dispatch({ type: 'currentUser/replace', user });
-      setOnboarding(user.onboarding_status === 'pending' ? { phase: 'welcome', keys: null } : null);
+      setOnboarding(null);
+      setSurface('home');
       window.scrollTo({ top: 0, behavior: 'instant' });
       void workspace.refreshLibraryCollection();
       void workspace.refreshContinueWatching();
@@ -1277,7 +1281,7 @@ export default function LuminaApp() {
     }
   }
 
-  function revealHomeAfterOnboarding(status: OnboardingStatus, selectedKeys: string[]) {
+  function revealAfterStreamingSetup(status: OnboardingStatus, selectedKeys: string[]) {
     ++memberInterestsRequestRef.current;
     if (state.currentUser) workspace.dispatch({ type: 'currentUser/replace', user: { ...state.currentUser, onboarding_status: status } });
     setMemberInterests((current) => ({ categories: current?.categories ?? [], selected_keys: selectedKeys }));
@@ -1286,7 +1290,8 @@ export default function LuminaApp() {
     setOnboarding(null);
     setOnboardingPicks([]);
     setOnboardingError(null);
-    setSurface('home');
+    if (status === 'completed') setStreamingView('home');
+    setSurface(status === 'completed' ? 'streaming' : 'home');
     focusSurfaceHeading();
   }
 
@@ -1341,6 +1346,7 @@ export default function LuminaApp() {
       return;
     }
     if (!workspace.isSessionTokenCurrent(token)) return;
+    revealAfterStreamingSetup(result.status, result.selected_keys);
     if (result.followed.some((outcome) => outcome.status === 'created')) {
       // Seed the durably-created follows into workspace state so the existing
       // bounded, partial-outcome subscription feed warms their previews. A
@@ -1356,21 +1362,6 @@ export default function LuminaApp() {
         // Ignored: Subscriptions surfaces its own per-channel recovery state.
       }
     }
-    if (streamingEnabled && result.selected_keys.length) {
-      // Best-effort, bounded warming of the first shelf. Home opens regardless
-      // of whether provider or artwork warming succeeds, fails, or times out.
-      try {
-        const snapshot = await Promise.race([
-          getHomeRecommendations(),
-          new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 4000)),
-        ]);
-        if (snapshot && workspace.isSessionTokenCurrent(token)) { setHomeRecommendations(snapshot); setHomeRecommendationsError(null); }
-      } catch {
-        // Ignored: Home surfaces its own loading or degraded recommendation state.
-      }
-    }
-    if (!workspace.isSessionTokenCurrent(token)) return;
-    revealHomeAfterOnboarding(result.status, result.selected_keys);
   }
 
   async function handleOnboardingSkip() {
@@ -1386,7 +1377,7 @@ export default function LuminaApp() {
       return;
     }
     if (!workspace.isSessionTokenCurrent(token)) return;
-    revealHomeAfterOnboarding(result.status, result.selected_keys);
+    revealAfterStreamingSetup(result.status, result.selected_keys);
   }
 
   async function runExplore(queryInput: string, limit = EXPLORE_PAGE) {

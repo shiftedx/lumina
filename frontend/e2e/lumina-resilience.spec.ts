@@ -1,4 +1,5 @@
 import { navigateApp } from './lumina-mock';
+import { mockHome } from './home-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -187,6 +188,7 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
     if (path === '/api/books/shelves') return json([]);
     if (path === '/api/library/activity') return json({ scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0, discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null });
+    if (path === '/api/navigation') return json({ categories: ['movies', 'tv', 'youtube', 'music', 'books'], features: { streaming: true, requests: true } });
     if (path === '/api/session/me') return json({ user: { ...user, onboarding_status: onboardingStatus } });
     if (path === '/api/onboarding/complete') {
       const body = request.postDataJSON() as { keys?: unknown; follows?: Array<{ source_url?: unknown; display_name?: unknown }> };
@@ -303,6 +305,7 @@ async function openApp(page: Page, width: number, height = 900, options: { onboa
   await page.setViewportSize({ width, height });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await installApi(page, options);
+  if (options.onboarding) await mockHome(page);
   await page.goto('/');
   if (options.onboarding === 'pending') return;
   await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
@@ -556,12 +559,13 @@ test('a member suppresses a recommended item and channel, then restores them fro
   await expect(page.getByRole('button', { name: /^Another music pick/ })).toBeVisible();
 });
 
-test('a new member is guided through first-run onboarding into a prepared, personalized Home', async ({ page }) => {
+test('Streaming setup saves interests and supplies personalized Home recommendations', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
+  await navigateApp(page, 'Streaming');
 
   // Gated into a focused full-screen surface: no primary navigation is offered.
-  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await expect(page.getByRole('button', { name: 'Set up my Streaming' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   // Reduced motion: the entry choreography does not run.
@@ -574,60 +578,65 @@ test('a new member is guided through first-run onboarding into a prepared, perso
   // Interest setup advances into channel discovery before Home.
   await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Popular in Music' })).toBeVisible();
-  await page.getByRole('button', { name: 'Enter my Home' }).click();
+  await page.getByRole('button', { name: 'Open Streaming' }).click();
+  await navigateApp(page, 'Home');
 
   // Preparation resolves into Home, which immediately reflects the interest.
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Picked for you' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^A personalized music pick/ })).toBeVisible();
 
   // Resume: reloading never re-gates a member who has completed setup.
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toHaveCount(0);
 });
 
-test('a pending member who reloads without acting stays gated in first-run setup', async ({ page }) => {
+test('a pending member resumes setup when reloading Streaming', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
 
   await page.reload();
 
   // The durable pending status resumes the welcome rather than dropping into Home.
-  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Set up my Streaming' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
 });
 
-test('a new member can skip first-run onboarding and still reach a non-blocking Home', async ({ page }) => {
+test('a member can leave Streaming setup and return to a non-blocking Home', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
-  await expect(page.getByRole('button', { name: 'Explore without setup' })).toBeVisible();
+  await navigateApp(page, 'Streaming');
+  await expect(page.getByRole('button', { name: 'Back to Home' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Explore without setup' }).click();
+  await page.getByRole('button', { name: 'Back to Home' }).click();
 
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
-  // Skipping chose no interests, so Home keeps the optional personalization invite.
-  await expect(page.getByRole('heading', { name: 'Make Home yours' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
+  // Leaving setup never blocks the member's library browsing.
+  await expect(page.getByRole('alert')).toHaveCount(0);
 
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toHaveCount(0);
 });
 
 test('onboarding still reaches Home with an honest degraded shelf when discovery warming fails', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', discoveryHome: 'failing' });
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
   // Pass through channel discovery without following anything.
   await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
-  await page.getByRole('button', { name: 'Enter my Home' }).click();
+  await page.getByRole('button', { name: 'Open Streaming' }).click();
+  await navigateApp(page, 'Home');
 
   // Durable writes landed, so Home is entered even though warming did not, and
   // the personalized shelf keeps an honest degraded state instead of stalling.
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
   await expect(page.getByText('Personalized discovery is taking a pause')).toBeVisible();
 });
 
@@ -663,7 +672,8 @@ test('a failed Up Next recommendation never breaks the Watch surface or blocks n
 
 test('a new member discovers, searches, and follows channels during onboarding with a curated fallback', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', channelSuggestions: 'degraded' });
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -683,11 +693,12 @@ test('a new member discovers, searches, and follows channels during onboarding w
   await page.getByRole('searchbox').fill('creator');
   await page.getByRole('button', { name: 'Find channels' }).click();
   await page.getByRole('button', { name: 'Follow Searched Creator' }).click();
-  await page.getByRole('button', { name: 'Enter my Home with 1 channel' }).click();
+  await page.getByRole('button', { name: 'Open Streaming with 1 channel' }).click();
+  await navigateApp(page, 'Home');
 
   // Home opens, then the durable follow appears in Subscriptions and warms
   // through the existing bounded, partial-outcome subscription feed.
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Home', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.evaluate(() => { window.history.pushState(null, '', '/streaming/channels'); window.dispatchEvent(new PopStateEvent('popstate')); });
   await expect(page.getByRole('link', { name: /^Searched Creator/ })).toBeVisible();
@@ -1103,7 +1114,8 @@ test('schedule an upcoming broadcast from the beginning and render an honest par
 
 test('onboarding setup and channel discovery surfaces pass the tagged Axe gate', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
 
   // (a) The first-run onboarding interest-setup surface — deep-a11y-scanned here
   // for the first time (auditA11y previously only covered Home + bootstrap).

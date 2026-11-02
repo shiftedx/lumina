@@ -237,6 +237,7 @@ def test_external_home_sources_are_opt_in_member_scoped_and_bounded(native: Test
         settings = db.get(AppSettings, 1)
         assert settings is not None
         settings.native_streaming_enabled = True
+        db.get(User, ALICE).onboarding_status = "completed"
     rows = native.get(ROWS, params={"include_external": True}, headers=mediabrowser(ALICE_TOKEN)).json()["rows"]
     external = {row["shelf_id"]: row for row in rows if row.get("external_items")}
     assert set(external) == {"live", "picked_for_you", "from_follows"}

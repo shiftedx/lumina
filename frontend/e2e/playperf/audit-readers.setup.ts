@@ -18,7 +18,7 @@ test('owner, synthetic music, and reader fixtures are ready', async ({ page }) =
   await page.getByRole('button', { name: 'Add and scan' }).click();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled({ timeout: 60_000 });
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Explore without setup' }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
 
   await page.goto('/books');

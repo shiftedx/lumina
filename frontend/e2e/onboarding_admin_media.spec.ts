@@ -67,12 +67,13 @@ test('owner adds a read-only share and retries its private scan in the welcome j
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
   await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
   expect(rootCreates).toBe(1);
   expect(scanAttempts).toBe(2);
 });
 
-test('first account resumes media setup before the welcome and persists the choice to finish later', async ({ page }) => {
+test('first account resumes media setup before Home and persists the choice to finish later', async ({ page }) => {
   await mockApi(page, {});
   let accountCreated = false;
   let signedIn = false;
@@ -105,7 +106,7 @@ test('first account resumes media setup before the welcome and persists the choi
   await page.getByLabel('Password', { exact: true }).fill('fixture-long-passphrase');
   await page.getByRole('button', { name: 'Create household vault' }).click();
   await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
   await page.getByRole('button', { name: 'Set up media later' }).click();
@@ -114,20 +115,23 @@ test('first account resumes media setup before the welcome and persists the choi
   await expect(page.getByText('Setup could not be saved')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
   await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
   expect(completeAttempts).toBe(2);
 });
 
 for (const role of ['admin', 'viewer']) {
-  test(`${role} member without the first-owner marker enters personal onboarding directly`, async ({ page }) => {
+  test(`${role} member without the first-owner marker opens Home without Streaming setup`, async ({ page }) => {
     await mockApi(page, {});
     let mediaReads = 0;
     await page.route('**/api/session/me', (route) => route.fulfill({ json: { user: { ...user, role, onboarding_status: 'pending', vault_setup_pending: false } } }));
     await page.route('**/api/admin/onboarding/media', (route) => { mediaReads++; return route.fulfill({ status: 403, json: { detail: 'forbidden' } }); });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toHaveCount(0);
     expect(mediaReads).toBe(0);
   });

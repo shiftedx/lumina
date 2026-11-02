@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi } from './lumina-mock';
+import { mockApi, user } from './lumina-mock';
 
 for (const path of ['/', '/invite']) {
   test(`an invite link at ${path} renders the join form and removes its fragment`, async ({ page }) => {
@@ -10,6 +10,21 @@ for (const path of ['/', '/invite']) {
     await expect(page.getByLabel('Display name')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create my account' })).toBeVisible();
     expect(new URL(page.url()).hash).toBe('');
+    const member = { ...user, role: 'viewer', onboarding_status: 'pending' };
+    let enrolled = false;
+    await page.route('**/api/invitations/redeem', route => {
+      enrolled = true;
+      return route.fulfill({ json: member });
+    });
+    await page.route('**/api/session/login', route => route.fulfill({ json: { user: member } }));
+    await page.route('**/api/session/me', route => route.fulfill({ json: { user: member } }));
+    await page.getByLabel('Username').fill('new-member');
+    await page.getByLabel('Password', { exact: true }).fill('Synthetic test passphrase 42');
+    await page.getByRole('button', { name: 'Create my account' }).click();
+    await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
+    expect(enrolled).toBe(true);
   });
 }
 

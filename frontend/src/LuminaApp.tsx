@@ -43,7 +43,7 @@ import { ChannelResolver } from './features/channels/ChannelResolver';
 import { clearAlbumQueue } from './features/gallery/albumQueue';
 import { forgetAllStore } from './features/gallery/allStore';
 import { forgetStoredSections, type LibraryPlace } from './features/gallery/LibraryTabs';
-import { LENS_LABELS, type LibraryLens } from './features/gallery/libraryLens';
+import { LENS_LABELS, titleLens, type LibraryLens } from './features/gallery/libraryLens';
 import { forgetWallStores } from './features/gallery/wallPages';
 import { LibraryBrowser } from './features/library/LibraryBrowser';
 import { albumQueue } from './features/gallery/albumQueue';
@@ -1079,6 +1079,12 @@ export default function LuminaApp() {
     replacePathRef.current = routePath(route);
     openTitleStable(title);
   });
+  const searchCastStable = useStableCallback((query: string, title: TitleSummary) => {
+    const view = titleLens(title.type, title.category);
+    if (view === 'movies' || view === 'shows' || view === 'anime') {
+      openRoute({ surface: 'video', view, wall: new URLSearchParams({ q: query }).toString() });
+    }
+  });
   // The title page's own Back returns to the place it was opened from, with each lens's wall as it was left.
   const lastWalls = useRef<Partial<Record<LibraryPlace, string>>>({});
   const lastLens = useRef<LibraryLens | 'all' | 'collections' | null>(null);
@@ -1736,7 +1742,7 @@ export default function LuminaApp() {
         : (surface === 'library' || surface === 'video' || surface === 'audio') ? (libraryLocation.titleId && libraryLocation.edit
           ? <TitleEditorPage id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={() => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId: libraryLocation.titleId! })} onTab={(tab) => { replaceHistoryRef.current = true; openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId: libraryLocation.titleId!, edit: true, tab }); }} tab={libraryLocation.tab ?? null} user={state.currentUser} />
           : libraryLocation.titleId
-          ? <TitleDetailPage onPlayArtist={(id, shuffle) => { resetWatch(); startForegroundMusic(state.currentUser!.id, playMusic(state.currentUser!.id, { title_id: id }, undefined, 0, shuffle)); }} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onResolvedTitle={correctTitleSurfaceStable} backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId, edit: true })} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={runExploreStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
+          ? <TitleDetailPage onPlayArtist={(id, shuffle) => { resetWatch(); startForegroundMusic(state.currentUser!.id, playMusic(state.currentUser!.id, { title_id: id }, undefined, 0, shuffle)); }} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onResolvedTitle={correctTitleSurfaceStable} backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId, edit: true })} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={searchCastStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
           : surface === 'audio' ? <AudioSurface key={state.currentUser.id} musicBrowseView={state.preferences.musicBrowseView} onMusicBrowseViewChange={(musicBrowseView) => workspace.dispatch({ type: 'preferences/patch', patch: { musicBrowseView } })} user={state.currentUser} wall={libraryLocation.wall} onWallChange={(wall) => setLibraryLocation({ view: 'music', ...(wall ? { wall } : {}) })} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onItemChanged={libraryItemChangedStable} /> : <LibraryBrowser navigation={navigation} videoOnly collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? defaultVideoView ?? 'all'} wall={libraryLocation.wall} />)
             : surface === 'photos' ? <PhotosSurface key={state.currentUser.id} user={state.currentUser} route={photosRoute} onRoute={setPhotosRoute} /> : surface === 'books' ? <BooksSurface onRoute={booksRouteStable} route={booksRoute} user={state.currentUser} /> : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
               : surface === 'requests' ? <RequestsSurface key={state.currentUser.id} onOpenRoute={openRouteStable} onQueueChanged={requestsQueueChangedStable} onRoute={requestsRouteStable} route={requestsRoute} session={workspace} user={state.currentUser} />

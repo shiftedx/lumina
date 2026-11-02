@@ -352,7 +352,7 @@ describe('GalleryTitlePage: body and sections', () => {
     expect(within(cast).getAllByRole('button')).toHaveLength(20);
     expect(within(cast).getByRole('button', { name: /^Person 20(?!\d)/ })).toBeTruthy();
     await userEvent.click(within(cast).getByRole('button', { name: /^Person 1(?!\d)/ }));
-    expect(onSearch).toHaveBeenCalledWith('Person 1');
+    expect(onSearch).toHaveBeenCalledWith('Person 1', expect.objectContaining({ id: movie.id, type: 'movie' }));
     const extras = screen.getByRole('region', { name: 'Extras' });
     expect(within(extras).getAllByRole('button').map((button) => button.textContent)).toEqual(['Making the lampFeaturette · 5:00']);
     await userEvent.click(within(extras).getByRole('button'));

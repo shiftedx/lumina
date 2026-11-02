@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 import { Button, Skeleton } from '../../ui';
 import { HeroFrame } from '../gallery/HeroFrame';
 import { distinctCastCredits } from '../titles/castCredits';
-import { type CatalogDetail, getCatalogTitle, type Kind } from './requestsApi';
-import { useLoad, useNow, useRequests } from './requestsContext';
+import { type CatalogDetail, type CatalogItem, type Kind } from './requestsApi';
+import { type Loaded, useNow, useRequests } from './requestsContext';
 import { canAskFor, countdown, formatLabel, metaLine, stateLabel, unrequestableCopy } from './requestsModel';
 import { accentStyle, Art, CardRail, LoadProblem, Rail, StatusRibbon } from './parts';
 import { TrailerStage } from './TrailerStage';
@@ -32,19 +32,18 @@ function AnimeFacts({ detail }: { detail: CatalogDetail }) {
   return <dl className="rq-facts">{facts.filter(([, value]) => value).map(([term, value]) => <div key={term}><dt className="g-label">{term}</dt><dd>{value}</dd></div>)}</dl>;
 }
 
-export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
+export function TitlePage({ kind, title, preview }: { kind: Kind; title: Loaded<CatalogDetail | null>; preview?: CatalogItem }) {
   const { ask, openLibrary, statusOf } = useRequests();
-  const title = useLoad(`${kind}:${id}`, (signal) => getCatalogTitle(kind, id, signal));
   const [trailer, setTrailer] = useState(false);
   const [more, setMore] = useState(false);
-  const detail = title.data;
+  const detail: CatalogDetail | null = title.data ?? (preview ? { ...preview, seasons: [], trailers: [], cast: [], crew: [], networks: [], studios: preview.anime?.studios ?? [], recommendations: [], similar: [] } : null);
   useEffect(() => {
-    if (detail && trailerOnOpen === detail.key) { trailerOnOpen = null; if (detail.trailers.length) setTrailer(true); }
-  }, [detail]);
-  if (title.error) return <LoadProblem error={title.error} onRetry={title.reload} what="this title" />;
+    if (title.data && trailerOnOpen === title.data.key) { trailerOnOpen = null; if (title.data.trailers.length) setTrailer(true); }
+  }, [title.data]);
+  if (title.error && !preview) return <LoadProblem error={title.error} onRetry={title.reload} what="this title" />;
   if (!detail) return <Skeleton label="Loading the title" shape="still" />;
   const status = statusOf(detail);
-  const shown = { ...detail, status };
+  const shown = { ...(title.data ?? preview!), status };
   const director = detail.crew.find((person) => person.job === 'Director' || person.job === 'Creator');
   const seasons = detail.seasons.filter((season) => season.number > 0);
   const cast = distinctCastCredits(detail.cast.map((person) => ({ ...person, role: person.character, image_url: person.profile_url })));
@@ -75,7 +74,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           ) : null}
           {director || detail.networks.length ? <p className="rq-muted">{[director ? `${director.job} ${director.name}` : null, detail.networks.join(', ') || null].filter(Boolean).join(' · ')}</p> : null}
           <div className="rq-hero-actions" data-focus-row>
-            {canAskFor(shown) && status.state !== 'available' ? <Button data-focus-item icon={<Plus />} onClick={() => ask(detail)} variant="primary">{status.state === 'partially_available' ? 'Request more' : 'Request'}</Button> : null}
+            {canAskFor(shown) && status.state !== 'available' ? <Button data-focus-item icon={<Plus />} onClick={() => ask(shown)} variant="primary">{status.state === 'partially_available' ? 'Request more' : 'Request'}</Button> : null}
             {status.state === 'available' && status.library_title_id ? <Button data-focus-item icon={<Library />} onClick={() => openLibrary(status.library_title_id!)} variant="primary">Open in Library</Button> : null}
             {kind === 'anime' && status.state === 'available' && canAskFor(shown) ? <Button data-focus-item icon={<Plus />} onClick={() => ask(shown)}>Request another language</Button> : null}
             {status.state !== 'none' && status.state !== 'available' ? <StatusRibbon status={status} /> : null}
@@ -84,6 +83,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           {detail.requestable === false ? <p className="rq-muted">{unrequestableCopy(detail.unrequestable_reason)}</p> : null}
           {kind === 'anime' && status.library_title_id ? <AnimeLanguages key={status.library_title_id} titleId={status.library_title_id} /> : null}
           <AnimeFacts detail={detail} />
+          {title.error ? <p className="rq-muted" role="alert">Full details could not be loaded. <Button onClick={title.reload} variant="quiet">Retry</Button></p> : null}
         </div>
       </div>
       {seasons.length ? (

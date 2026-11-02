@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { Button, Checkbox, Dialog, Field, fieldProps, Select, SegmentedControl, Skeleton, useToast } from '../../ui';
 import { type CatalogDetail, type CatalogItem, type CatalogStatus, createRequest, errorCode, getCatalogTitle, type Language, type Quota, type Season } from './requestsApi';
-import { useLoad } from './requestsContext';
+import { useLoad, type Loaded } from './requestsContext';
 import {
   buildRequest, canAskFor, catalogId, errorCopy, isSeries, needsLanguage, optimisticState, quotaLine, rememberedLanguage, rememberLanguage,
   requestableSeasons, routingLine, type SeasonMode, seasonsPayload, seasonsWords, unrequestableCopy,
@@ -71,6 +71,7 @@ export type RequestSheetProps = {
   item: CatalogItem;
   userId: string;
   quota: Quota | null;
+  sharedDetail?: Loaded<CatalogDetail | null>;
   onClose: () => void;
   /** An optimistic status (null reverts to the catalog's own), then the server's. */
   onStatus: (key: string, status: CatalogStatus | null) => void;
@@ -78,13 +79,14 @@ export type RequestSheetProps = {
   onRequested: () => void;
 };
 
-export function RequestSheet({ item, userId, quota, onClose, onStatus, onRequested }: RequestSheetProps) {
+export function RequestSheet({ item, userId, quota, sharedDetail, onClose, onStatus, onRequested }: RequestSheetProps) {
   const toast = useToast();
   const id = catalogId(item);
   const suppliedDetail = 'seasons' in item ? item as CatalogDetail : null;
   // Reuse the open title; cards load season choices without blocking an all-seasons request.
-  const needsDetail = Boolean(id) && (!suppliedDetail && isSeries(item) || item.requestable === false);
-  const detail = useLoad(needsDetail ? `${item.kind}:${id}` : '', (signal) => (needsDetail ? getCatalogTitle(item.kind, id!, signal) : Promise.resolve(null)));
+  const needsDetail = !sharedDetail && Boolean(id) && (!suppliedDetail && isSeries(item) || item.requestable === false);
+  const ownDetail = useLoad(needsDetail ? `${item.kind}:${id}` : '', (signal) => (needsDetail ? getCatalogTitle(item.kind, id!, signal) : Promise.resolve(null)));
+  const detail = sharedDetail ?? ownDetail;
   const current: CatalogItem = detail.data ?? suppliedDetail ?? item;
   const seasons = detail.data?.seasons ?? suppliedDetail?.seasons ?? [];
   const [mode, setMode] = useState<SeasonMode>('all');
@@ -100,7 +102,7 @@ export function RequestSheet({ item, userId, quota, onClose, onStatus, onRequest
 
   const series = isSeries(current);
   const asksLanguage = needsLanguage(current) || languageAsked;
-  const loading = needsDetail && detail.loading;
+  const loading = Boolean(sharedDetail || needsDetail) && detail.loading;
   const allowed = canAskFor(current) && quota?.can_request !== false && quota?.remaining !== 0;
   const chosenSeasons = series ? seasonsPayload(mode, picked, seasons) : null;
   const ready = (!loading || mode === 'all' && item.requestable !== false && Boolean(item.tmdb_id && item.tvdb_id)) && allowed && (!series || chosenSeasons !== null) && (!asksLanguage || language !== null || Boolean(audio)) && (current.status.state !== 'available' || Boolean(audio || subtitles || language));

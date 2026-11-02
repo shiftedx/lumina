@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockApi, signIn } from './lumina-mock';
-import { mockGalleryWall } from './gallery-mock';
+import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { mockGalleryTitle } from './gallery-title-mock';
 import { albumSummary, movieSummary, titleDetail } from '../src/test/galleryFixtures';
 
@@ -168,4 +168,48 @@ for (const width of [1440, 768, 390, 320]) for (const lens of ['movies', 'shows'
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: `../output/nav-scroll/${lens}-${width}-filtered.png` });
   });
+}
+
+for (const scheme of ['dark', 'light'] as const) {
+  for (const width of [1920, 1440, 390, 320]) {
+    test(`All video has one continuous hero with clear navigation in ${scheme} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width < 680 ? 844 : 1080 });
+      await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: scheme });
+      await mockApi(page, {});
+      await mockGalleryTitle(page, { detail: titleDetail(movieSummary('movie-0000')) });
+      await mockGalleryWall(page, { total: 60, artwork: true });
+      await mockLibrarySections(page, { movies: 60, shows: 60, anime: 12, youtube: 7, recordings: 0, albums: 0, artists: 0, saved_audio: 0 });
+      await page.goto('/video'); await signIn(page);
+      const stage = page.locator('.g-all.is-stage-led .g-all-stage');
+      await expect(stage).toBeVisible();
+      await expect.poll(() => stage.locator('.is-lead img.g-art-image').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(1);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const bounds = await stage.boundingBox();
+      const shade = await stage.locator('.is-lead .g-feature-copy').boundingBox();
+      const art = await stage.locator('.is-lead .g-art').boundingBox();
+      const header = await page.locator('.g-topbar').boundingBox();
+      const nav = await page.getByRole('navigation', { name: 'Library', exact: true }).boundingBox();
+      const chapter = await page.locator('#g-chapter-movies .g-chapter-head').boundingBox();
+      expect.soft(bounds!.y).toBe(0);
+      expect.soft(Math.abs(art!.height - bounds!.height), 'artwork covers the full stage').toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(shade!.y - bounds!.y), 'hero shading starts at the top, without a horizontal seam').toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(shade!.height - bounds!.height), 'one continuous shade covers the hero').toBeLessThanOrEqual(1);
+      expect.soft(nav!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
+      expect.soft(chapter!.y - bounds!.y - bounds!.height, 'catalog follows the hero without a double divider/gap').toBeLessThanOrEqual(56);
+      await expect(page.locator('.g-topbar-context')).toHaveText('All video');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `../output/all-video-fix/all-${scheme}-${width}.png` });
+      const lead = stage.locator('.is-lead');
+      await lead.click();
+      await expect(page).toHaveURL(/\/video\/title\/movie-0000$/);
+      await expect(page.locator('.t-hero')).toBeVisible();
+      await page.goBack();
+      await expect(lead).toBeFocused();
+      expect(await page.evaluate(() => window.scrollY)).toBeLessThan(10);
+      await page.locator('#g-chapter-movies .g-chapter-head a').click();
+      await expect(page).toHaveURL(/\/video\/movies$/);
+      await page.goBack();
+      await expect(page.locator('#g-chapter-movies .g-chapter-head a')).toBeFocused();
+    });
+  }
 }

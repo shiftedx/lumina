@@ -295,11 +295,13 @@ export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, 
   return (
     <div className={`surface gallery g-all${stageLed ? ' is-stage-led' : ''}`} onKeyDown={keys} ref={root}>
       <div className="g-all-stage">
-        {lenses}
-        <header className="g-masthead">
-          <h1>{title}</h1>
-          <p className="g-label g-kicker">{kicker || '\u00a0'}</p>
-        </header>
+        <div className="g-all-context">
+          {lenses}
+          <header className="g-masthead">
+            <h1 className={stageLed ? 'sr-only' : undefined}>{title}</h1>
+            <p className="g-label g-kicker">{kicker || '\u00a0'}</p>
+          </header>
+        </div>
         {sectionsFailed && !sections ? (
           <div className="g-inline-error" data-focus-row role="alert">
             <p>Lumina could not load your library.</p>

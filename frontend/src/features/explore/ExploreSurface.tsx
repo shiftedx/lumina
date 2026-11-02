@@ -186,7 +186,7 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
               {followed.length && props.onSeeAllChannels ? <button className="g-text-button" data-focus-item onClick={props.onSeeAllChannels} type="button">See all</button> : null}
             </header>
             <div className="g-explore-featured-grid">
-              {featured.map((item, index) => <RemoteStillCard actions={actionsFor(item)} item={item} key={remoteEntryKey(item) ?? index} onOpen={onOpen} position={index} priority={1} showProvider={!provider} sizes="(max-width: 599px) 100vw, 50vw" />)}
+              {featured.map((item, index) => <RemoteStillCard featured actions={actionsFor(item)} item={item} key={remoteEntryKey(item) ?? index} onOpen={onOpen} position={index} priority={1} showProvider={!provider} sizes="(max-width: 599px) 100vw, 50vw" />)}
             </div>
           </section>
         ) : null}

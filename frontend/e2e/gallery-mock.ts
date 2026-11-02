@@ -3,6 +3,8 @@
  * search, /api/art pixels, and Library sections.
  */
 import type { Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { albumSummary, artistSummary, facets as defaultFacets, librarySections, movieSummary, seriesSummary, userData } from '../src/test/galleryFixtures';
 import type { LibrarySections, LocalSearchResponse, TitleFacets, TitleLetter, TitleSummary } from '../src/types';
@@ -13,6 +15,7 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 export type GalleryWallMock = {
   total?: number; anime?: number; albums?: number; artists?: number; facets?: TitleFacets; search?: LocalSearchResponse | 'fail';
+  artwork?: boolean;
   artDelayMs?: number; failTitles?: boolean; without?: Array<'backdrop' | 'poster'>;
 };
 export type WallTitleType = 'movie' | 'series' | 'album' | 'artist';
@@ -58,6 +61,12 @@ export async function mockGalleryWall(page: Page, options: GalleryWallMock = {})
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (url.pathname.startsWith('/api/art/')) {
       if (options.artDelayMs) await new Promise((resolve) => setTimeout(resolve, options.artDelayMs));
+      if (options.artwork) {
+        const index = Number(url.pathname.match(/(\d{4})/)?.[1] ?? 0);
+        const film = ['cosmos', 'sintel', 'bunny'][index % 3];
+        const shape = /backdrop|still/i.test(url.pathname) ? 'backdrop' : 'poster';
+        return route.fulfill({ contentType: 'image/jpeg', body: readFileSync(fileURLToPath(new URL(`./fixtures/open-films/${film}-${shape}.jpg`, import.meta.url))) });
+      }
       return route.fulfill({ status: 200, contentType: 'image/webp', headers: { 'Cache-Control': 'no-store' }, body: PIXEL });
     }
     if (url.pathname === '/api/titles/facets') return json(options.facets ?? defaultFacets);

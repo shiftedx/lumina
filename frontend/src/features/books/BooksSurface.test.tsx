@@ -135,6 +135,16 @@ describe('BooksSurface', () => {
     expect(api.listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'added', status: 'all' }));
   });
 
+  it('continues the featured story in its saved file without changing its checkpoint while browsing', async () => {
+    const continuing = book({ reading_file_id: 'saved-format', progress: { unit_index: 2, offset: 0.4, percent: 45, completed: false, updated_at: '2026-10-02T00:00:00Z' } });
+    api.getBooksOverview.mockResolvedValue(overview({ continue_reading: [continuing] }));
+    const onRoute = vi.fn();
+    render(<AccessProvider value={permitted}><BooksSurface onRoute={onRoute} route={{ surface: 'books', view: 'overview' }} user={booksUser} /></AccessProvider>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue reading' }));
+    expect(onRoute).toHaveBeenCalledWith({ surface: 'books', view: 'read', bookId: 'saved-format' }, false);
+    expect(api.updateBookState).not.toHaveBeenCalled();
+  });
+
   it('combines selected catalog entries through a reviewable file-preserving dialog', async () => {
     const browser = userEvent.setup();
     render(<Surface initial={{ surface: 'books', view: 'ebooks' }} />);

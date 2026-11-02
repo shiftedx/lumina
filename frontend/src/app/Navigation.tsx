@@ -3,7 +3,7 @@ import { memo, type ReactNode, useRef, useLayoutEffect, type RefObject } from 'r
 
 import { allStreamingBlocked, useAccess } from '../features/access/access';
 import { LuminaRouteIcon, type LuminaRouteIconName } from '../LuminaRouteIcons';
-import { place } from '../ui/placement';
+import { BrandMark } from '../ui';
 import { moveFocus } from '../features/media/focusNav';
 import { type Surface } from './routes';
 
@@ -85,13 +85,6 @@ export const NavigationPopover = memo(function NavigationPopover({ surface, acti
     if (!open || !panel) return;
     const anchor = anchorRef?.current ?? document.querySelector<HTMLButtonElement>('[aria-controls="primary-navigation"]');
     panel.showPopover?.();
-    const follow = () => {
-      if (!anchor) return;
-      const bounds = anchor.getBoundingClientRect();
-      panel.style.maxHeight = `${Math.max(0, Math.max(window.innerHeight - bounds.bottom - 12, bounds.top - 12))}px`;
-      place(panel, anchor, 'start');
-    };
-    follow();
     keyboard.current = anchor?.dataset.navigationKeyboard === 'true';
     if (keyboard.current) firstNavigationRef.current?.focus({ preventScroll: true });
     const dismiss = () => { panel.hidePopover?.(); onClose(); anchor?.focus({ preventScroll: true }); };
@@ -111,22 +104,18 @@ export const NavigationPopover = memo(function NavigationPopover({ surface, acti
     document.addEventListener('keydown', key, true);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('focusin', outside, true);
-    window.addEventListener('resize', follow);
-    document.addEventListener('scroll', follow, true);
     return () => {
       clearDismissal();
       document.removeEventListener('keydown', key, true);
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('focusin', outside, true);
-      window.removeEventListener('resize', follow);
-      document.removeEventListener('scroll', follow, true);
     };
   }, [open, anchorRef, onClose]);
   const choose = (action: () => void) => { panelRef.current?.hidePopover?.(); onClose(); action(); };
   if (!open) return null;
   return (
     <div aria-label="Navigation" className="g-popover g-navigation-popover" onPointerEnter={clearDismissal} onPointerLeave={(event) => leave(event.pointerType)} onPointerDown={() => { keyboard.current = false; }} popover="manual" ref={panelRef} role="dialog">
-      <button aria-label="Close menu" className="g-icon-button g-navigation-close" onClick={() => { panelRef.current?.hidePopover?.(); onClose(); anchorRef?.current?.focus({ preventScroll: true }); }} type="button"><X aria-hidden="true" /></button>
+      <div className="g-navigation-head"><BrandMark size="bar" /><button aria-label="Close menu" className="g-icon-button g-navigation-close" onClick={() => { panelRef.current?.hidePopover?.(); onClose(); anchorRef?.current?.focus({ preventScroll: true }); }} type="button"><X aria-hidden="true" /></button></div>
       <nav aria-label="Primary" className="g-navigation-grid" id="primary-navigation" onKeyDown={(event) => moveFocus(event, { targets: '.g-nav-item' })}>
         {navGroups.map(({ label: group, items }) => (
           <div className="g-nav-group" key={group}>

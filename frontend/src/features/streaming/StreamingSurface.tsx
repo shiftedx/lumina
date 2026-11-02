@@ -81,6 +81,10 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
   return (
     // The shell parks focus on the h1 when a See all wall opens, outside the embedded screen's own Back handler (the screens preventDefault theirs) and its arrow handler, so the h1 routes arrows itself.
     <div className="surface gallery g-streaming" onKeyDown={(event) => { if (rail && !query && (view === 'home' || view === 'live') && isBackKey(event)) { event.preventDefault(); window.history.back(); return; } if (event.target === event.currentTarget.querySelector('h1')) moveFocus(event); }}>
+      <div className="g-toolbar g-streaming-bar" onKeyDown={moveFocus}>
+        {views.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">View</span><SegmentedControl hideLegend legend="Streaming view" onChange={(next) => onNavigate({ view: next, provider })} options={views} value={current} /></div> : null}
+        {providers.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">Provider</span><SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /></div> : null}
+      </div>
       <Masthead
         actions={!searchable ? undefined : (
           // Only YouTube search exists server-side; Twitch and Kick show their live and followed channels instead.
@@ -92,10 +96,6 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
         )}
         title="Streaming"
       />
-      <div className="g-toolbar g-streaming-bar" onKeyDown={moveFocus}>
-        {views.length > 1 ? <SegmentedControl hideLegend legend="Streaming view" onChange={(next) => onNavigate({ view: next, provider })} options={views} value={current} /> : null}
-        {providers.length > 1 ? <SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /> : null}
-      </div>
       {body}
     </div>
   );

@@ -64,3 +64,7 @@
   .g-playlist-thumb { width: 64px; }
   .g-playlist-row > .g-button { grid-column: 3; justify-self: start; }
 }
+
+.g-downloads > .g-masthead { border: 0; padding-bottom: 24px; }
+.g-downloads > .g-masthead h1 { font: var(--g-type-page-title); }
+.g-downloads .g-list-row { padding-block: 20px; }

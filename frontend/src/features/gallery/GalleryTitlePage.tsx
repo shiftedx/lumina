@@ -31,7 +31,7 @@ import { PosterCard } from './PosterCard';
 import { StorySoFar } from './StorySoFar';
 import { TitleActions } from './TitleActions';
 import { cachedTitle, forgetTitle, loadTitle, summaryFor } from './titleCache';
-import { castOf, hasDropCap, metaLine, pageAccent, sideBlocks, storyVisible, titleRatings, usesLogo } from './titlePageModel';
+import { castOf, metaLine, pageAccent, sideBlocks, storyVisible, titleRatings } from './titlePageModel';
 import './gallery.css';
 import './titlePage.css';
 
@@ -41,9 +41,6 @@ const EXTRA_LABELS: Record<ExtraType, string> = {
 };
 const TEXT_ENTRY = 'input, textarea, select, [role="combobox"], [role="listbox"], dialog, [contenteditable="true"]';
 const POSTER_SIZES = '(max-width: 599px) 34vw, 168px';
-const LOGO_SIZES = '(max-width: 599px) 80vw, 600px';
-/** A logo sits on the page, never on a colour slot. */
-const NO_SLOT = { colour: 'transparent', fromPalette: false };
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 /** Back's words: the lens the title belongs to: Movies, Shows, Anime or Music. */
 const lensLabel = (title: TitleSummary) => LENS_LABELS[titleLens(title.type, title.category)!];
@@ -195,7 +192,6 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
   const shownType = clicked ?? title.data?.type;
   const recoGeneration = useRecoGeneration();
   const similar = useFetched(shownType === 'album' || shownType === 'artist' || !shownType ? null : `${id}:similar`, () => listSimilarTitles(id), recoGeneration);
-  const [logoFailed, setLogoFailed] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const heroLabel = useRef<DetailHeroLabel>(summaryFor(id) ? 'click' : 'deep_link');
   const heroTimed = useRef(false);
@@ -271,13 +267,19 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
 
   const plain = !hasBackdrop;
   const colour = cardColour(shown, 'backdrop');
-  const logo = data && usesLogo(data) && !logoFailed ? data.logo : null;
   const meta = metaLine(data ?? shown);
   const ratings = titleRatings(data ?? shown);
   const headline = (
     <h1 className="t-headline" ref={headingRef} tabIndex={-1}>
-      {logo ? <GalleryArt alt={shown.name} art={logo} card={null} className="t-logo" colour={NO_SLOT} kind="logo" onFail={() => setLogoFailed(true)} priority={1} sizes={LOGO_SIZES} /> : shown.name}
+      {shown.name}
     </h1>
+  );
+  const heroCopy = (
+    <div className="t-heading t-hero-copy">
+      {headline}
+      {meta.length ? <p className="t-meta g-label">{meta.map((part, index) => <Fragment key={index}>{index ? ' · ' : null}<span className="t-meta-part">{part}</span></Fragment>)}</p> : null}
+      {ratings.length ? <dl aria-label="Ratings" className="t-ratings">{ratings.map((entry) => <div key={entry.label}><dt className="sr-only">{entry.label}</dt><dd><img alt="" aria-hidden="true" className={`t-rating-logo t-rating-logo--${entry.source}`} src={`/ratings/${entry.asset ?? entry.source}.svg`} title={entry.status ? entry.label : undefined} />{entry.source === 'metacritic' ? <><span className={`t-metascore t-metascore--${entry.status?.toLowerCase()}`}>{entry.value.replace(' / 100', '')}</span><span className="t-metascore-suffix"> / 100</span></> : entry.value}</dd></div>)}</dl> : null}
+    </div>
   );
   const trailer = data?.extras.find((extra) => extra.extra_type === 'trailer');
 
@@ -287,16 +289,11 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
         {plain ? null : <HeroFrame className="t-hero-art" src={shown.backdrop?.url}><GalleryArt alt="" art={shown.backdrop} card={null} className="hero-frame-art" colour={colour} kind="backdrop" onSettled={heroSettled} priority={1} sizes="100vw" /></HeroFrame>}
         {plain ? null : <div aria-hidden="true" className="t-hero-fade" />}
         <button aria-label={`Back to ${backLabel ?? lensLabel(shown)}`} className="t-back g-label" data-focus-item onClick={back} type="button"><ChevronLeft aria-hidden="true" /> {backLabel ?? lensLabel(shown)}</button>
-        {plain ? headline : null}
+        {heroCopy}
       </div>
       <div className="t-body">
-        <div className="t-heading">
-          {plain ? null : headline}
-          {meta.length ? <p className="t-meta g-label">{meta.map((part, index) => <Fragment key={index}>{index ? ' · ' : null}<span className="t-meta-part">{part}</span></Fragment>)}</p> : null}
-          {ratings.length ? <dl aria-label="Ratings" className="t-ratings">{ratings.map((entry) => <div key={entry.label}><dt className="sr-only">{entry.label}</dt><dd><img alt="" aria-hidden="true" className={`t-rating-logo t-rating-logo--${entry.source}`} src={`/ratings/${entry.asset ?? entry.source}.svg`} title={entry.status ? entry.label : undefined} />{entry.source === 'metacritic' ? <><span className={`t-metascore t-metascore--${entry.status?.toLowerCase()}`}>{entry.value.replace(' / 100', '')}</span><span className="t-metascore-suffix"> / 100</span></> : entry.value}</dd></div>)}</dl> : null}
-        </div>
         <div className="t-main">
-          {shown.overview ? <p className={`t-lede${hasDropCap(shown.overview) ? ' has-dropcap' : ''}`}>{shown.overview}</p> : null}
+          {shown.overview ? <p className="t-lede">{shown.overview}</p> : null}
           {data?.tagline ? <p className="t-tagline">{data.tagline}</p> : null}
           {data ? <TitleActions detail={data} onPatch={reloadFailed ? reload : title.patch} onPlay={onPlay} onEdit={() => onEdit(data.id)} onReload={reload} user={user} /> : null}
           {reloadFailed ? <p className="t-note" role="alert">Lumina could not refresh this title. <button className="g-text-button" onClick={reload} type="button">Try again</button></p> : null}

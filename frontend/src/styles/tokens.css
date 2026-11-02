@@ -8,36 +8,36 @@
   --g-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --g-type-page-title: 600 1.25rem / 1.25 var(--g-sans);
   --g-media-title-size: 3rem;
-  --g-type-media-title: italic 700 var(--g-media-title-size) / 1.05 var(--g-serif);
+  --g-type-media-title: 400 var(--g-media-title-size) / 1.05 var(--g-serif);
   --g-type-display: var(--g-type-media-title);
   --g-type-masthead: var(--g-type-media-title);
-  --g-type-h2: italic 600 27px / 1.15 var(--g-serif);
-  --g-type-h3: italic 600 19px / 1.25 var(--g-serif);
-  --g-type-lede: 400 19px / 1.5 var(--g-serif);
-  --g-type-body: 400 15px / 1.55 var(--g-serif);
-  --g-type-episode: italic 700 16px / 1.25 var(--g-serif);
-  --g-type-caption: 500 14px / 1.25 var(--g-serif);
+  --g-type-h2: 500 28px / 1.2 var(--g-serif);
+  --g-type-h3: 500 23px / 1.2 var(--g-serif);
+  --g-type-lede: 400 15px / 1.6 var(--g-sans);
+  --g-type-body: 400 15px / 1.55 var(--g-sans);
+  --g-type-episode: 600 15px / 1.4 var(--g-sans);
+  --g-type-caption: 500 14px / 1.4 var(--g-sans);
   --g-type-quote: italic 400 22px / 1.35 var(--g-serif);
-  --g-type-chapter: italic 700 40px / 1.05 var(--g-serif);
+  --g-type-chapter: 500 30px / 1.15 var(--g-serif);
   --g-type-ui: 400 14px / 1.45 var(--g-sans);
   --g-type-ui-strong: 600 14px / 1.45 var(--g-sans);
   --g-type-small: 400 12px / 1.45 var(--g-sans);
   --g-type-label: 600 11px / 1.3 var(--g-sans);
-  --g-type-button: 600 11px / 1 var(--g-sans);
-  --g-type-rail: 600 11px / 1 var(--g-sans);
+  --g-type-button: 600 14px / 1.2 var(--g-sans);
+  --g-type-rail: 600 14px / 1.2 var(--g-sans);
   --g-type-mono: 400 12px / 1.45 ui-monospace, 'SF Mono', Menlo, monospace;
   --g-track-display: -.015em;
-  --g-track-label: .18em;
-  --g-track-button: .12em;
-  --g-track-rail: .06em;
+  --g-track-label: 0em;
+  --g-track-button: 0em;
+  --g-track-rail: 0em;
   --g-track-chapter: -.01em;
 
-    --g-paper: #0f0e0c;
-  --g-paper-2: #1a1814;
-  --g-paper-3: #221f1a;
-  --g-ink: #efe9dd;
-  --g-ink-2: #c9c2b4;
-  --g-ink-3: #9d968a;
+    --g-paper: #0b0b0d;
+  --g-paper-2: #151517;
+  --g-paper-3: #202024;
+  --g-ink: #f5f5f7;
+  --g-ink-2: #b6b6bf;
+  --g-ink-3: #92929c;
   --g-rule-soft: color-mix(in srgb, var(--g-ink) 18%, transparent);
   --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
   --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent);
@@ -46,6 +46,8 @@
   --g-gold: var(--g-brand);
   --g-gold-ink: var(--g-brand);
   --g-on-gold: #15130f;
+  --g-control-fill: #efe9dd;
+  --g-control-ink: #0f0e0c;
   --g-focus: #efe9dd;
   --g-danger: #e58a74;
   --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent);
@@ -72,6 +74,8 @@
   --g-reader-sepia-paper: #e8ddc7;
   --g-reader-sepia-ink: #342b1c;
   --g-scrim-top: linear-gradient(rgb(0 0 0 / .6), transparent);
+  --g-stage-shade: linear-gradient(180deg, rgb(0 0 0 / .72), transparent 44%), linear-gradient(90deg, rgb(0 0 0 / .6), transparent 85%), linear-gradient(0deg, var(--g-paper), transparent 65%);
+  --g-art-shade: linear-gradient(transparent 15%, rgb(0 0 0 / .82));
   --g-on-art: var(--g-overlay-ink);
   --g-progress-track: var(--g-overlay-track);
   --g-badge-ink: var(--g-on-gold);
@@ -96,15 +100,15 @@
   --g-gutter: 48px;
   --g-grid-gap: 24px;
   --g-button-gap: 12px;
-  --g-poster-min: 168px;
+  --g-poster-min: 200px;
   --g-caption-height: 44px;
   --g-reading-width: 1240px;
   --g-page-width: 1680px;
-  --g-radius: 2px;
+  --g-radius: 12px;
   --g-radius-sheet: 12px;
   --g-radius-round: 999px;
   --g-control: 44px;
-  --g-topbar: 64px;
+  --g-topbar: 72px;
   --g-mobile-nav-height: calc(56px + env(safe-area-inset-bottom));
   --g-sidebar: 232px;
   --g-focus-width: 2px;
@@ -124,6 +128,8 @@
 }
 
 :root[data-theme='light'] {
+  --g-control-fill: #15130f;
+  --g-control-ink: #f4f1ea;
   color-scheme: light;
   --g-paper: #f4f1ea;
   --g-paper-2: #ece7dc;
@@ -153,6 +159,7 @@
 /* A dark subtree in the light theme (sign-in over release art): the dark set, re-declared where var() resolves. */
 :root[data-theme='light'] .g-dark {
   color-scheme: dark; --g-accent: var(--g-ink);
+  --g-control-fill: #efe9dd; --g-control-ink: #0f0e0c;
   --g-paper: #0f0e0c; --g-paper-2: #1a1814; --g-paper-3: #221f1a; --g-ink: #efe9dd; --g-ink-2: #c9c2b4; --g-ink-3: #9d968a;
   --g-rule-soft: color-mix(in srgb, var(--g-ink) 18%, transparent); --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
   --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent); --g-selected: color-mix(in srgb, var(--g-ink) 12%, transparent);
@@ -179,7 +186,7 @@
   :root {
     --g-type-display: var(--g-type-media-title);
     --g-type-masthead: var(--g-type-media-title);
-    --g-type-chapter: italic 700 34px / 1.05 var(--g-serif);
+    --g-type-chapter: 500 28px / 1.15 var(--g-serif);
     --g-grid-gap: 16px;
   }
 }
@@ -188,34 +195,34 @@
   :root {
     --g-type-display: var(--g-type-media-title);
     --g-type-masthead: var(--g-type-media-title);
-    --g-type-chapter: italic 700 26px / 1.05 var(--g-serif);
-    --g-type-h2: italic 600 21px / 1.15 var(--g-serif);
-    --g-type-h3: italic 600 17px / 1.25 var(--g-serif);
-    --g-type-lede: 400 15px / 1.5 var(--g-serif);
-    --g-type-body: 400 14px / 1.5 var(--g-serif);
-    --g-type-episode: italic 700 14px / 1.25 var(--g-serif);
+    --g-type-chapter: 500 26px / 1.15 var(--g-serif);
+    --g-type-h2: 500 25px / 1.2 var(--g-serif);
+    --g-type-h3: 500 21px / 1.25 var(--g-serif);
+    --g-type-lede: 400 14px / 1.6 var(--g-sans);
+    --g-type-body: 400 14px / 1.55 var(--g-sans);
+    --g-type-episode: 600 14px / 1.4 var(--g-sans);
     --g-type-quote: italic 400 17px / 1.35 var(--g-serif);
     --g-type-label: 600 10px / 1.3 var(--g-sans);
     --g-gutter: 16px;
     --g-grid-gap: 8px;
-    --g-caption-height: 0px;
   }
 }
 
 /* Mouse/trackpad density; touch and TV keep 44/48px. */
 @media (pointer: fine) and (min-width: 600px) {
   :root {
-    --g-control: 36px;
+    --g-control: 44px;
     --g-type-display: var(--g-type-media-title);
     --g-type-masthead: var(--g-type-media-title);
-    --g-type-h2: italic 600 23px / 1.15 var(--g-serif);
-    --g-type-lede: 400 16px / 1.5 var(--g-serif);
-    --g-type-body: 400 14px / 1.55 var(--g-serif);
+    --g-type-h2: 500 25px / 1.2 var(--g-serif);
+    --g-type-lede: 400 15px / 1.6 var(--g-sans);
+    --g-type-body: 400 14px / 1.55 var(--g-sans);
   }
 }
 
 @media (forced-colors: active) {
   :root {
+    --g-control-fill: CanvasText; --g-control-ink: Canvas;
     --g-paper: Canvas; --g-paper-2: Canvas; --g-paper-3: Canvas;
     --g-ink: CanvasText; --g-ink-2: CanvasText; --g-ink-3: CanvasText;
     --g-rule-soft: CanvasText; --g-wash: transparent; --g-selected: Highlight;
@@ -253,3 +260,5 @@
 @media (forced-colors: active) { .ph-viewer-panel { --g-danger: CanvasText; } }
 
 @media (max-width: 680px) { :root { --g-media-title-size: 2.125rem; } }
+
+@media (max-width: 680px) { :root { --g-topbar: 64px; } }

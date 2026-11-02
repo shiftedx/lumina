@@ -26,7 +26,7 @@ describe('TopBar', () => {
     const p = props();
     render(<TopBar {...p} />);
     expect(screen.getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('link', { name: 'Lumina' }).getAttribute('href')).toBe('/');
+    expect(screen.getByRole('link', { name: 'Lumina home' }).getAttribute('href')).toBe('/');
     await userEvent.click(screen.getByRole('button', { name: /^Search Lumina, (⌘K|Ctrl K)$/ }));
     expect(p.onSearch).toHaveBeenCalledOnce();
   });
@@ -195,9 +195,9 @@ describe('TopBar', () => {
     stop();
   });
 
-  it('is icon-only for Add link on phones and shows only the sun when compact', () => {
+  it('leaves phone link acquisition to Browse and keeps the compact brand accessible', () => {
     render(<TopBar {...props({ mobile: true, compact: true })} />);
-    expect(screen.getByRole('button', { name: 'Add a link' }).textContent).not.toContain('Add link');
+    expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
     expect(screen.getByText('Lumina').className).toContain('sr-only');
   });
 });

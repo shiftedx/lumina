@@ -23,15 +23,12 @@ import { backdropWidthFor, cardColour, cardTextColour, prefersReducedMotion, ren
 import { prefetchImage } from '../gallery/imageLoader';
 import { SPECULATE_AFTER_MS } from '../gallery/TitleActions';
 import { loadTitle } from '../gallery/titleCache';
-import { usesLogo } from '../gallery/titlePageModel';
 import { primaryAction } from '../titles/titleModel';
 import { entryPercent, heroAnchor, heroArt, heroKey, heroMeta, type HeroPick, titleCaption } from './homeModel';
 
 /** The warm-up waits at least this long after mount, and for the first screen. */
 export const WARM_AFTER_MS = 1_000;
-const LOGO_SIZES = '(max-width: 599px) 80vw, 600px';
 const POSTER_SIZES = '(max-width: 599px) 40vw, 320px';
-const NO_SLOT = { colour: 'transparent', fromPalette: false };
 const SWIPE_PX = 48;
 const KICKER: Record<HeroPick['kind'], string> = { continue: 'Continue watching', recommended: 'Recommended for you', newest: 'New in your library' };
 const saveData = (): boolean => Boolean((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData);
@@ -175,7 +172,6 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
   const anchor = heroAnchor(title);
   const [detail, setDetail] = useState<TitleDetail | null>(null);
   const [failed, setFailed] = useState(false);
-  const [logoFailed, setLogoFailed] = useState(false);
   const mountedAt = useRef(Date.now());
   const warmed = useRef(false);
   const speculation = useRef<{ itemId: string; timer: number } | null>(null);
@@ -197,7 +193,6 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
   const primaryLabel = continuing ? 'Resume' : action?.label ?? null;
   const unavailable = action?.reason ?? null;
   const name = detail?.name ?? titleCaption(title).name;
-  const logo = detail && usesLogo(detail) && !logoFailed ? detail.logo : null;
   const overview = (continuing && title.type === 'episode' ? title.overview : shown.overview) ?? null;
   const percent = continuing ? entryPercent(pick.entry) : null;
   const meta = heroMeta(pick);
@@ -240,7 +235,7 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
       inert={out || undefined}
       onAnimationEnd={(event) => { if (event.target === event.currentTarget) onDone?.(); }}
       role={total > 1 ? 'tabpanel' : 'group'}
-      style={{ '--h-hero-colour': colour.colour, color: art.kind === 'field' ? cardTextColour(colour.colour, colour.fromPalette) : undefined } as CSSProperties}
+      style={{ '--h-hero-colour': colour.colour, '--h-hero-ink': art.kind === 'field' ? cardTextColour(colour.colour, colour.fromPalette) : undefined } as CSSProperties}
     >
       {art.kind === 'backdrop' ? <HeroFrame className="h-hero-art" enabled={!out} placement="home" src={art.art.url}><GalleryArt alt="" art={art.art} card={null} className="hero-frame-art" colour={colour} kind="backdrop" onSettled={settle} priority={1} sizes="100vw" /></HeroFrame> : null}
       {/* Portrait art: the poster beside the text, over a blurred, darkened copy of itself (the same rendition, one fetch). */}
@@ -249,7 +244,7 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
       <div className="h-hero-text">
         <p className="g-label h-hero-kicker">{KICKER[pick.kind]}</p>
         <h2 className="h-hero-title" id={headingId}>
-          {logo ? <GalleryArt alt={name} art={logo} card={null} className="h-hero-logo" colour={NO_SLOT} kind="logo" onFail={() => setLogoFailed(true)} priority={1} sizes={LOGO_SIZES} /> : name}
+          {name}
         </h2>
         {meta ? <p className="g-label h-hero-meta">{meta}</p> : null}
         {percent === null ? null : <span aria-hidden="true" className="h-hero-progress"><span style={{ width: `${percent}%` }} /></span>}

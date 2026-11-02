@@ -53,6 +53,8 @@ export type GalleryWallProps = {
 
 export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen, onPlayAt, canEdit = false }: GalleryWallProps) {
   const def = WALLS[wall];
+  const searchLabel = `Search ${def.heading.toLowerCase()}`;
+  const videoBrowse = !header && (wall === 'movies' || wall === 'shows');
   const query = wallQueryFor(wall, state);
   const key = wallKey(wall, query);
   const store = useWallStore(key, wallListQuery(wall, query));
@@ -153,6 +155,13 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     const left = event.key === 'ArrowLeft';
     const leaves = (left || event.key === 'ArrowRight') && (field.getAttribute('role') === 'combobox'
       || (field instanceof HTMLInputElement && field.selectionStart === field.selectionEnd && (left ? field.selectionStart === 0 : field.selectionEnd === field.value.length)));
+    if (videoBrowse && ((field === filtersButton.current && left) || (field.matches('.g-chip') && !left && field === toolbar.current?.querySelector('.g-chips')?.lastElementChild))) { event.preventDefault(); searchField.current?.focus(); return; }
+    if (videoBrowse && field === searchField.current && leaves) {
+      event.preventDefault();
+      if (left) (toolbar.current?.querySelector('.g-chips')?.lastElementChild as HTMLElement | null ?? sortSelect.current)?.focus();
+      else (filtersButton.current ?? sortSelect.current)?.focus();
+      return;
+    }
     moveFocus(event, { targets: ':is(button, input):not(:disabled)', verticalExit: 'input', horizontalExit: leaves ? '[role="combobox"], input' : '[role="combobox"]' });
     if (leaves) event.preventDefault();
   };
@@ -175,9 +184,9 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     <form className="g-search" onSubmit={(event: FormEvent) => { event.preventDefault(); find(draft.trim().slice(0, 200)); }} role="search">
       <Search aria-hidden="true" />
       <input
-        aria-label="Find the one where…"
+        aria-label={searchLabel}
         className="g-input"
-        autoFocus={phone}
+        autoFocus={phone && searchOpen}
         enterKeyHint="search"
         maxLength={200}
         onChange={(event) => setDraft(event.target.value)}
@@ -187,18 +196,18 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
           setDraft('');
           find('');
         }}
-        placeholder="Find the one where…"
+        placeholder={searchLabel}
         ref={searchField}
         type="search"
         value={draft}
       />
-      {phone ? <button aria-label="Close search" className="g-icon-button" onClick={() => { flushSync(() => setSearchOpen(false)); searchButton.current?.focus(); }} type="button"><X aria-hidden="true" /></button> : null}
+      {phone && searchOpen ? <button aria-label="Close search" className="g-icon-button" onClick={() => { flushSync(() => setSearchOpen(false)); searchButton.current?.focus(); }} type="button"><X aria-hidden="true" /></button> : null}
     </form>
   );
 
   let body: ReactNode;
   if (query.q && def.search) {
-    body = <SearchResults onClear={() => { find(''); (searchField.current ?? searchButton.current)?.focus(); }} onOpen={onOpen} onPlayAt={onPlayAt} phone={phone} q={query.q} scope={def.search} types={HIT_TYPES[wall] ?? []} />;
+    body = <SearchResults onClear={() => { find(''); (searchField.current ?? searchButton.current)?.focus(); }} onOpen={onOpen} onPlayAt={onPlayAt} q={query.q} scope={def.search} types={HIT_TYPES[wall] ?? []} />;
   } else if (store.total === 0 && wallFiltered(query)) {
     body = (
       <div className="g-empty-result">
@@ -211,7 +220,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   } else {
     body = (
       <>
-        <WallGrid featured={def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
+        <WallGrid featured={wall === 'movies' || wall === 'shows' ? false : def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
         {store.failed ? (
           <div className="g-inline-error" role="alert">
             <p>Lumina could not load these titles.</p>
@@ -223,13 +232,13 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   }
 
   const featured = !header && !query.q && !selecting && !wallFiltered(query) && (wall === 'movies' || wall === 'shows') ? store.itemAt(0) : undefined;
-  const hero = featured?.backdrop ? featured : undefined;
+  const hero = featured;
   return (
-    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}`}>
-      {lenses}
+    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
+      {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? searchForm : null}</div> : lenses}
       {hero ? <section aria-label={hero.name} className="g-browse-hero">
-        <HeroFrame className="g-browse-hero-art" src={hero.backdrop!.url} placement="home"><GalleryArt alt="" art={hero.backdrop} card={null} colour={cardColour(hero, 'backdrop')} kind="backdrop" priority={1} sizes="100vw" /></HeroFrame>
-        <div className="g-browse-hero-copy"><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
+        <HeroFrame className="g-browse-hero-art" src={hero.backdrop?.url ?? hero.poster?.url} placement="home"><GalleryArt alt="" art={hero.backdrop ?? hero.poster} card={null} colour={cardColour(hero, 'backdrop')} kind={hero.backdrop ? 'backdrop' : 'poster'} priority={1} sizes="100vw" /></HeroFrame>
+        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">In your library{hero.year ? ` · ${hero.year}` : ''}</p><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
       </section> : null}
       {header ? header(sortedBy) : (
         <header className="g-masthead" onKeyDown={downToGrid}>
@@ -252,7 +261,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
             {CHIPS.map(([chip, label]) => <button aria-pressed={query[chip]} className="g-chip g-button-text" key={chip} onClick={() => refilter({ ...query, [chip]: !query[chip] })} type="button">{label}</button>)}
           </div>
         )}
-        {!def.search ? null : phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}
+        {!def.search || videoBrowse ? null : phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}
         {!def.facets ? null : phone ? (
           <button aria-label={filterCount ? `Filters (${filterCount})` : 'Filters'} className="g-icon-button g-filters" onClick={() => setFiltersOpen(true)} ref={filtersButton} type="button">
             <SlidersHorizontal aria-hidden="true" />
@@ -307,12 +316,12 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
 }
 
 type SearchResultsProps = {
-  scope: SearchScope; types: readonly TitleType[]; q: string; phone: boolean;
+  scope: SearchScope; types: readonly TitleType[]; q: string;
   onClear: () => void; onOpen: (title: TitleSummary) => void; onPlayAt: (itemId: string, startSeconds: number) => void;
 };
 
 /** "Find the one where…" results: title posters, then moments that open the player at their time. */
-function SearchResults({ scope, types, q, phone, onClear, onOpen, onPlayAt }: SearchResultsProps) {
+function SearchResults({ scope, types, q, onClear, onOpen, onPlayAt }: SearchResultsProps) {
   const [attempt, setAttempt] = useState(0);
   // A search the member replaced (or left) is cancelled rather than left to finish unseen.
   const inFlight = useRef<AbortController | null>(null);
@@ -340,7 +349,7 @@ function SearchResults({ scope, types, q, phone, onClear, onOpen, onPlayAt }: Se
       ) : data && !hits.length && !scenes.length ? <p className="g-empty-result">Nothing in your {scope} matches “{q}”.</p> : loading && !data ? <p className="g-empty-result">Searching…</p> : null}
       {hits.length ? (
         <div className="g-results-grid">
-          {hits.map((title, index) => <PosterCard caption={!phone} key={title.id} onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 33vw, 180px" title={title} />)}
+          {hits.map((title, index) => <PosterCard caption key={title.id} onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 33vw, 180px" title={title} />)}
         </div>
       ) : null}
       {scenes.length ? <div className="g-scenes">{scenes.map((match) => <SceneCard key={match.id} match={match} onPlayAt={onPlayAt} />)}</div> : null}

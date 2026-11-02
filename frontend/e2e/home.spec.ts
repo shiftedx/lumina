@@ -246,10 +246,12 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await openHome(page, {
         continueWatching: [continueEntry(episodeSummary(2, 4))], nextUp: [episodeSummary(2, 5)], newest: Array.from({ length: 8 }, (_, index) => homeMovie(index)),
-        albums: [albumSummary('album-1')],
+        albums: [albumSummary('album-1')], artwork: true,
       }, viewport);
       await expect(page.locator('.h-hero')).toBeVisible();
-      await page.screenshot({ path: `../output/playwright/home/home-${scheme}-${viewport.width}.png`, fullPage: true });
+      await expect.poll(() => page.locator('.h-hero img.g-art-image').first().evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(1);
+      expect((await page.locator('.h-hero').boundingBox())?.y).toBe(0);
+      await page.screenshot({ path: `../output/playwright/home/home-${scheme}-${viewport.width}.png` });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       expect(errors).toEqual([]);
     });

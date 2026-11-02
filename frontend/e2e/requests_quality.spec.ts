@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -19,7 +19,7 @@ import type { CatalogDetail, CatalogItem, MediaRequest } from '../src/features/r
 import { mockApi, signIn } from './lumina-mock';
 
 /**
- * Synthetic evidence for every Requests route plus the three decision dialogs.
+ * Visual evidence for every Requests route plus the three decision dialogs.
  * Screenshots are review artifacts, not pixel baselines.
  */
 const OUT = process.env.REQUESTS_QUALITY_OUT ?? join(process.cwd(), '..', 'output', 'app-quality', 'requests');
@@ -30,11 +30,7 @@ const STATES = [
   'request-dialog', 'approve-dialog', 'decline-dialog', 'mine-empty', 'discover-failure',
 ] as const;
 
-const art = (label: string, wide = false) => {
-  const [width, height] = wide ? [1280, 720] : [600, 900];
-  const safe = label.replace(/[<>&"']/g, '');
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#172554"/><stop offset=".52" stop-color="#7c3aed"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><circle cx="${width * .78}" cy="${height * .2}" r="${Math.min(width, height) * .16}" fill="#fef3c7" opacity=".7"/><text x="8%" y="86%" fill="white" font-family="system-ui" font-size="${wide ? 66 : 42}" font-weight="700">${safe}</text></svg>`)}`;
-};
+const art = (label: string, wide = false) => `/api/requests-quality-art/${wide ? 'backdrop' : 'poster'}/${encodeURIComponent(label)}`;
 
 const decorate = <T extends CatalogItem>(item: T): T => ({
   ...item,
@@ -119,6 +115,11 @@ const manageFailed = request({
 type FixtureState = { discoverFailure: boolean; mineEmpty: boolean };
 
 async function mockRequests(page: Page, state: FixtureState) {
+  await page.route('**/api/requests-quality-art/**', (route) => {
+    const wide = route.request().url().includes('/backdrop/');
+    const source = wide ? 'cosmos-backdrop.jpg' : 'sintel-poster.jpg';
+    return route.fulfill({ contentType: 'image/jpeg', body: readFileSync(new URL(`./fixtures/open-films/${source}`, import.meta.url)) });
+  });
   await page.route(/\/api\/requests(?:\/|\?|$)/, async (route) => {
     const requestUrl = new URL(route.request().url());
     const path = requestUrl.pathname;
@@ -327,5 +328,5 @@ test.afterAll(() => {
     scheme,
     file: `${state}-${viewport.name}-${scheme}.png`,
   }))));
-  writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify({ synthetic: true, source: 'frontend/e2e/requests_quality.spec.ts', captures }, null, 2)}\n`);
+  writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify({ fixture_art: 'frontend/e2e/fixtures/open-films', source: 'frontend/e2e/requests_quality.spec.ts', captures }, null, 2)}\n`);
 });

@@ -62,7 +62,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
         <div className="rq-title-copy">
           <div className="rq-title-head">
             <button className="g-text-button rq-back" onClick={() => window.history.back()} type="button"><ArrowLeft aria-hidden="true" />Back</button>
-            <h1 className="rq-title-name" tabIndex={-1}>{detail.logo_url ? <Art alt={detail.title} className="rq-hero-logo" eager fallback={detail.title} src={detail.logo_url} /> : detail.title}</h1>
+            <h1 className="rq-title-name" tabIndex={-1}>{detail.title}</h1>
             <p className="g-label rq-hero-meta">{[metaLine(detail), detail.runtime ? `${detail.runtime} min` : null, detail.certification].filter(Boolean).join(' · ')}</p>
           </div>
           {detail.tagline ? <p className="rq-tagline">{detail.tagline}</p> : null}

@@ -108,7 +108,7 @@ function Tracklist({ tracks, onPlay }: { tracks: AlbumTrack[]; onPlay: (track: A
     if (index < 0) return;
     event.preventDefault();
     event.stopPropagation(); // the page's own arrow handling would move again
-    const play = event.currentTarget.closest('.g-album-body')?.querySelector<HTMLElement>('.g-album-play');
+    const play = event.currentTarget.closest('.g-album-layout')?.querySelector<HTMLElement>('.g-album-play');
     const target = event.key === 'ArrowDown' ? rows[index + 1] : event.key === 'ArrowUp' ? rows[index - 1] ?? play : event.key === 'ArrowLeft' ? play : null;
     target?.focus();
   };
@@ -216,11 +216,13 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
             {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
           </div>
           {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
-          {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
           {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
           <MusicVideoRail id={album.id} onWatch={onWatchVideo} />
           <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
         </div>
+        <section aria-label={`${album.name} track list`} className="g-album-track-panel">
+          {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
+        </section>
       </div>
       <MusicTrackEditor albumId={album.id} albumName={album.name} onClose={() => setManagingTracks(false)} onRefreshed={onRefreshed} open={managingTracks} user={user ?? { role: 'viewer', can_edit_details: canEdit }} />
     </div>

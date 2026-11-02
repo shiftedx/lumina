@@ -1,6 +1,6 @@
 # Lumina web UI: implementation plan
 
-Status: implemented on `codex/web-native-integration`. See [integration status and verification](web-native-integration-status.md). Approved reference plan retained below. Updated 2026-11-01.
+Status: direct A correction integrated on `codex/web-native-integration` after the initial production review exposed composition gaps. See [integration status and verification](web-native-integration-status.md). Approved reference plan retained below. Updated 2026-11-01.
 
 ## Scope and source of truth
 

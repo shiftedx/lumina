@@ -23,7 +23,7 @@ export function useSeeAll() {
 }
 
 export function Hero({ items }: { items: CatalogItem[] }) {
-  const { ask, statusOf } = useRequests();
+  const { ask, statusOf, openTitle } = useRequests();
   const toast = useToast();
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -70,10 +70,11 @@ export function Hero({ items }: { items: CatalogItem[] }) {
         )}
         <div className="rq-hero-text">
           <p className="g-label rq-kicker">{KIND_LABEL[item.kind]}</p>
-          <h2 className="rq-hero-title">{item.logo_url ? <Art alt={item.title} className="rq-hero-logo" eager fallback={item.title} src={item.logo_url} /> : item.title}</h2>
+          <h2 className="rq-hero-title">{item.title}</h2>
           <p className="g-label rq-hero-meta">{metaLine(item)}</p>
           {item.overview ? <p className="rq-hero-overview">{item.overview}</p> : null}
           <div className="rq-hero-actions" data-focus-row>
+            <Button data-focus-item onClick={() => openTitle(item)} variant="primary">Details</Button>
             {canAskFor({ ...item, status }) ? <Button data-focus-item icon={<Plus />} onClick={() => ask(item)} variant="primary">Request</Button> : <StatusRibbon status={status} />}
             {trailers ? null : <Button busy={loadingTrailer} data-focus-item icon={<Clapperboard />} onClick={() => void playTrailer()}>Watch trailer</Button>}
           </div>

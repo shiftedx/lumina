@@ -1724,7 +1724,7 @@ export default function LuminaApp() {
     <AppShell
       videoView={libraryLocation.view}
       onVideoView={(view) => openRoute({ surface: 'video', view })}
-      contextualSearch={(((surface === 'video' || surface === 'library') && !libraryLocation.titleId && ['movies', 'shows', 'anime'].includes(libraryLocation.view ?? 'all')) || (surface === 'audio' && !libraryLocation.titleId && !new URLSearchParams(libraryLocation.wall).has('pane'))) || surface === 'requests' || surface === 'streaming' || (surface === 'books' && booksRoute.view !== 'read')}
+      contextualSearch={(((surface === 'video' || surface === 'library') && !libraryLocation.titleId && ['movies', 'shows', 'anime'].includes(libraryLocation.view ?? 'all')) || (surface === 'audio' && !libraryLocation.titleId && !new URLSearchParams(libraryLocation.wall).has('pane'))) || (surface === 'photos' && photosRoute.view === 'timeline') || surface === 'requests' || surface === 'streaming' || (surface === 'books' && booksRoute.view !== 'read')}
       activity={{ state: state.jobsState, retrying: state.jobsRetrying, active: activeDownloads }}
       announcer={collectionAnnouncer}
       focused={surface === 'books' && booksRoute.view === 'read'}

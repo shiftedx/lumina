@@ -15,14 +15,19 @@
 
 /* Masthead. */
 .gallery.home .h-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--g-space-4); padding: var(--g-space-4) 0; border-bottom: var(--g-hairline); }
-.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); color: var(--g-ink); }
+.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: var(--g-type-page-title); color: var(--g-ink); }
 .gallery.home .h-date { margin: 0; text-align: right; }
 @media (max-width: 599px) { .gallery.home .h-date { max-width: 14ch; } }
+/* The opening stage is one composition: compact route context lives on the art; the media name belongs to the hero. */
+.gallery.home.has-home-stage { position: relative; }
+.gallery.home .h-masthead.is-on-stage { position: absolute; z-index: 3; top: 0; right: var(--g-gutter); left: var(--g-gutter); padding-top: calc(var(--g-space-4) + 72px); border: 0; color: var(--g-on-art); pointer-events: none; }
+.gallery.home .h-masthead.is-on-stage h1, .gallery.home .h-masthead.is-on-stage .h-date { color: inherit; text-shadow: 0 1px 3px var(--g-overlay-halo); }
 
 /* Hero carousel: slides move sideways; portrait art is a poster over a blurred copy of itself. */
 .gallery.home .h-hero { --h-art: min(56vh, 560px); position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); touch-action: pan-y; }
+.gallery.home.has-home-stage .h-hero { --h-art: max(600px, min(82svh, 820px)); }
 .gallery.home .h-hero-stage { display: grid; }
-.gallery.home .h-slide { position: relative; display: flex; grid-area: 1 / 1; height: var(--h-art); min-height: 340px; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); overflow: hidden; background: var(--h-hero-colour); }
+.gallery.home .h-slide { position: relative; display: flex; grid-area: 1 / 1; height: var(--h-art); min-height: 340px; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); overflow: hidden; background: var(--h-hero-colour); color: var(--h-hero-ink, inherit); }
 /* A colour field has no artwork to earn the cinematic masthead; it still grows for long copy. */
 .gallery.home .h-slide.is-field { height: auto; min-height: 360px; }
 .gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
@@ -36,7 +41,6 @@
 .gallery.home .h-slide:not(.is-field) .h-hero-text { text-shadow: 0 1px 3px var(--g-overlay-halo); }
 .gallery.home .h-hero .g-label { color: inherit; }
 .gallery.home .h-hero-title { margin: var(--g-space-2) 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
-.gallery.home .h-hero-logo { width: auto; max-width: 100%; max-height: 120px; aspect-ratio: auto; }
 .gallery.home .h-hero-progress { display: block; width: 240px; height: 3px; margin: var(--g-space-3) 0 0; background: var(--g-progress-track); }
 .gallery.home .h-hero-progress > span { display: block; height: 100%; background: var(--g-gold); }
 .gallery.home .h-hero-overview { display: -webkit-box; margin: var(--g-space-3) 0 0; overflow: hidden; font: var(--g-type-body); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -78,11 +82,21 @@
 .gallery.home .h-hero .g-label { color: var(--g-ink-3); }
   .gallery.home .h-hero .is-primary { background: var(--g-ink); color: var(--g-paper); }
   .gallery.home .h-hero-controls { top: calc(var(--h-art) - var(--g-control)); bottom: auto; color: var(--g-on-art); }
+  /* A's phone opening stays one art-led stage too; title and actions never detach into a separate card. */
+  .gallery.home.has-home-stage .h-hero { --h-art: max(540px, min(78svh, 700px)); background: var(--g-overlay-bg); color: var(--g-on-art); }
+  .gallery.home.has-home-stage .h-slide, .gallery.home.has-home-stage .h-slide.is-field { display: flex; height: var(--h-art); min-height: var(--h-art); align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); background: var(--h-hero-colour); color: var(--h-hero-ink, inherit) !important; }
+  .gallery.home.has-home-stage .h-slide::before { display: none; }
+  .gallery.home.has-home-stage .h-hero-art { inset: 0; height: 100%; }
+  .gallery.home.has-home-stage .h-hero-overview { display: -webkit-box; }
+  .gallery.home.has-home-stage .h-hero .g-label { color: inherit; }
+  .gallery.home.has-home-stage .h-hero .is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
+  .gallery.home.has-home-stage .h-hero-controls { top: auto; bottom: var(--g-space-5); color: var(--g-on-art); }
+  .gallery.home .h-masthead.is-on-stage { right: var(--g-gutter); left: var(--g-gutter); padding-top: calc(var(--g-space-3) + 64px); }
 }
 
 /* Shelves. */
 .gallery.home .h-shelf { margin-top: var(--h-shelf-space); }
-.gallery.home .h-shelf-head { display: flex; align-items: center; gap: var(--g-space-4); margin-bottom: var(--g-space-4); padding-top: var(--g-space-4); border-top: var(--g-rule); }
+.gallery.home .h-shelf-head { display: flex; align-items: center; gap: var(--g-space-4); margin-bottom: var(--g-space-4); padding-top: var(--g-space-4); border-top: 0; }
 .gallery.home .h-shelf-head h2 { flex: 1; min-width: 0; margin: 0; font: var(--g-type-h2); color: var(--g-ink); }
 .gallery.home .h-inline-button { min-height: var(--h-control); padding: 0; border: 0; background: none; color: var(--g-ink); font: italic 600 16px / 1.3 var(--g-serif); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .gallery.home .h-row-buttons { display: flex; gap: var(--g-space-2); }

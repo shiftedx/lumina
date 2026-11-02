@@ -29,3 +29,17 @@
 .gallery .g-category-chips { flex-wrap: nowrap; overflow-x: auto; margin: 4px 0 8px; padding: 2px 0 6px; scrollbar-width: none; }
 .gallery .g-category-chips .g-chip { flex: none; }
 .gallery .g-explore-group > h2 { margin: 0 0 16px; font: var(--g-type-h2); }
+
+.gallery .g-explore-featured { margin-top: 30px; }
+.gallery .g-explore-featured .is-featured .g-still { position: relative; }
+.gallery .g-explore-featured .is-featured .g-still-frame::after { position: absolute; inset: 0; content: ''; border-radius: var(--g-radius-sheet); background: var(--g-art-shade); pointer-events: none; }
+.gallery .g-explore-featured .is-featured .g-still-caption { position: absolute; inset: auto 28px 28px; gap: 10px; color: var(--g-on-art); }
+.gallery .g-explore-featured .is-featured .g-still-title { font: 400 30px / 1.15 var(--g-serif); }
+.gallery .g-explore-featured .is-featured .g-label { color: var(--g-overlay-ink-2); }
+.gallery .g-remote-watch { display: flex; align-items: center; gap: 8px; margin-top: 4px; font: var(--g-type-ui-strong); }
+.gallery .g-remote-watch svg { width: 16px; height: 16px; }
+.gallery .g-explore-group { border-top: 0; }
+@media (max-width: 680px) {
+  .gallery .g-explore-featured .is-featured .g-still-caption { inset: auto 18px 18px; gap: 6px; }
+  .gallery .g-explore-featured .is-featured .g-still-title { font-size: 25px; }
+}

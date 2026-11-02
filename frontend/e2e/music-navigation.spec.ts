@@ -55,7 +55,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockApi(page, { sidebar_collapsed: false });
-  await mockGalleryWall(page);
+  await mockGalleryWall(page, { artwork: true });
   await mockMusic(page);
   await mockFirstClassMusic(page);
   await page.goto('/audio/title/album-1');
@@ -87,8 +87,11 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(page).toHaveURL(/\/audio$/);
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recently added', exact: true })).toBeVisible();
+  if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/audio-browse-desktop.png`, fullPage: true });
 
   const soundstage = page.getByRole('region', { name: 'A room full of records' });
+  await page.getByText('From your collection', { exact: true }).click();
   await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
   await soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ }).click();
   await expect(page).toHaveURL(/\/audio\/title\/album-0000$/);
@@ -120,17 +123,22 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
     await mockApi(page, { sidebar_collapsed: false });
-    await mockGalleryWall(page, { artists: 12, albums: 12 });
+    await mockGalleryWall(page, { artists: 12, albums: 12, artwork: true });
     await mockMusic(page);
     await mockFirstClassMusic(page);
     await page.goto('/audio');
     await signIn(page);
     const soundstage = page.getByRole('region', { name: 'A room full of records' });
+    await expect(page.getByRole('heading', { name: 'Recently added', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Recently played', exact: true }).getByText('Album One', { exact: true })).toBeVisible();
+    if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/audio-browse-${viewport.name}.png`, fullPage: true });
+    await page.getByText('From your collection', { exact: true }).click();
     await expect(soundstage).toBeVisible();
     await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
     await expect(soundstage.getByRole('button', { name: /C Title 1 by Artist 1/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'page overflow').toBeLessThanOrEqual(0);
     if (viewport.width === 390) {
+      await page.locator('.audio-tools > summary').click();
       const nav = page.getByRole('navigation', { name: 'Audio' });
       expect(await nav.evaluate((element) => element.scrollWidth >= element.clientWidth)).toBe(true);
     }

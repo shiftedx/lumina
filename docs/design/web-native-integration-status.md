@@ -96,3 +96,40 @@ The effective Compose configuration changed only the selected image. Post-recrea
 The owner additionally authorized old build/backup cleanup. Docker reported 5.568 GB of obsolete build cache reclaimed. Eleven old redundant/unmounted database snapshots reclaimed 74.26 GiB; incomplete backup retry files were also removed. Cleanup retained the fresh verified snapshot, the two newest previous snapshots, the newest snapshot for every older schema version, protected keys/configuration, all rollback pins/images and every container-mounted data directory. Root free space increased from approximately 1.4 GB to 5.2 GB. No media files or active canary/review data were deleted.
 
 Sanitized local deployment evidence is retained in ignored `output/web-native-deployment-44a00edb/`; protected backup/configuration and cleanup manifests remain on the production host. The full repository gate remains unrun per the owner's focused-testing instruction.
+
+
+## Direct A correction after production review
+
+The owner correctly reported that `44a00edb` still resembled the old UI. Its data contracts and incremental UI changes did not establish fidelity to the approved mockup. The implementation was reopened and the actual A compositions integrated directly through production components. See [the Impeccable assessments, feedback and corrections](web-native-design-review.md).
+
+This revision retains the original capability matrix above and adds the following reviewed destinations. Settings layouts remain outside the rework; the shared brand/theme/control system continues to apply across the app.
+
+| Additional view group | Retained capabilities and review evidence | Result |
+| --- | --- | --- |
+| Photos: timeline, albums, people, trash, viewer/import | Real paged/virtual timeline, model opt-in, search, sort/camera/date, albums, favorites, private/shared metadata, view/restore; PhotosSurface/PhotoViewer and browser workflow | Reviewed and integrated; phone sorting and contextual shortcut verified |
+| Downloads | Jobs, acquisition/recording activity, cancellation/retry/clear, completed-item watch route, failure/offline/stale recovery | Compact heading and quiet list; completed-download route verified |
+| Collections/Saved and metadata tools | Lists, reorder/history, smart/list builders, title/file edits and permission gates, Music Saved/playlists/manage | Preserved in real routes/disclosures; collection routing/reorder and focused music/editor contracts retained |
+| Readers and players | EPUB/page/RTL positions, canonical media headings, exact video/track activation, local/web theater/chat/recording capability seams, mini player/listening room | Retained production components; real-stack EPUB/CBZ and episode playback/resume/next journeys verified |
+
+### Focused correction validation
+
+Counts are per run and overlap; they are not an aggregate test count. The owner's focused-testing instruction remains in force.
+
+| Scope | Exact command / artifact | Result |
+| --- | --- | --- |
+| Changed UI workflow/brand contracts | `npm --prefix frontend test --` with Navigation, LuminaApp, GalleryWall, WallGrid, GalleryTitlePage, AllLanding, MusicTab, HomeHero, BooksSurface, BookDetail, BookReader, AudioSoundstage, MusicPlayer, MusicPlaylists, PhotosSurface, RequestsSurface, requestsModel, ExploreSurface, StreamingSurface, WatchChatSeam, tokens tests | 21 files, 305 passed; exact invocation/output in `output/web-native-tests-final.log` |
+| Final utility/header/catalog changes | `npm --prefix frontend test -- src/features/gallery/GalleryWall.test.tsx src/features/music/MusicCuration.test.tsx src/app/TopBar.test.tsx` | 3 files, 47 passed |
+| Caption/virtual grid/music regression | `npm --prefix frontend test -- src/features/gallery/WallGrid.test.tsx src/features/gallery/GalleryWall.test.tsx src/features/gallery/MusicTab.test.tsx` | 3 files, 46 passed |
+| Books all fixture workflows | `npm --prefix frontend run test:browser -- e2e/books.spec.ts --workers=1 --output=../output/playwright/native-books-verified` | 11 passed; sparse/rich, 320/390, detail/series/reader, light appearance, search, files, missing covers |
+| Final shell/music captions and history | `npm --prefix frontend run test:browser -- e2e/music-navigation.spec.ts e2e/web-native-integration.spec.ts --workers=1 --output=../output/playwright/native-labels-verified` | 13 passed; captions visible, member choice/routes/search, keyboard/touch/mouse, 320/390/768/1440, 200% text/forced colors, focus above phone navigation |
+| Home/title visual workflows | Home light/dark 1440/390 capture cases and title canonical-name unit checks | 4 final Home captures; 44 focused HomeHero/title tests passed |
+| Requests/Streaming/watch/Photos/Downloads/collections | Existing Requests quality, Explore gallery, Watch quality, Photos, completed-download and collection routing/reorder specs | 24 passed in the cross-view review run; includes light/dark phone/desktop, actionable states/dialogs, sorting, opt-in, player/theater containment and permission semantics |
+| Music browse/artist/album/queue/listening room | `MUSIC_VISUAL_DIR=../output/web-native-final/music ... e2e/music-navigation.spec.ts` | 4 passed; refreshed desktop/phone detail/browse captures |
+| Build and types | `npm --prefix frontend run build`; `npm --prefix frontend run typecheck` | Passed; production bundle, licenses, style/bundle contracts and E2E typecheck |
+| Working diff | `git diff --check` | Passed |
+
+Initial runs caught real defects: moving search between two DOM positions lost focus, phone filter geometry clipped the sort control, the Books hero lost direct Continue, sparse Books templates displaced the hero, light on-art actions lost contrast, and a legacy caption-height token hid phone labels. These were corrected at their owning boundaries and checked through their actual workflows. Tests tied to the removed italic headline/boxed-feature decoration now retain their useful normal-font, missing-art, selected-brand and keyboard/history contracts in the approved layout.
+
+The review package at `output/web-native-final/index.html` compares all seven approved primary mockups with integrated desktop/phone captures and links additional Photos, Downloads, movie/album/artist/book details and Live views. `captures.json` records artifact provenance/hashes. These are synthetic browser captures, not private household media or shipping fixture behavior.
+
+Physical casting, external provider/account playback and physical CBR/PDF qualification remain the limits recorded above. The full repository/Core/native UI suite, merge, push, marketing-site edits and native releases remain unperformed. The separately authorized production review deployment is recorded below after verification.

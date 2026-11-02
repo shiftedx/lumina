@@ -127,7 +127,7 @@ export function TopBar(props: TopBarProps) {
         <Kbd>{shortcut}</Kbd>
       </button>}
       <div className="g-topbar-end">
-        {!canAddLink ? null : mobile ? <IconButton icon={<Plus />} label="Add a link" onClick={props.onAddLink} /> : <Button aria-label="Add a link" icon={<Plus />} onClick={props.onAddLink} variant="quiet">Add link</Button>}
+        {!canAddLink || mobile ? null : <Button aria-label="Add a link" icon={<Plus />} onClick={props.onAddLink} variant="quiet">Add link</Button>}
         <Popover label="Activity" openOnHover trigger={(triggerProps) => activityButton(triggerProps)}>
           <div className="g-activity-popover">
             <section>

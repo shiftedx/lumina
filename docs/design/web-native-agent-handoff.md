@@ -1,6 +1,6 @@
 # Handoff: integrate the approved Lumina web UI
 
-Reference handoff retained from the approved prototype. Production integration is complete on `codex/web-native-integration`; see [results, capability matrix and verification](web-native-integration-status.md).
+Reference handoff retained from the approved prototype. The initial integration was reopened after production review to implement A directly. Current correction and validation are on `codex/web-native-integration`; see [results, capability matrix and verification](web-native-integration-status.md).
 
 You are the implementation orchestrator. Use a team of subagents to integrate the approved native-inspired design into the real web app, retaining existing capabilities and server-backed state. The next task is production code integration and review, not another round of mockups.
 

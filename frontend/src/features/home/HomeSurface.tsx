@@ -291,6 +291,8 @@ function HomeSurfaceView({
   const noHiddenShelves = homeShelves === null || layout.every((shelf) => shelf.visible);
   const fresh = !editing && noHiddenShelves && !continueWatching.length && !queued.length && !queueFailed && queueKnown
     && !pickedSignal && !channels.length && !recent.length && !subscriptionVideos.length && !followFailures.length && !followsLoading && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
+  // The greeting supplies route context over the opening artwork; the title inside HomeHero remains the media display.
+  const stageLed = !fresh && !editing && slides.length > 0;
 
   // Account menu and palette share the command; the editor can also customize a fresh Home.
   useEffect(() => onHomeEdit(() => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
@@ -398,8 +400,8 @@ function HomeSurfaceView({
   }
 
   return (
-    <div className="surface gallery home" onKeyDown={onKeyDown}>
-      <header className="h-masthead">
+    <div className={`surface gallery home${stageLed ? ' has-home-stage' : ''}`} onKeyDown={onKeyDown}>
+      <header className={`h-masthead${stageLed ? ' is-on-stage' : ''}`}>
         <h1 ref={headingRef} tabIndex={-1}>{greeting()}, {firstName(user)}</h1>
         <p className="g-label g-kicker h-date">{mastheadDate()}</p>
       </header>

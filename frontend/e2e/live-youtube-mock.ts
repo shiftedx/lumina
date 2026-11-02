@@ -2,6 +2,8 @@
  * Mocked API answers for the live and YouTube browser specs. Every artwork URL is Lumina's own
  * proxy path: no mock ever puts a provider URL on the page. Tracks may append exports at the end only.
  */
+import { readFileSync } from 'node:fs';
+
 import type { Page, Route } from '@playwright/test';
 
 export const CHANNEL_ID = 'UCabcdefghijklmnopqrstuv';
@@ -63,9 +65,13 @@ export function libraryChannelsBody(n: number) {
 }
 
 export async function mockRemoteArtwork(page: Page) {
-  await page.route('**/api/artwork/remote/**', (route) => route.fulfill({
-    contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#3d4a3f"/></svg>',
-  }));
+  await page.route('**/api/artwork/remote/**', (route) => {
+    const id = route.request().url().split('/').at(-1) ?? '';
+    // Open-film fixtures make browse and watch visual evidence judge the actual
+    // artwork-forward composition instead of a featureless colour block.
+    const file = /avatar/.test(id) ? 'bunny-poster.jpg' : /banner/.test(id) ? 'cosmos-backdrop.jpg' : Number.parseInt(id.replace(/\D/g, ''), 10) % 2 ? 'bunny-backdrop.jpg' : 'sintel-backdrop.jpg';
+    return route.fulfill({ contentType: 'image/jpeg', body: readFileSync(new URL(`./fixtures/open-films/${file}`, import.meta.url)) });
+  });
 }
 
 /** /api/discovery/live and the recordings list; `set` changes the next answer (refresh tests). */

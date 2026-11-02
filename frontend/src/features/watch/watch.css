@@ -55,7 +55,7 @@
 .watch-local-copy { min-width: 0; }
 .watch-local-series { margin: 0 0 4px; }
 .watch-local-series .g-text-button { min-height: var(--g-control); color: var(--g-gold-ink); font: italic 600 18px / 1.25 var(--g-serif); text-decoration-thickness: 1px; }
-.watch-info .watch-local-title { max-width: 22ch; margin: 0; font: italic 700 clamp(30px, 3vw, 46px) / 1.05 var(--g-serif); letter-spacing: var(--g-track-display); text-wrap: balance; }
+.watch-info .watch-local-title { max-width: 22ch; margin: 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); text-wrap: balance; }
 .watch-local-meta { margin: 12px 0 0; color: var(--g-ink-3); font: var(--g-type-small); font-variant-numeric: tabular-nums; }
 .watch-local-synopsis { max-width: 68ch; margin: 20px 0 0; color: var(--g-ink-2); font: var(--g-type-body); white-space: pre-line; text-wrap: pretty; }
 .watch-local-synopsis.is-empty { color: var(--g-ink-3); font-style: italic; }
@@ -91,7 +91,6 @@
   .watch-local-body { gap: 28px; padding-top: 24px; }
   .watch-local-story { grid-template-columns: 88px minmax(0, 1fr); gap: 16px; }
   .watch-local-poster { width: 88px; }
-  .watch-info .watch-local-title { font-size: 30px; }
   .watch-local-story.is-film .watch-local-copy { display: contents; }
   .watch-local-story.is-film .watch-local-poster { grid-row: 1 / span 2; }
   .watch-local-story.is-film .watch-local-synopsis, .watch-local-story.is-film .watch-local-actions, .watch-local-story.is-film .share-feedback { grid-column: 1 / -1; }
@@ -116,7 +115,7 @@
 .gallery.g-watch-body { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 48px; max-width: var(--g-page-width); margin-top: 24px; }
 .gallery .g-watch-column { min-width: 0; }
 .gallery .g-watch-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
-.gallery .g-watch-headline { margin: 0; font: italic 700 clamp(24px, 2.2vw, 36px) / 1.1 var(--g-serif); letter-spacing: var(--g-track-display); color: var(--g-ink); overflow-wrap: anywhere; }
+.gallery .g-watch-headline { margin: 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); color: var(--g-ink); overflow-wrap: anywhere; }
 .gallery .g-watch-meta { margin: 12px 0 0; }
 .gallery .g-watch-byline { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 24px; padding: 16px 0; border-top: var(--g-rule); border-bottom: var(--g-rule); }
 .gallery .g-watch-byline-copy { display: grid; gap: 2px; }
@@ -150,8 +149,19 @@
 .gallery .g-watch-column .watch-tools-tabs [aria-selected='true'] { border-bottom-color: var(--g-gold); color: var(--g-ink); font-weight: 700; }
 @media (max-width: 1023px) { .gallery.g-watch-body { grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); gap: 32px; } }
 @media (max-width: 899px) { .gallery.g-watch-body { grid-template-columns: minmax(0, 1fr); } .gallery .g-watch-side { padding-left: 0; border-left: 0; } }
-@media (max-width: 599px) { .gallery .g-watch-headline { font-size: 26px; } .gallery .g-watch-byline { grid-template-columns: auto minmax(0, 1fr); } .gallery .g-watch-byline > .g-button { grid-column: 1 / -1; justify-content: center; } }
+@media (max-width: 599px) { .gallery .g-watch-byline { grid-template-columns: auto minmax(0, 1fr); } .gallery .g-watch-byline > .g-button { grid-column: 1 / -1; justify-content: center; } }
 .gallery .g-chat-rail { border: 0; background: none; padding: 0; }
 .gallery .g-chat-rail h2, .gallery .g-chat-rail h3 { font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; color: var(--g-ink-3); }
 
 .g-live-chat-events { max-height: min(60vh, 560px); }
+
+/* The A watch layout keeps the media frame, title, tools and chat as distinct quiet groups. */
+.watch-surface:not(.watch-mini) { padding-inline: var(--g-gutter); padding-top: 24px; }
+.watch-info h1 { font: var(--g-type-media-title); }
+.watch-info { padding: 24px 0 0; }
+.description-card { padding: 0; background: none; }
+/* The shared player predates the A gutter. Keep its phone stage full-bleed
+   from the actual surface edge rather than its former 24px edge. */
+@media (max-width: 680px) {
+  .watch-surface:not(.watch-mini) .player-frame { width: calc(100% + 2 * var(--g-gutter)); max-width: calc(100% + 2 * var(--g-gutter)); margin-left: calc(-1 * var(--g-gutter)); }
+}

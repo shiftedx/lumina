@@ -103,7 +103,7 @@ describe('GalleryWall', () => {
     const changes: string[] = [];
     const onPlayAt = vi.fn();
     render(<Harness changes={changes} onPlayAt={onPlayAt} />);
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.type(field, 'lighthouse');
     expect(search).not.toHaveBeenCalled();
     await userEvent.type(field, '{Enter}');
@@ -124,7 +124,7 @@ describe('GalleryWall', () => {
     vi.spyOn(api, 'searchLibrary').mockImplementation((_q, _limit, _scope, options) => { signals.push(options?.signal as AbortSignal); return new Promise(() => undefined); });
     render(<Harness initial="q=first" />);
     expect(await screen.findByText('Searching…')).toBeTruthy();
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.clear(field);
     await userEvent.type(field, 'second{Enter}');
     await waitFor(() => expect(signals).toHaveLength(2));
@@ -140,7 +140,7 @@ describe('GalleryWall', () => {
     expect(await screen.findByText('Search is unavailable right now.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Nothing in your movies matches “nothing”.')).toBeTruthy();
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Find the one where…' }), '{Escape}');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search movies' }), '{Escape}');
     expect(changes.at(-1)).toBe('');
   });
 
@@ -196,7 +196,7 @@ describe('GalleryWall', () => {
     const filters = screen.getByRole('button', { name: 'Filters' });
     filters.focus();
     fireEvent.keyDown(filters, { key: 'ArrowLeft' });
-    const find = screen.getByRole('searchbox', { name: 'Find the one where…' }) as HTMLInputElement;
+    const find = screen.getByRole('searchbox', { name: 'Search movies' }) as HTMLInputElement;
     expect(document.activeElement).toBe(find);
   });
 
@@ -204,7 +204,7 @@ describe('GalleryWall', () => {
     vi.spyOn(api, 'listTitles').mockResolvedValue(page(12, { total: 12 }));
     render(<Harness />);
     const poster = await screen.findByRole('button', { name: /^Title 0,/ });
-    const find = screen.getByRole('searchbox', { name: 'Find the one where…' }) as HTMLInputElement;
+    const find = screen.getByRole('searchbox', { name: 'Search movies' }) as HTMLInputElement;
     await userEvent.type(find, 'ab');
     find.setSelectionRange(1, 1);
     expect(fireEvent.keyDown(find, { key: 'ArrowLeft' })).toBe(true); // native caret movement
@@ -263,10 +263,10 @@ describe('GalleryWall', () => {
     render(<Harness initial="q=lighthouse" />);
     expect(await screen.findAllByRole('button', { name: 'Northern Lantern, 2019, unwatched' })).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search movies' }));
   });
 
-  it('on a phone, Close search returns focus to the Search button', async () => {
+  it('on a phone, contextual search stays visible and Escape clears without losing focus', async () => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: (query: string) => ({ matches: query === '(max-width: 599px)', media: query, addEventListener() {}, removeEventListener() {} }),
@@ -274,10 +274,12 @@ describe('GalleryWall', () => {
     try {
       vi.spyOn(api, 'listTitles').mockResolvedValue(page(3, { total: 3 }));
       render(<Harness />);
-      await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-      expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
-      await userEvent.click(screen.getByRole('button', { name: 'Close search' }));
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Search' }));
+      const search = screen.getByRole('searchbox', { name: 'Search movies' });
+      await userEvent.type(search, 'northern');
+      await userEvent.keyboard('{Escape}');
+      expect((search as HTMLInputElement).value).toBe('');
+      expect(document.activeElement).toBe(search);
+      expect(screen.getAllByRole('searchbox')).toHaveLength(1);
     } finally {
       delete (window as { matchMedia?: unknown }).matchMedia;
     }
@@ -291,12 +293,12 @@ describe('GalleryWall', () => {
     first.unmount();
     render(<Harness initial="sort=name" />); // Back to the wall
     await waitFor(() => expect(document.activeElement?.getAttribute('data-index')).toBe('1'));
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.type(field, 'lighthouse{Enter}');
     await userEvent.click(await screen.findByRole('button', { name: 'Clear' }));
     await screen.findByRole('button', { name: /^Title 1,/ });
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search movies' }));
   });
 
   it('lists the wall its wall prop names (library gallery contract)', async () => {

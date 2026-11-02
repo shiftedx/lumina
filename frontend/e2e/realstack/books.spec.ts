@@ -256,7 +256,7 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
       )
       .toBe(2);
     await page.getByRole("button", { name: "Back to Books" }).click();
-    const mangaContinue = page.locator(".books-continue").filter({ has: page.getByRole("heading", { name: "Lantern Manga", exact: true }) }).getByRole("button", { name: "Continue reading" });
+    const mangaContinue = page.getByRole("region", { name: "Continue reading", exact: true }).filter({ has: page.getByRole("heading", { name: "Lantern Manga", exact: true }) }).getByRole("button", { name: "Continue reading" });
     await expect(mangaContinue).toBeVisible();
     await mangaContinue.click();
     await expect(page).toHaveURL(new RegExp(`/books/read/${mangaId}$`));

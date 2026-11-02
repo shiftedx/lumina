@@ -81,6 +81,7 @@ export async function mockMusic(page: Page): Promise<string[]> {
     const method = request.method();
     calls.push(`${method} ${path}`);
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/music/albums/recently-played') return json({ items: [albumSummary('album-1', { child_count: 3 })] });
     if (path === '/api/music/queue') {
       const body = request.postDataJSON() as { item_ids?: string[]; title_id?: string };
       const wanted = body.item_ids?.length ? new Set(body.item_ids) : null;

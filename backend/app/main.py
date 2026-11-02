@@ -879,14 +879,14 @@ async def source_automation_loop() -> None:
             continue
 
 
-METADATA_IDLE_SECONDS = 30
+METADATA_IDLE_SECONDS = 5
 METADATA_BUSY_PAUSE_SECONDS = 0
 
 
 async def metadata_loop() -> None:
     """Drain independent TMDB metadata and quota-limited OMDb ratings batches.
 
-    Full batches continue immediately; idle or quota-exhausted work waits 30 seconds.
+    Full batches continue immediately; idle or quota-exhausted work waits five seconds.
     """
     while True:
         try:

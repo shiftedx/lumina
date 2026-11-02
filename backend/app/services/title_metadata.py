@@ -1,7 +1,7 @@
 """TMDB matching, refresh and storage for Media titles.
 
 Network and LLM calls happen outside transactions. Each title then commits in one
-write_transaction through ``apply_field`` with source ``tmdb``, so user and NFO fields are never
+write_transaction through ``apply_field`` with source ``tmdb``, so user and valid NFO fields are never
 overwritten and keys never change. The only queue state is ``media_titles.metadata_due_at``:
 restart-safe, no in-memory queue. The AI endpoint may only choose among offered TMDB
 candidates (ADR 0013).
@@ -18,14 +18,14 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, get_args
 
-from sqlalchemy import and_, func, select, true, update
+from sqlalchemy import and_, case, func, select, true, update
 from sqlalchemy.orm import Session, aliased, object_session
 
 from app.db import session_scope
 from app.media_schemas import PersonType, TitlePerson
-from app.models import AppSettings, MediaTitle, Person, User, utcnow
+from app.models import AppSettings, MediaTitle, Person, StorageRoot, User, utcnow
 from app.persistence import write_transaction
-from app.services.artwork import ArtworkNotFoundError, ArtworkResponse, ArtworkService
+from app.services.artwork import ArtworkError, ArtworkNotFoundError, ArtworkResponse, ArtworkService
 from app.services.library import LibraryService
 from app.services.media_titles import MATCHABLE_TYPES, TITLE_COLUMNS, apply_field, clear_omdb_values, parse_item_id, person_key
 from app.services import cast_photos, library_search, tmdb
@@ -70,6 +70,7 @@ class Snapshot:
     season_numbers: frozenset[int] = frozenset()
     display_order: str = "aired"  # #164: how the files are numbered; TMDB is read through that order
     episode_group: str | None = None  # a TMDB episode group the user picked for that order
+    missing_images: dict[str, dict] = field(default_factory=dict)
     episodes: frozenset[tuple[int, int]] = frozenset()  # local (season, episode) numbers, read only for a non-aired order
 
     @property
@@ -144,6 +145,28 @@ class Fetched:
     seasons: dict[int, tmdb.Parsed] = field(default_factory=dict)
     order: dict[tuple[int, int], tuple[int, int]] | None = None  # local (season, episode) -> TMDB aired; None = aired order
 
+
+
+def missing_local_images(db: Session, title: MediaTitle) -> dict[str, dict]:
+    """Only missing NFO files on a verified online root may yield to provider art."""
+    from app.services.media_artifacts import artifact_file
+    from app.services.storage_roots import ONLINE_STATES, StorageRootService
+
+    candidates = {kind: entry for kind, entry in (title.images or {}).items()
+                  if (title.field_sources or {}).get(f"images.{kind}") == "nfo"
+                  and isinstance(entry, dict) and isinstance(entry.get("path"), str) and not entry.get("removed")}
+    if title.locked or not candidates:
+        return {}
+    root = db.get(StorageRoot, title.root_id) if title.root_id else None
+    if root is None or (root.observation or {}).get("state", "available") not in ONLINE_STATES or not StorageRootService(db).is_online(root):
+        return {}
+    missing = {}
+    for kind, entry in candidates.items():
+        try:
+            artifact_file(root.path, entry["path"])
+        except FileNotFoundError:
+            missing[kind] = entry
+    return missing
 
 def snapshot(db: Session, title: MediaTitle) -> Snapshot:
     seasons = frozenset(db.scalars(select(MediaTitle.index_number).where(
@@ -305,6 +328,12 @@ def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
             title.metadata_due_at = now + UNMATCHED_RETRY
         return True
     _store_provider_ids(title, details.provider_ids)
+    for kind, entry in snap.missing_images.items():
+        name = f"images.{kind}"
+        if (details.fields.get(name) and (title.field_sources or {}).get(name) == "nfo"
+                and (title.images or {}).get(kind) == entry):
+            title.images = {k: v for k, v in (title.images or {}).items() if k != kind}
+            title.field_sources = {k: v for k, v in (title.field_sources or {}).items() if k != name}
     _apply(title, details.fields)
     people = list(details.people)
     if fetched.collection is not None and title.type == "movie":
@@ -410,7 +439,7 @@ def refresh_title(title_id: str, client: tmdb.TmdbClient, ai: AiConfig, now: dat
         title = db.get(MediaTitle, title_id)
         if title is None or title.type not in MATCHABLE:
             return "skipped"
-        snap = snapshot(db, title)
+        snap = dataclasses.replace(snapshot(db, title), missing_images=missing_local_images(db, title))
         item_locked = title.locked
     if snap.locked or item_locked:
         with session_scope() as db, write_transaction(db, name="tmdb_metadata_locked"):
@@ -472,6 +501,33 @@ def identify(title: MediaTitle, tmdb_id: int, now: datetime) -> None:
     title.metadata_due_at = now
 
 
+
+def warm_title_artwork(title_id: str, now: datetime) -> None:
+    """Pin selected provider art after metadata commits, then wake the rendition worker."""
+    from app.config import settings
+    from app.services import art_urls
+
+    with session_scope() as db:
+        title = db.get(MediaTitle, title_id)
+        images = {kind: entry for kind, entry in (title.images or {}).items()
+                  if kind in art_urls.ART_TYPES and isinstance(entry, dict) and isinstance(entry.get("tmdb"), str)
+                  and not entry.get("removed") and not entry.get("path")} if title else {}
+    artwork = ArtworkService(remote_fetcher=tmdb.transport, public_source_policy=tmdb.policy, pinned_root=settings.data_dir / "metadata-art")
+    failed = False
+    for kind, entry in images.items():
+        try:
+            tmdb.load_image(artwork, entry["tmdb"], kind)
+            art_urls.enqueue([(title_id, kind)])
+        except (ArtworkError, OSError):
+            failed = True
+    if failed:
+        with session_scope() as db, write_transaction(db, name="tmdb_artwork_retry"):
+            title = db.get(MediaTitle, title_id)
+            retry = now + timedelta(minutes=5)
+            if title is not None and not title.locked and title.metadata_due_at is not None and title.metadata_due_at > retry:
+                title.metadata_due_at = retry
+
+
 def run_due_batch(now: datetime | None = None) -> bool:
     """Refresh up to BATCH_SIZE due series/movie titles on WORKERS threads; True when the batch was full.
 
@@ -486,11 +542,18 @@ def run_due_batch(now: datetime | None = None) -> bool:
         due = list(db.scalars(
             select(MediaTitle.id)
             .where(MediaTitle.type.in_(MATCHABLE), MediaTitle.locked.is_(False), MediaTitle.metadata_due_at <= now)
-            .order_by(MediaTitle.metadata_due_at, MediaTitle.id)
+            .order_by(case((func.json_extract(MediaTitle.images, "$.Primary").is_(None), 0), else_=1), MediaTitle.metadata_due_at, MediaTitle.id)
             .limit(BATCH_SIZE)
         ))
+    def refresh(title_id: str) -> None:
+        if refresh_title(title_id, client, ai, now) == "matched":
+            try:
+                warm_title_artwork(title_id, now)
+            except Exception as exc:  # noqa: BLE001 - artwork must not stop another title's metadata
+                logger.warning("TMDB artwork preparation failed: %s", type(exc).__name__)
+
     with ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="tmdb-metadata") as pool:
-        list(pool.map(lambda title_id: refresh_title(title_id, client, ai, now), due))
+        list(pool.map(refresh, due))
     return len(due) == BATCH_SIZE
 
 

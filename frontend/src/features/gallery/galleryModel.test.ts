@@ -202,14 +202,16 @@ describe('library walls', () => {
   it('lists each wall by its own category or type, with that wall’s sorts', () => {
     expect(wallListQuery('anime', DEFAULT_WALL)).toMatchObject({ category: 'anime', sort: 'created' });
     expect(wallListQuery('anime', DEFAULT_WALL)).not.toHaveProperty('type');
+    expect(wallListQuery('boxsets', wallQueryFor('boxsets', ''))).toMatchObject({ type: 'boxset', sort: 'name' });
     expect(wallListQuery('albums', DEFAULT_WALL)).toMatchObject({ type: 'album', sort: 'created' });
     expect(wallListQuery('artists', wallQueryFor('artists', ''))).toMatchObject({ type: 'artist', sort: 'name' });
     expect(Object.fromEntries(Object.entries(WALLS).map(([wall, def]) => [wall, def.sorts]))).toEqual({
       movies: ['created', 'name', 'year', 'rating'], shows: ['created', 'name', 'year', 'rating'], anime: ['created', 'name', 'year', 'rating'],
+      boxsets: ['name'],
       albums: ['created', 'name', 'year'], artists: ['name', 'created'],
     });
     expect(Object.values(WALLS).map((def) => [def.shape, def.chips, def.search, def.featured])).toEqual([
-      ['poster', true, 'movies', true], ['poster', true, 'shows', true], ['poster', true, 'anime', true], ['square', false, null, false], ['square', false, null, false],
+      ['poster', true, 'movies', true], ['poster', true, 'shows', true], ['poster', true, 'anime', true], ['poster', false, null, false], ['square', false, null, false], ['square', false, null, false],
     ]);
     expect(WALLS.anime.facets).toEqual({ category: 'anime' });
     expect(WALLS.albums.facets).toEqual({ type: 'album' });

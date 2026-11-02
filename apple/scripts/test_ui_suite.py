@@ -112,6 +112,10 @@ class FixtureBrokerTests(unittest.TestCase):
                     proof_server_environment(fixture_test_class("NativePlaybackResumeChoiceTests-instance")),
                     {"LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS": "5"},
                 )
+                self.assertEqual(
+                    proof_server_environment(fixture_test_class("NativeCollectionsTests-instance")),
+                    {"LUMINA_NATIVE_COLLECTIONS_FIXTURE": "1"},
+                )
                 for test_class in ("NativeLibraryCatalogScrollingTests", "NativeTVLibraryAlphabetTests"):
                     self.assertEqual(
                         proof_server_environment(fixture_test_class(f"{test_class}-instance")),

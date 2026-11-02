@@ -286,7 +286,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         else if let productionYear { parts.append(String(productionYear)) }
         return parts.joined(separator: " · ")
     }
-    public var isCollection: Bool { ["Series", "Season"].contains(type) }
+    public var isCollection: Bool { ["Series", "Season", "BoxSet", "Playlist"].contains(type) }
     public var isAudio: Bool { type == "Audio" }
     public var isPlayable: Bool { ["Movie", "Episode", "Video", "Audio"].contains(type) }
 }
@@ -492,10 +492,11 @@ public enum MusicBrowseKind: String, CaseIterable, Sendable {
 }
 
 public enum VideoBrowseKind: String, CaseIterable, Sendable {
-    case all, movies, shows, anime, youtube, episodes
+    case all, movies, shows, anime, collections, youtube, episodes
     public var label: String {
         switch self {
         case .youtube: "YouTube"
+        case .collections: "Collections"
         default: rawValue.capitalized
         }
     }
@@ -505,6 +506,7 @@ public enum VideoBrowseKind: String, CaseIterable, Sendable {
         case .movies: "Movie"
         case .shows: "Series"
         case .anime: "Movie,Series"
+        case .collections: "BoxSet"
         // Saved provider videos are represented as Episodes below the native
         // Channels view. This deliberately excludes remote discovery entries.
         case .youtube: "Episode"

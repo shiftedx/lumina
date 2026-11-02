@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { item, mockApi, signIn } from './lumina-mock';
+import { item, mockApi, mockTitles, signIn } from './lumina-mock';
+import { movieSummary, titleDetail } from '../src/test/galleryFixtures';
+import { mockGalleryTitle } from './gallery-title-mock';
 
 /** Mixed-source household collections: Watch routing and reorder persistence. */
 
@@ -97,3 +99,54 @@ test('test_collection_reorder_persists_across_reload', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Weekend watchlist' })).toBeVisible();
   await expect.poll(titles).toEqual(['A public link kept for later, never downloaded until asked', item.title, 'No longer available']);
 });
+
+for (const width of [1440, 390]) {
+  test(`franchises coexist with manual and smart collections and open their movies at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: width === 390 ? 'light' : 'dark' });
+    await mockApi(page, {});
+    await mockTitles(page);
+    await mockCollections(page);
+    const movie = movieSummary();
+    const franchise = movieSummary('franchise-1', { type: 'boxset', name: 'Lantern Collection', play_item_id: null, child_count: 1 });
+    const household = (id: string, name: string, smart = false) => ({
+      id, name, owner_user_id: 'member-1', visibility: 'private', revision: 1, item_count: 1,
+      items: [], entries: [], titles: [movie],
+      rules: smart ? { type: 'movie', match: 'all', conditions: [{ field: 'year', op: 'gte', value: 2000 }], limit: 100 } : null,
+    });
+    await page.route((url) => url.pathname === '/api/collections', (route) => route.fulfill({ json: [
+      household('c1', 'Weekend watchlist'), household('smart-1', 'Recent adventures', true),
+    ] }));
+    await page.route((url) => url.pathname === '/api/titles' && url.searchParams.get('type') === 'boxset', (route) => route.fulfill({
+      json: { items: [franchise], next_cursor: null, total: 1, start_index: 0, letters: [] },
+    }));
+    await mockGalleryTitle(page, { detail: titleDetail(franchise, { children: [movie] }), others: [titleDetail(movie)] });
+    await page.goto('/library/collections');
+    await signIn(page);
+    await expect(page.getByRole('button', { name: /^Lantern Collection/ })).toBeVisible();
+    for (const name of ['Weekend watchlist', 'Recent adventures']) {
+      await expect(page.getByRole('link', { name: new RegExp(name) })).toBeVisible();
+    }
+    await expect(page.getByRole('button', { name: 'New collection', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: `../output/playwright/collections/combined-${width}.png`, fullPage: true });
+    await page.getByRole('button', { name: /^Lantern Collection/ }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Lantern Collection' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'In this collection' })).toBeVisible();
+    await page.getByRole('button', { name: /^Northern Lantern/ }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeVisible();
+    // The production symptom: franchise groups exist, but no household collections do.
+    await page.route((url) => url.pathname === '/api/collections', (route) => route.fulfill({ json: [] }));
+    await page.goto('/library/collections');
+    await expect(page.getByRole('button', { name: /^Lantern Collection/ })).toBeVisible();
+    await expect(page.getByText('No collections yet.', { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: `../output/playwright/collections/franchises-only-${width}.png`, fullPage: true });
+    await page.route((url) => url.pathname === '/api/collections', (route) => route.fulfill({ status: 503, json: { detail: 'Unavailable' } }));
+    await page.goto('/library/collections');
+    await expect(page.getByText('Lumina could not load your collections.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Lantern Collection/ })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}

@@ -192,8 +192,8 @@ export function wallStore(key: string, query: TitleListQuery): WallStore {
 }
 
 /** The store for `key`, re-rendering the caller whenever its pages change. `query` must be derived from `key`. */
-export function useWallStore(key: string, query: TitleListQuery): WallStore {
-  const store = useMemo(() => wallStore(key, query), [key]); // query is a function of key
+export function useWallStore(key: string, query: TitleListQuery, list?: TitleLister): WallStore {
+  const store = useMemo(() => list ? new WallStore(query, list) : wallStore(key, query), [key, list]); // query is a function of key
   useSyncExternalStore(store.subscribe, store.snapshot);
   return store;
 }

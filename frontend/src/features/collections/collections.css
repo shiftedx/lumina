@@ -73,6 +73,8 @@
 .g-mosaic.is-1 { grid-template-columns: 1fr; }
 .g-mosaic .g-art { aspect-ratio: auto; height: 100%; }
 .g-collections-all { display: inline-block; margin-top: 12px; color: var(--g-ink); }
+.g-franchise-collections { margin-top: 48px; }
+.g-franchise-collections > .g-h2 { margin: 0 0 20px; }
 
 /* Collection detail: rule chips and ordered manual rows, tokens only. */
 .g-rule-chips { margin: 0 0 24px; padding: 0; list-style: none; }

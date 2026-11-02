@@ -25,6 +25,13 @@ final class NativeSearchPresentationTests: NativeProofJourney {
 }
 #endif
 
+@MainActor
+final class NativeCollectionsTests: NativeProofJourney {
+    func testMovieFranchisesAndHouseholdListsAppearInCollections() throws {
+        try journeyCollections()
+    }
+}
+
 #if os(iOS)
 @MainActor
 final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourney {
@@ -537,6 +544,109 @@ class NativeProofJourney: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = false
+    }
+
+    func journeyCollections() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        guard let franchiseID = fixture.franchiseCollectionID,
+              let franchiseTitle = fixture.franchiseCollectionTitle,
+              let manualID = fixture.manualCollectionID,
+              let manualTitle = fixture.manualCollectionTitle,
+              let smartID = fixture.smartCollectionID,
+              let smartTitle = fixture.smartCollectionTitle else {
+            throw XCTSkip("The native Collections fixture was not enabled.")
+        }
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        #if os(iOS)
+        try selectTourLibraryCategory("collections", screen: "libraryScreen")
+        try waitForExistence(element("movieCollectionsHeading"), timeout: 25, named: "Movie collections heading")
+        try waitForExistence(element("householdCollectionsHeading"), timeout: 25, named: "Your lists heading")
+        #else
+        try selectTVLibraryCategory("collections", screen: "libraryScreen")
+        try waitForExistence(application!.staticTexts["Movie collections"], timeout: 25, named: "Movie collections heading")
+        try waitForExistence(application!.staticTexts["Your lists"], timeout: 25, named: "Your lists heading")
+        #endif
+
+        let franchise = element("libraryItem-\(franchiseID)")
+        let manual = element("libraryItem-\(manualID)")
+        let smart = element("libraryItem-\(smartID)")
+        try waitForExistence(franchise, timeout: 25, named: franchiseTitle)
+        try waitForExistence(manual, timeout: 25, named: manualTitle)
+        try waitForExistence(smart, timeout: 25, named: smartTitle)
+        XCTAssertTrue(manual.label.contains(manualTitle), "The manual household collection must remain in Collections.")
+        XCTAssertTrue(smart.label.contains(smartTitle), "The smart household collection must remain in Collections.")
+        #if os(iOS)
+        try revealInLibraryViewport([franchise], in: element("libraryScreen"))
+        let franchiseFrame = franchise.frame.intersection(try applicationViewport())
+        guard franchiseFrame.width >= 44, franchiseFrame.height >= 44 else {
+            throw ProofFailure.ui("The visible franchise collection card had no usable physical tap target.")
+        }
+        #else
+        try focusVideoGridItemFromCategories(franchise, named: franchiseTitle)
+        #endif
+        try attachFrame(named: "Collections shows a movie franchise and household lists")
+        #if os(iOS)
+        application!.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: franchiseFrame.midX, dy: franchiseFrame.midY)).tap()
+        #else
+        try activate(franchise)
+        #endif
+
+        let collection = element("movieCollectionScreen")
+        try waitForExistence(collection, timeout: 25, named: "movie collection destination")
+        let movie = element("movieCollectionItem-\(fixture.directItemID)")
+        #if os(iOS)
+        let iosMovie = element("libraryItem-\(fixture.directItemID)")
+        try waitForExistence(iosMovie, timeout: 25, named: "franchise movie")
+        let movieFrame = iosMovie.frame.intersection(try applicationViewport())
+        guard movieFrame.width >= 44, movieFrame.height >= 44 else {
+            throw ProofFailure.ui("The franchise movie card had no usable physical tap target.")
+        }
+        application!.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: movieFrame.midX, dy: movieFrame.midY)).tap()
+        #else
+        try waitForExistence(movie, timeout: 25, named: "franchise movie")
+        try activate(movie)
+        #endif
+        try waitForExistence(element("detailScreen"), timeout: 25, named: "movie detail from franchise")
+        try attachFrame(named: "Movie franchise opens its contained movie detail")
+        #if os(iOS)
+        let nativeBack = application!.navigationBars.buttons.allElementsBoundByIndex.first {
+            self.hasVisibleFrame($0) && $0.identifier != "titleActionsMenu"
+        }
+        guard nativeBack != nil else {
+            throw ProofFailure.ui("Movie detail must retain its native Back control.")
+        }
+        let overflowMenus = application!.descendants(matching: .any)
+            .matching(identifier: "titleActionsMenu")
+            .allElementsBoundByIndex
+            .filter { hasVisibleFrame($0) }
+        guard overflowMenus.count == 1, let overflowMenu = overflowMenus.first else {
+            throw ProofFailure.ui("Movie detail must expose exactly one visible overflow menu, found \(overflowMenus.count).")
+        }
+        let overflowFrame = overflowMenu.frame.intersection(try applicationViewport())
+        guard overflowFrame.width > 0, overflowFrame.height > 0 else {
+            throw ProofFailure.ui("The visible movie detail overflow menu had no usable physical tap target.")
+        }
+        application!.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: overflowFrame.midX, dy: overflowFrame.midY)).tap()
+        let edit = element("editMetadataAction")
+        let favorite = element("videoFavoriteButton")
+        let watched = element("videoWatchedButton")
+        let download = element("downloadVideoButton")
+        for (action, name) in [(edit, "Edit metadata"), (favorite, "Favorite"), (watched, "Mark watched"), (download, "Download to Device")] {
+            try waitForExistence(action, timeout: 10, named: "movie overflow action \(name)")
+        }
+        XCTAssertTrue(favorite.label.localizedCaseInsensitiveContains("favorite"))
+        XCTAssertEqual(watched.label, "Mark watched")
+        XCTAssertEqual(download.label, "Download to Device")
+        try attachFrame(named: "Movie detail has one overflow menu with permitted actions")
+        #endif
+        completed = true
     }
 
     func journeyHomeForegroundRefresh() async throws {
@@ -8082,8 +8192,10 @@ class NativeProofJourney: XCTestCase {
     ) throws {
         try waitForExistence(collection, timeout: 15, named: "show collection during \(phase)")
 
-        let legacyBack = application!.buttons.matching(identifier: "BackButton").firstMatch
-        XCTAssertFalse(hasVisibleFrame(legacyBack),
+        let legacyBack = collection.descendants(matching: .button)
+            .matching(identifier: "BackButton")
+            .allElementsBoundByIndex
+        XCTAssertFalse(legacyBack.contains(where: hasVisibleFrame),
                        "Standard-phone \(phase) must use native leading-edge Back instead of a visible custom Back button.")
         XCTAssertFalse(hasVisibleFrame(element("homeMasthead")),
                        "Standard-phone \(phase) must not layer the Home masthead over collection content.")
@@ -8123,10 +8235,19 @@ class NativeProofJourney: XCTestCase {
 
     private func standardPhoneNavigationViewport() throws -> CGRect {
         let window = try applicationViewport()
-        let header = element("standardPhoneNavigationHeader")
-        try waitForExistence(header, timeout: 10, named: "standard-phone navigation header")
-        guard hasVisibleFrame(header) else {
-            throw ProofFailure.ui("The standard-phone navigation header has no usable frame.")
+        let customHeader = element("standardPhoneNavigationHeader")
+        var header: XCUIElement?
+        _ = waitUntil(timeout: 10) {
+            if self.hasVisibleFrame(customHeader) {
+                header = customHeader
+            } else {
+                header = self.application!.navigationBars.allElementsBoundByIndex
+                    .first(where: self.hasVisibleFrame)
+            }
+            return header != nil
+        }
+        guard let header else {
+            throw ProofFailure.ui("The standard-phone navigation chrome had no usable visible frame.")
         }
 
         let top = max(window.minY + 2, header.frame.maxY + 2)
@@ -8143,8 +8264,10 @@ class NativeProofJourney: XCTestCase {
 
     private func assertStandardPhonePushedChrome(_ screen: XCUIElement, named name: String) throws {
         try waitForExistence(screen, timeout: 20, named: name)
-        let legacyBack = application!.buttons.matching(identifier: "BackButton").firstMatch
-        XCTAssertFalse(hasVisibleFrame(legacyBack),
+        let legacyBack = screen.descendants(matching: .button)
+            .matching(identifier: "BackButton")
+            .allElementsBoundByIndex
+        XCTAssertFalse(legacyBack.contains(where: hasVisibleFrame),
                        "\(name) must use native leading-edge Back instead of a visible custom Back button.")
         XCTAssertFalse(hasVisibleFrame(element("homeMasthead")),
                        "\(name) must not layer the Home masthead over pushed content.")
@@ -11136,6 +11259,12 @@ private struct ProofFixture: Decodable {
     let password: String
     let directItemID: String
     let directItemTitle: String
+    let franchiseCollectionID: String?
+    let franchiseCollectionTitle: String?
+    let manualCollectionID: String?
+    let manualCollectionTitle: String?
+    let smartCollectionID: String?
+    let smartCollectionTitle: String?
     let convertedItemID: String
     let convertedItemTitle: String
     let matrixItemID: String

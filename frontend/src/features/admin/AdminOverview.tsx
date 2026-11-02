@@ -22,10 +22,13 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
   const updateRelease = overview?.updates?.status === 'update_available' ? overview.updates.latest_release : null;
   const updateUrl = trustedReleaseUrl(updateRelease?.url);
   const missingItems = overview?.library_items_by_status.missing ?? 0;
+  const retiredVersions = overview?.missing_media?.retired_versions ?? 0;
+  const unreplacedItems = overview ? overview.missing_media?.unreplaced_items ?? missingItems : 0;
   const unhealthyRoots = overview?.roots.filter((root) => root.enabled && root.state && root.state !== 'available') ?? [];
   const databaseErrors = db.reduce((total, metric) => total + metric.errors, 0);
   const databaseBusyTimeouts = db.reduce((total, metric) => total + metric.busy_timeouts, 0);
-  const hasAttention = Boolean(missingItems || unhealthyRoots.length || databaseErrors || databaseBusyTimeouts || overview?.recent_failures.length);
+  const databaseRollbacks = db.reduce((total, metric) => total + (metric.rollbacks ?? 0), 0);
+  const hasAttention = Boolean(unreplacedItems || unhealthyRoots.length || databaseErrors || databaseBusyTimeouts || overview?.recent_failures.length);
 
   return (
     <div aria-busy={loading} className="admin-overview">
@@ -43,7 +46,7 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
               <>
                 <h4 className="g-label">Needs attention</h4>
                 <ul className="admin-failures">
-                  {missingItems ? <li><StatusText tone="attention">{missingItems} library item{missingItems === 1 ? '' : 's'} missing on disk.</StatusText></li> : null}
+                  {unreplacedItems ? <li><StatusText tone="attention">{unreplacedItems} unavailable library item{unreplacedItems === 1 ? '' : 's'}.</StatusText></li> : null}
                   {unhealthyRoots.map((root) => <li key={root.id}><StatusText tone={root.state === 'low_space' ? 'attention' : 'danger'}>{root.label}: {STATES[root.state!]?.label ?? root.state}</StatusText></li>)}
                   {databaseErrors ? <li><StatusText tone="danger">{databaseErrors} database write error{databaseErrors === 1 ? '' : 's'} since the server started.</StatusText></li> : null}
                   {databaseBusyTimeouts ? <li><StatusText tone="attention">{databaseBusyTimeouts} database busy timeout{databaseBusyTimeouts === 1 ? '' : 's'} since the server started.</StatusText></li> : null}
@@ -57,7 +60,7 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
             {onOpenUpdates ? <Button onClick={onOpenUpdates} variant="quiet">Review update</Button> : updateUrl ? <ButtonLink href={updateUrl} rel="noreferrer noopener" target="_blank" variant="quiet">Read release notes</ButtonLink> : null}
           </div> : null}
           <dl className="g-stat-strip">
-            <div className="g-stat"><dt className="g-label">Library items</dt><dd className="g-stat-figure">{sum(overview.library_items_by_status)}</dd><dd className="g-stat-note">{overview.library_items_by_status.missing ? `${overview.library_items_by_status.missing} missing on disk` : 'All present'}</dd></div>
+            <div className="g-stat"><dt className="g-label">Library items</dt><dd className="g-stat-figure">{sum(overview.library_items_by_status)}</dd><dd className="g-stat-note">{missingItems ? `${missingItems} missing on disk · ${retiredVersions} old version${retiredVersions === 1 ? '' : 's'} replaced · ${unreplacedItems} need${unreplacedItems === 1 ? 's' : ''} attention` : 'All present'}</dd></div>
             <div className="g-stat"><dt className="g-label">Managed media</dt><dd className="g-stat-figure">{formatBytes(managedBytes)}</dd><dd className="g-stat-note">Unique files in managed roots</dd></div>
             <div className="g-stat"><dt className="g-label">Active downloads</dt><dd className="g-stat-figure">{sum(overview.jobs_by_status, ACTIVE)}</dd><dd className="g-stat-note">{overview.concurrency} at a time · {overview.max_active_jobs_per_user} per member</dd></div>
             <div className="g-stat"><dt className="g-label">Live event streams</dt><dd className="g-stat-figure">{overview.event_streams}</dd><dd className="g-stat-note">Open browser connections</dd></div>
@@ -98,6 +101,7 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
                 <tr><th scope="row">Transactions</th><td className="g-tabular">{db.reduce((total, metric) => total + metric.count, 0)}</td></tr>
                 <tr><th scope="row">Errors</th><td className="g-tabular">{db.reduce((total, metric) => total + metric.errors, 0)}</td></tr>
                 <tr><th scope="row">Busy timeouts</th><td className="g-tabular">{db.reduce((total, metric) => total + metric.busy_timeouts, 0)}</td></tr>
+                <tr><th scope="row">Rollbacks</th><td className="g-tabular">{databaseRollbacks}</td></tr>
                 <tr><th scope="row">Longest lock wait</th><td className="g-tabular">{db.length ? `${Math.round(Math.max(...db.map((metric) => metric.max_wait_ms)))} ms` : '—'}</td></tr>
               </tbody></table>
             </section>

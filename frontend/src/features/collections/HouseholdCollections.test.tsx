@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CollectionsPage } from './HouseholdCollections';
 import { collection, fakeCollectionApi, poster } from './testFixtures';
+import { movieSummary, titlePage } from '../../test/galleryFixtures';
 
+const noFranchises = vi.fn(async () => titlePage([]));
 const page = (api: ReturnType<typeof fakeCollectionApi>, extra: Partial<Parameters<typeof CollectionsPage>[0]> = {}) => render(
-  <CollectionsPage api={api} currentUserId="me" library={[]} onBackToList={vi.fn()} onOpenCollection={vi.fn()} onRouteHandled={vi.fn()} route={{ collections: 'list' }} {...extra} />,
+  <CollectionsPage api={api} currentUserId="me" library={[]} listFranchises={noFranchises} onBackToList={vi.fn()} onOpenCollection={vi.fn()} onRouteHandled={vi.fn()} route={{ collections: 'list' }} {...extra} />,
 );
 
 describe('Collections list', () => {
@@ -18,6 +20,16 @@ describe('Collections list', () => {
     expect(screen.getByRole('button', { name: 'New smart collection' }).classList.contains('is-secondary')).toBe(true);
     expect(screen.getByRole('link', { name: /Rainy Sundays/ }).getAttribute('href')).toBe('/library/collections/c1');
     expect(within(screen.getByRole('link', { name: /Family videos/ })).getByText('12 items')).toBeTruthy();
+  });
+
+  it('shows paged movie franchises and opens their existing title detail', async () => {
+    const franchise = movieSummary('matrix', { type: 'boxset', name: 'The Matrix Collection', play_item_id: null });
+    const listFranchises = vi.fn(async () => titlePage([franchise], { total: 600, next_cursor: 'more' }));
+    const onOpenTitle = vi.fn();
+    page(fakeCollectionApi([collection({ id: 'c1', name: 'Rainy Sundays' })]), { listFranchises, onOpenTitle });
+    await userEvent.click(await screen.findByRole('button', { name: /The Matrix Collection/ }));
+    expect(onOpenTitle).toHaveBeenCalledWith(franchise);
+    expect(listFranchises).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: 'boxset', sort: 'name', cursor: null, letter: null, limit: 60 }), expect.anything());
   });
 
   it('the mosaic uses up to four posters and falls back to the name', async () => {

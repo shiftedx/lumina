@@ -100,6 +100,10 @@ ARTWORK_METRICS_PATH_ENV = "LUMINA_NATIVE_ARTWORK_METRICS_PATH"
 MAX_ARTWORK_METRICS_BYTES = 1 * 1024 * 1024
 REQUESTS_METRICS_ENV = "LUMINA_NATIVE_REQUESTS_METRICS"
 METADATA_REFRESH_METRICS_ENV = "LUMINA_NATIVE_METADATA_REFRESH_METRICS"
+COLLECTIONS_FIXTURE_ENV = "LUMINA_NATIVE_COLLECTIONS_FIXTURE"
+FRANCHISE_COLLECTION_TITLE = "The Lantern Keepers Collection"
+MANUAL_COLLECTION_TITLE = "Proof movie night"
+SMART_COLLECTION_TITLE = "TMDB proof movies"
 PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
 VIDEO_FORMAT_FAILURE_ENV = "LUMINA_NATIVE_VIDEO_FORMAT_FAILURE"
@@ -1337,11 +1341,14 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
     from app.db import init_db, session_scope
     from app.models import LibraryItem, MediaRequest, MediaTitle, User, UserSettings
-    from app.media_schemas import MediaSegmentInput
+    from app.media_schemas import MediaSegmentInput, SmartCollectionRule
     from app.music_schemas import MusicPlaylistSave
     from app.services import media_segments
     from app.services import music_playlists
+    from app.services import smart_collections
+    from app.services.household_collections import HouseholdCollectionService
     from app.services.library_import import LibraryImportService, drive
+    from app.services.media_titles import jellyfin_id
     from app.services.storage_roots import StorageRootService
     from app.services.users import UserService
     from app.services.yt_dlp_service import YtDlpService
@@ -1426,9 +1433,37 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         shared_playlist = music_playlists.save(db, curator, MusicPlaylistSave(
             name=SHARED_MUSIC_PLAYLIST, shared=True, item_ids=[items[AUDIO_TRACK], items[AUDIO_SECOND_TRACK]]))
         book_items = make_books(state_root, db, owner)
+        collection_fixture: dict[str, str] = {}
+        if os.environ.get(COLLECTIONS_FIXTURE_ENV) == "1":
+            boxset = MediaTitle(
+                id=str(uuid.uuid4()), type="boxset", key="proof:boxset:lantern-keepers",
+                name=FRANCHISE_COLLECTION_TITLE, provider_ids={"Tmdb": "9001"},
+                field_sources={"name": "user", "provider_ids": "user"}, metadata_json={},
+            )
+            db.add(boxset)
+            direct_title.boxset_id = boxset.id
+
+            collections = HouseholdCollectionService(db)
+            manual = collections.create(owner_user_id=owner.id, name=MANUAL_COLLECTION_TITLE, visibility="shared")
+            collections.add_item(member_user_id=owner.id, collection_id=manual.id, library_item_id=items[DIRECT_TITLE])
+            smart_rule = SmartCollectionRule(type="movie", conditions=[{"field": "provider", "op": "is", "value": "Tmdb"}])
+            smart_collections.validate_rule(smart_rule)
+            smart = collections.create(
+                owner_user_id=owner.id, name=SMART_COLLECTION_TITLE, visibility="shared",
+                rules=smart_rule.model_dump(mode="json"),
+            )
+            collection_fixture = {
+                "franchiseCollectionID": jellyfin_id(boxset.id),
+                "franchiseCollectionTitle": FRANCHISE_COLLECTION_TITLE,
+                "manualCollectionID": jellyfin_id(manual.id),
+                "manualCollectionTitle": MANUAL_COLLECTION_TITLE,
+                "smartCollectionID": jellyfin_id(smart.id),
+                "smartCollectionTitle": SMART_COLLECTION_TITLE,
+            }
     try:
         return {
             **book_items,
+            **collection_fixture,
             "directItemID": items[DIRECT_TITLE],
             "directItemTitle": DIRECT_TITLE,
             "convertedItemID": items[CONVERTED_TITLE],
@@ -1607,6 +1642,40 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         raise RuntimeError("The Jellyfin-compatible items endpoint did not expose all synthetic posters.")
     if not direct.get("ImageTags", {}).get("Logo") or converted.get("ImageTags", {}).get("Logo"):
         raise RuntimeError("The direct proof title must expose a logo while the converted title remains a text fallback.")
+
+    franchise_id = expected.get("franchiseCollectionID")
+    if franchise_id:
+        boxsets = request_json("/Items?IncludeItemTypes=BoxSet&Recursive=true&Limit=50", token=token)
+        franchises = {item.get("Id"): item for item in boxsets.get("Items", []) if isinstance(item, dict)}
+        if franchises.get(franchise_id, {}).get("Name") != expected.get("franchiseCollectionTitle"):
+            raise RuntimeError("The native Collections fixture did not expose its synthetic movie franchise.")
+        franchise_movies = request_json(
+            f"/Items?ParentId={franchise_id}&IncludeItemTypes=Movie&Limit=50", token=token,
+        )
+        if direct.get("Id") not in {item.get("Id") for item in franchise_movies.get("Items", [])}:
+            raise RuntimeError("The native Collections fixture did not expose the franchise movie.")
+        views = request_json("/UserViews", token=token)
+        playlists_view = next(
+            (item for item in views.get("Items", []) if isinstance(item, dict) and item.get("CollectionType") == "playlists"),
+            None,
+        )
+        if not isinstance(playlists_view, dict) or not isinstance(playlists_view.get("Id"), str):
+            raise RuntimeError("The native Collections fixture did not expose the household playlists view.")
+        household = request_json(
+            f"/Items?ParentId={playlists_view['Id']}&IncludeItemTypes=Playlist&Limit=50", token=token,
+        )
+        listed = {item.get("Id"): item.get("Name") for item in household.get("Items", []) if isinstance(item, dict)}
+        for identifier, title in (
+            (expected.get("manualCollectionID"), expected.get("manualCollectionTitle")),
+            (expected.get("smartCollectionID"), expected.get("smartCollectionTitle")),
+        ):
+            if not isinstance(identifier, str) or listed.get(identifier) != title:
+                raise RuntimeError("The native Collections fixture did not expose its household manual and smart lists.")
+            entries = request_json(
+                f"/Items?ParentId={identifier}&IncludeItemTypes=Movie,Episode,Video&Limit=50", token=token,
+            )
+            if direct.get("Id") not in {item.get("Id") for item in entries.get("Items", [])}:
+                raise RuntimeError("The native Collections fixture did not expose the household list movie.")
 
     direct_detail = request_json(f"/Users/{signed_in['User']['Id']}/Items/{direct['Id']}", token=token)
     if direct_detail.get("Id") != direct["Id"] or not direct_detail.get("ImageTags", {}).get("Logo"):

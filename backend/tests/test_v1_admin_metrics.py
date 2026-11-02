@@ -42,6 +42,7 @@ def test_metrics_counts_real_scope(client: TestClient, factory) -> None:
     # Recent (7-day) failures grouped by reason, newest first.
     assert [(f["reason"], f["count"]) for f in body["recent_failures"]] == [("HTTP Error 403", 2), ("Video unavailable", 1)]
     assert body["library_items_by_status"] == {"available": 2, "missing": 1}
+    assert body["missing_media"] == {"retired_versions": 0, "unreplaced_items": 1}
     roots = {root["id"]: root for root in body["roots"]}
     assert (roots["root-a"]["artifact_count"], roots["root-a"]["artifact_bytes"]) == (2, 150)
     assert (roots["root-a"]["state"], roots["root-a"]["free_bytes"], roots["root-a"]["minimum_free_bytes"]) == ("available", 900, 5)
@@ -50,6 +51,50 @@ def test_metrics_counts_real_scope(client: TestClient, factory) -> None:
     assert isinstance(body["persistence"], dict)
     assert body["updates"]["status"] == "not_checked"
     assert (body["concurrency"], body["max_active_jobs_per_user"]) == (1, 25)
+
+
+def test_missing_media_counts_only_a_live_visible_regular_replacement(client: TestClient, factory) -> None:
+    seed(factory)
+    with factory.begin() as db:
+        db.add(StorageRoot(id="root-offline", label="Offline", path="/media/offline", mode="external", observation={"state": "offline"}))
+
+        def add_item(*, title_id: str, status: str, visibility: str = "shared", user_id: str = "u1", extra_type: str | None = None, artifact_id: str | None = None) -> None:
+            item_id = str(uuid.uuid4())
+            db.add(LibraryItem(id=item_id, user_id=user_id, title="Hidden item", visibility=visibility, status=status, title_id=title_id, extra_type=extra_type))
+            if artifact_id:
+                db.add(LibraryItemArtifact(library_item_id=item_id, artifact_id=artifact_id))
+
+        def add_artifact(*, lifecycle: str = "available", root_id: str = "root-a") -> str:
+            artifact_id = str(uuid.uuid4())
+            db.add(MediaArtifact(id=artifact_id, root_id=root_id, relative_path=f"{artifact_id}.mp4", ownership="external", lifecycle=lifecycle))
+            return artifact_id
+
+        live = add_artifact()
+        add_item(title_id="replaced", status="missing")
+        add_item(title_id="replaced", status="available", artifact_id=live)
+
+        add_item(title_id="unrelated", status="missing")
+        add_item(title_id="other-title", status="available", artifact_id=add_artifact())
+
+        add_item(title_id="private", status="missing")
+        add_item(title_id="private", status="available", visibility="private", user_id="u2", artifact_id=add_artifact())
+
+        add_item(title_id="still-missing", status="missing")
+        add_item(title_id="still-missing", status="missing", artifact_id=add_artifact())
+
+        add_item(title_id="quarantined", status="missing")
+        add_item(title_id="quarantined", status="available", artifact_id=add_artifact(lifecycle="quarantined"))
+
+        add_item(title_id="offline", status="missing")
+        add_item(title_id="offline", status="available", artifact_id=add_artifact(root_id="root-offline"))
+
+        add_item(title_id="extra", status="missing")
+        add_item(title_id="extra", status="available", extra_type="trailer", artifact_id=add_artifact())
+
+    login(client)
+    body = client.get("/api/admin/overview").json()
+    assert body["missing_media"] == {"retired_versions": 1, "unreplaced_items": 8}
+    assert "Hidden item" not in client.get("/api/admin/overview").text
 
 
 def test_metrics_no_private_content(client: TestClient, factory) -> None:

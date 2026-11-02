@@ -1107,6 +1107,10 @@ export interface AdminOverview {
   min_free_disk_mb: number;
   library_free_bytes: number | null;
   library_items_by_status: Record<string, number>;
+  missing_media?: {
+    retired_versions: number;
+    unreplaced_items: number;
+  };
   roots: {
     id: string;
     label: string;
@@ -1122,7 +1126,7 @@ export interface AdminOverview {
   }[];
   updates?: AdminUpdateStatus;
   event_streams: number;
-  persistence: Record<string, { count: number; errors: number; busy_timeouts: number; total_ms: number; max_wait_ms: number }>;
+  persistence: Record<string, { count: number; errors: number; busy_timeouts: number; rollbacks?: number; total_ms: number; max_wait_ms: number }>;
 }
 
 export interface AppEvent {

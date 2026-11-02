@@ -25,12 +25,13 @@ const overview: Overview = {
   min_free_disk_mb: 2048,
   library_free_bytes: null,
   library_items_by_status: { available: 40, missing: 2 },
+  missing_media: { retired_versions: 1, unreplaced_items: 1 },
   roots: [
     { id: 'a', label: 'Media', mode: 'managed', enabled: true, state: 'available', checked_at: '2026-09-24T09:00:00Z', free_bytes: 1024 ** 3, total_bytes: 4 * 1024 ** 3, minimum_free_bytes: 0, artifact_count: 12, artifact_bytes: 5 * 1024 ** 2 },
     { id: 'b', label: 'NAS', mode: 'external', enabled: true, state: null, checked_at: null, free_bytes: null, total_bytes: null, minimum_free_bytes: 0, artifact_count: 0, artifact_bytes: 0 },
   ],
   event_streams: 3,
-  persistence: { job_update: { count: 10, errors: 1, busy_timeouts: 0, total_ms: 20, max_wait_ms: 4.4 } },
+  persistence: { job_update: { count: 10, errors: 1, busy_timeouts: 0, rollbacks: 1, total_ms: 20, max_wait_ms: 4.4 } },
 };
 const settings = { concurrency: 2, max_active_jobs_per_user: 25, min_free_disk_mb: 2048 };
 
@@ -49,6 +50,8 @@ describe('admin overview', () => {
     expect(within(nas).getByText('Not probed')).not.toBeNull();
     expect(within(nas).getByText(/^Unavailable/)).not.toBeNull();
     expect(screen.getByText('HTTP Error 403: Forbidden')).not.toBeNull();
+    expect(screen.getByText(/1 old version replaced/)).not.toBeNull();
+    expect(screen.getByText('1 unavailable library item.')).not.toBeNull();
   });
 
   it('leads with actionable snapshot health before neutral metrics without duplicating failures', async () => {
@@ -58,7 +61,7 @@ describe('admin overview', () => {
 
     const health = await screen.findByRole('region', { name: 'Server health' });
     expect(within(health).getByRole('heading', { name: 'Needs attention' })).not.toBeNull();
-    expect(within(health).getByText('2 library items missing on disk.')).not.toBeNull();
+    expect(within(health).getByText('1 unavailable library item.')).not.toBeNull();
     expect(within(health).getByText('Media: Low space')).not.toBeNull();
     expect(within(health).getByText('1 database write error since the server started.')).not.toBeNull();
     expect(within(health).getByText('2 database busy timeouts since the server started.')).not.toBeNull();
@@ -69,7 +72,7 @@ describe('admin overview', () => {
   });
 
   it('bounds a clear snapshot to the issues its data reports', async () => {
-    api.getAdminOverview.mockResolvedValue({ ...overview, library_items_by_status: { available: 42 }, recent_failures: [], persistence: { job_update: { ...overview.persistence.job_update, errors: 0, busy_timeouts: 0 } } });
+    api.getAdminOverview.mockResolvedValue({ ...overview, library_items_by_status: { available: 42, missing: 2 }, missing_media: { retired_versions: 2, unreplaced_items: 0 }, recent_failures: [], persistence: { job_update: { ...overview.persistence.job_update, errors: 0, busy_timeouts: 0 } } });
     api.getAdminSettings.mockResolvedValue(settings);
     render(<AdminOverview />);
 

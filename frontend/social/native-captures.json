@@ -1,0 +1,46 @@
+{
+  "source_revision": "ae2d56e7f7b8c91e2de341d1075f017cf461c8be",
+  "app_worktree_dirty": false,
+  "captured_at_utc": "2026-11-01T02:33:04.931856+00:00",
+  "publication_ready": true,
+  "method": "Fresh screenshots exported from current native XCTest bundles on isolated iPhone and Apple TV simulators, using the real backend and an isolated public-art/synthetic-media fixture. Screenshots were encoded as JPEG at quality 90; TV output was scaled from 3840\u00d72160 to 1920\u00d71080. No compositing or interface reconstruction.",
+  "fixture_data": {
+    "media": "Tiny synthetic local clips, an illustrative Blender Open Movies demo series, generated music, and disposable accounts.",
+    "metadata": "Movie titles/years and artwork match Spring (2019), Cosmos Laundromat (2015), and Sintel (2010). Demo watch progress and film-rating values are synthetic; they are not editorial claims about the films.",
+    "artwork": "Approved Blender Studio / Blender Foundation posters and backdrops from docs/assets/blender-sources.json, Creative Commons Attribution.",
+    "privacy": "No household server, private media, real credentials, or private hostnames.",
+    "appearance": "Dark member preference; iPhone simulator dark appearance.",
+    "capture_harness": "Temporary copy of apple/scripts/proof_server.py with public artwork/title mappings and title-logo-only verification removed. Canonical app source was unchanged.",
+    "native_qualification": "Capture evidence only. Does not certify all native workflows or physical-device codec/output support."
+  },
+  "images": {
+    "ios-home.jpg": {
+      "sha256": "aa994d037280ff13fa8ff8e70bd9523926218fb72740d82ed29af8dd2fdf6b94",
+      "viewport_points": [
+        402,
+        874
+      ],
+      "pixel_dimensions": [
+        1206,
+        2622
+      ],
+      "platform": "iPhone 17 simulator",
+      "frame": "Visual consistency Home",
+      "workflow_result": "Home captured; later workflow timed out waiting for hittable Home Browse for movies."
+    },
+    "tvos-home.jpg": {
+      "sha256": "26cc88cf2a15d6e2f9a899c4d7be3f16856900a93de36ededa4f5b1af710f036",
+      "viewport_points": [
+        1920,
+        1080
+      ],
+      "pixel_dimensions": [
+        1920,
+        1080
+      ],
+      "platform": "Apple TV 4K (3rd generation) simulator",
+      "frame": "TV Home destinations preserve its local selection",
+      "workflow_result": "NativeTVHomeNavigationPreservesSelectionTests/testTVHomeNavigationPreservesSelection passed: 1 test, 0 failures."
+    }
+  }
+}

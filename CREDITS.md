@@ -48,7 +48,7 @@ Lumina is an independent project, not affiliated with or endorsed by any project
 
 ## Social preview artwork
 
-The social-card artwork is original imagery generated for Lumina. Its fictional scenes contain no household media or member details. The cards reuse the project’s Newsreader fonts and horizon mark; regenerate them with `mise exec -- npm --prefix frontend run social:render`.
+Current social cards compose approved native iPhone and Apple TV screenshots from an isolated public demo, alongside Lumina’s Newsreader fonts and sunrise mark. The screens feature **Spring** (2019), Blender Studio / Blender Foundation, under Creative Commons Attribution; source artwork is listed in [docs/assets/blender-sources.json](docs/assets/blender-sources.json). Capture provenance and source-image hashes are retained in [frontend/social/native-captures.json](frontend/social/native-captures.json), with composition notes in [frontend/social/README.md](frontend/social/README.md). Demo progress and ratings are synthetic, not editorial claims. No household media, member details or invite tokens appear in these cards. Earlier versioned cards retain original generated Lumina illustrations. Regenerate with `mise exec -- npm --prefix frontend run social:render`.
 
 ## Email artwork
 

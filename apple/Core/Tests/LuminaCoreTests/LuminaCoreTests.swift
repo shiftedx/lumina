@@ -3863,6 +3863,161 @@ final class LuminaCoreTests: XCTestCase {
             XCTAssertEqual(error as? LuminaError, .malformedResponse)
         }
     }
+
+    func testSavedStreamingLibraryPagesProvidersSeparatelyAndDiscardsFormerOwnerResponse() async throws {
+        let first = LuminaSession(serverURL: URL(string: "https://first.example")!, accessToken: "first-token",
+                                  userID: "first", username: "First", serverName: "Lumina", deviceID: "fixture")
+        let second = LuminaSession(serverURL: URL(string: "https://second.example")!, accessToken: "second-token",
+                                   userID: "second", username: "Second", serverName: "Lumina", deviceID: "fixture")
+        let normalLibrary = LuminaStore(client: LuminaClient(configuration: mockConfiguration()),
+                                        credentials: TestCredentials(session: first))
+        MockURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/Users/Me": return response(request, json: ["Id": "first", "Name": "First"])
+            case "/Items": return response(request, json: page(items: [["Id": "normal-library", "Name": "Movie", "Type": "Movie"]]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        await normalLibrary.restore()
+        XCTAssertEqual(normalLibrary.items.map(\.id), ["normal-library"])
+
+        defer { HomeDelayedURLProtocol.reset() }
+        let requests = RequestRecorder()
+        let staleRequestStarted = expectation(description: "former owner saved-streaming request started")
+        HomeDelayedURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url?.path {
+            case "/UserViews":
+                let owner = request.url?.host == "first.example" ? "first" : "second"
+                return response(request, json: page(items: [["Id": "channels-\(owner)", "Name": "Channels", "Type": "Channel"]]))
+            case "/Items":
+                let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+                let start = components?.queryItems?.first(where: { $0.name == "StartIndex" })?.value
+                let provider = components?.queryItems?.first(where: { $0.name == "SourceProvider" })?.value
+                XCTAssertEqual(provider, "youtube,twitch,kick")
+                if request.url?.host == "first.example" {
+                    return response(request, json: ["Items": [["Id": "former-owner", "Name": "Former", "Type": "Episode"]], "TotalRecordCount": 1, "StartIndex": 0])
+                }
+                if start == "0" {
+                    return response(request, json: ["Items": [["Id": "youtube-saved", "Name": "YouTube", "Type": "Episode"]], "TotalRecordCount": 2, "StartIndex": 0])
+                }
+                return response(request, json: ["Items": [["Id": "twitch-saved", "Name": "Twitch", "Type": "Episode"]], "TotalRecordCount": 2, "StartIndex": 1])
+            default: return response(request, status: 404)
+            }
+        }
+        HomeDelayedURLProtocol.delay = { request in
+            request.url?.host == "first.example" && request.url?.path == "/Items" ? 0.15 : 0
+        }
+        HomeDelayedURLProtocol.onStart = { request in
+            if request.url?.host == "first.example", request.url?.path == "/Items" { staleRequestStarted.fulfill() }
+        }
+
+        let streamingLibrary = LuminaStreamingLibrary(client: LuminaClient(configuration: homeConfiguration()), session: first)
+        let formerOwnerLoad = Task { await streamingLibrary.load() }
+        await fulfillment(of: [staleRequestStarted], timeout: 2)
+        streamingLibrary.configure(session: second)
+        await formerOwnerLoad.value
+        XCTAssertTrue(streamingLibrary.items.isEmpty, "A former member's saved videos must not publish after an owner switch.")
+
+        await streamingLibrary.load()
+        XCTAssertEqual(streamingLibrary.items.map(\.id), ["youtube-saved"])
+        XCTAssertTrue(streamingLibrary.hasMore)
+        await streamingLibrary.loadMore()
+        XCTAssertEqual(streamingLibrary.items.map(\.id), ["youtube-saved", "twitch-saved"])
+        XCTAssertFalse(streamingLibrary.hasMore)
+        XCTAssertEqual(normalLibrary.items.map(\.id), ["normal-library"], "Saved-streaming paging must not replace the normal Library wall.")
+        XCTAssertTrue(requests.all.filter { $0.url?.path == "/Items" }.allSatisfy { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "ParentId" })?.value?.hasPrefix("channels-") == true
+        })
+    }
+
+    func testNativeStreamingFailsClosedAndCleansRemotePlaybackWithOriginalOwner() async throws {
+        let first = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "first-token",
+                                  userID: "first", username: "First", serverName: "Lumina", deviceID: "fixture")
+        let second = LuminaSession(serverURL: URL(string: "https://second.example")!, accessToken: "second-token",
+                                   userID: "second", username: "Second", serverName: "Lumina", deviceID: "fixture")
+        let credentials = TestCredentials(session: first)
+        let requests = RequestRecorder()
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url?.path {
+            case "/Users/Me":
+                let secondMember = request.value(forHTTPHeaderField: "Authorization")?.contains("second-token") == true
+                return response(request, json: ["Id": secondMember ? "second" : "first", "Name": secondMember ? "Second" : "First"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url?.path {
+            case "/Lumina/Settings/capabilities": return response(request, json: ["streaming": ["saved_library": [:]]])
+            default: return response(request, status: 404)
+            }
+        }
+        let malformedCapabilities = await store.loadNativeStreamingCapabilities()
+        XCTAssertNil(malformedCapabilities)
+        XCTAssertNil(store.nativeStreamingCapabilities, "Absent or malformed remote capability fields must fail closed.")
+
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            guard request.url?.path == "/Lumina/Streaming/playback" else { return response(request, status: 404) }
+            return response(request, json: [
+                "status": "ready", "session_id": "stream-foreign", "playback_url": "https://foreign.example/stream.m3u8",
+                "seekable": true, "live": false,
+            ])
+        }
+        do {
+            _ = try await store.prepareNativeRemotePlayback(sourceURL: URL(string: "https://provider.example/watch?v=1")!)
+            XCTFail("A server-provided foreign playback URL must be rejected.")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
+
+        let playbackStarted = expectation(description: "remote playback started under original owner")
+        let releasePlayback = DispatchSemaphore(value: 0)
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url?.path {
+            case "/Lumina/Streaming/playback":
+                playbackStarted.fulfill()
+                releasePlayback.wait()
+                return response(request, json: [
+                    "status": "ready", "session_id": "stream-1", "playback_url": "/Lumina/Streaming/playback/stream-1/master.m3u8",
+                    "seekable": true, "live": false,
+                ])
+            case "/Lumina/Streaming/playback/stream-1": return response(request)
+            case "/Users/Me":
+                let secondMember = request.value(forHTTPHeaderField: "Authorization")?.contains("second-token") == true
+                return response(request, json: ["Id": secondMember ? "second" : "first", "Name": secondMember ? "Second" : "First"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        let preparation = Task { @MainActor in
+            try await store.prepareNativeRemotePlayback(sourceURL: URL(string: "https://provider.example/watch?v=1")!)
+        }
+        await fulfillment(of: [playbackStarted], timeout: 2)
+        credentials.stored = second
+        let restoration = Task { @MainActor in await store.restore() }
+        await Task.yield()
+        XCTAssertEqual(store.session?.accessToken, "second-token")
+        releasePlayback.signal()
+        await restoration.value
+        do {
+            _ = try await preparation.value
+            XCTFail("Playback created for a former owner must not be returned to the next member.")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .notSignedIn)
+        }
+        let cleanup = try XCTUnwrap(requests.all.last { $0.url?.path == "/Lumina/Streaming/playback/stream-1" })
+        XCTAssertTrue(cleanup.value(forHTTPHeaderField: "Authorization")?.contains("first-token") == true,
+                      "Remote playback cleanup must use the session that created it, not the current member.")
+    }
 }
 
 private func syntheticKeychainSession(deviceID: String = "test-device") -> LuminaSession {

@@ -8,6 +8,7 @@ protocol, verifies the client journey, then remains available until Ctrl-C.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -939,6 +940,94 @@ def install_navigation_fixture_controls(app: Any) -> None:
     app.router.routes.insert(frontend_index, route)
 
 
+
+def install_streaming_fixture(app: Any, provisioned: dict[str, Any]) -> None:
+    """Keep native streaming qualification offline at the upstream adapter boundary."""
+    from types import SimpleNamespace
+    from app import main as server
+    from app.db import session_scope
+    from app.models import AppSettings, LibraryItem
+    from app.schemas import PreviewResponse
+    from app.services.remote_streaming import RemoteStreamingService, UpstreamMediaResponse
+    from app.services.yt_dlp_service import YtDlpService
+
+    with session_scope() as db:
+        from app.services.media_artifacts import MediaArtifactService
+        source = db.get(LibraryItem, provisioned["directItemID"])
+        source_file, _root = MediaArtifactService(db).locate(source)
+        if source_file is None:
+            raise RuntimeError("Streaming proof requires its generated movie artifact.")
+        media = Path(source_file).read_bytes()
+    metrics = {"bytes_served": 0, "sessions_released": 0}
+    metrics_lock = threading.Lock()
+
+    class Reader:
+        def open(self, track, byte_range):  # noqa: ANN001, ANN202
+            start = byte_range.start if byte_range else 0
+            end = byte_range.end if byte_range and byte_range.end is not None else len(media) - 1
+            payload = media[start:end + 1]
+            with metrics_lock:
+                metrics["bytes_served"] += len(payload)
+            headers = {"content-type": "video/mp4", "content-length": str(len(payload)), "accept-ranges": "bytes"}
+            if byte_range:
+                headers["content-range"] = f"bytes {start}-{end}/{len(media)}"
+            return UpstreamMediaResponse(status_code=206 if byte_range else 200, headers=headers, body=[payload])
+
+    class Resolver:
+        def resolve(self, source_url, owner_user_id):  # noqa: ANN001, ANN202
+            raise AssertionError("The bounded proof source must not refresh upstream.")
+
+    class ProofStreamingService(RemoteStreamingService):
+        def release(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            result = super().release(*args, **kwargs)
+            with metrics_lock:
+                metrics["sessions_released"] += 1
+            return result
+
+    server.remote_streams = ProofStreamingService(resolver=Resolver(), reader=Reader())
+    original_preview = YtDlpService.preview_for_playback
+
+    def preview(service, source_url, user_id, *args, **kwargs):  # noqa: ANN001, ANN202
+        if source_url not in {"https://www.youtube.com/watch?v=proofremote", "https://www.twitch.tv/observatory"}:
+            return original_preview(service, source_url, user_id, *args, **kwargs)
+        return PreviewResponse(kind="video", title="A new Observatory transmission", extractor="youtube", extractor_key="Youtube",
+            webpage_url=source_url, raw={"id": "proofremote", "title": "A new Observatory transmission", "extractor_key": "Youtube",
+                "webpage_url": source_url, "duration": 90,
+                "formats": [{"format_id": "18", "url": "https://media.example.com/proof.mp4", "protocol": "https", "ext": "mp4",
+                             "vcodec": "avc1.42001E", "acodec": "mp4a.40.2", "height": 180, "filesize": len(media)}]})
+    YtDlpService.preview_for_playback = preview
+    server.home_recommendations = lambda *args, **kwargs: SimpleNamespace(items=[{
+        "webpage_url": "https://www.youtube.com/watch?v=proofremote", "title": "A new Observatory transmission",
+        "uploader": "Observatory Studio", "thumbnail": None,
+    }])
+    server.live_now = lambda *args, **kwargs: SimpleNamespace(hero=[], items=[{
+        "webpage_url": "https://www.twitch.tv/observatory", "title": "Live Observatory Relay",
+        "uploader": "Observatory Studio", "kind": "live", "thumbnail": None,
+    }])
+
+    async def configure(mode: str):
+        if mode not in {"on", "off"}:
+            return {"ok": False}
+        with session_scope() as db:
+            settings = db.get(AppSettings, 1)
+            settings.native_streaming_enabled = mode == "on"
+            db.commit()
+        with metrics_lock:
+            metrics["bytes_served"] = 0
+            metrics["sessions_released"] = 0
+        return {"ok": True}
+
+    async def snapshot():
+        with metrics_lock:
+            return dict(metrics)
+
+    app.add_api_route("/proof/streaming/{mode}", configure, methods=["POST"], include_in_schema=False)
+    app.add_api_route("/proof/streaming-metrics", snapshot, methods=["GET"], include_in_schema=False)
+    routes = [route for route in app.router.routes if getattr(route, "path", "").startswith("/proof/streaming")]
+    app.router.routes[:] = [route for route in app.router.routes if route not in routes]
+    frontend_index = next((i for i, candidate in enumerate(app.router.routes) if getattr(candidate, "name", None) == "frontend"), len(app.router.routes))
+    app.router.routes[frontend_index:frontend_index] = routes
+
 def install_requests_catalog_metrics(app: Any) -> _RequestsCatalogMetrics:
     """Add proof-only Requests aggregate counters without exposing request data."""
     recorder = _RequestsCatalogMetrics()
@@ -1420,6 +1509,27 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
                     MediaSegmentInput(type="credits", start_seconds=AUTOPLAY_CREDITS_START_SECONDS, end_seconds=90),
                 ])
         owner = db.query(User).filter_by(username=username).one()
+        streaming_fixture: dict[str, str] = {}
+        if os.environ.get("LUMINA_NATIVE_STREAMING_PROOF") == "1":
+            from app.models import LibraryItemArtifact
+            source = db.get(LibraryItem, items[DIRECT_TITLE])
+            artifact = db.get(LibraryItemArtifact, source.id)
+            for provider, title, remote_id in (
+                ("Youtube", "Saved Observatory on YouTube", "proof-saved-youtube"),
+                ("TwitchVod", "Saved Observatory on Twitch", "proof-saved-twitch"),
+            ):
+                saved = LibraryItem(
+                    id=str(uuid.uuid4()), user_id=owner.id, visibility="shared", kind="video",
+                    extractor=provider, remote_id=remote_id, title=title, uploader="Observatory Studio",
+                    duration=source.duration, file_path=source.file_path, file_size=source.file_size,
+                    status="available", metadata_json=dict(source.metadata_json or {}),
+                    webpage_url=("https://www.youtube.com/watch?v=proofsaved1" if provider == "Youtube"
+                                 else "https://www.twitch.tv/videos/900100"),
+                )
+                db.add(saved)
+                if artifact:
+                    db.add(LibraryItemArtifact(library_item_id=saved.id, artifact_id=artifact.artifact_id))
+                streaming_fixture["savedYouTubeID" if provider == "Youtube" else "savedTwitchID"] = uuid.UUID(saved.id).hex
         if os.environ.get(AUTOPLAY_DISABLED_ENV) == "1":
             preferences = db.query(UserSettings).filter_by(user_id=owner.id).one()
             preferences.ui_prefs = {**(preferences.ui_prefs or {}), "autoplay_up_next": False}
@@ -1466,6 +1576,9 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         return {
             **book_items,
             **collection_fixture,
+            **streaming_fixture,
+            "streamingRecommendationID": hashlib.sha256(b"https://www.youtube.com/watch?v=proofremote").hexdigest()[:24],
+            "streamingLiveID": hashlib.sha256(b"https://www.twitch.tv/observatory").hexdigest()[:24],
             "directItemID": items[DIRECT_TITLE],
             "directItemTitle": DIRECT_TITLE,
             "convertedItemID": items[CONVERTED_TITLE],
@@ -1898,6 +2011,8 @@ def main() -> None:
         import uvicorn
         from app.main import app
         install_showcase_art_fixture(state_root)
+        if os.environ.get("LUMINA_NATIVE_STREAMING_PROOF") == "1":
+            install_streaming_fixture(app, provisioned)
         if "NativeServerNavigationTests" in str(FIXTURE_PATH):
             install_navigation_fixture_controls(app)
         install_playback_info_delay(app, playback_info_delay)

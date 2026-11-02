@@ -91,6 +91,31 @@ final class LuminaClient: @unchecked Sendable {
         return claim
     }
 
+    func nativeStreamingCapabilities(origin: URL, token: String, deviceID: String) async throws -> NativeStreamingCapabilities {
+        let response: NativeStreamingCapabilitiesResponse = try await json(request(
+            origin: origin, path: "/Lumina/Settings/capabilities", token: token, deviceID: deviceID
+        ))
+        return response.streaming
+    }
+
+    func startNativeRemotePlayback(origin: URL, token: String, deviceID: String, sourceURL: URL,
+                                   supportedProfiles: [String]) async throws -> NativeRemotePlayback {
+        guard sourceURL.scheme == "https", sourceURL.host != nil, sourceURL.user == nil, sourceURL.password == nil else {
+            throw LuminaError.unsafeURL
+        }
+        let response: NativeRemotePlayback = try await json(request(
+            origin: origin, path: "/Lumina/Streaming/playback", method: "POST", token: token, deviceID: deviceID,
+            body: ["source_url": sourceURL.absoluteString, "supported_profiles": supportedProfiles]
+        ))
+        return try response.resolved(origin: origin)
+    }
+
+    func stopNativeRemotePlayback(origin: URL, token: String, deviceID: String, sessionID: String) async throws {
+        guard !sessionID.isEmpty, sessionID.utf8.count <= 128 else { throw LuminaError.malformedResponse }
+        _ = try await send(request(origin: origin, path: "/Lumina/Streaming/playback/\(sessionID)", method: "DELETE",
+                                   token: token, deviceID: deviceID))
+    }
+
     func me(origin: URL, token: String, deviceID: String) async throws -> UserInfo {
         try await json(request(origin: origin, path: "/Users/Me", token: token, deviceID: deviceID))
     }

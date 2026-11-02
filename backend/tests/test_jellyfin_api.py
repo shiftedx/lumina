@@ -48,6 +48,12 @@ def test_root_form_maps_only_router_segments(raw: str, expected: str | None) -> 
     assert normalize_jellyfin_path(raw, frozenset({"items", "system"})) == expected
 
 
+def test_native_streaming_keeps_opaque_playback_ids_case_sensitive() -> None:
+    assert normalize_jellyfin_path(
+        "/Lumina/Streaming/playback/Case_Sensitive-Id/content", frozenset({"lumina"})
+    ) == "/jellyfin/lumina/streaming/playback/Case_Sensitive-Id/content"
+
+
 def test_a_credentialed_call_maps_any_segment_but_api_and_root() -> None:
     assert normalize_jellyfin_path("/Genres/X", frozenset(), any_segment=True) == "/jellyfin/genres/x"
     assert normalize_jellyfin_path("/api/library", frozenset(), any_segment=True) is None
@@ -388,6 +394,20 @@ def test_channels_view_groups_uploads_by_uploader_and_year(jf: TestClient) -> No
     saved_youtube = get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode", SourceProvider="youtube", SearchTerm="New").json()
     assert [item["Name"] for item in saved_youtube["Items"]] == ["New upload"]
     assert get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode", SourceProvider="twitch").json()["Items"] == []
+
+
+def test_streaming_saved_wall_aggregates_provider_extractor_families_without_leaking_private_items(jf: TestClient, tmp_path: Path) -> None:
+    from title_support import add_file, uid
+
+    with db_module.SessionLocal.begin() as db:
+        add_file(db, tmp_path / "media", "streams/twitch.mp4", item_id=uid(941), title_id=None, owner=ALICE,
+                 title="Twitch VOD", kind="video", extractor="TwitchVod", uploader="Streamer")
+        add_file(db, tmp_path / "media", "streams/private.mp4", item_id=uid(942), title_id=None, owner=BOB,
+                 visibility="private", title="Private Twitch", kind="video", extractor="TwitchStream", uploader="Bob")
+        add_file(db, tmp_path / "media", "streams/other.mp4", item_id=uid(943), title_id=None, owner=ALICE,
+                 title="Other video", kind="video", extractor="Vimeo", uploader="Elsewhere")
+    page = get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode", SourceProvider="youtube,twitch,kick").json()
+    assert {item["Name"] for item in page["Items"]} == {"Old upload", "New upload", "Twitch VOD"}
 
 
 def test_channel_video_dto_points_at_its_synthetic_folders(jf: TestClient) -> None:

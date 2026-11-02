@@ -35,6 +35,16 @@ final class NativeActorLibraryTests: NativeProofJourney {
 #endif
 
 @MainActor
+final class NativeStreamingTests: NativeProofJourney {
+    func testSavedProviderVideosRemainAvailableWhenRemoteStreamingIsDisabled() async throws {
+        try await journeyNativeStreaming(remoteEnabled: false)
+    }
+    func testConfiguredStreamingShowsRecommendationsLiveAndServerPlayback() async throws {
+        try await journeyNativeStreaming(remoteEnabled: true)
+    }
+}
+
+@MainActor
 final class NativeTVPhoneEnrollmentTests: NativeProofJourney {
     #if os(tvOS)
     func testTVSignsInAfterAnEnrolledPhoneApprovesItsCode() async throws {
@@ -57,8 +67,8 @@ final class NativeCollectionsTests: NativeProofJourney {
         try journeyCollectionFilter()
     }
     #else
-    func testMovieFranchisesAndHouseholdListsAppearInCollections() throws {
-        try journeyCollections()
+    func testCollectionsFilterTheExistingMovieLibrary() throws {
+        try journeyTVCollectionFilter()
     }
     #endif
 }
@@ -577,6 +587,85 @@ class NativeProofJourney: XCTestCase {
         continueAfterFailure = false
     }
 
+    func journeyNativeStreaming(remoteEnabled: Bool) async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        guard let youtubeID = fixture.savedYouTubeID, let twitchID = fixture.savedTwitchID else {
+            throw ProofFailure.ui("The streaming workflow requires its isolated saved-provider fixture.")
+        }
+        let origin = try localOrigin(from: fixture.serverURL)
+        let api = ProofAPI(origin: origin, session: makeTestAPISession(origin: origin))
+        try await api.setStreamingFixture(remoteEnabled ? "on" : "off")
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        #if os(iOS)
+        let streaming = destinationControl("Streaming")
+        try waitForExistence(streaming, timeout: 20, named: "Streaming destination")
+        guard hasVisibleFrame(streaming) else { throw ProofFailure.ui("Streaming destination must be visible.") }
+        streaming.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("streamingScreen"), timeout: 25, named: "Streaming destination")
+        #else
+        try selectTVLibraryCategory("streaming", screen: "streamingScreen")
+        #endif
+        if remoteEnabled {
+            try waitForExistence(element("streamingRecommendationsTab"), timeout: 25, named: "configured recommendations")
+            try waitForExistence(element("streamingLiveTab"), timeout: 20, named: "configured Live")
+            try activateStreamingTab("streamingLiveTab")
+            guard let liveID = fixture.streamingLiveID else { throw ProofAPIError.malformedResponse }
+            try waitForExistence(element("streamingRemote-\(liveID)"), timeout: 25, named: "live source")
+            try attachFrame(named: "Configured Streaming live sources")
+            try activateStreamingTab("streamingRecommendationsTab")
+            guard let recommendationID = fixture.streamingRecommendationID else { throw ProofAPIError.malformedResponse }
+            try waitForExistence(element("streamingRemote-\(recommendationID)"), timeout: 25, named: "recommended source")
+            try attachFrame(named: "Configured Streaming recommendations")
+            try activateStreamingCard("streamingRemote-\(recommendationID)")
+            try waitForExistence(element("nativeRemotePlaybackScreen"), timeout: 30, named: "server-owned remote player")
+            var receivedBytes = false
+            for _ in 0..<20 {
+                if try await api.streamingMetrics()["bytes_served", default: 0] > 0 { receivedBytes = true; break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            XCTAssertTrue(receivedBytes, "AVPlayer must request the server-relayed media bytes.")
+            try attachFrame(named: "Native server streaming playback")
+            #if os(iOS)
+            try activate(element("nativeRemoteCloseButton"))
+            #else
+            XCUIRemote.shared.press(.menu)
+            if !disappears(element("nativeRemotePlaybackScreen"), timeout: 8) { XCUIRemote.shared.press(.menu) }
+            guard disappears(element("nativeRemotePlaybackScreen"), timeout: 8) else {
+                throw ProofFailure.ui("Remote Back did not close streaming playback.")
+            }
+            #endif
+            try waitForExistence(element("streamingScreen"), timeout: 20, named: "return from remote playback")
+            var released = false
+            for _ in 0..<20 {
+                if try await api.streamingMetrics()["sessions_released", default: 0] > 0 { released = true; break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            XCTAssertTrue(released, "Closing the remote player must release its server session.")
+        } else {
+            XCTAssertFalse(element("streamingRecommendationsTab").exists)
+            XCTAssertFalse(element("streamingLiveTab").exists)
+        }
+        try activateStreamingTab("streamingDownloadedTab")
+        try waitForExistence(element("streamingSaved-\(youtubeID)"), timeout: 25, named: "saved YouTube video")
+        try waitForExistence(element("streamingSaved-\(twitchID)"), timeout: 25, named: "saved Twitch video")
+        try attachFrame(named: remoteEnabled ? "Configured Streaming saved library" : "Saved Streaming without external opt-in")
+        try activateStreamingCard("streamingSaved-\(youtubeID)")
+        guard waitUntil(timeout: 25, condition: {
+            self.element("playbackScreen").exists || self.element("playButton").exists || self.element("resumePlaybackChoice").exists
+        }) else { throw ProofFailure.timeout("Saved video did not open its playback action or player.") }
+        if !element("playbackScreen").exists && !element("resumePlaybackChoice").exists { try activate(element("playButton")) }
+        guard waitUntil(timeout: 30, condition: {
+            self.element("playbackScreen").exists || self.element("resumePlaybackChoice").exists
+        }) else { throw ProofFailure.timeout("Saved video did not prepare playback.") }
+        if element("resumePlaybackChoice").exists { try activate(element("resumePlaybackChoice").buttons["Resume"]) }
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "saved provider video playback")
+        try closePlayer()
+        completed = true
+    }
+
     #if os(tvOS)
     func journeyTVPhoneEnrollment() async throws {
         var completed = false
@@ -754,108 +843,44 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
-    func journeyCollections() throws {
+    #if os(tvOS)
+    func journeyTVCollectionFilter() throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
         guard let franchiseID = fixture.franchiseCollectionID,
-              let franchiseTitle = fixture.franchiseCollectionTitle,
               let manualID = fixture.manualCollectionID,
-              let manualTitle = fixture.manualCollectionTitle,
-              let smartID = fixture.smartCollectionID,
-              let smartTitle = fixture.smartCollectionTitle else {
-            throw XCTSkip("The native Collections fixture was not enabled.")
+              let smartID = fixture.smartCollectionID else {
+            throw ProofFailure.ui("The TV collection-filter fixture must be enabled.")
         }
-
         try launchAndResetSession()
         try signIn(using: fixture)
-        #if os(iOS)
-        try selectTourLibraryCategory("collections", screen: "libraryScreen")
-        try waitForExistence(element("movieCollectionsHeading"), timeout: 25, named: "Movie collections heading")
-        try waitForExistence(element("householdCollectionsHeading"), timeout: 25, named: "Your lists heading")
-        #else
-        try selectTVLibraryCategory("collections", screen: "libraryScreen")
-        try waitForExistence(application!.staticTexts["Movie collections"], timeout: 25, named: "Movie collections heading")
-        try waitForExistence(application!.staticTexts["Your lists"], timeout: 25, named: "Your lists heading")
-        #endif
-
-        let franchise = element("libraryItem-\(franchiseID)")
-        let manual = element("libraryItem-\(manualID)")
-        let smart = element("libraryItem-\(smartID)")
-        try waitForExistence(franchise, timeout: 25, named: franchiseTitle)
-        try waitForExistence(manual, timeout: 25, named: manualTitle)
-        try waitForExistence(smart, timeout: 25, named: smartTitle)
-        XCTAssertTrue(manual.label.contains(manualTitle), "The manual household collection must remain in Collections.")
-        XCTAssertTrue(smart.label.contains(smartTitle), "The smart household collection must remain in Collections.")
-        #if os(iOS)
-        try revealInLibraryViewport([franchise], in: element("libraryScreen"))
-        let franchiseFrame = franchise.frame.intersection(try applicationViewport())
-        guard franchiseFrame.width >= 44, franchiseFrame.height >= 44 else {
-            throw ProofFailure.ui("The visible franchise collection card had no usable physical tap target.")
+        XCTAssertFalse(element("homeBrowse-collections").exists, "Collections belong in Movies filters, not primary navigation.")
+        try selectTVLibraryCategory("movies", screen: "libraryScreen")
+        try activate(element("videoFiltersButton"))
+        try activate(element("videoCollectionFilterButton"))
+        try waitForExistence(element("collectionFilterPicker"), timeout: 20, named: "TV collection filter picker")
+        for id in [franchiseID, manualID, smartID] {
+            try waitForExistence(element("collectionFilter-\(id)"), timeout: 25, named: "visible collection filter option")
         }
-        #else
-        try focusVideoGridItemFromCategories(franchise, named: franchiseTitle)
-        #endif
-        try attachFrame(named: "Collections shows a movie franchise and household lists")
-        #if os(iOS)
-        application!.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: franchiseFrame.midX, dy: franchiseFrame.midY)).tap()
-        #else
-        try activate(franchise)
-        #endif
-
-        let collection = element("movieCollectionScreen")
-        try waitForExistence(collection, timeout: 25, named: "movie collection destination")
-        let movie = element("movieCollectionItem-\(fixture.directItemID)")
-        #if os(iOS)
-        let iosMovie = element("libraryItem-\(fixture.directItemID)")
-        try waitForExistence(iosMovie, timeout: 25, named: "franchise movie")
-        let movieFrame = iosMovie.frame.intersection(try applicationViewport())
-        guard movieFrame.width >= 44, movieFrame.height >= 44 else {
-            throw ProofFailure.ui("The franchise movie card had no usable physical tap target.")
-        }
-        application!.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: movieFrame.midX, dy: movieFrame.midY)).tap()
-        #else
-        try waitForExistence(movie, timeout: 25, named: "franchise movie")
+        try attachFrame(named: "TV collection choices inside Movies filters")
+        try activate(element("collectionFilter-\(franchiseID)"))
+        try activate(element("videoApplyFiltersButton"))
+        try waitForExistence(element("videoClearCollectionFilterButton"), timeout: 20, named: "active collection filter")
+        let movie = element("libraryItem-\(fixture.directItemID)")
+        try waitForExistence(movie, timeout: 25, named: "ordinary Movies grid filtered to a collection")
+        XCTAssertTrue(element("libraryScreen").exists)
+        XCTAssertFalse(element("movieCollectionScreen").exists)
+        XCTAssertFalse(element("libraryItem-\(fixture.convertedItemID)").exists)
+        try attachFrame(named: "TV collection filter retains the Movies poster wall")
+        try activate(element("videoClearCollectionFilterButton"))
+        try waitForExistence(element("libraryItem-\(fixture.convertedItemID)"), timeout: 25, named: "full Movies restored after clearing collection")
+        try focusVideoGridItemFromCategories(movie, named: "movie after collection filter")
         try activate(movie)
-        #endif
-        try waitForExistence(element("detailScreen"), timeout: 25, named: "movie detail from franchise")
-        try attachFrame(named: "Movie franchise opens its contained movie detail")
-        #if os(iOS)
-        let nativeBack = application!.navigationBars.buttons.allElementsBoundByIndex.first {
-            self.hasVisibleFrame($0) && $0.identifier != "titleActionsMenu"
-        }
-        guard nativeBack != nil else {
-            throw ProofFailure.ui("Movie detail must retain its native Back control.")
-        }
-        let overflowMenus = application!.descendants(matching: .any)
-            .matching(identifier: "titleActionsMenu")
-            .allElementsBoundByIndex
-            .filter { hasVisibleFrame($0) }
-        guard overflowMenus.count == 1, let overflowMenu = overflowMenus.first else {
-            throw ProofFailure.ui("Movie detail must expose exactly one visible overflow menu, found \(overflowMenus.count).")
-        }
-        let overflowFrame = overflowMenu.frame.intersection(try applicationViewport())
-        guard overflowFrame.width > 0, overflowFrame.height > 0 else {
-            throw ProofFailure.ui("The visible movie detail overflow menu had no usable physical tap target.")
-        }
-        application!.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: overflowFrame.midX, dy: overflowFrame.midY)).tap()
-        let edit = element("editMetadataAction")
-        let favorite = element("videoFavoriteButton")
-        let watched = element("videoWatchedButton")
-        let download = element("downloadVideoButton")
-        for (action, name) in [(edit, "Edit metadata"), (favorite, "Favorite"), (watched, "Mark watched"), (download, "Download to Device")] {
-            try waitForExistence(action, timeout: 10, named: "movie overflow action \(name)")
-        }
-        XCTAssertTrue(favorite.label.localizedCaseInsensitiveContains("favorite"))
-        XCTAssertEqual(watched.label, "Mark watched")
-        XCTAssertEqual(download.label, "Download to Device")
-        try attachFrame(named: "Movie detail has one overflow menu with permitted actions")
-        #endif
+        try waitForExistence(element("detailScreen"), timeout: 25, named: "movie detail from normal filtered library")
         completed = true
     }
+    #endif
 
     func journeyHomeForegroundRefresh() async throws {
         var completed = false
@@ -11011,6 +11036,62 @@ class NativeProofJourney: XCTestCase {
         #endif
     }
 
+    /// Streaming's underline tabs can expose a correct visible accessibility
+    /// frame while XCTest still reports them non-hittable inside the scroll
+    /// container. Keep the coordinate fallback scoped to this proof surface.
+    private func activateStreamingTab(_ identifier: String) throws {
+        #if os(tvOS)
+        try activate(element(identifier))
+        #else
+        try activateVisibleStreamingControl(identifier, named: "Streaming tab")
+        #endif
+    }
+
+    /// Cards share the same scroll-container activation defect as its tabs;
+    /// constrain the fallback to the two Streaming card identifier families.
+    private func activateStreamingCard(_ identifier: String) throws {
+        #if os(tvOS)
+        try activate(element(identifier))
+        #else
+        guard identifier.hasPrefix("streamingRemote-") || identifier.hasPrefix("streamingSaved-") else {
+            throw ProofFailure.ui("Streaming card fallback was asked to activate an unrelated control.")
+        }
+        try activateVisibleStreamingControl(identifier, named: "Streaming card")
+        #endif
+    }
+
+    #if os(iOS)
+    private func activateVisibleStreamingControl(_ identifier: String, named: String) throws {
+        let buttons = application!.buttons.matching(identifier: identifier).allElementsBoundByIndex
+        var visibleTab: XCUIElement?
+        guard waitUntil(timeout: 15, condition: {
+            guard let candidate = buttons.first(where: {
+                self.hasVisibleFrame($0) && $0.isEnabled
+            }) else { return false }
+            visibleTab = candidate
+            return true
+        }), let visibleTab else {
+            throw ProofFailure.timeout("Timed out waiting for visible \(named) \(identifier).")
+        }
+        if visibleTab.isHittable {
+            visibleTab.tap()
+            return
+        }
+        guard let window = visibleApplicationWindow else {
+            throw ProofFailure.ui("\(named) \(identifier) is visible but has no active window for a physical tap.")
+        }
+        let viewport = window.frame
+        let frame = visibleTab.frame
+        guard viewport.contains(frame) else {
+            throw ProofFailure.ui("\(named) \(identifier) is not fully inside the active viewport.")
+        }
+        window.coordinate(withNormalizedOffset: CGVector(
+            dx: (frame.midX - viewport.minX) / viewport.width,
+            dy: (frame.midY - viewport.minY) / viewport.height
+        )).tap()
+    }
+    #endif
+
     #if os(iOS)
     /// The player deliberately hides its chrome during active playback. Waiting for
     /// that public hidden state makes a single physical surface tap unambiguously
@@ -11374,6 +11455,11 @@ class NativeProofJourney: XCTestCase {
         func targetIsFocused() -> Bool {
             guard let targetSnapshot = try? target.snapshot() else { return false }
             if targetSnapshot.hasFocus { return true }
+            if ["videoCollectionFilterButton", "videoApplyFiltersButton"].contains(targetIdentifier), let owner = focusedElement() {
+                // tvOS Form focuses the navigation row around its labeled action.
+                let actions = snapshotDescendants(owner).filter { $0.elementType == .button || $0.elementType == .link }
+                if !actions.isEmpty && actions.allSatisfy({ $0.identifier == targetIdentifier }) { return true }
+            }
             if musicTarget, let owner = focusedElement(), owner.elementType == .cell {
                 let controls = snapshotDescendants(owner).filter {
                     [.button, .switch, .textField, .secureTextField].contains($0.elementType)
@@ -11466,6 +11552,10 @@ private struct ProofFixture: Decodable {
     let username: String
     let password: String
     let directItemID: String
+    let savedYouTubeID: String?
+    let savedTwitchID: String?
+    let streamingRecommendationID: String?
+    let streamingLiveID: String?
     let directItemTitle: String
     let franchiseCollectionID: String?
     let franchiseCollectionTitle: String?
@@ -11699,6 +11789,17 @@ private struct ProofAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["included": included])
         let saved = try JSONDecoder().decode(APIWatchlistState.self, from: await send(request))
         guard saved.included == included else { throw ProofAPIError.malformedResponse }
+    }
+
+    func streamingMetrics() async throws -> [String: Int] {
+        let request = URLRequest(url: origin.appendingPathComponent("proof/streaming-metrics"))
+        return try JSONDecoder().decode([String: Int].self, from: await send(request))
+    }
+
+    func setStreamingFixture(_ mode: String) async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/streaming/\(mode)"))
+        request.httpMethod = "POST"
+        _ = try await send(request)
     }
 
     func setNavigationFixture(_ mode: String) async throws {

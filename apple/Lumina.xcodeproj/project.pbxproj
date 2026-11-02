@@ -44,6 +44,7 @@
 		67A647797CF52955C36B7932 /* NativeBooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8A23EF15E413E17B6142A1 /* NativeBooksView.swift */; };
 		68516C2E1D2949F8B961E71B /* PlaybackNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */; };
 		694D8BCBCE97932EC249DF79 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
+		6B2C8EE7A521B9E2DDA0321C /* NativeRemotePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */; };
 		6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */; };
 		74F4535D3D19BBC26A64C7F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
@@ -61,6 +62,7 @@
 		96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
 		98458D825FAF973FA3AFA876 /* Welcome.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63E82E4F101C1A735C456278 /* Welcome.xcassets */; };
 		A2C2E391EFBB697349ADB09E /* NativeMediaAbout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC06E868B79D3D0A996963C8 /* NativeMediaAbout.swift */; };
+		A7C80413AEF1649CBA55A8C1 /* NativeRemotePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */; };
 		AA394110C437FDAD03FB8E79 /* VideoGesturePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50608E85B15677ADE34D2EB /* VideoGesturePresentation.swift */; };
 		ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
 		AFF6A2818284C95BE80C1660 /* PlaybackDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */; };
@@ -161,6 +163,7 @@
 		941181C235A2128516EAE516 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaTheme.swift; sourceTree = "<group>"; };
 		A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = PrismCoreLicense.txt; sourceTree = "<group>"; };
+		A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRemotePlayer.swift; sourceTree = "<group>"; };
 		A53F162BFFC29618DD177F40 /* TVPairingApprovalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPairingApprovalView.swift; sourceTree = "<group>"; };
 		C12B74A2009E288A90BCA744 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
 		C4C2BCCD8AD7583AD47A8A64 /* NativeRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRequestsView.swift; sourceTree = "<group>"; };
@@ -255,6 +258,7 @@
 				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
 				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
 				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
+				A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */,
 				EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */,
 				CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */,
 				5ACC561F4F7F700F23190053 /* QueuePresentation.swift */,
@@ -623,6 +627,7 @@
 				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
 				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
 				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
+				6B2C8EE7A521B9E2DDA0321C /* NativeRemotePlayer.swift in Sources */,
 				FBB930AA525BD4B5D3863447 /* PlaybackDiagnostics.swift in Sources */,
 				256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */,
 				7F717D172FB4056DA14D3917 /* QueuePresentation.swift in Sources */,
@@ -660,6 +665,7 @@
 				5F1BFB9E8D7F345739B01208 /* NativeMusicAirPlayButton.swift in Sources */,
 				DF70A83102C482A30F51A6DC /* NativeMusicCasting.swift in Sources */,
 				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,
+				A7C80413AEF1649CBA55A8C1 /* NativeRemotePlayer.swift in Sources */,
 				FFE152FE4201A2D038064057 /* NativeRequestsView.swift in Sources */,
 				C30343515A8622FF767806F4 /* NativeVideoCasting.swift in Sources */,
 				AFF6A2818284C95BE80C1660 /* PlaybackDiagnostics.swift in Sources */,

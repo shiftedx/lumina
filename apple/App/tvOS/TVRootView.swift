@@ -1057,19 +1057,18 @@ private struct TVConnectionHelp: View {
 }
 
 private enum TVDestination: String, CaseIterable {
-    case home, library, requests
+    case home, library, streaming, requests
     var title: String { rawValue.capitalized }
 }
 
 private enum TVLibraryCategory: String, CaseIterable {
-    case movies, tv, anime, collections, music
+    case movies, tv, anime, music
 
     var title: String {
         switch self {
         case .movies: "Movies"
         case .tv: "TV"
         case .anime: "Anime"
-        case .collections: "Collections"
         case .music: "Music"
         }
     }
@@ -1078,7 +1077,6 @@ private enum TVLibraryCategory: String, CaseIterable {
         switch self {
         case .tv: .shows
         case .anime: .anime
-        case .collections: .collections
         default: .movies
         }
     }
@@ -1152,6 +1150,8 @@ private struct TVLibraryView: View {
                                 restoreFocusRequest: restorationDestination == .library ? restorationRequest : nil
                             )
                         }
+                    case .streaming:
+                        TVStreamingView(store: store, onOpen: onOpen)
                     case .requests:
                         TVRequestsView(
                             store: store,
@@ -1198,7 +1198,7 @@ private struct TVLibraryView: View {
             if destination == .home, let focused { lastHomeHeaderCategory = focused }
         }
         .onChange(of: store.availableLibraryCategories) { _, available in
-            if libraryCategory != .collections, !available.contains(libraryCategory.rawValue) {
+            if !available.contains(libraryCategory.rawValue) {
                 destinationHistory.removeAll { $0 == .library }
                 if destination == .library { destination = .home; homeCategory = .all }
             }
@@ -1231,7 +1231,7 @@ private struct TVLibraryView: View {
             .focusSection()
             .onMoveCommand { direction in
                 if direction == .down,
-                   destination == .home || destination == .requests || destination == .library && libraryCategory == .music {
+                   destination == .home || destination == .requests || destination == .streaming || destination == .library && libraryCategory == .music {
                     contentFocusRequest += 1
                 }
             }
@@ -1247,6 +1247,7 @@ private struct TVLibraryView: View {
         switch destination {
         case .home: 0
         case .library: libraryCategory == .music ? 0 : 112
+        case .streaming: 112
         case .requests: 112
         }
     }
@@ -1297,6 +1298,10 @@ private struct TVLibraryView: View {
             audioBrowse.kind = .albums
         } else {
             videoBrowse.kind = category.videoKind
+            if category != .movies {
+                videoBrowse.filters.collectionID = nil
+                videoBrowse.filters.collectionName = nil
+            }
         }
     }
 
@@ -1335,17 +1340,14 @@ private struct TVLibraryView: View {
                     .accessibilityIdentifier("homeBrowse-\(category.rawValue)")
                     .id(category.rawValue)
                 }
-                let collectionsSelected = destination == .library && libraryCategory == .collections
-                Button {
-                    selectLibraryCategory(.collections)
-                    selectDestination(.library)
-                } label: {
-                    Text("Collections")
+                let streamingSelected = destination == .streaming
+                Button { selectDestination(.streaming) } label: {
+                    Text("Streaming")
                 }
-                .buttonStyle(LuminaUnderlineTabStyle(selected: collectionsSelected, alignsWithMasthead: true))
-                .accessibilityValue(collectionsSelected ? "Selected" : "")
-                .accessibilityAddTraits(collectionsSelected ? .isSelected : [])
-                .accessibilityIdentifier("homeBrowse-collections")
+                .buttonStyle(LuminaUnderlineTabStyle(selected: streamingSelected, alignsWithMasthead: true))
+                .accessibilityValue(streamingSelected ? "Selected" : "")
+                .accessibilityAddTraits(streamingSelected ? .isSelected : [])
+                .accessibilityIdentifier("homeBrowse-streaming")
             }
             .frame(maxWidth: .infinity)
 
@@ -1396,8 +1398,9 @@ private struct TVLibraryView: View {
             case .tv: .tv
             case .anime: .anime
             case .music: .music
-            case .collections: nil
             }
+        case .streaming:
+            nil
         case .requests:
             nil
         }
@@ -1743,8 +1746,13 @@ private struct TVVideoView: View {
     @State private var movingForward = true
     @FocusState private var alphabetFocused: Bool
 
-    private var requestKey: String { "\(browse.kind.rawValue)-\(browse.sort.rawValue)-\(browse.query)-\(browse.filters.genre)-\(browse.filters.year ?? 0)-\(browse.filters.unwatchedOnly)-\(browse.filters.favoritesOnly)" }
+    private var requestKey: String { "\(browse.kind.rawValue)-\(browse.sort.rawValue)-\(browse.query)-\(browse.filters.collectionID ?? "")-\(browse.filters.genre)-\(browse.filters.year ?? 0)-\(browse.filters.unwatchedOnly)-\(browse.filters.favoritesOnly)" }
     private var hasFilters: Bool { browse.filters != VideoFilters() }
+    private var hasNonCollectionFilters: Bool {
+        VideoFilters(genre: browse.filters.genre, year: browse.filters.year, unwatchedOnly: browse.filters.unwatchedOnly,
+                     favoritesOnly: browse.filters.favoritesOnly, resolution: browse.filters.resolution, hdr: browse.filters.hdr,
+                     audio: browse.filters.audio, imaxOnly: browse.filters.imaxOnly) != VideoFilters()
+    }
     private var canBrowseAlphabet: Bool {
         alphabetRequestKey == requestKey && browse.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && browse.sort == .name && [.movies, .shows, .anime].contains(browse.kind)
@@ -1781,11 +1789,21 @@ private struct TVVideoView: View {
                 .onMoveCommand { direction in
                     if direction == .down { focusVisibleGridItem() }
                 }
-                if hasFilters {
-                    Button("Clear") { browse.filters = VideoFilters() }
+                if hasNonCollectionFilters {
+                    Button("Clear filters") {
+                        browse.filters = VideoFilters(collectionID: browse.filters.collectionID, collectionName: browse.filters.collectionName)
+                    }
                         .buttonStyle(LuminaUnderlineTabStyle())
                         .accessibilityLabel("Clear filters")
                         .accessibilityIdentifier("videoClearFiltersButton")
+                }
+                if browse.kind == .movies, browse.filters.collectionID != nil {
+                    Button("Clear collection") {
+                        browse.filters.collectionID = nil
+                        browse.filters.collectionName = nil
+                    }
+                    .buttonStyle(LuminaUnderlineTabStyle())
+                    .accessibilityIdentifier("videoClearCollectionFilterButton")
                 }
                 Spacer()
                 TextField("Search video", text: $browse.query)
@@ -1800,29 +1818,17 @@ private struct TVVideoView: View {
             ScrollViewReader { proxy in
                 HStack(alignment: .center, spacing: 0) {
                     ScrollView {
-                        if store.isBusy && store.items.isEmpty && store.householdCollections.isEmpty {
+                        if store.isBusy && store.items.isEmpty {
                             ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
-                        } else if store.items.isEmpty && (browse.kind != .collections || store.householdCollections.isEmpty) {
-                            let title = browse.kind == .collections && browse.query.isEmpty && !hasFilters ? "No collections yet" : "No matching videos"
-                            let message = store.errorMessage ?? store.householdCollectionsError ?? (browse.kind == .collections ? "Movie franchises and your saved lists will appear here." : "Try another search or choose a different category.")
-                            TVMessageView(title: title, message: message, actionTitle: "Refresh") { Task { await reload(forceRefresh: true) } }
+                        } else if store.items.isEmpty {
+                            TVMessageView(title: "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") {
+                                Task { await reload(forceRefresh: true) }
+                            }
                         } else {
                             VStack(alignment: .leading, spacing: 42) {
-                                if browse.kind == .collections {
-                                TVCollectionGrid(title: "Movie collections", items: store.items, store: store,
-                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear,
-                                                 onVisible: { lastVisibleItemID = $0 })
-                                TVCollectionGrid(title: "Your lists", items: store.householdCollections, store: store,
-                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: { _ in },
-                                                 onVisible: { lastVisibleItemID = $0 })
-                                if let householdError = store.householdCollectionsError {
-                                    TVMessageView(title: "Your lists could not load", message: householdError, actionTitle: "Try again") { Task { await reload(forceRefresh: true) } }
-                                }
-                                } else {
                                 TVCollectionGrid(title: nil, items: store.items, store: store,
                                                  focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear,
                                                  onVisible: { lastVisibleItemID = $0 })
-                                }
                             }
                             .padding(.horizontal, 80)
                             .padding(.top, 24)
@@ -1926,7 +1932,7 @@ private struct TVVideoView: View {
                                         count: 36, movingForward: movingForward)
         }
         .sheet(isPresented: $filtersPresented) {
-            TVVideoFiltersView(filters: browse.filters) { browse.filters = $0 }
+            TVVideoFiltersView(filters: browse.filters, store: store, allowsCollectionFilter: browse.kind == .movies) { browse.filters = $0 }
         }
         .onDisappear { alphabetTask?.cancel() }
         .task(id: requestKey) {
@@ -1946,12 +1952,12 @@ private struct TVVideoView: View {
     }
 
     private var filterSummary: String {
-        [browse.filters.genre.isEmpty ? nil : browse.filters.genre, browse.filters.year.map(String.init), browse.filters.unwatchedOnly ? "Unwatched" : nil, browse.filters.favoritesOnly ? "Favorites" : nil]
+        [browse.filters.collectionName, browse.filters.genre.isEmpty ? nil : browse.filters.genre, browse.filters.year.map(String.init), browse.filters.unwatchedOnly ? "Unwatched" : nil, browse.filters.favoritesOnly ? "Favorites" : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
     private var displayedItems: [MediaItem] {
-        browse.kind == .collections ? store.items + store.householdCollections : store.items
+        store.items
     }
 
     private func focusVisibleGridItem() {
@@ -1974,6 +1980,220 @@ private struct TVVideoView: View {
     private func reload(forceRefresh: Bool = false) async {
         await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters,
                                 forceRefresh: forceRefresh, preloadCatalog: true)
+    }
+}
+
+private enum TVStreamingTab: Hashable {
+    case saved, recommendations, live
+}
+
+/// Streaming is always a library destination. Server-downloaded videos remain
+/// available here even when remote discovery and playback are not configured.
+private struct TVStreamingView: View {
+    let store: LuminaStore
+    let onOpen: (MediaItem) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var savedLibrary: LuminaStreamingLibrary
+    @State private var remoteFeed: LuminaHomeFeed
+    @State private var selectedTab: TVStreamingTab = .saved
+    @State private var selectedRemote: HomeExternalItem?
+    @State private var hasUserSelectedTab = false
+    @FocusState private var focusedTab: TVStreamingTab?
+
+    init(store: LuminaStore, onOpen: @escaping (MediaItem) -> Void) {
+        self.store = store
+        self.onOpen = onOpen
+        _savedLibrary = State(initialValue: LuminaStreamingLibrary(session: store.session))
+        _remoteFeed = State(initialValue: LuminaHomeFeed(session: store.session, includesExternalSources: true))
+    }
+
+    private var remoteAvailable: Bool { store.nativeStreamingCapabilities?.remote.available == true }
+    private var remoteLiveAvailable: Bool { store.nativeStreamingCapabilities?.remote.liveAvailable == true }
+    private var recommendationItems: [HomeExternalItem] {
+        deduplicated(remoteFeed.rows
+            .filter { $0.shelfID != .live }
+            .flatMap { $0.externalItems ?? [] })
+    }
+    private var liveItems: [HomeExternalItem] {
+        deduplicated(remoteFeed.rows
+            .filter { $0.shelfID == .live }
+            .flatMap { $0.externalItems ?? [] })
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 34) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Streaming")
+                        .font(LuminaTheme.editorial(52, relativeTo: .title2, italic: true))
+                        .foregroundStyle(LuminaTheme.ink)
+                    Text(remoteAvailable ? "Recommendations, live streams, and saved videos." : "Videos saved from YouTube, Twitch, and other sources.")
+                        .font(.body)
+                        .foregroundStyle(LuminaTheme.muted)
+                }
+
+                HStack(spacing: 22) {
+                    streamingTab("Saved", tab: .saved, identifier: "streamingDownloadedTab")
+                    if remoteAvailable {
+                        streamingTab("For you", tab: .recommendations, identifier: "streamingRecommendationsTab")
+                    }
+                    if remoteAvailable && remoteLiveAvailable {
+                        streamingTab("Live", tab: .live, identifier: "streamingLiveTab")
+                    }
+                    Spacer()
+                    Button("Refresh") { Task { await load() } }
+                        .buttonStyle(LuminaUnderlineTabStyle())
+                        .disabled(savedLibrary.isBusy || remoteFeed.isLoading)
+                }
+                .focusSection()
+
+                Group {
+                    switch selectedTab {
+                    case .saved:
+                        savedContent
+                    case .recommendations:
+                        remoteContent(items: recommendationItems, emptyTitle: "Nothing recommended yet", emptyMessage: "Try again once your server has new recommendations.")
+                    case .live:
+                        remoteContent(items: liveItems, emptyTitle: "No live streams right now", emptyMessage: "Live sources will appear here when they are available.")
+                    }
+                }
+            }
+            .padding(.horizontal, 80)
+            .padding(.top, 28)
+            .padding(.bottom, 80)
+        }
+        .background(LuminaTheme.theater)
+        .accessibilityIdentifier("streamingScreen")
+        .task(id: TVHomeSessionScope(store.session)) {
+            await load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refreshRemoteContent() }
+        }
+        .fullScreenCover(item: $selectedRemote) { item in
+            NativeRemotePlayer(store: store, item: item)
+        }
+    }
+
+    private func streamingTab(_ title: String, tab: TVStreamingTab, identifier: String) -> some View {
+        Button {
+            hasUserSelectedTab = true
+            selectedTab = tab
+        } label: { Text(title) }
+            .buttonStyle(LuminaUnderlineTabStyle(selected: selectedTab == tab))
+            .focused($focusedTab, equals: tab)
+            .accessibilityValue(selectedTab == tab ? "Selected" : "")
+            .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+            .accessibilityIdentifier(identifier)
+    }
+
+    @ViewBuilder private var savedContent: some View {
+        if savedLibrary.isBusy && savedLibrary.items.isEmpty {
+            ProgressView("Loading saved videos…")
+                .frame(maxWidth: .infinity, minHeight: 360)
+        } else if savedLibrary.items.isEmpty {
+            TVMessageView(
+                title: "No saved streaming videos",
+                message: savedLibrary.errorMessage ?? "Videos you download from supported sources will appear here.",
+                actionTitle: "Refresh"
+            ) { Task { await savedLibrary.load() } }
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 440), spacing: 30, alignment: .top)], spacing: 42) {
+                ForEach(savedLibrary.items) { item in
+                    TVMediaCard(item: item, store: store, poster: false, artworkWidth: 760) { onOpen(item) }
+                        .accessibilityIdentifier("streamingSaved-\(item.id)")
+                }
+            }
+            .focusSection()
+            if savedLibrary.hasMore {
+                Button("Load more") { Task { await savedLibrary.loadMore() } }
+                    .buttonStyle(LuminaQuietActionStyle())
+                    .disabled(savedLibrary.isBusy)
+            }
+        }
+    }
+
+    @ViewBuilder private func remoteContent(items: [HomeExternalItem], emptyTitle: String, emptyMessage: String) -> some View {
+        if remoteFeed.isLoading && items.isEmpty {
+            ProgressView("Loading streaming…")
+                .frame(maxWidth: .infinity, minHeight: 360)
+        } else if items.isEmpty {
+            TVMessageView(title: emptyTitle, message: remoteFeed.errorMessage ?? emptyMessage, actionTitle: "Refresh") {
+                Task { await load() }
+            }
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 480), spacing: 30, alignment: .top)], spacing: 42) {
+                ForEach(items) { item in
+                    TVStreamingRemoteCard(item: item) { selectedRemote = item }
+                        .accessibilityIdentifier("streamingRemote-\(item.id)")
+                }
+            }
+            .focusSection()
+        }
+    }
+
+    private func load() async {
+        savedLibrary.configure(session: store.session)
+        remoteFeed.configure(session: store.session)
+        async let saved: Void = savedLibrary.load()
+        await refreshRemoteContent()
+        await saved
+    }
+
+    private func refreshRemoteContent() async {
+        let capabilities = await store.loadNativeStreamingCapabilities()
+        guard let remote = capabilities?.remote, remote.available else {
+            if selectedTab != .saved { selectedTab = .saved }
+            return
+        }
+
+        if !hasUserSelectedTab, selectedTab == .saved {
+            selectedTab = .recommendations
+        } else if selectedTab == .live, !remote.liveAvailable {
+            selectedTab = .recommendations
+        }
+        await remoteFeed.load()
+    }
+
+    private func deduplicated(_ items: [HomeExternalItem]) -> [HomeExternalItem] {
+        var itemIDs = Set<String>()
+        return items.filter { itemIDs.insert($0.id).inserted }
+    }
+}
+
+private struct TVStreamingRemoteCard: View {
+    let item: HomeExternalItem
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                AsyncImage(url: item.artworkURL) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image.resizable().scaledToFill()
+                    default:
+                        Rectangle().fill(.white.opacity(0.08))
+                            .overlay { LuminaIcon(glyph: .play, size: 42).foregroundStyle(LuminaTheme.muted) }
+                    }
+                }
+                .frame(height: 220)
+                .clipShape(.rect(cornerRadius: 14))
+
+                Text(item.title)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(LuminaTheme.ink)
+                    .lineLimit(2)
+                Text(item.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(LuminaTheme.muted)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
+        .accessibilityLabel("\(item.title), \(item.subtitle)")
     }
 }
 
@@ -2015,18 +2235,33 @@ private struct TVCollectionGrid: View {
 
 private struct TVVideoFiltersView: View {
     let filters: VideoFilters
+    let store: LuminaStore
+    let allowsCollectionFilter: Bool
     let onApply: (VideoFilters) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var genre = ""
     @State private var year = ""
     @State private var unwatchedOnly = false
     @State private var favoritesOnly = false
+    @State private var collectionID: String?
+    @State private var collectionName: String?
+    @State private var collectionPickerPresented = false
 
     private var validYear: Bool { year.isEmpty || (Int(year).map { (1...9999).contains($0) } ?? false) }
 
     var body: some View {
         NavigationStack {
             Form {
+                if allowsCollectionFilter {
+                    Section("Collection") {
+                        Button {
+                            collectionPickerPresented = true
+                        } label: {
+                            LabeledContent("Collection", value: collectionName ?? "Any collection")
+                        }
+                        .accessibilityIdentifier("videoCollectionFilterButton")
+                    }
+                }
                 Section("Find your next watch") {
                     TextField("Genre", text: $genre)
                         .autocorrectionDisabled()
@@ -2043,25 +2278,111 @@ private struct TVVideoFiltersView: View {
                 }
                 Section {
                     Button("Apply filters") {
-                        onApply(VideoFilters(genre: genre.trimmingCharacters(in: .whitespacesAndNewlines), year: Int(year), unwatchedOnly: unwatchedOnly, favoritesOnly: favoritesOnly))
+                        onApply(VideoFilters(genre: genre.trimmingCharacters(in: .whitespacesAndNewlines), year: Int(year),
+                                             unwatchedOnly: unwatchedOnly, favoritesOnly: favoritesOnly,
+                                             collectionID: collectionID, collectionName: collectionName))
                         dismiss()
                     }
                     .disabled(!validYear)
                     .accessibilityIdentifier("videoApplyFiltersButton")
                     Button("Reset filters") {
-                        genre = ""; year = ""; unwatchedOnly = false; favoritesOnly = false
+                        collectionID = nil; collectionName = nil; genre = ""; year = ""; unwatchedOnly = false; favoritesOnly = false
                     }
                     Button("Cancel", role: .cancel) { dismiss() }
                 }
             }
             .navigationTitle("Video filters")
         }
+        .fullScreenCover(isPresented: $collectionPickerPresented) {
+            NavigationStack {
+                TVCollectionFilterPicker(store: store, selection: $collectionID, selectedName: $collectionName)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { collectionPickerPresented = false }
+                                .accessibilityIdentifier("collectionFilterCancelButton")
+                        }
+                    }
+            }
+            .background(LuminaTheme.theater.ignoresSafeArea())
+            .onExitCommand { collectionPickerPresented = false }
+        }
         .onAppear {
+            collectionID = filters.collectionID
+            collectionName = filters.collectionName
             genre = filters.genre
             year = filters.year.map(String.init) ?? ""
             unwatchedOnly = filters.unwatchedOnly
             favoritesOnly = filters.favoritesOnly
         }
+    }
+}
+
+private struct TVCollectionFilterPicker: View {
+    let store: LuminaStore
+    @Binding var selection: String?
+    @Binding var selectedName: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var collections = [MediaItem]()
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Button("Any collection") {
+                    selection = nil
+                    selectedName = nil
+                    dismiss()
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: selection == nil))
+                .accessibilityValue(selection == nil ? "Selected" : "")
+                .accessibilityAddTraits(selection == nil ? .isSelected : [])
+                .accessibilityIdentifier("collectionFilter-any")
+
+                if isLoading {
+                    ProgressView("Loading collections…")
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                } else if let errorMessage {
+                    TVMessageView(title: "Collections could not load", message: errorMessage, actionTitle: "Try again") {
+                        Task { await load() }
+                    }
+                } else if collections.isEmpty {
+                    TVMessageView(title: "No collections yet", message: "Movie collections will appear here when available.", actionTitle: "Refresh") {
+                        Task { await load() }
+                    }
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
+                        ForEach(collections) { item in
+                            TVMediaCard(item: item, store: store, poster: true, artworkWidth: 480) {
+                                selection = item.id
+                                selectedName = item.name
+                                dismiss()
+                            }
+                            .accessibilityValue(selection == item.id ? "Selected" : "")
+                            .accessibilityIdentifier("collectionFilter-\(item.id)")
+                        }
+                    }
+                    .focusSection()
+                }
+            }
+            .padding(.horizontal, 80)
+            .padding(.vertical, 48)
+        }
+        .background(LuminaTheme.theater)
+        .foregroundStyle(LuminaTheme.ink)
+        .navigationTitle("Collection")
+        .accessibilityIdentifier("collectionFilterPicker")
+        .task { await load() }
+    }
+
+    private func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do { collections = try await store.collectionFilterOptions() }
+        catch is CancellationError { }
+        catch { errorMessage = "Check the connection and try again." }
     }
 }
 

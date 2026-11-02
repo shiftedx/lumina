@@ -40,7 +40,7 @@ from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
 from app.schemas import PlaybackProgressUpdateRequest
-from app.routers import jellyfin_books, jellyfin_home, jellyfin_integration, jellyfin_library, jellyfin_music, jellyfin_metadata, jellyfin_probes, jellyfin_requests, jellyfin_settings, jellyfin_settings_discovery, jellyfin_watchlist
+from app.routers import jellyfin_books, jellyfin_home, jellyfin_integration, jellyfin_library, jellyfin_music, jellyfin_metadata, jellyfin_probes, jellyfin_requests, jellyfin_settings, jellyfin_settings_discovery, jellyfin_streaming, jellyfin_watchlist
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller, playback_body, playlist_listing, transcript_subtitle
 from app.routers.jellyfin_probes import Caller, Db, entity_or_404, split_csv
 from app.services import activity, cast_photos, screen_time
@@ -105,10 +105,16 @@ def item_read_limiter() -> anyio.CapacityLimiter:
 def normalize_jellyfin_path(path: str, root_segments: frozenset[str], *, any_segment: bool = False) -> str | None:
     """/Items//ABC/ -> /jellyfin/items/abc when "items" is in ``root_segments`` (or ``any_segment`` and not /api);
     None when not a Jellyfin path."""
-    lowered = re.sub(r"/{2,}", "/", path.lower())
+    raw = re.sub(r"/{2,}", "/", path)
+    lowered = raw.lower()
     first = lowered.split("/")[1]
     if first not in root_segments and not (any_segment and first not in ("", "api")):
         return None
+    # Stream and rendition ids are opaque urlsafe tokens.  Keep that tail
+    # byte-for-byte: lowercasing it makes a valid native playback lease 404.
+    native_playback = "/lumina/streaming/playback/"
+    if lowered.startswith(native_playback):
+        return (PRIVATE_PREFIX + native_playback + raw[len(native_playback):]).rstrip("/")
     return (PRIVATE_PREFIX + lowered).rstrip("/")
 
 
@@ -999,6 +1005,7 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     app.include_router(jellyfin_library.router)
     app.include_router(jellyfin_requests.router)
     app.include_router(jellyfin_settings.router)
+    app.include_router(jellyfin_streaming.router)
     app.include_router(jellyfin_settings_discovery.router)
     app.include_router(jellyfin_watchlist.router)
     app.include_router(jellyfin_books.router)
@@ -1007,5 +1014,5 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
     app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([
-        *app.routes, *jellyfin_books.router.routes, *jellyfin_home.router.routes, *jellyfin_library.router.routes, *jellyfin_music.router.routes, *jellyfin_metadata.router.routes, *jellyfin_requests.router.routes, *jellyfin_settings.router.routes, *jellyfin_settings_discovery.router.routes, *jellyfin_watchlist.router.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
+        *app.routes, *jellyfin_books.router.routes, *jellyfin_home.router.routes, *jellyfin_library.router.routes, *jellyfin_music.router.routes, *jellyfin_metadata.router.routes, *jellyfin_requests.router.routes, *jellyfin_settings.router.routes, *jellyfin_settings_discovery.router.routes, *jellyfin_streaming.router.routes, *jellyfin_watchlist.router.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
     ]))

@@ -183,13 +183,35 @@ def _server_native_streaming_enabled(db: Session) -> bool:
     return bool(record is not None and record.native_streaming_enabled)
 
 
+def _native_remote_runtime_ready(db: Session) -> bool:
+    """Remote extraction is only advertised when its configured media tool exists."""
+    if not _server_native_streaming_enabled(db):
+        return False
+    from app.services.yt_dlp_service import YtDlpService
+
+    record = db.get(AppSettings, 1)
+    return bool(YtDlpService.resolve_ffmpeg_path(record.ffmpeg_path if record else None))
+
+
 def native_streaming_enabled(db: Session, user: User) -> bool:
     """The Connected-app-only external-provider capability for this member."""
-    if not _server_native_streaming_enabled(db):
+    return bool(native_streaming_providers(db, user))
+
+
+def native_streaming_providers(db: Session, user: User) -> tuple[str, ...]:
+    if not _native_remote_runtime_ready(db):
+        return ()
+    access = member_access.for_user(db, user)
+    effective = access or member_access.EffectiveAccess()
+    return tuple(provider for provider in _NATIVE_STREAMING_PROVIDERS if effective.streaming.get(provider, True))
+
+
+def native_live_streaming_enabled(db: Session, user: User) -> bool:
+    if not native_streaming_providers(db, user):
         return False
     access = member_access.for_user(db, user)
     effective = access or member_access.EffectiveAccess()
-    return any(effective.streaming.get(provider, True) for provider in _NATIVE_STREAMING_PROVIDERS)
+    return effective.streaming.get("live", True)
 
 
 def native_youtube_session_enabled(db: Session, user: User) -> bool:
@@ -298,9 +320,16 @@ def get_access(response: Response, caller: Caller, db: Db) -> dict:
 def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     user = _live_user(db, caller)
+    remote_providers = native_streaming_providers(db, user)
     return {
-        "streaming_enabled": native_streaming_enabled(db, user),
+        "streaming_enabled": bool(remote_providers),
         "youtube_session_enabled": native_youtube_session_enabled(db, user),
+        # Saved downloads are ordinary library media: they remain available even
+        # when this server has not opted in to remote provider extraction.
+        "streaming": {
+            "saved_library": {"available": True, "providers": list(_NATIVE_STREAMING_PROVIDERS)},
+            "remote": {"available": bool(remote_providers), "providers": list(remote_providers), "live_available": native_live_streaming_enabled(db, user)},
+        },
         "autoplay_presence": autoplay_presence.serialize(db.get(AppSettings, 1)).model_dump(),
     }
 

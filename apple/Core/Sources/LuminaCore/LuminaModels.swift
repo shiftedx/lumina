@@ -492,10 +492,11 @@ public enum MusicBrowseKind: String, CaseIterable, Sendable {
 }
 
 public enum VideoBrowseKind: String, CaseIterable, Sendable {
-    case all, movies, shows, anime, collections, youtube, episodes
+    case all, movies, shows, anime, collections, youtube, streaming, episodes
     public var label: String {
         switch self {
         case .youtube: "YouTube"
+        case .streaming: "Streaming"
         case .collections: "Collections"
         default: rawValue.capitalized
         }
@@ -509,7 +510,7 @@ public enum VideoBrowseKind: String, CaseIterable, Sendable {
         case .collections: "BoxSet"
         // Saved provider videos are represented as Episodes below the native
         // Channels view. This deliberately excludes remote discovery entries.
-        case .youtube: "Episode"
+        case .youtube, .streaming: "Episode"
         case .episodes: "Episode"
         }
     }

@@ -308,7 +308,7 @@ function cancelDialog() {
 /** The profile menu: open it from the account trigger and pick an entry. */
 async function chooseFromAccountMenu(browser: ReturnType<typeof userEvent.setup>, label: string) {
   await browser.click(screen.getByRole('button', { name: 'One Person, account menu' }));
-  await browser.click(await screen.findByRole('menuitem', { name: label, hidden: true }));
+  await browser.click(await screen.findByRole('button', { name: label, hidden: true }));
 }
 
 async function openPalette(browser: ReturnType<typeof userEvent.setup>) {

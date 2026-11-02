@@ -111,7 +111,7 @@ describe('Home page', () => {
 
   it('greets the member by first name under today\'s date, and records the first screen once', async () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/^Good (morning|afternoon|evening), One$/);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
     await waitFor(() => expect(metrics.recordMetric).toHaveBeenCalledWith('home_first_screen_ms', 'home', expect.any(Number)));
     expect(metrics.recordMetric.mock.calls.filter(([name]) => name === 'home_first_screen_ms')).toHaveLength(1);
   });
@@ -303,7 +303,7 @@ describe('Home edit mode', () => {
     expect(onHomeShelvesChange).toHaveBeenLastCalledWith(layout);
   });
 
-  it('the greeting\'s arrows reach the hero and account menu', async () => {
+  it('the Home heading\'s arrows reach the hero and account menu', async () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
     const resume = await screen.findByRole('button', { name: 'Resume' });
     const greetingHeading = screen.getByRole('heading', { level: 1 });

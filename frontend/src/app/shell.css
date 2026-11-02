@@ -83,7 +83,6 @@
 /* Route context stays quiet beside artwork; actual media names retain the display role. */
 .gallery.g-streaming > .g-masthead h1, .gallery.rq-surface > .g-masthead h1,
 .books-surface:not(:has(.books-detail)) > .g-masthead h1, .gallery .g-masthead h1 { font: var(--g-type-page-title); }
-.gallery.home .h-masthead h1 { font: var(--g-type-page-title); letter-spacing: normal; }
 
 .g-navigation-close { position: absolute; inset-inline-end: 8px; top: 8px; }
 

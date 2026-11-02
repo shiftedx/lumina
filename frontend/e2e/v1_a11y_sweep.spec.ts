@@ -398,7 +398,7 @@ areaTest('shell', async ({ page, uiPrefs, width, visit }) => {
     await page.keyboard.press('Escape');
   }
   await page.locator('.g-profile-trigger').click();
-  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Your activity' })).toBeVisible();
   await visit('profile-menu');
   await page.keyboard.press('Escape');
   await page.route(/\/api\/jobs(\?|$)/, (route) => route.fulfill({ json: { items: [{ id: 'job-run', source_url: 'https://example.test/run', status: 'running', title: 'A documentary', progress: 42, created_at: AT }], next_cursor: null } }));
@@ -521,7 +521,7 @@ areaTest('member-picker-dialog', async ({ page, visit }) => {
   await mockDeviceRing(page, RING);
   await page.reload(); await settle(page); // the ring is read when the app boots
   await page.locator('.g-profile-trigger').click();
-  await page.getByRole('menuitem', { name: /Switch member|Sign in as someone else/ }).click();
+  await page.getByRole('button', { name: /Switch member|Sign in as someone else/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await visit('dialog', true);
 });
@@ -850,7 +850,7 @@ test('reduced motion: nothing animates after an overlay opens', async ({ page })
   // Wait for each overlay to be open (the palette is a lazy chunk; under load an early Escape misses it).
   await page.keyboard.press('ControlOrMeta+k'); await expect(page.locator('dialog.g-palette')).toBeVisible(); await still('palette');
   await page.keyboard.press('Escape'); await expect(page.locator('dialog.g-palette')).toHaveCount(0);
-  await page.locator('.g-profile-trigger').click(); await expect(page.getByRole('menu')).toBeVisible(); await still('profile menu'); await page.keyboard.press('Escape');
+  await page.locator('.g-profile-trigger').click(); await expect(page.getByRole('dialog', { name: 'Your activity' })).toBeVisible(); await still('profile menu'); await page.keyboard.press('Escape');
   await page.goto('/settings/members'); await settle(page);
   await (await openSam(page)).click();
   await expect(page.getByRole('dialog')).toBeVisible(); await still('dialog'); await page.keyboard.press('Escape');
@@ -930,7 +930,7 @@ test('walk 3: Switch member by keyboard signs in with remember_on_device', async
   await page.reload(); await settle(page);
   await page.locator('.g-profile-trigger').focus();
   await page.keyboard.press('Enter');
-  await page.getByRole('menuitem', { name: /Switch member|Sign in as someone else/ }).focus();
+  await page.getByRole('button', { name: /Switch member|Sign in as someone else/ }).focus();
   await page.keyboard.press('Enter');
   const owner = page.getByRole('button', { name: 'Alexandria, vault owner, needs password' });
   await owner.focus();

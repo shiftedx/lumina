@@ -13,15 +13,7 @@
 }
 .gallery.home [data-focus-item]:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
 
-/* Masthead. */
-.gallery.home .h-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--g-space-4); padding: var(--g-space-4) 0; border-bottom: var(--g-hairline); }
-.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: var(--g-type-page-title); color: var(--g-ink); }
-.gallery.home .h-date { margin: 0; text-align: right; }
-@media (max-width: 599px) { .gallery.home .h-date { max-width: 14ch; } }
-/* The opening stage is one composition: compact route context lives on the art; the media name belongs to the hero. */
 .gallery.home.has-home-stage { position: relative; }
-.gallery.home .h-masthead.is-on-stage { position: absolute; z-index: 3; top: 0; right: var(--g-gutter); left: var(--g-gutter); padding-top: calc(var(--g-space-4) + 72px); border: 0; color: var(--g-on-art); pointer-events: none; }
-.gallery.home .h-masthead.is-on-stage h1, .gallery.home .h-masthead.is-on-stage .h-date { color: inherit; text-shadow: 0 1px 3px var(--g-overlay-halo); }
 
 /* Hero carousel: slides move sideways; portrait art is a poster over a blurred copy of itself. */
 .gallery.home .h-hero { --h-art: min(56vh, 560px); position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); touch-action: pan-y; }
@@ -91,7 +83,6 @@
   .gallery.home.has-home-stage .h-hero .g-label { color: inherit; }
   .gallery.home.has-home-stage .h-hero .is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
   .gallery.home.has-home-stage .h-hero-controls { top: auto; bottom: var(--g-space-5); color: var(--g-on-art); }
-  .gallery.home .h-masthead.is-on-stage { right: var(--g-gutter); left: var(--g-gutter); padding-top: calc(var(--g-space-3) + 64px); }
 }
 
 /* Shelves. */

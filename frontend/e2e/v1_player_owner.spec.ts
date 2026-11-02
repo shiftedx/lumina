@@ -97,10 +97,10 @@ test('test_miniplayer_close_releases', async ({ page }) => {
 test('test_logout_silences_player', async ({ page }) => {
   const { video } = await openWatch(page);
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('button', { name: 'My Settings' }).click();
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible();
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.locator('.g-auth')).toBeVisible();
   await expect(video).toHaveCount(0);
   await signIn(page);

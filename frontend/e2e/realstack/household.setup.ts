@@ -28,7 +28,7 @@ test('first owner connects and imports media during onboarding, then signs in ag
 
   await test.step('sign out and sign back in', async () => {
     await page.getByRole('button', { name: /, account menu$/ }).click();  // Sign out lives in the account menu
-    await page.getByRole('menuitem', { name: 'Sign out' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
     await page.getByLabel('Username').fill(OWNER.username);
     await page.getByLabel('Password', { exact: true }).fill(OWNER.password);

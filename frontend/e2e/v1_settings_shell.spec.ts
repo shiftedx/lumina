@@ -255,7 +255,7 @@ test('profile errors retain the draft and declined search, category, account and
     () => navigateApp(page, 'Home'),
     async () => {
       await page.getByRole('button', { name: /account menu/ }).click();
-      await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+      await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     },
   ]) {
     page.once('dialog', (dialog) => dialog.dismiss());
@@ -269,7 +269,7 @@ test('profile errors retain the draft and declined search, category, account and
   await name.fill('Leave this draft');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: /account menu/ }).click();
-  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect.poll(() => logouts).toBe(1);
 });
 

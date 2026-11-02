@@ -4,10 +4,12 @@ import { type CSSProperties, type RefObject, useEffect, useState } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker, requestHomeEdit } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
+import { requestJson } from '../api';
+import { MemberActivityDialog, type MemberActivitySummary } from './MemberActivityDialog';
 import { MobileConnectDialog } from '../features/mobileConnect/MobileConnectDialog';
 import type { ThemePreference } from '../theme';
 import type { LibraryActivity, UserProfile } from '../types';
-import { Avatar, BrandMark, Button, IconButton, Kbd, Menu, modKeyLabel, Popover, StatusText } from '../ui';
+import { Avatar, BrandMark, Button, IconButton, Kbd, modKeyLabel, Popover, StatusText } from '../ui';
 import type { CollectionLoadState } from '../workspace';
 import type { LibraryActivitySnapshot } from './useLibraryActivity';
 
@@ -114,6 +116,24 @@ export function TopBar(props: TopBarProps) {
   const ringProgress = indexingProgress === null ? (active ? 360 : 0) : Math.round(indexingProgress * 3.6);
   const shortcut = modKeyLabel();
   const [mobileConnectOpen, setMobileConnectOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [activitySummary, setActivitySummary] = useState<MemberActivitySummary | null>(null);
+  const [summaryMember, setSummaryMember] = useState(user.id);
+  const [summaryState, setSummaryState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [summaryAttempt, setSummaryAttempt] = useState(0);
+  useEffect(() => {
+    if (!accountOpen) return;
+    const controller = new AbortController();
+    setSummaryMember(user.id);
+    setActivitySummary(null);
+    setSummaryState('loading');
+    requestJson<MemberActivitySummary>('/api/me/activity-summary', undefined, { signal: controller.signal }).then(
+      (summary) => { if (!controller.signal.aborted) { setActivitySummary(summary); setSummaryState('ready'); } },
+      () => { if (!controller.signal.aborted) setSummaryState('failed'); },
+    );
+    return () => controller.abort();
+  }, [accountOpen, user.id, summaryAttempt]);
+  const accountAction = (action: () => void) => () => { setAccountOpen(false); action(); };
   const activityButton = (triggerProps: Record<string, unknown> = {}) => (
     <button {...triggerProps} aria-label={label} className="g-activity" type="button">
       <span aria-hidden="true" className={`g-activity-ring${indeterminate ? ' is-indeterminate' : ''}`} style={{ '--progress': `${ringProgress}deg` } as CSSProperties} />
@@ -174,27 +194,17 @@ export function TopBar(props: TopBarProps) {
             </section>
           </div>
         </Popover>
-        <Menu
-          align="end"
-          items={[
-            { kind: 'group', label: `${name} · ${user.role === 'admin' ? 'Vault owner' : 'Household member'}` },
-            { kind: 'item', label: ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…', onSelect: openMemberPicker },
-            { kind: 'item', label: 'Edit home', onSelect: () => { flushSync(props.onHome); requestAnimationFrame(() => requestHomeEdit()); } },
-            { kind: 'item', label: 'Mobile connect', onSelect: () => setMobileConnectOpen(true) },
-            { kind: 'item', label: 'My Settings', onSelect: props.onSettings },
-            ...(props.onManageServer ? [{ kind: 'item' as const, label: 'Manage Server', onSelect: props.onManageServer }] : []),
-            { kind: 'group', label: 'Theme' },
-            { kind: 'radio', label: 'System', checked: theme === 'system', hint: theme === 'system' ? 'Current' : undefined, onSelect: () => props.onTheme('system') },
-            { kind: 'radio', label: 'Light', checked: theme === 'light', hint: theme === 'light' ? 'Current' : undefined, onSelect: () => props.onTheme('light') },
-            { kind: 'radio', label: 'Dark', checked: theme === 'dark', hint: theme === 'dark' ? 'Current' : undefined, onSelect: () => props.onTheme('dark') },
-            { kind: 'radio', label: 'OLED', checked: theme === 'oled', hint: theme === 'oled' ? 'Current' : undefined, onSelect: () => props.onTheme('oled') },
-            { kind: 'separator' },
-            { kind: 'item', label: 'Sign out', onSelect: props.onSignOut },
-          ]}
-          trigger={(triggerProps) => (
-            <button {...triggerProps} aria-label={`${name}, account menu`} className="g-profile-trigger" type="button"><Avatar decorative name={name} size={34} /></button>
-          )}
-        />
+        <button aria-expanded={accountOpen} aria-haspopup="dialog" aria-label={`${name}, account menu`} className="g-profile-trigger" onClick={() => setAccountOpen(true)} type="button"><Avatar decorative name={name} size={34} /></button>
+        {accountOpen ? <MemberActivityDialog open
+          activity={summaryMember === user.id ? activitySummary : null} activityState={summaryMember === user.id ? summaryState : 'loading'} onRetryActivity={() => setSummaryAttempt((attempt) => attempt + 1)}
+          user={user} theme={theme} onTheme={props.onTheme} onClose={() => setAccountOpen(false)}
+          switchMemberLabel={ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…'}
+          onSwitchMember={accountAction(openMemberPicker)}
+          onEditHome={accountAction(() => { flushSync(props.onHome); requestAnimationFrame(() => requestHomeEdit()); })}
+          onMobileConnect={accountAction(() => setMobileConnectOpen(true))}
+          onSettings={accountAction(props.onSettings)} onManageServer={props.onManageServer ? accountAction(props.onManageServer) : undefined}
+          onSignOut={accountAction(props.onSignOut)}
+        /> : null}
         {mobileConnectOpen ? <MobileConnectDialog onClose={() => setMobileConnectOpen(false)} open user={user} /> : null}
       </div>
     </header>

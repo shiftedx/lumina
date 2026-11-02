@@ -5,7 +5,7 @@ const WREN = { username: 'wren', password: 'Hollow-cedar-2026' };
 test('remember on this browser → sign out → Who\'s watching → instant switch lands on Home; the vault owner needs a password', async ({ page, browser }) => {
   const { context, member } = await inviteMember(page, browser, WREN.username, WREN.password);
   const ringCookie = async () => (await context.cookies()).find((cookie) => cookie.name.endsWith('_ring'));
-  const signOut = async () => { await member.getByRole('button', { name: /, account menu$/ }).click(); await member.getByRole('menuitem', { name: 'Sign out' }).click(); };
+  const signOut = async () => { await member.getByRole('button', { name: /, account menu$/ }).click(); await member.getByRole('button', { name: 'Sign out' }).click(); };
   /** Drops only this tab's session cookie: the browser keeps its ring, as after a closed laptop lid past the cookie. */
   const leaveSession = async () => { await context.clearCookies({ name: (await ringCookie())!.name.slice(0, -'_ring'.length) }); await member.goto('/'); };
   const signInRemembered = async (username: string, password: string) => {

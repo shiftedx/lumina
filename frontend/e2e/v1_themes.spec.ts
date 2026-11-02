@@ -26,7 +26,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.waitForTimeout(300);
     await expectReadable(page);
     await page.getByRole('button', { name: /, account menu$/ }).click();
-    await page.getByRole('menuitem', { name: 'My Settings' }).click();
+    await page.getByRole('button', { name: 'My Settings' }).click();
     await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display' }).click();
     await expect(page.getByRole('radio', { name: 'System' })).toBeChecked();
     await page.waitForTimeout(300);
@@ -52,7 +52,7 @@ test('test_theme_system_changes: explicit choice ignores the OS, system follows 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('button', { name: 'My Settings' }).click();
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display' }).click();
   await page.getByRole('radio', { name: 'System' }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

@@ -26,7 +26,7 @@ import { cachedShelf, rememberShelf } from './homeCache';
 import { HomeEditor } from './HomeEditor';
 import { HomeHero } from './HomeHero';
 import { FetchedShelf, HomeShelf, itemStill, NearGate, remoteStill, RemoveButton, type ShelfActions, titleStill, useNear } from './HomeShelf';
-import { entryLeft, entryPercent, firstName, greeting, homeItemVisible, homeShelfAvailable, homeTitleVisible, heroSlides, isListeningEntry, mastheadDate, titleCaption } from './homeModel';
+import { entryLeft, entryPercent, homeItemVisible, homeShelfAvailable, homeTitleVisible, heroSlides, isListeningEntry, titleCaption } from './homeModel';
 import { HOME_CATALOGUE, HOME_SHELF_IDS, type HomeShelfId, type HomeShelfPref, normalizeHomeShelves, type ShelfStatus } from './homeShelves';
 import { LiveShelf } from './LiveShelf';
 import { createVisit, FETCHED_SHELVES, isFetchedShelf, SHELF_LIMIT } from './shelfSources';
@@ -294,14 +294,14 @@ function HomeSurfaceView({
   const noHiddenShelves = homeShelves === null || layout.every((shelf) => shelf.visible);
   const fresh = !editing && noHiddenShelves && !watching.length && !listening.length && (!streaming || !queued.length) && !queueFailed && queueKnown
     && (!streaming || (!pickedSignal && !channels.length && !subscriptionVideos.length && !followFailures.length && !followsLoading)) && !recent.length && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
-  // The greeting supplies route context over the opening artwork; the title inside HomeHero remains the media display.
+  // The media artwork leads Home; personal greeting and activity live in the account dialog.
   const stageLed = !fresh && !editing && slides.length > 0;
 
   // Account menu and palette share the command; the editor can also customize a fresh Home.
   useEffect(() => onHomeEdit(() => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // From the greeting, Down reaches the first control below the masthead and Up reaches the account menu,
+    // From the Home heading, Down reaches the first content control and Up reaches the account menu,
     // rather than whichever target is nearest the middle of a wide heading.
     if (event.target === headingRef.current && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       const target = event.key === 'ArrowUp' ? document.querySelector<HTMLButtonElement>('.g-profile-trigger') : event.currentTarget.querySelector('.h-body')?.querySelector<HTMLElement>(FOCUS_TARGETS);
@@ -404,10 +404,7 @@ function HomeSurfaceView({
 
   return (
     <div className={`surface gallery home${stageLed ? ' has-home-stage' : ''}`} onKeyDown={onKeyDown}>
-      <header className={`h-masthead${stageLed ? ' is-on-stage' : ''}`}>
-        <h1 ref={headingRef} tabIndex={-1}>{greeting()}, {firstName(user)}</h1>
-        <p className="g-label g-kicker h-date">{mastheadDate()}</p>
-      </header>
+      <h1 className="sr-only" ref={headingRef} tabIndex={-1}>Home</h1>
       {/* Wait for the hero and Next Up (or the bounded fallback) before painting. */}
       <div aria-hidden={bodyReady ? undefined : true} className="h-body" inert={!bodyReady} style={bodyReady ? undefined : { opacity: 0, pointerEvents: 'none' }}>
         {fresh ? (

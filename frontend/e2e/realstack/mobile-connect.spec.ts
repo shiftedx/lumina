@@ -11,7 +11,7 @@ test('a web QR signs in one mobile device and its app password revokes that devi
   try {
     await page.getByRole('button', { name: /account menu$/ }).click();
     const generated = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/mobile-connect' && response.request().method() === 'POST');
-    await page.getByRole('menuitem', { name: 'Mobile connect' }).click();
+    await page.getByRole('button', { name: 'Mobile connect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Mobile connect' });
     if (!initial.enabled) await dialog.getByRole('button', { name: 'Enable mobile access' }).click();
     const code = await (await generated).json();

@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -36,6 +36,7 @@ ACTIVE_SECONDS = 60
 BLOCK_SECONDS = 120
 RECENT_END_SECONDS = 30  # late reports from a player whose session just ended must not start a ghost direct session
 RETENTION = timedelta(days=90)
+MEMBER_SUMMARY_DAYS = 14
 MIN_HISTORY_SECONDS = 10  # a session shorter than this (a seek replacing its encode, a probe) is not a viewing
 WEB = "web"
 _clock = time.time  # tests replace it
@@ -200,6 +201,60 @@ def _write_history(*, user_id: str, source: str, title: str, subtitle: str | Non
             watched_seconds=round(watched, 1), stopped_by_admin=by_admin,
         ))
         db.query(PlaybackHistory).filter(PlaybackHistory.ended_at < _wall(_clock()) - RETENTION).delete()
+
+
+def member_summary(db: Session, user_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+    """A small, self-only view of recorded playback sessions for the profile sheet.
+
+    ``playback_history`` stores naive UTC timestamps.  Keep the date buckets UTC
+    too: there is no member timezone preference to safely reinterpret them with.
+    The existing ``ended_at`` index bounds the scan before filtering by member.
+    """
+    now = now or datetime.now(UTC).replace(tzinfo=None)
+    today = now.date()
+    start_day = today - timedelta(days=MEMBER_SUMMARY_DAYS - 1)
+    start = datetime.combine(start_day, datetime.min.time())
+    rows = (
+        db.query(
+            func.date(PlaybackHistory.ended_at).label("day"),
+            func.sum(PlaybackHistory.watched_seconds).label("watched_seconds"),
+            func.count().label("sessions"),
+            func.max(PlaybackHistory.ended_at).label("latest_activity_at"),
+        )
+        .filter(PlaybackHistory.ended_at >= start, PlaybackHistory.ended_at <= now, PlaybackHistory.user_id == user_id)
+        .group_by(func.date(PlaybackHistory.ended_at))
+        .order_by(func.date(PlaybackHistory.ended_at).asc())
+        .all()
+    )
+    buckets = {start_day + timedelta(days=offset): {"watched_seconds": 0, "sessions": 0} for offset in range(MEMBER_SUMMARY_DAYS)}
+    latest = None
+    watched_seconds = 0
+    sessions = 0
+    for day, watched, count, ended_at in rows:
+        day = day if isinstance(day, date) else date.fromisoformat(day)
+        bucket = buckets.get(day)
+        if bucket is None:
+            continue
+        seconds = max(0, round(watched or 0))
+        bucket["watched_seconds"] += seconds
+        bucket["sessions"] += count
+        watched_seconds += seconds
+        latest = ended_at
+        sessions += count
+    days = [
+        {"date": day, "watched_seconds": bucket["watched_seconds"], "sessions": bucket["sessions"]}
+        for day, bucket in buckets.items()
+    ]
+    return {
+        "generated_at": now,
+        "period_days": MEMBER_SUMMARY_DAYS,
+        "timezone": "UTC",
+        "watched_seconds": watched_seconds,
+        "sessions": sessions,
+        "active_days": sum(1 for day in days if day["sessions"]),
+        "latest_activity_at": latest,
+        "days": days,
+    }
 
 
 def _record_direct(entry: _Direct, *, ended: float, by_admin: bool) -> None:

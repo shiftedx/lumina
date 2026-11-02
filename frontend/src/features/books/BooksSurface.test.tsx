@@ -135,13 +135,21 @@ describe('BooksSurface', () => {
     expect(api.listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'added', status: 'all' }));
   });
 
-  it('continues the featured story in its saved file without changing its checkpoint while browsing', async () => {
+  it('continues the featured story and three further stories in their saved files without changing checkpoints while browsing', async () => {
     const continuing = book({ reading_file_id: 'saved-format', progress: { unit_index: 2, offset: 0.4, percent: 45, completed: false, updated_at: '2026-10-02T00:00:00Z' } });
-    api.getBooksOverview.mockResolvedValue(overview({ continue_reading: [continuing] }));
+    const further = Array.from({ length: 3 }, (_, index) => book({ id: `further-${index}`, title: `Further story ${index}`, reading_file_id: `saved-${index}`, progress: continuing.progress }));
+    api.getBooksOverview.mockResolvedValue(overview({ continue_reading: [continuing, ...further] }));
     const onRoute = vi.fn();
     render(<AccessProvider value={permitted}><BooksSurface onRoute={onRoute} route={{ surface: 'books', view: 'overview' }} user={booksUser} /></AccessProvider>);
-    await userEvent.click(await screen.findByRole('button', { name: 'Continue reading' }));
+    const featured = await screen.findByRole('region', { name: 'Continue reading' });
+    await userEvent.click(within(featured).getByRole('button', { name: 'Continue reading' }));
     expect(onRoute).toHaveBeenCalledWith({ surface: 'books', view: 'read', bookId: 'saved-format' }, false);
+    const reading = screen.getByRole('heading', { name: 'Keep reading' }).closest('section')!;
+    const resume = within(reading).getAllByRole('button', { name: 'Continue reading' });
+    expect(resume).toHaveLength(3);
+    expect(within(reading).queryByRole('button', { name: 'Open Northbound' })).toBeNull();
+    await userEvent.click(resume[2]);
+    expect(onRoute).toHaveBeenLastCalledWith({ surface: 'books', view: 'read', bookId: 'saved-2' }, false);
     expect(api.updateBookState).not.toHaveBeenCalled();
   });
 

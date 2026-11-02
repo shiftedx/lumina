@@ -30,7 +30,7 @@ const json = (route: Route, body: unknown) => route.fulfill({ contentType: 'appl
 const richEbooks = [
   ['ebook-2', 'The Lantern Coast', 'Sofia Maren'], ['ebook-3', 'A Map of Rain', 'Elliot Vale'], ['ebook-4', 'The Last Orchard', 'Noor Patel'],
   ['ebook-5', 'Salt and Starlight', 'Harriet Moss'], ['ebook-6', 'Window Seat', 'June Yamada'], ['ebook-7', 'A Quiet Atlas', 'Jon Bell'],
-].map(([id, title, author], index) => ({ ...ebook, id, title, author, cover_url: `/api/books/${id}/cover`, genres: [index % 2 ? 'Literary' : 'Adventure'], progress: index < 3 ? { unit_index: index, offset: 0.35, percent: 25 + index * 20, completed: false, updated_at: '2026-10-02T00:00:00Z' } : ebook.progress }));
+].map(([id, title, author], index) => ({ ...ebook, id, title, author, cover_url: `/api/books/${id}/cover`, genres: [index % 2 ? 'Literary' : 'Adventure'], progress: index < 4 ? { unit_index: index, offset: 0.35, percent: 25 + index * 20, completed: false, updated_at: '2026-10-02T00:00:00Z' } : ebook.progress }));
 const richManga = [
   ['manga-2', 'Cloud Runner', 'Cloud Runner', 'series-2', 1], ['manga-3', 'Cloud Runner, Volume 2', 'Cloud Runner', 'series-2', 2],
   ['manga-4', 'Night Market', 'Night Market', 'series-3', 1], ['manga-5', 'Night Market, Volume 2', 'Night Market', 'series-3', 2],
@@ -47,7 +47,7 @@ const richSeries = [
   { id: 'series-4', title: 'Wild Signal', author: 'Emi Cho', description: 'Messages from the mountain.', cover_url: '/api/books/manga-6/cover', volume_count: 2, read_volume_count: 0, next_book_id: 'manga-6' },
 ];
 const richOverview = {
-  totals: { ebooks: richEbooks.length, manga_series: richSeries.length, volumes: richManga.length }, continue_reading: richEbooks.slice(0, 3),
+  totals: { ebooks: richEbooks.length, manga_series: richSeries.length, volumes: richManga.length }, continue_reading: richEbooks.slice(0, 4),
   recently_added: [...richEbooks, ...richManga], shelves: richShelves, discover: [...richManga.slice(0, 3), ...richEbooks.slice(3)],
 };
 
@@ -301,4 +301,31 @@ test('opening a book from a scrolled overview starts at the detail hero', async 
   await card.click();
   await expect(page.getByRole('heading', { level: 1, name: /Skybound/ })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+
+test('Books uses the viewport width and shows three continuing stories on wide screens', async ({ page }) => {
+  await openRichBooks(page, '/books', { width: 1920, height: 1080 });
+  const hero = page.getByRole('region', { name: 'Continue reading' });
+  const reading = page.locator('.books-overview-reading');
+  await expect(reading.getByRole('button', { name: 'Continue reading' })).toHaveCount(3);
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1024, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const stage = (await hero.boundingBox())!;
+    expect(Math.abs(stage.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(stage.width - viewport.width)).toBeLessThanOrEqual(1);
+    const cards = await reading.locator('.books-continue').all();
+    const boxes = await Promise.all(cards.map((card) => card.boundingBox()));
+    if (viewport.width >= 1440) {
+      expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(boxes[1]!.y - boxes[2]!.y)).toBeLessThanOrEqual(1);
+      expect(boxes[2]!.x).toBeGreaterThan(boxes[1]!.x);
+    } else if (viewport.width < 800) {
+      expect(boxes[1]!.y).toBeGreaterThan(boxes[0]!.y);
+      expect(boxes[2]!.y).toBeGreaterThan(boxes[1]!.y);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await reading.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `../output/playwright/books/reading-width-${viewport.width}.png` });
+  }
 });

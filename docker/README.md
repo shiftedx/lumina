@@ -286,13 +286,22 @@ pending, failed, revoked or uncertain; **Check provider history** reconciles unc
 outcomes without sending them again. Disconnecting stops future pending exports.
 Sonos and Chromecast listening export is not advertised by the browser-only tracker.
 
-### Chromecast preview
+### Video casting
 
 The video watch page offers a first-party Web Sender based on Google's current
 [Web Sender integration](https://developers.google.com/cast/docs/web_sender/integrate)
 and Default Media Receiver. Open Lumina over HTTPS in a Cast-supported browser and
-configure a public/local server address reachable by the receiver. **Enable Chromecast**
-loads Google's SDK in that tab; then select a receiver. Browser audio pauses only
+configure a public/local server address reachable by the receiver. The player loads
+Google's SDK for discovery and offers **Cast to Chromecast** in the player’s
+**Playback settings** gear menu only when the SDK reports receivers available.
+Select that action to choose a receiver. Safari similarly offers **AirPlay** in
+the same menu when it reports an available playback target,
+and opens the native route picker on selection. Browser and operating-system
+network permission prompts are managed by those platforms; allow local network
+access there if requested. When discovery reports no receivers, the controls stay
+hidden. Active output controls remain in that menu to return playback here; closing the
+menu keeps the receiver playing.
+Browser audio pauses only
 after the receiver acknowledges the media and position. Pause, seek, resume and
 **Return playback here** retain a recoverable source on failure.
 

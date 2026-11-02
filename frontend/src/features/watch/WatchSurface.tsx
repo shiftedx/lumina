@@ -543,13 +543,14 @@ export function WatchSurface({
   );
   const descriptionTimestamps = mediaTitle?.overview ? [] : preview?.description_timestamps || local?.description_timestamps || [];
   const playerExtensions = {
+    casting: local && !isAudioItem(local) ? <ChromecastPanel audioIndex={sessionRequest.audio_index ?? null} getMedia={() => playerRef.current} itemId={sessionRequest.version_id || local.id} key={sessionRequest.version_id || local.id} onProgress={(position, duration) => onPlaybackCheckpoint(local, position, duration, duration !== null && position >= duration - 1)} subtitle={subtitle} /> : undefined,
     ...(remote ? { unavailableAction } : {}),
     chapters: duration && markers.length ? <ChapterSeekMarkers chapters={markers} currentTime={currentTime} duration={duration} interactive={false} onSeek={seekPlayback} /> : undefined,
     theater: <TheaterModeControl onTheaterModeChange={onTheaterModeChange} shortcutEnabled={!mini} theaterMode={theaterMode} />,
-    ...(local && !mini ? {
+    ...(local ? {
       menu: <PlaybackMenu captions={captions} capabilities={enrichment} onCaptionsChange={onCaptionsChange} currentVersionId={local.id} itemId={playId as string} onPrefs={onPlaybackPrefsChange ?? (() => undefined)} onRequestChange={changeSessionRequest} onSubtitle={chooseSubtitle} onTracksChanged={reloadSubtitleTracks} options={playbackOptions} prefs={prefs} request={sessionRequest} subtitle={subtitle} tracks={subtitleTracks} versions={watchTitle.data?.versions ?? []} />,
       // Music gets no up-next card: its countdown would cut the last 20 s off every song. The stage names the next track.
-      overlay: <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} stillWatching={audio ? null : stillWatching} upNext={audio ? null : upNext} />,
+      overlay: !mini ? <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} stillWatching={audio ? null : stillWatching} upNext={audio ? null : upNext} /> : undefined,
     } : {}),
   };
 
@@ -935,7 +936,6 @@ export function WatchSurface({
               {previewLoading ? <RemotePlayerLoading /> : local ? <LocalLibraryPlayer audio={playerAudio} extensions={playerExtensions} mediaRef={playerRef} onEnded={handlePlaybackEnded} onLoadedMetadata={(media) => { playerRef.current = media; if (Number.isFinite(media.duration)) setMediaDuration(media.duration); showTextTrack(media.textTracks, selectedTextTrack); }} onOptions={setPlaybackOptions} onRequestChange={changeSessionRequest} request={sessionRequest} startAt={startAt} startKey={startRef.current?.key} tracks={playerTracks} onPause={() => checkpointPlayer(true)} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} itemId={local.id} kind={isAudioItem(local) ? 'audio' : 'video'} poster={thumbnail} title={title} /> : remote && !playUnavailable ? <RemotePlayer allowAcquisition={!acquireUnavailable} extensions={playerExtensions} onEnded={handlePlaybackEnded} onLiveEnded={() => setLiveEnded(true)} onMediaRef={(media) => { playerRef.current = media; }} onPause={() => checkpointPlayer(true)} onReacquire={onReacquireRemote ? () => onReacquireRemote(remote) : undefined} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} playback={preview?.playback} poster={thumbnail} resumePosition={preview?.playback?.live ? null : remoteProgress && !remoteProgress.completed ? remoteProgress.position_seconds : null} title={title} /> : <LuminaPlayer extensions={{ ...playerExtensions, unavailableAction }} source={{ id: 'unavailable', kind: 'video', src: null, state: 'unsupported', message: playUnavailableCopy || 'You can still download this video to the vault.' }} title={title} />}
             </PlayerPreferencesContext.Provider>
           </div>
-          {local && !isAudioItem(local) && !mini ? <ChromecastPanel audioIndex={sessionRequest.audio_index ?? null} getMedia={() => playerRef.current} itemId={sessionRequest.version_id || local.id} key={sessionRequest.version_id || local.id} onProgress={(position, duration) => onPlaybackCheckpoint(local, position, duration, duration !== null && position >= duration - 1)} subtitle={subtitle} /> : null}
           {webVideo ? (
             <div className="gallery g-watch-body">
               <WatchInfoColumn

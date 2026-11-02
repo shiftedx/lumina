@@ -17,8 +17,10 @@ import { Captions, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw
 import { type AudioGraph, audioGraphFor } from './features/watch/audioGraph';
 import type { MuteRange } from './types';
 import { captionStyle, DEFAULT_CAPTIONS, type CaptionPrefs } from './features/watch/captionPrefs';
+import { AirPlayControl } from './features/watch/AirPlayControl';
+import { PlayerCastingContext, PlayerSettingsMenu } from './features/watch/PlayerSettingsMenu';
 import { pauseMediaForUser, playMediaForUser, registerMediaPlayIntent } from './playIntent';
-import { Select } from './ui';
+import { Button, Select } from './ui';
 import './features/watch/player.css';
 
 export type LuminaPlayerState = 'loading' | 'ready' | 'unsupported' | 'failed';
@@ -72,6 +74,7 @@ export type LuminaPlayerExtensions = {
   quality?: ReactNode;
   chapters?: ReactNode;
   theater?: ReactNode;
+  casting?: ReactNode;
   /** Above the controls; stays visible when the controls hide (skip, up next). */
   overlay?: ReactNode;
   /** End of the control row; when supplied it owns subtitles, so the Captions toggle and `c` step aside. */
@@ -787,7 +790,9 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
                     </Select>
                   </span>
                 ) : null}
-                {extensions?.menu ? <div data-player-extension="menu">{extensions.menu}</div> : hasCaptions ? <button aria-label="Captions" aria-pressed={captionsOn} onClick={toggleCaptions} type="button"><Captions aria-hidden="true" /></button> : null}
+                <PlayerCastingContext.Provider value={<>{kind === 'video' ? <AirPlayControl getMedia={() => nativeRef.current} key={`${activeSourceKey}:${mediaEpoch}`} /> : null}{extensions?.casting}</>}>
+                  {extensions?.menu ? <div data-player-extension="menu">{extensions.menu}</div> : kind === 'video' ? <PlayerSettingsMenu>{hasCaptions ? <Button icon={<Captions aria-hidden="true" />} pressed={captionsOn} onClick={toggleCaptions}>Captions</Button> : null}</PlayerSettingsMenu> : hasCaptions ? <button aria-label="Captions" aria-pressed={captionsOn} onClick={toggleCaptions} type="button"><Captions aria-hidden="true" /></button> : null}
+                </PlayerCastingContext.Provider>
                 {pictureInPicture ? <button aria-label="Picture in picture" onClick={() => void togglePictureInPicture()} type="button"><PictureInPicture2 aria-hidden="true" /></button> : null}
                 {extensions?.theater ? <div data-player-extension="theater">{extensions.theater}</div> : null}
                 {activeSource.kind === 'video' ? <button aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={() => void toggleFullscreen()} type="button">{isFullscreen ? <Minimize aria-hidden="true" /> : <Maximize aria-hidden="true" />}</button> : null}

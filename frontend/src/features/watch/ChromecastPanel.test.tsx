@@ -1,20 +1,20 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ post: vi.fn(), del: vi.fn(), start: vi.fn(), pause: vi.fn(), play: vi.fn(), owner: 'alice' }));
+const mocks = vi.hoisted(() => ({ post: vi.fn(), del: vi.fn(), start: vi.fn(), pause: vi.fn(), play: vi.fn(), owner: 'alice', available: true, availability: (_available: boolean) => {} }));
 vi.mock('../../api', () => ({ post: mocks.post, del: mocks.del, getSessionUserId: () => mocks.owner }));
 vi.mock('../../playIntent', () => ({ pauseMediaForUser: mocks.pause, playMediaForUser: mocks.play }));
-vi.mock('./chromecast', () => ({ chromecastReady: () => true, chromecastUnavailable: () => null, prepareChromecast: vi.fn(), startChromecast: mocks.start }));
+vi.mock('./chromecast', () => ({ watchChromecastAvailability: (listener: (available: boolean) => void) => { mocks.availability = listener; listener(mocks.available); return vi.fn(); }, startChromecast: mocks.start }));
 import { ChromecastPanel } from './ChromecastPanel';
+import { PlayerCastingContext, PlayerSettingsMenu } from './PlayerSettingsMenu';
 const ticket = { ticket_id: 'ticket', media_url: 'https://lumina.invalid/capability?token=scoped', title: 'Video', position_seconds: 42, duration: 90 };
 function target() { return { status: vi.fn(async () => ({ position: 42, duration: 90, playing: true })), stop: vi.fn(async () => undefined), play: vi.fn(), pause: vi.fn(), seek: vi.fn() }; }
-beforeEach(() => { vi.clearAllMocks(); mocks.owner = 'alice'; mocks.post.mockResolvedValue(ticket); mocks.del.mockResolvedValue(undefined); mocks.play.mockResolvedValue(undefined); });
+beforeEach(() => { vi.clearAllMocks(); mocks.owner = 'alice'; mocks.available = true; mocks.post.mockResolvedValue(ticket); mocks.del.mockResolvedValue(undefined); mocks.play.mockResolvedValue(undefined); });
 
 it('keeps browser playback until target acknowledgement and returns here before stopping the source', async () => {
   const media = document.createElement('video'), output = target();
   let acknowledge: () => void = () => undefined;
   mocks.start.mockImplementation(async (mint) => { await mint(); await new Promise<void>((resolve) => { acknowledge = resolve; }); return output; });
   render(<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />);
-  fireEvent.click(screen.getByText('Chromecast preview'));
   fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
   await waitFor(() => expect(mocks.post).toHaveBeenCalledOnce());
   expect(mocks.pause).not.toHaveBeenCalled();
@@ -32,7 +32,6 @@ it('revokes a failed target while retaining browser playback', async () => {
   const media = document.createElement('video');
   mocks.start.mockImplementation(async (mint) => { await mint(); throw new Error('Receiver did not acknowledge'); });
   const view = render(<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />);
-  fireEvent.click(screen.getByText('Chromecast preview'));
   fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
   await screen.findByRole('alert');
   expect(mocks.pause).not.toHaveBeenCalled();
@@ -46,7 +45,6 @@ it('does not pause or take over playback after the signed-in owner changes durin
   let acknowledge: () => void = () => undefined;
   mocks.start.mockImplementation(async (mint) => { await mint(); await new Promise<void>((resolve) => { acknowledge = resolve; }); return output; });
   const view = render(<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />);
-  fireEvent.click(screen.getByText('Chromecast preview'));
   fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
   await waitFor(() => expect(mocks.post).toHaveBeenCalledOnce());
   mocks.owner = 'bob'; acknowledge();
@@ -61,7 +59,6 @@ it('continues acknowledged browser playback when receiver-ticket cleanup is temp
   const media = document.createElement('video'), output = target();
   mocks.start.mockImplementation(async (mint) => { await mint(); return output; });
   const view = render(<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />);
-  fireEvent.click(screen.getByText('Chromecast preview'));
   fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
   await screen.findByRole('button', { name: 'Return playback here' });
   mocks.del.mockRejectedValueOnce(new Error('offline'));
@@ -71,4 +68,41 @@ it('continues acknowledged browser playback when receiver-ticket cleanup is temp
   expect(mocks.pause).toHaveBeenCalledTimes(1);
   expect(output.stop).toHaveBeenCalledOnce();
   view.unmount();
+});
+
+it('hides casting until a receiver is discovered and retains controls during an active transfer', async () => {
+  mocks.available = false;
+  const media = document.createElement('video'), output = target();
+  mocks.start.mockImplementation(async (mint) => { await mint(); return output; });
+  const view = render(<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />);
+  expect(screen.queryByRole('button', { name: 'Cast to Chromecast' })).toBeNull();
+  expect(screen.queryByText('Chromecast preview')).toBeNull();
+  act(() => mocks.availability(true));
+  expect(mocks.start).not.toHaveBeenCalled();
+  act(() => mocks.availability(false));
+  expect(screen.queryByRole('button', { name: 'Cast to Chromecast' })).toBeNull();
+  act(() => mocks.availability(true));
+  fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
+  await screen.findByRole('button', { name: 'Return playback here' });
+  act(() => mocks.availability(false));
+  expect(screen.getByRole('button', { name: 'Return playback here' })).toBeTruthy();
+  view.unmount();
+});
+
+it('keeps the receiver and its access alive while the gear menu is closed', async () => {
+  const media = document.createElement('video'), output = target();
+  mocks.start.mockImplementation(async (mint) => { await mint(); return output; });
+  const view = render(<PlayerCastingContext.Provider value={<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />}><PlayerSettingsMenu /></PlayerCastingContext.Provider>);
+  expect(screen.queryByRole('button', { name: 'Cast to Chromecast' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
+  await screen.findByRole('button', { name: 'Return playback here' });
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect(screen.queryByRole('button', { name: 'Return playback here' })).toBeNull();
+  expect(output.stop).not.toHaveBeenCalled();
+  expect(mocks.del).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect(screen.getByRole('button', { name: 'Return playback here' })).toBeTruthy();
+  view.unmount();
+  expect(output.stop).toHaveBeenCalledOnce();
 });

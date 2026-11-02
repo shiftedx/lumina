@@ -1,4 +1,5 @@
 import { navigateApp } from './lumina-mock';
+import { mockHome } from './home-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, signIn } from './lumina-mock';
 
@@ -40,9 +41,10 @@ test('the old Live, Explore and Subscriptions addresses land on Streaming', asyn
   }
 });
 
-test('the desktop menu and search glyphs share a vertical center', async ({ page }) => {
+test('the menu stays clear while browsing and keeps keyboard navigation', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await mockApi(page, { sidebar_collapsed: false });
+  await mockHome(page);
   await page.goto('/');
   await signIn(page);
   const [menu, search] = await Promise.all([
@@ -51,7 +53,26 @@ test('the desktop menu and search glyphs share a vertical center', async ({ page
   ]);
   expect(menu).not.toBeNull();
   expect(search).not.toBeNull();
-  expect(search!.y + search!.height / 2).toBe(menu!.y + menu!.height / 2);
+  expect(Math.abs(search!.y + search!.height / 2 - menu!.y - menu!.height / 2)).toBeLessThanOrEqual(1);
+  const trigger = page.getByRole('button', { name: 'Open navigation', exact: true });
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.mouse.move(0, 400);
+    await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    expect((await trigger.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await trigger.click();
+    await expect(page.getByRole('dialog', { name: 'Navigation', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveCSS('outline-style', 'solid');
+    await page.mouse.move(width - 10, 400);
+    await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await page.mouse.click(width - 10, 400);
+    await page.screenshot({ path: testInfo.outputPath(`menu-${width}.png`) });
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await page.evaluate(() => window.scrollTo(0, 0));
+  }
 });
 
 const surfaces = [

@@ -538,7 +538,11 @@ def run(title_id: str, client: tmdb.TmdbClient | None = None) -> str:
 
 
 def matrix_routes(**overrides) -> dict:  # noqa: ANN003
+    images = {urlsplit(tmdb.image_url(entry["tmdb"], tmdb.IMAGE_SIZES[name.removeprefix("images.")])).path: b"pinned art"
+              for name, entry in tmdb.movie_fields(fixture("movie_603"), "en", "US").fields.items()
+              if name.startswith("images.") and isinstance(entry, dict) and "tmdb" in entry}
     return {
+        **images,
         "/3/movie/603": fixture("movie_603"),
         "/3/collection/2344": fixture("collection_2344"),
         "/3/search/movie": fixture("search_movie_the_matrix"),
@@ -794,6 +798,47 @@ def test_collection_creates_a_boxset_when_none_exists(library) -> None:  # noqa:
     assert load(title_id).boxset_id == boxsets[0].id
 
 
+
+def test_missing_nfo_art_recovers_provider_art_while_preserving_real_and_protected_art(library, tmp_path) -> None:  # noqa: ANN001
+    from app.models import StorageRoot
+
+    library(matrix_routes())
+    root = tmp_path / 'media'
+    root.mkdir()
+    (root / 'local.jpg').write_bytes(b'local artwork')
+    with db_module.session_scope() as db:
+        from app.services.storage_roots import StorageRootService
+        storage = StorageRoot(id='art-root', label='Media', path=str(root), mode='external', enabled=True)
+        db.add(storage)
+        db.flush()
+        StorageRootService(db).probe(storage)
+    missing = {"path": "missing.jpg", "tag": "missing"}
+    present = {"path": "local.jpg", "tag": "present"}
+    for source, locked, expected in [('nfo', False, 'tmdb'), ('user', False, None), ('nfo', True, None)]:
+        title_id = add_title(root_id='art-root', provider_ids={"Tmdb": "603"}, locked=locked,
+                             images={"Primary": missing, "Backdrop": present},
+                             field_sources={"provider_ids": "user", "images.Primary": source, "images.Backdrop": "nfo"})
+        if expected is not None:
+            from app.services.metadata_preview import refresh_preview
+            save_key()
+            with db_module.session_scope() as db:
+                preview = refresh_preview(db, db.get(MediaTitle, title_id))
+                assert next(image for image in preview['images'] if image['type'] == 'Primary')['outcome'] == 'update'
+            assert load(title_id).images['Primary'] == missing
+        run(title_id)
+        title = load(title_id)
+        assert title.images['Backdrop'] == present
+        if expected is None:
+            assert title.images['Primary'] == missing
+        else:
+            assert 'tmdb' in title.images['Primary']
+            assert title.field_sources['images.Primary'] == 'tmdb'
+    with db_module.session_scope() as db:
+        db.get(StorageRoot, 'art-root').enabled = False
+    offline = add_title(root_id='art-root', provider_ids={"Tmdb": "603"}, images={"Primary": missing}, field_sources={"provider_ids": "nfo", "images.Primary": "nfo"})
+    run(offline)
+    assert load(offline).images['Primary'] == missing
+
 def test_local_primary_beats_tmdb_while_tmdb_fills_an_empty_backdrop(library) -> None:  # noqa: ANN001
     library(matrix_routes())
     local = {"path": "Movies/The Matrix (1999)/poster.jpg", "tag": "abc"}
@@ -936,8 +981,37 @@ def test_due_batch_needs_a_key_and_takes_only_due_series_and_movies(library) -> 
     assert title_metadata.run_due_batch(NOW) is False  # 1 title < BATCH_SIZE: not full
     assert load(due).metadata_due_at == NOW + timedelta(days=90)
     assert load(later).metadata_due_at == NOW + timedelta(days=1) and load(never).metadata_due_at is None
-    assert fake.paths() == ["/3/movie/603", "/3/collection/2344"]
+    assert fake.paths()[:2] == ["/3/movie/603", "/3/collection/2344"]
+    assert len([path for path in fake.paths() if path.startswith('/t/p/')]) == 3
+    from app.services.renditions import offline_artwork
+    for kind, entry in load(due).images.items():
+        if kind in ('Primary', 'Backdrop', 'Logo') and 'tmdb' in entry:
+            assert offline_artwork().has_pinned(tmdb.image_url(entry['tmdb'], tmdb.IMAGE_SIZES[kind]))
 
+
+
+
+def test_due_batch_prioritizes_titles_without_covers(library, monkeypatch) -> None:  # noqa: ANN001
+    library(matrix_routes())
+    monkeypatch.setattr(title_metadata, 'BATCH_SIZE', 1)
+    covered = add_title(**NFO_IDS, metadata_due_at=NOW - timedelta(days=1), images={'Primary': {'path': 'existing.jpg', 'tag': 'existing'}})
+    bare = add_title(**NFO_IDS)
+    save_key()
+    assert title_metadata.run_due_batch(NOW) is True
+    assert load(bare).metadata_due_at == NOW + timedelta(days=90)
+    assert load(covered).metadata_due_at == NOW - timedelta(days=1)
+
+def test_artwork_download_failure_retries_soon_without_discarding_metadata(library) -> None:  # noqa: ANN001
+    raw = fixture('movie_603')
+    primary = urlsplit(tmdb.image_url(raw['poster_path'], tmdb.IMAGE_SIZES['Primary'])).path
+    library(matrix_routes(**{primary: (503, {}, {})}))
+    title_id = add_title(**NFO_IDS)
+    save_key()
+    title_metadata.run_due_batch(NOW)
+    title = load(title_id)
+    assert title.metadata_json['match']['tmdb_id'] == 603
+    assert title.metadata_due_at == NOW + timedelta(minutes=5)
+    assert 'tmdb' in title.images['Primary']
 
 def test_one_failing_title_never_stops_the_batch(library, monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.setattr(title_metadata, "BATCH_SIZE", 3)
@@ -967,7 +1041,7 @@ def test_parallel_workers_share_one_boxset_and_one_person_row(library) -> None: 
     assert {movie.boxset_id for movie in movies} == {boxsets[0].id}
 
 
-def test_metadata_loop_idles_30s_and_loops_immediately_while_busy(monkeypatch) -> None:  # noqa: ANN001
+def test_metadata_loop_checks_new_work_within_5s_and_loops_immediately_while_busy(monkeypatch) -> None:  # noqa: ANN001
     # A full batch loops again immediately, no artificial pause.
     outcomes = iter([True, RuntimeError("database is locked"), False])
 
@@ -988,7 +1062,7 @@ def test_metadata_loop_idles_30s_and_loops_immediately_while_busy(monkeypatch) -
     monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(main_module.metadata_loop())
-    assert sleeps == [0, 30, 30]
+    assert sleeps == [0, 5, 5]
 
 
 USERS = {"root": make_user("root", role="admin"), "bob": make_user("bob", role="admin"), "alice": make_user("alice")}

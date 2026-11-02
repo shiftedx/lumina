@@ -1012,6 +1012,8 @@ Lumina reserves at most **950 OMDb requests in any rolling 24-hour window**, inc
 
 Kodi NFOs may supply these values in `<ratings>` using only named `<rating>` entries: `imdb`, `tomatometer`, `tomatometerallcritics`, `rottentomatoes` and `metacritic`. Lumina accepts either direct text or Kodi's nested `<value>`, normalizes a declared 10- or 100-point scale, and ignores audience or ambiguous legacy ratings. Under **Manage Server → Metadata**, each of the three named values can also be edited or cleared manually; that edit stays locked until reverted, just like other title metadata.
 
+New movie and series imports enter the durable metadata queue immediately. The worker checks for new work every five seconds, prioritizes due titles without a poster, and downloads selected TMDB poster/backdrop/logo art before handing it to the artwork preparation pass. Failed artwork downloads retry after five minutes. Valid NFO artwork and user overrides keep priority; a missing NFO image on a verified online storage root can fall back to matched TMDB artwork. Offline roots and locked titles are preserved. Provider responses and active playback can still delay image preparation.
+
 ## AI features
 
 AI features use only the OpenAI-compatible endpoints configured under **Manage Server → AI features** (`LUMINA_AI_*`, `LUMINA_ASR_*`). **Manage Server → AI features** lists each feature as On, Off, "Needs an AI endpoint" or "Needs a speech server". Without them every feature hides or falls back:

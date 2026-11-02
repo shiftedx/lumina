@@ -47,7 +47,7 @@ def refresh_preview(db: Session, title: MediaTitle) -> dict[str, Any]:
         raise PreviewError("title_locked")
     if title.type not in title_metadata.MATCHABLE:
         raise me.FieldError("wrong_type", title_id=title.id)
-    snap = dataclasses.replace(title_metadata.snapshot(db, title), season_numbers=frozenset())  # no season calls
+    snap = dataclasses.replace(title_metadata.snapshot(db, title), season_numbers=frozenset(), missing_images=title_metadata.missing_local_images(db, title))  # no season calls
     try:
         fetched = title_metadata.fetch(client, snap, title_metadata.match_ai_config(record), utcnow().date())
     except tmdb.TmdbError as error:
@@ -70,7 +70,7 @@ def refresh_preview(db: Session, title: MediaTitle) -> dict[str, Any]:
             images.append({
                 "type": kind, "current_url": titles.image_url(title, kind),
                 "incoming_preview_url": f"/api/metadata/candidate-image?path={quote(path, safe='')}&type={kind}",
-                "outcome": "same" if same else _outcome(title, key, current, {"tmdb": path}),
+                "outcome": "same" if same else "update" if kind in snap.missing_images else _outcome(title, key, current, {"tmdb": path}),
             })
         elif key in me.CATALOGUE:
             current, _ = me.read_field(title, key)

@@ -39,9 +39,9 @@ export const DEFAULT_HOME_ORDER: readonly HomeShelfId[] = HOME_SHELF_IDS;
 
 /** `sizes` per card shape, from the layout table: phone, TV, tablet, then desktop. */
 export const SHELF_SIZES: Readonly<Record<ShelfShape, string>> = {
-  poster: '(max-width: 599px) 30vw, (min-width: 1600px) 220px, (max-width: 1023px) 150px, 168px',
-  still: '(max-width: 599px) min(72vw, 300px), (min-width: 1600px) 400px, (max-width: 1023px) 280px, 320px',
-  square: '(max-width: 599px) 40vw, (min-width: 1600px) 260px, (max-width: 1023px) 180px, 200px',
+  poster: '(max-width: 599px) 30vw, (min-width: 1600px) 180px, (max-width: 1023px) 144px, 168px',
+  still: '(max-width: 599px) min(60vw, 260px), (min-width: 1600px) 300px, (max-width: 1023px) 248px, 280px',
+  square: '(max-width: 599px) 36vw, (min-width: 1600px) 200px, (max-width: 1023px) 168px, 184px',
 };
 
 /** A hand-edited or corrupted value never costs more than this many entries. */

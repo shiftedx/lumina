@@ -112,7 +112,12 @@ def streaming_capabilities(response):  # noqa: ANN001, ANN201
 
 
 def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_access(native: TestClient) -> None:
-    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
+    disabled = call(native, "GET", "/capabilities")
+    assert streaming_capabilities(disabled) == {"streaming_enabled": False, "youtube_session_enabled": False}
+    assert disabled.json()["streaming"] == {
+        "saved_library": {"available": True, "providers": ["youtube", "twitch", "kick"]},
+        "remote": {"available": False, "providers": [], "live_available": False},
+    }
     assert call(native, "PUT", json={"native_streaming_enabled": True}).status_code == 400
     assert call(native, "PUT", json={"ui_prefs": {"native_streaming_enabled": True}}).status_code == 200
     assert call(native, "GET", "/capabilities").json()["streaming_enabled"] is False
@@ -124,10 +129,16 @@ def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_a
     enabled = call(native, "GET", "/capabilities")
     assert enabled.headers["cache-control"] == "no-store"
     assert streaming_capabilities(enabled) == {"streaming_enabled": True, "youtube_session_enabled": True}
+    assert enabled.json()["streaming"]["remote"] == {
+        "available": True, "providers": ["youtube", "twitch", "kick"], "live_available": True,
+    }
 
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=ALICE, streaming={"youtube": False, "twitch": False, "kick": False}))
-    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
+    blocked_capabilities = call(native, "GET", "/capabilities")
+    assert streaming_capabilities(blocked_capabilities) == {"streaming_enabled": False, "youtube_session_enabled": False}
+    assert blocked_capabilities.json()["streaming"]["saved_library"]["available"] is True
+    assert blocked_capabilities.json()["streaming"]["remote"] == {"available": False, "providers": [], "live_available": False}
     blocked = call(native, "GET", "/youtube-session")
     assert blocked.status_code == 403
 
@@ -146,6 +157,16 @@ def test_native_streaming_can_remain_available_when_youtube_is_member_blocked(na
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=ALICE, streaming={"youtube": False, "twitch": True, "kick": False}))
     assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": True, "youtube_session_enabled": False}
+
+
+def test_native_remote_streaming_stays_hidden_without_the_server_media_runtime(native: TestClient, monkeypatch) -> None:  # noqa: ANN001
+    set_native_streaming_enabled(True)
+    from app.routers import jellyfin_settings
+
+    monkeypatch.setattr(jellyfin_settings, "_native_remote_runtime_ready", lambda db: False)
+    capability = call(native, "GET", "/capabilities").json()["streaming"]
+    assert capability["saved_library"]["available"] is True
+    assert capability["remote"] == {"available": False, "providers": [], "live_available": False}
 
 
 def test_sensitive_writes_reject_bearer_only_expired_wrong_token_and_replayed_proofs(native: TestClient) -> None:

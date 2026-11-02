@@ -806,7 +806,7 @@ private struct ConnectionField<Content: View>: View {
 }
 
 private enum LibraryDestination: Hashable, CaseIterable {
-    case home, library, requests, account
+    case home, library, streaming, requests, account
 }
 
 struct TVApprovalRequest: Identifiable, Hashable {
@@ -987,6 +987,13 @@ private struct LibraryShellView: View {
                 }
             }
             }
+            Tab("Streaming", image: LuminaGlyph.video.assetName(for: destination == .streaming ? .solid : .outline), value: .streaming) {
+                destinationStack(owner: .streaming, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                 usesPortraitRail: stacksCategoryHeader) {
+                    NativeStreamingView(store: store, isActive: destination == .streaming)
+                }
+                .accessibilityIdentifier("streamingTab")
+            }
             if store.requestsAvailable {
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
                 destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
@@ -1140,6 +1147,7 @@ private struct LibraryShellView: View {
         switch destination {
         case .home: homeCategory == .watchlist ? HomeBrowsingDestination.watchlist.rawValue : HomeBrowsingDestination.all.rawValue
         case .library: category.rawValue
+        case .streaming: "streaming"
         case .account: "account"
         case .requests: "account"
         }
@@ -1158,6 +1166,9 @@ private struct LibraryShellView: View {
                                       selected: destination == .library && category == value) {
                     openLibrary(value, fromHome: destination == .home)
                 }
+            }
+            unifiedCategoryButton("Streaming", id: "streaming", selected: destination == .streaming) {
+                destination = .streaming
             }
             unifiedCategoryButton("Watchlist", id: HomeBrowsingDestination.watchlist.rawValue,
                                   selected: destination == .home && homeCategory == .watchlist) {
@@ -1608,7 +1619,7 @@ private struct HomeLibraryView<Header: View>: View {
                               wide: row.shape == .still && id != .continueWatching && id != .nextUp,
                               feed: feed, onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                     }
-                    if store.streamingAvailable && !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
+                    if store.streamingAvailable && !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row, store: store) }
                 }
             } else {
             switch id.rawValue {
@@ -1784,8 +1795,18 @@ private struct HomeSearchView: View {
     }
 }
 
+@MainActor
 private struct HomeExternalRail: View {
     let row: HomeFeedRow
+    @Bindable var store: LuminaStore
+    @State private var selectedRemote: HomeExternalItem?
+
+    private var nativeRemoteAvailable: Bool {
+        // Navigation is loaded with Home and reflects the same member-scoped
+        // remote readiness, avoiding a second capabilities round trip just to
+        // decide whether a Home card should open natively.
+        store.streamingAvailable
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1794,18 +1815,21 @@ private struct HomeExternalRail: View {
                 LazyHStack(alignment: .top, spacing: 10) {
                     ForEach(row.externalItems ?? []) { item in
                         if let destination = item.sourceURL {
-                            Link(destination: destination) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    ArtworkView(url: item.artworkURL, name: item.title, aspect: 16 / 9)
-                                    Text(item.title).font(.caption.weight(.semibold)).lineLimit(2)
-                                    Text(item.subtitle).font(.caption2).foregroundStyle(LuminaTheme.muted).lineLimit(1)
-                                    Label("Open source", glyph: .externalLink, size: 16).font(.caption2)
+                            if nativeRemoteAvailable {
+                                Button { selectedRemote = item } label: {
+                                    card(item, actionTitle: "Play", actionGlyph: .play)
                                 }
-                                .containerRelativeFrame(.horizontal) { width, _ in min(276, width * 0.68) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(item.title), \(item.subtitle). Play in Lumina.")
+                                .accessibilityIdentifier("homeExternal-\(item.id)")
+                            } else {
+                                Link(destination: destination) {
+                                    card(item, actionTitle: "Open source", actionGlyph: .externalLink)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(item.title), \(item.subtitle). Open source app or website.")
+                                .accessibilityIdentifier("homeExternal-\(item.id)")
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(item.title), \(item.subtitle). Open source app or website.")
-                            .accessibilityIdentifier("homeExternal-\(item.id)")
                         }
                     }
                 }
@@ -1814,6 +1838,312 @@ private struct HomeExternalRail: View {
             .scrollTargetBehavior(.viewAligned)
             .modifier(LuminaCarouselEdges())
         }
+        .fullScreenCover(item: $selectedRemote) { item in
+            NativeRemotePlayer(store: store, item: item)
+        }
+    }
+
+    private func card(_ item: HomeExternalItem, actionTitle: String, actionGlyph: LuminaGlyph) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ArtworkView(url: item.artworkURL, name: item.title, aspect: 16 / 9)
+            Text(item.title).font(.caption.weight(.semibold)).lineLimit(2)
+            Text(item.subtitle).font(.caption2).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+            Label(actionTitle, glyph: actionGlyph, size: 16).font(.caption2)
+        }
+        .containerRelativeFrame(.horizontal) { width, _ in min(276, width * 0.68) }
+    }
+}
+
+@MainActor
+private struct NativeStreamingView: View {
+    @Bindable var store: LuminaStore
+    let isActive: Bool
+
+    private enum Section: Hashable {
+        case recommendations, live, saved
+    }
+
+    private struct RemoteRow: Identifiable {
+        let id: String
+        let title: String
+        let items: [HomeExternalItem]
+    }
+
+    private struct TaskScope: Hashable {
+        let owner: MobileHomeSessionScope?
+        let isActive: Bool
+    }
+
+    @State private var savedLibrary = LuminaStreamingLibrary()
+    @State private var remoteFeed = LuminaHomeFeed(includesExternalSources: true)
+    @State private var section: Section = .saved
+    @State private var sectionOwner: MobileHomeSessionScope?
+    @State private var selectedRemote: HomeExternalItem?
+    @State private var playbackRequest: PlaybackRequest?
+    @State private var preparingID: String?
+    @State private var playbackError: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var remoteAvailable: Bool {
+        store.nativeStreamingCapabilities?.remote.available == true
+    }
+
+    private var liveAvailable: Bool {
+        remoteAvailable && store.nativeStreamingCapabilities?.remote.liveAvailable == true
+    }
+
+    private var savedProviders: String {
+        let providers = store.nativeStreamingCapabilities?.savedLibrary.providers ?? []
+        return providers.map(\.capitalized).joined(separator: " · ")
+    }
+
+    private var recommendationRows: [RemoteRow] {
+        deduplicatedRemoteRows(remoteFeed.rows.filter { $0.shelfID != .live })
+    }
+
+    private var liveRows: [RemoteRow] {
+        deduplicatedRemoteRows(remoteFeed.rows.filter { $0.shelfID == .live })
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Streaming").font(.largeTitle.weight(.semibold))
+                    Text(remoteAvailable ? "Recommended and live from your connected services." : "Videos saved to your Lumina library.")
+                        .font(.subheadline).foregroundStyle(LuminaTheme.muted)
+                }
+
+                sectionTabs
+
+                switch section {
+                case .recommendations:
+                    remoteRowsView(recommendationRows, emptyTitle: "Nothing recommended yet",
+                                   emptyDetail: "Recommendations will appear when your connected services have something new.")
+                case .live:
+                    remoteRowsView(liveRows, emptyTitle: "Nothing live right now",
+                                   emptyDetail: "Live streams from connected services will appear here.")
+                case .saved:
+                    savedLibraryView
+                }
+            }
+            .padding(.horizontal, LuminaTheme.contentGutter)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(LuminaTheme.paper)
+        .accessibilityIdentifier("streamingScreen")
+        .task(id: TaskScope(owner: MobileHomeSessionScope(store.session), isActive: isActive)) {
+            guard isActive else { return }
+            await load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, isActive else { return }
+            Task { await load() }
+        }
+        .refreshable { await load() }
+        .nativePlayback(request: $playbackRequest, store: store) { Task { await savedLibrary.load() } }
+        .fullScreenCover(item: $selectedRemote) { item in
+            NativeRemotePlayer(store: store, item: item)
+        }
+        .alert("Playback unavailable", isPresented: Binding(
+            get: { playbackError != nil }, set: { if !$0 { playbackError = nil } }
+        )) {
+            Button("OK") { playbackError = nil }
+        } message: {
+            Text(playbackError ?? "")
+        }
+    }
+
+    private var sectionTabs: some View {
+        HStack(spacing: 20) {
+            if remoteAvailable {
+                sectionButton("Recommendations", section: .recommendations, identifier: "streamingRecommendationsTab")
+                if liveAvailable {
+                    sectionButton("Live", section: .live, identifier: "streamingLiveTab")
+                }
+            }
+            sectionButton("Saved", section: .saved, identifier: "streamingDownloadedTab")
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func sectionButton(_ title: String, section target: Section, identifier: String) -> some View {
+        Button(title) {
+            section = target
+        }
+        .buttonStyle(LuminaUnderlineTabStyle(selected: section == target, alignsWithMasthead: true))
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(section == target ? "Selected" : "")
+        .accessibilityAddTraits(section == target ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func remoteRowsView(_ rows: [RemoteRow], emptyTitle: String, emptyDetail: String) -> some View {
+        if remoteFeed.isLoading && rows.isEmpty {
+            LibraryLoadingView()
+        } else if rows.isEmpty {
+            ContentUnavailableView(emptyTitle, systemImage: "dot.radiowaves.left.and.right", description: Text(emptyDetail))
+        } else {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                ForEach(rows) { row in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(row.title).font(.title3.weight(.bold))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(row.items) { item in
+                                    if item.sourceURL != nil {
+                                        Button { selectedRemote = item } label: {
+                                            StreamingRemoteCard(item: item)
+                                                .containerRelativeFrame(.horizontal) { width, _ in min(292, width * 0.76) }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityIdentifier("streamingRemote-\(item.id)")
+                                        .accessibilityLabel("\(item.title), \(item.subtitle)")
+                                    }
+                                }
+                            }
+                            .scrollTargetLayout()
+                        }
+                        .scrollTargetBehavior(.viewAligned)
+                        .modifier(LuminaCarouselEdges())
+                    }
+                }
+            }
+        }
+    }
+
+    private func deduplicatedRemoteRows(_ rows: [HomeFeedRow]) -> [RemoteRow] {
+        var seen = Set<String>()
+        return rows.compactMap { row in
+            let items = (row.externalItems ?? []).filter { seen.insert($0.id).inserted && $0.sourceURL != nil }
+            guard !items.isEmpty else { return nil }
+            return RemoteRow(id: row.id, title: row.displayTitle, items: items)
+        }
+    }
+
+    @ViewBuilder private var savedLibraryView: some View {
+        if savedLibrary.isBusy && savedLibrary.items.isEmpty {
+            LibraryLoadingView()
+        } else if savedLibrary.items.isEmpty {
+            ContentUnavailableView {
+                Label("No saved streaming videos", glyph: .video, size: 36)
+            } description: {
+                Text(savedProviders.isEmpty ? "Videos downloaded from supported streaming services will appear here."
+                     : "Saved \(savedProviders) videos will appear here.")
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Saved").font(.title3.weight(.bold))
+                    Spacer()
+                    if !savedProviders.isEmpty {
+                        Text(savedProviders).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+                    }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 220 : 150), spacing: 14)], spacing: 18) {
+                    ForEach(savedLibrary.items) { item in
+                        Button { play(item) } label: {
+                            StreamingSavedCard(item: item, imageURL: store.imageURL(for: item), preparing: preparingID == item.id)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(preparingID != nil)
+                        .accessibilityIdentifier("streamingSaved-\(item.id)")
+                        .accessibilityLabel("Play \(item.name)")
+                    }
+                }
+                if savedLibrary.hasMore {
+                    Button("Load more") { Task { await savedLibrary.loadMore() } }
+                        .buttonStyle(LuminaQuietActionStyle())
+                        .frame(maxWidth: .infinity)
+                        .disabled(savedLibrary.isBusy)
+                }
+            }
+        }
+    }
+
+    private func load() async {
+        let owner = MobileHomeSessionScope(store.session)
+        savedLibrary.configure(session: store.session)
+        remoteFeed.configure(session: store.session)
+        async let capabilities: NativeStreamingCapabilities? = store.loadNativeStreamingCapabilities()
+        async let saved: Void = savedLibrary.load()
+        let resolvedCapabilities = await capabilities
+        _ = await saved
+        guard !Task.isCancelled, owner == MobileHomeSessionScope(store.session) else { return }
+        let remoteIsAvailable = resolvedCapabilities?.remote.available == true
+        let liveIsAvailable = remoteIsAvailable && resolvedCapabilities?.remote.liveAvailable == true
+        if sectionOwner != owner {
+            section = remoteIsAvailable ? .recommendations : .saved
+            sectionOwner = owner
+        } else if !remoteIsAvailable, section != .saved {
+            section = .saved
+        } else if !liveIsAvailable, section == .live {
+            section = .recommendations
+        }
+        if remoteIsAvailable {
+            await remoteFeed.load()
+        }
+    }
+
+    private func play(_ item: MediaItem) {
+        guard preparingID == nil else { return }
+        preparingID = item.id
+        playbackError = nil
+        Task {
+            defer { preparingID = nil }
+            do { playbackRequest = try await store.preparePlayback(for: item) }
+            catch { playbackError = "This saved video could not be played. Try again from your library." }
+        }
+    }
+}
+
+private struct StreamingRemoteCard: View {
+    let item: HomeExternalItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ArtworkView(url: item.artworkURL, name: item.title, aspect: 16 / 9, glyph: .video)
+                .overlay(alignment: .bottomLeading) {
+                    Label("Play", glyph: .play, variant: .solid, size: 16)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(.black.opacity(0.72), in: Capsule())
+                        .padding(8)
+                }
+            Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+            Text(item.subtitle).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+        }
+        .contentShape(.rect)
+    }
+}
+
+private struct StreamingSavedCard: View {
+    let item: MediaItem
+    let imageURL: URL?
+    let preparing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ArtworkView(url: imageURL, name: item.name, aspect: 16 / 9, glyph: .video)
+                .overlay {
+                    if preparing { ProgressView() }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Label("Saved", glyph: .downloadDone, size: 14)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .background(LuminaTheme.paper.opacity(0.9), in: Capsule())
+                        .padding(8)
+                }
+            Text(item.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+            if !item.displaySubtitle.isEmpty {
+                Text(item.displaySubtitle).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+            }
+        }
+        .contentShape(.rect)
     }
 }
 

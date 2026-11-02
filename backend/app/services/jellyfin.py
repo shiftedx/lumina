@@ -1204,17 +1204,27 @@ class JellyfinMapper:
         if parent.item is not None or (wanted and not wanted & {"series", "season", "episode"}):
             return query_result([], 0, start)  # a video has no children; Channels hold no movies, boxsets, ...
         if "episode" in wanted or (not wanted and (q.recursive or (channel is not None and channel.year is not None))):
-            source = q.sourceprovider.strip().casefold() if q.sourceprovider else None
-            if source not in (None, "youtube", "twitch", "kick"):
+            raw_sources = q.sourceprovider.split(",") if q.sourceprovider else []
+            sources = tuple(dict.fromkeys(source.strip().casefold() for source in raw_sources if source.strip()))
+            if any(source not in {"youtube", "twitch", "kick"} for source in sources):
                 return query_result([], 0, start)
             # Source-filtered requests are the saved web-video shelf. Recordings
             # remain in the ordinary Channels hierarchy and are never discovery.
             query = channel_items_query(
                 self.user,
                 channel,
-                source=source,
-                kinds=("video",) if source else CHANNEL_KINDS,
+                source=None,
+                kinds=("video",) if sources else CHANNEL_KINDS,
             )
+            if sources:
+                # A saved item's extractor is yt-dlp's concrete family name
+                # (for example TwitchVod), not always the provider label.
+                # Preserve the legacy one-provider exact shelf; only the new
+                # aggregate Streaming wall groups provider families.
+                if len(sources) == 1:
+                    query = query.where(func.lower(LibraryItem.extractor) == sources[0])
+                else:
+                    query = query.where(or_(*(func.lower(LibraryItem.extractor).like(f"{source}%") for source in sources)))
             if q.searchterm:
                 term = q.searchterm.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 query = query.where(LibraryItem.title.ilike(f"%{term}%", escape="\\"))

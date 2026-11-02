@@ -15,6 +15,7 @@ let tickScale = 10_000_000.0
                 availableLibraryCategories = []
                 requestsAvailable = false
                 streamingAvailable = false
+                nativeStreamingCapabilities = nil
                 navigationGeneration += 1
                 librarySnapshots.removeAll()
                 loadedLibraryQuery = nil
@@ -75,6 +76,8 @@ let tickScale = 10_000_000.0
     public private(set) var availableLibraryCategories = Set<String>()
     public private(set) var requestsAvailable = false
     public private(set) var streamingAvailable = false
+    /// Remote-provider readiness. Saved streaming downloads do not depend on this opt-in.
+    public private(set) var nativeStreamingCapabilities: NativeStreamingCapabilities?
     private var navigationGeneration = 0
 
     /// Alphabet seeking is available only where a server index can describe the
@@ -86,7 +89,7 @@ let tickScale = 10_000_000.0
               videoSort == .name else { return false }
         return switch videoKind {
         case .all, .movies, .shows, .anime: true
-        case .collections, .youtube, .episodes: false
+        case .collections, .youtube, .streaming, .episodes: false
         }
     }
 
@@ -545,6 +548,48 @@ let tickScale = 10_000_000.0
         }
     }
 
+    /// Refreshes the server's remote-streaming readiness without changing the current library wall.
+    @discardableResult public func loadNativeStreamingCapabilities() async -> NativeStreamingCapabilities? {
+        guard let active = session, !isOffline else { return nil }
+        do {
+            let capabilities = try await client.nativeStreamingCapabilities(
+                origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID
+            )
+            guard isCurrent(active) else { return nil }
+            nativeStreamingCapabilities = capabilities
+            return capabilities
+        } catch {
+            guard isCurrent(active) else { return nil }
+            if Self.isAuthenticationFailure(error) { clearSession() }
+            nativeStreamingCapabilities = nil
+            return nil
+        }
+    }
+
+    public func prepareNativeRemotePlayback(sourceURL: URL, supportedProfiles: [String] = []) async throws -> NativeRemotePlayback {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        let playback = try await client.startNativeRemotePlayback(
+            origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+            sourceURL: sourceURL, supportedProfiles: supportedProfiles
+        )
+        guard isCurrent(active) else {
+            try? await client.stopNativeRemotePlayback(
+                origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, sessionID: playback.sessionID
+            )
+            throw LuminaError.notSignedIn
+        }
+        return playback
+    }
+
+    /// The owning session is captured so a logout cannot try to release it using another member's token.
+    public func stopNativeRemotePlayback(_ playback: NativeRemotePlayback, session owningSession: LuminaSession? = nil) async {
+        let active = owningSession ?? session
+        guard let active else { return }
+        try? await client.stopNativeRemotePlayback(
+            origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, sessionID: playback.sessionID
+        )
+    }
+
     /// Actor-scoped catalog reads keep the current Library wall and its navigation state intact.
     public func titles(featuring person: MediaPerson) async throws -> [MediaItem] {
         guard let active = session else { throw LuminaError.notSignedIn }
@@ -635,7 +680,7 @@ let tickScale = 10_000_000.0
             videoSourceProvider = nil
             videoLuminaCategory = kind.luminaCategory
             libraryAlphabet = []
-            if kind == .shows || kind == .youtube {
+            if kind == .shows || kind == .youtube || kind == .streaming {
                 let views = try await client.views(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
                 guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
                 videoParentID = switch kind {
@@ -643,11 +688,14 @@ let tickScale = 10_000_000.0
                     views.items.first { $0.name == "Shows" && $0.collectionType == "tvshows" }?.id
                 case .youtube:
                     views.items.first { $0.name == "Channels" }?.id
+                case .streaming:
+                    views.items.first { $0.name == "Channels" }?.id
                 default:
                     nil
                 }
                 if videoParentID == nil { items = []; hasMore = false; nextIndex = 0; return }
                 if kind == .youtube { videoSourceProvider = "youtube" }
+                if kind == .streaming { videoSourceProvider = "youtube,twitch,kick" }
             }
             async let householdTask: HouseholdCollectionLoad = kind == .collections
                 ? loadHouseholdCollections(active, search: search)

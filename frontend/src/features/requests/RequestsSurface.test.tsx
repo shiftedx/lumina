@@ -12,7 +12,7 @@ import { anime, animeDetail, catalogHome, movie, quotas, request, showDetail } f
 import { RequestsSurface } from './RequestsSurface';
 
 const api = vi.hoisted(() => ({
-  getCatalogHome: vi.fn(), getCatalogTitle: vi.fn(), getQuotas: vi.fn(), createRequest: vi.fn(), listRequests: vi.fn(), cancelRequest: vi.fn(),
+  getCatalogHome: vi.fn(), getCatalogTitle: vi.fn(), getLibraryLanguages: vi.fn(), getQuotas: vi.fn(), createRequest: vi.fn(), listRequests: vi.fn(), cancelRequest: vi.fn(),
   getCatalogList: vi.fn(), getGenres: vi.fn(), searchCatalog: vi.fn(), getAnimeSeason: vi.fn(), getAnimeSchedule: vi.fn(), approveRequest: vi.fn(), declineRequest: vi.fn(), retryRequest: vi.fn(),
 }));
 vi.mock('./requestsApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./requestsApi')>()), ...api }));
@@ -163,32 +163,32 @@ describe('engine answers', () => {
 });
 
 describe('language variants', () => {
-  it('shows file-specific tracks and requests another language without hiding the library title', async () => {
-    const available = { ...showDetail, status: { state: 'available' as const, library_title_id: 'title-1', language_availability: {
-      state: 'partial' as const, total_files: 3, truncated: true, files: [
-        { season: 1, episode: 1, audio_languages: ['en'], subtitle_languages: ['ja'], audio_known: true, subtitles_known: true },
-        { season: 1, episode: 2, audio_languages: ['ja'], subtitle_languages: [], audio_known: true, subtitles_known: false },
-      ],
-    } } };
-    api.getCatalogTitle.mockResolvedValue(available);
-    api.createRequest.mockResolvedValue(request({ kind: 'show', status: 'pending' }));
-    renderSurface({ surface: 'requests', view: 'title', kind: 'show', id: 1399 });
-    const evidence = await screen.findByRole('region', { name: 'Languages in your library' });
-    expect(within(evidence).getByText('Showing language coverage for 2 of 3 files. Files may contain multiple languages. Some language information is unknown.')).toBeTruthy();
-    expect(within(evidence).getAllByText('1 / 2 files')).toHaveLength(4);
-    expect(within(evidence).getByText('File details · 2 files').closest('details')?.open).toBe(false);
-    await userEvent.click(within(evidence).getByText('File details · 2 files'));
-    const rows = within(within(evidence).getByRole('region', { name: 'File language details' })).getAllByRole('row');
-    expect(rows.slice(1).map((row) => row.textContent)).toEqual(['S1 · E1EnglishJapanese', 'S1 · E2JapaneseUnknown']);
+  it('keeps anime requests usable while English availability is still loading', async () => {
+    api.getCatalogTitle.mockResolvedValue({ ...animeDetail, status: { state: 'available', library_title_id: 'title-1', language_requests_supported: true } });
+    let resolve: (value: { audio: string; subtitles: string }) => void = () => undefined;
+    api.getLibraryLanguages.mockReturnValue(new Promise((done) => { resolve = done; }));
+    api.createRequest.mockResolvedValue(request({ kind: 'anime', status: 'pending' }));
+    renderSurface({ surface: 'requests', view: 'title', kind: 'anime', id: 16498 });
+    expect(await screen.findByRole('button', { name: 'Open in Library' })).toBeTruthy();
+    expect(screen.getByText('Checking English availability…')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Request another language' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Request Game of Thrones' });
-    const send = within(sheet).getByRole('button', { name: 'Request' });
-    expect(send.getAttribute('aria-disabled')).toBe('true');
-    chooseSelect(within(sheet).getByRole('combobox', { name: 'Desired audio language' }), 'French');
-    await userEvent.click(send);
-    expect(api.createRequest).toHaveBeenCalledWith({ kind: 'show', tmdb_id: 1399, tvdb_id: 121361, seasons: 'all', audio_language: 'fr' });
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByRole('button', { name: 'Open in Library' })).toBeTruthy();
+    const sheet = await screen.findByRole('dialog', { name: 'Request Attack on Titan' });
+    await within(sheet).findByText('3 of 10 left this week');
+    await userEvent.click(within(sheet).getByRole('radio', { name: /English audio/ }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Request' }));
+    expect(api.createRequest).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anime', language: 'dub', audio_language: 'en' }));
+    resolve({ audio: 'partial', subtitles: 'missing' });
+    expect(await screen.findByText('English dub: Some episodes · English subtitles: Missing')).toBeTruthy();
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it.each(['movie', 'show'] as const)('does not check languages or offer language follow-ups for %s titles', async (kind) => {
+    api.getCatalogTitle.mockResolvedValue({ ...showDetail, kind, status: { state: 'available', library_title_id: 'title-1', language_requests_supported: true } });
+    renderSurface({ surface: 'requests', view: 'title', kind, id: 1399 });
+    expect(await screen.findByRole('button', { name: 'Open in Library' })).toBeTruthy();
+    expect(api.getLibraryLanguages).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Request another language' })).toBeNull();
+    expect(screen.queryByRole('status', { name: 'Anime English availability' })).toBeNull();
   });
 
   it('keeps old-server available titles view-only', async () => {

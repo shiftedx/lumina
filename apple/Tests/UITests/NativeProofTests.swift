@@ -270,6 +270,9 @@ final class NativeTVEpisodeFocusedCollectionTests: NativeProofJourney {
 }
 @MainActor
 final class NativeTVRemoteVideoStartTests: NativeProofJourney {
+    func testHiddenNativeControlsCanReturnToSettingsDuringIntro() async throws {
+        try await journeyTVHiddenNativeControlsReturnToSettings()
+    }
     func testRemoteStartsVideoFromDetails() async throws { try await journeyTVRemoteStartsVideoFromDetails() }
 }
 
@@ -1829,9 +1832,8 @@ class NativeProofJourney: XCTestCase {
 
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)
-        try waitForExistence(element("videoPlayPauseButton"), timeout: 8, named: "paused recovered video transport")
-        XCUIRemote.shared.press(.menu)
-        XCUIRemote.shared.press(.down)
+        try waitForExistence(element("Media Controls"), timeout: 8, named: "paused recovered video transport")
+        try openTVPlaybackSettings()
         try waitForExistence(element("videoSettingsPanel"), timeout: 10, named: "recovered video settings")
         #else
         #if os(iOS)
@@ -3542,10 +3544,12 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "playback directly from episode Select")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
         XCUIRemote.shared.press(.playPause)
-        let chrome = element("videoPlaybackChrome")
-        if !hasVisibleFrame(chrome) { XCUIRemote.shared.press(.select) }
-        try waitForExistence(chrome, timeout: 10, named: "TV video controls overlay")
-        XCTAssertTrue(waitUntil(timeout: 10) { self.element("videoPlayPauseButton").label == "Play" })
+        let chrome = element("Media Controls")
+        try waitForExistence(chrome, timeout: 10, named: "native TV video transport")
+        let pausedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertFalse(waitUntil(timeout: 2) {
+            (Double(self.element("playbackTime").value as? String ?? "") ?? pausedAt) > pausedAt + 1
+        }, "The remote must pause the selected episode through native AVKit transport.")
         XCTAssertFalse(element("closePlayerButton").exists, "TV video controls must use remote Back instead of a close icon.")
         try attachPlaybackFrame(named: "TV remote-only playback controls without a close icon")
         try closePlayer()
@@ -4206,6 +4210,47 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    private func openTVPlaybackSettings() throws {
+        let settings = application!.cells.matching(identifier: "Playback settings").firstMatch
+        if !settings.exists { XCUIRemote.shared.press(.up) }
+        XCUIRemote.shared.press(.up)
+        try waitForExistence(settings, timeout: 8, named: "Lumina settings in native AVKit transport")
+        try activate(settings)
+        try waitForExistence(element("videoSettingsPanel"), timeout: 8, named: "Lumina playback settings")
+    }
+
+    func journeyTVHiddenNativeControlsReturnToSettings() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 0)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.convertedItemID)
+        let time = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 2 }
+        XCUIRemote.shared.press(.playPause)
+        let paused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertLessThan(paused, 10, "The navigation check must remain inside the recorded intro.")
+        XCUIRemote.shared.press(.menu)
+        try await Task.sleep(for: .seconds(1)) // Let AVKit finish hiding its transport.
+        XCUIRemote.shared.press(.select)
+        let settings = application!.cells.matching(identifier: "Playback settings").firstMatch
+        XCTAssertTrue(waitUntil(timeout: 8) { settings.isHittable },
+                      "Select must reveal usable native controls before settings navigation.")
+        try openTVPlaybackSettings()
+        try waitForExistence(element("videoSettingsPanel"), timeout: 8, named: "settings after hiding native controls during intro")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 8))
+        try closePlayer()
+        completed = true
+    }
+
     func journeyTVRemoteStartsVideoFromDetails() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -4233,10 +4278,62 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "TV artwork-first movie detail with source ratings")
         XCUIRemote.shared.press(.select)
+        if element("resumePlaybackChoice").waitForExistence(timeout: 3) {
+            try activate(element("resumePlaybackChoice").buttons["Resume"])
+        }
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "video started by clicking focused Play")
         let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 3 }
         try attachPlaybackFrame(named: "Video started from detail with Siri Remote")
+
+        XCUIRemote.shared.press(.playPause)
+        let paused = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertFalse(waitUntil(timeout: 2) {
+            (Double(self.element("playbackTime").value as? String ?? "") ?? paused) > paused + 1
+        }, "Native AVKit pause must stop the real video clock.")
+        let hierarchy = XCTAttachment(string: application!.debugDescription)
+        hierarchy.name = "Native AVKit paused transport hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        try attachPlaybackFrame(named: "Native AVKit paused transport")
+        try openTVPlaybackSettings()
+        try waitForExistence(element("videoSettingsPanel"), timeout: 8, named: "Lumina settings from AVKit")
+        try activate(element("videoSettingsTab-video"))
+        try activate(element("videoFitFillButton"))
+        XCTAssertEqual(element("videoFitFillButton").value as? String, "Selected")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 8))
+        XCTAssertTrue(element("playbackScreen").exists, "Back from settings must retain the player.")
+        XCTAssertFalse(waitUntil(timeout: 2) {
+            (Double(self.element("playbackTime").value as? String ?? "") ?? paused) > paused + 1
+        }, "Closing settings must preserve native pause intent.")
+        // Native transport must keep handling repeated skips after it becomes visible.
+        XCUIRemote.shared.press(.playPause)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= paused + 2 }
+        try openTVPlaybackSettings()
+        try activate(element("videoSettingsDoneButton"))
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= paused + 4 }
+        if element("Media Controls").exists { XCUIRemote.shared.press(.menu) }
+        let beforeSkip = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCUIRemote.shared.press(.right)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 8) { $0 >= beforeSkip + 8 }
+        XCUIRemote.shared.press(.right)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 8) { $0 >= beforeSkip + 18 }
+        XCUIRemote.shared.press(.playPause)
+        let beforeScrub = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCUIRemote.shared.press(.right)
+        XCUIRemote.shared.press(.right)
+        try attachPlaybackFrame(named: "Native AVKit scrub preview after repeated Right")
+        XCUIRemote.shared.press(.select)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= beforeScrub + 15 }
+        XCUIRemote.shared.press(.playPause)
+        let cancelPosition = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCUIRemote.shared.press(.left)
+        XCUIRemote.shared.press(.left)
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(element("playbackScreen").exists, "Back must cancel scrubbing before leaving playback.")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 8) { abs($0 - cancelPosition) <= 2 }
+        try attachPlaybackFrame(named: "Native AVKit scrub cancellation retains original position")
         try closePlayer()
         completed = true
     }
@@ -6718,21 +6815,16 @@ class NativeProofJourney: XCTestCase {
             _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= playingAt + 1 }
             try await performanceQuietPhase("video_playing_idle")
             #if os(tvOS)
-            // With the chrome hidden, Down is the player-level shortcut for
-            // settings. Once transport is visible, Settings is an explicitly
-            // focusable control rather than a second meaning for Down.
             let beforeSettingsShortcut = try waitForPlaybackValue(time, timeout: 5) { _ in true }
-            XCUIRemote.shared.press(.down)
-            try waitForPerformanceContainer(element("videoSettingsPanel"), timeout: 15, named: "video settings from Down")
+            try openTVPlaybackSettings()
             XCUIRemote.shared.press(.menu)
-            XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 10),
-                          "Menu must close the Down-opened settings panel without closing playback.")
+            XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 10))
             _ = try waitForPlaybackValue(time, timeout: 10) { $0 >= beforeSettingsShortcut + 1 }
 
             XCUIRemote.shared.press(.playPause)
-            _ = try waitForPerformanceControl(element("videoPlayPauseButton"), timeout: 10, named: "paused video transport")
+            _ = try waitForPerformanceControl(element("Media Controls"), timeout: 10, named: "paused video transport")
             try await performanceQuietPhase("video_paused_idle")
-            try activate(element("videoSettingsButton"))
+            try openTVPlaybackSettings()
             #else
             try tapVideoTransportAfterChromeHides(named: "performance video pause control")
             try await performanceQuietPhase("video_paused_idle")
@@ -6771,7 +6863,7 @@ class NativeProofJourney: XCTestCase {
             #if os(tvOS)
             XCUIRemote.shared.press(.playPause)
             _ = try waitForPerformanceControl(
-                element("videoPlayPauseButton"), timeout: 10, named: "paused MKV video transport"
+                element("Media Controls"), timeout: 10, named: "paused MKV video transport"
             )
             #else
             try tapVideoTransportAfterChromeHides(named: "performance MKV pause control")
@@ -6780,7 +6872,11 @@ class NativeProofJourney: XCTestCase {
             XCTAssertFalse(waitUntil(timeout: 3) {
                 (Double(time.value as? String ?? "") ?? pausedAt) > pausedAt + 0.5
             }, "The MKV client-demux checkpoint must remain paused before settings.")
+            #if os(tvOS)
+            try openTVPlaybackSettings()
+            #else
             try activate(element("videoSettingsButton"))
+            #endif
             try waitForPerformanceContainer(element("videoSettingsPanel"), timeout: 15, named: "MKV video settings")
             try activate(element("videoSettingsTab-video"))
             try await performanceQuietPhase("mkv_client_demux_settings_idle")
@@ -8311,12 +8407,17 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= initial + 2 }
         XCTAssertFalse(element("videoAppearanceButton").exists, "Fit/Fill belongs in playback settings.")
         if !element("videoTabletopControls").exists {
+            #if os(tvOS)
+            XCTAssertFalse(element("videoPlaybackChrome").exists,
+                           "AVKit must be the only TV transport; Lumina's old overlay must be absent.")
+            #else
             XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 10),
                           "Playing video must hide its transport controls after inactivity.")
+            #endif
             XCTAssertFalse(element("closePlayerButton").exists, "Close must hide with the transport controls.")
             try attachPlaybackFrame(named: "Unobstructed video after controls auto-hide")
             #if os(tvOS)
-            XCUIRemote.shared.press(.down)
+            try openTVPlaybackSettings()
             #else
             try tapVideoTransportAfterChromeHides(named: "duplicate-control pause transport")
             try activate(element("videoSettingsButton"))
@@ -8455,8 +8556,7 @@ class NativeProofJourney: XCTestCase {
             XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 8))
             XCTAssertTrue(element("playbackScreen").exists, "Closing settings must keep the player open.")
             #if os(tvOS)
-            XCTAssertTrue(waitUntil(timeout: 3) { self.element("videoSettingsButton").hasFocus },
-                          "Closing settings must return TV focus to its trigger.")
+            try waitForExistence(element("Media Controls"), timeout: 8, named: "native transport after settings")
             #endif
             let afterSettings = try waitForPlaybackValue(time, timeout: 5) { _ in true }
             // Pause the short fixture during the long settings workflow so the
@@ -8469,7 +8569,7 @@ class NativeProofJourney: XCTestCase {
             _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= afterSettings + 1 }
             #if os(tvOS)
             XCUIRemote.shared.press(.playPause)
-            try waitForExistence(element("videoPlayPauseButton"), timeout: 8, named: "paused video transport")
+            try waitForExistence(element("Media Controls"), timeout: 8, named: "paused video transport")
             let pausedAt = try waitForPlaybackValue(time, timeout: 5) { _ in true }
             XCTAssertFalse(waitUntil(timeout: 3) { (Double(time.value as? String ?? "") ?? pausedAt) > pausedAt + 1 },
                            "Remote Play/Pause must pause the video.")
@@ -8504,7 +8604,7 @@ class NativeProofJourney: XCTestCase {
 
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)
-        try waitForExistence(element("videoPlayPauseButton"), timeout: 8, named: "paused native MKV transport")
+        try waitForExistence(element("Media Controls"), timeout: 8, named: "paused native MKV transport")
         #else
         try tapVideoTransportAfterChromeHides(named: "native MKV pause control")
         #endif
@@ -8513,8 +8613,7 @@ class NativeProofJourney: XCTestCase {
                        "Playback must stay paused while reconfiguring quality and subtitle timing.")
 
         #if os(tvOS)
-        XCUIRemote.shared.press(.menu) // Down opens settings from unobstructed playback.
-        XCUIRemote.shared.press(.down)
+        try openTVPlaybackSettings()
         #else
         try activate(element("videoSettingsButton"))
         #endif
@@ -8530,13 +8629,14 @@ class NativeProofJourney: XCTestCase {
         // is not evidence that AVFoundation delivered or displayed it.
         let cueTime: Double
         #if os(tvOS)
-        XCUIRemote.shared.press(.menu)
-        // The settings sequence is longer than this generated cue. Rewind via
-        // the explicit public transport while paused, then enter the authored
-        // window. A bare Left is focus navigation on this playback surface;
-        // it does not invoke the visible Back 10 seconds control.
-        try activate(element("videoSeekBackwardButton"))
+        // Native scrubbing is covered by the remote workflow. The public Start
+        // chapter gives the caption-rendering proof a precise paused origin.
+        try activate(element("videoSettingsTab-chapters"))
+        try activate(element("videoChapter-0"))
         _ = try waitForPlaybackValue(time, timeout: 10) { $0 <= 1 }
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 8))
+        try waitForExistence(element("Media Controls"), timeout: 8, named: "native transport before subtitle cue")
         XCUIRemote.shared.press(.playPause)
         cueTime = try waitForPlaybackValue(time, timeout: 15) { (2...7).contains($0) }
         #else
@@ -8574,18 +8674,16 @@ class NativeProofJourney: XCTestCase {
         }, "Pausing for the subtitle proof must stop the real video clock.")
         XCTAssertTrue((2...7).contains(pausedCueTime),
                       "The paused subtitle capture must remain inside its authored cue window.")
-        // Menu hides the transport chrome on this native playback surface;
-        // it must not dismiss the player or resume playback. Capture the cue
-        // unobscured rather than OCRing it beneath the Back/Play controls.
-        XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(disappears(element("videoPlayPauseButton"), timeout: 5),
-                      "Hiding tvOS transport chrome must leave the paused subtitle cue visible.")
+        // Verify rendered captions with AVKit's own transport. Native Back
+        // cancellation and dismissal are covered by the remote workflow.
+        XCTAssertTrue(element("playbackScreen").exists,
+                      "The native transport must retain the paused subtitle player.")
         XCTAssertFalse(waitUntil(timeout: 2) {
             (Double(time.value as? String ?? "") ?? pausedCueTime) > pausedCueTime + 0.5
-        }, "Hiding tvOS transport chrome must not resume the paused subtitle proof.")
+        }, "The subtitle proof must remain paused while native controls are visible.")
         let subtitleScreenshot = try attachPlaybackFrame(named: "Synthetic subtitle cue while paused")
         try assertSyntheticSubtitleVisible(in: subtitleScreenshot)
-        XCUIRemote.shared.press(.down)
+        try openTVPlaybackSettings()
         #else
         let surface = element("videoControlsSurface")
         XCTAssertEqual(resume.label, "Pause", "Playback must still expose Pause before the authored cue can auto-hide transport chrome.")
@@ -8710,7 +8808,7 @@ class NativeProofJourney: XCTestCase {
 
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)
-        try waitForExistence(element("videoPlayPauseButton"), timeout: 8, named: "paused chapter fixture transport")
+        try waitForExistence(element("Media Controls"), timeout: 8, named: "paused chapter fixture transport")
         #else
         try tapVideoTransportAfterChromeHides(named: "chapter fixture pause control")
         #endif
@@ -8719,8 +8817,7 @@ class NativeProofJourney: XCTestCase {
                        "Playback must stay paused while changing speed, chapters, and quality.")
 
         #if os(tvOS)
-        XCUIRemote.shared.press(.menu) // Hide the paused transport before opening the settings panel.
-        XCUIRemote.shared.press(.down)
+        try openTVPlaybackSettings()
         #else
         try activate(element("videoSettingsButton"))
         #endif
@@ -8786,6 +8883,8 @@ class NativeProofJourney: XCTestCase {
 
         #if os(tvOS)
         XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(disappears(element("videoSettingsPanel"), timeout: 8))
+        try waitForExistence(element("Media Controls"), timeout: 8, named: "native transport after settings")
         XCUIRemote.shared.press(.playPause)
         #else
         try activate(element("videoSettingsDoneButton"))
@@ -8794,10 +8893,12 @@ class NativeProofJourney: XCTestCase {
         }
         try activate(element("videoPlayPauseButton"))
         #endif
+        #if os(iOS)
         let resumedControl = element("videoPlayPauseButton")
         try waitForExistence(resumedControl, timeout: 8, named: "resumed chapter fixture transport")
         XCTAssertTrue(waitUntil(timeout: 8) { resumedControl.label == "Pause" },
                       "Resuming after a paused quality replacement must restore the Pause transport state.")
+        #endif
         _ = try waitForPlaybackValue(time, timeout: 10) { $0 >= replacementTime + 1 }
         try closePlayer()
         try waitForExistence(element("detailScreen"), timeout: 10, named: "detail after paused chapter playback")

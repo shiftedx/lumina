@@ -11,7 +11,6 @@ from app.services.books import BookService
 from app.services.library import LibraryService
 from app.services.photos import PhotoService
 from app.services.requests.engine import policy_for
-from app.services.titles import TitleService
 
 
 def _usable_item():  # noqa: ANN202
@@ -26,19 +25,25 @@ def _usable_item():  # noqa: ANN202
 
 
 def navigation(db: Session, user: User) -> dict:
+    # Follow indexed title-parent and item-title links from each wall title. A single
+    # OR across all three levels prevents SQLite from using those indexes and scans
+    # the whole catalog once per title on large libraries.
     leaf, parent = aliased(MediaTitle), aliased(MediaTitle)
-    usable_title = select(LibraryItem.id).join(leaf, leaf.id == LibraryItem.title_id).outerjoin(
+    items = select(LibraryItem.id).where(LibraryService.visible_predicate(user), _usable_item())
+    direct = items.where(LibraryItem.title_id == MediaTitle.id).exists()
+    children = items.join(leaf, leaf.id == LibraryItem.title_id).where(leaf.parent_id == MediaTitle.id).exists()
+    grandchildren = items.join(leaf, leaf.id == LibraryItem.title_id).join(
         parent, parent.id == leaf.parent_id,
-    ).where(
-        LibraryService.visible_predicate(user), _usable_item(),
-        or_(leaf.id == MediaTitle.id, leaf.parent_id == MediaTitle.id, parent.parent_id == MediaTitle.id),
-    ).exists()
-    categories = {"tv" if category == "shows" else category for category in db.scalars(
-        select(MediaTitle.category).where(
-            MediaTitle.type.in_(("movie", "series")), TitleService.visible(user), usable_title,
-            MediaTitle.category.in_(("movies", "shows", "anime")),
-        ).distinct()
-    )}
+    ).where(parent.parent_id == MediaTitle.id).exists()
+    wall = select(MediaTitle.id).where(
+        MediaTitle.type.in_(("movie", "series")), or_(direct, children, grandchildren),
+    )
+    if (access_clause := member_access.title_clause(user)) is not None:
+        wall = wall.where(access_clause)
+    categories = {
+        key for category, key in (("movies", "movies"), ("shows", "tv"), ("anime", "anime"))
+        if db.scalar(wall.where(MediaTitle.category == category).limit(1)) is not None
+    }
     visible_item = LibraryService.visible_predicate(user)
     if db.scalar(select(LibraryItem.id).where(LibraryItem.kind.in_(("track", "audio")), visible_item, _usable_item()).limit(1)):
         categories.add("music")

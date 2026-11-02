@@ -53,3 +53,45 @@ def test_saved_recordings_do_not_require_streaming(walls):  # noqa: ANN001, F811
     assert "recordings" in walls.get("/api/navigation").json()["categories"]
     assert "recordings" not in walls.get("/api/navigation", member="bob").json()["categories"]
     assert walls.get("/api/navigation").json()["features"]["streaming"] is False
+
+
+def test_navigation_large_unavailable_series_uses_bounded_database_work(walls):  # noqa: ANN001, F811
+    """Disabled sources must not trigger a full item scan for each series wall title."""
+    from sqlalchemy import insert
+
+    from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, User
+    from app.services.navigation import navigation
+
+    with walls.db() as db:
+        db.get(StorageRoot, ROOT).enabled = False
+        titles, items, artifacts, links = [], [], [], []
+        for i in range(1500):
+            series, season, episode, item, artifact = (f"nav-{kind}-{i}" for kind in ("series", "season", "episode", "item", "artifact"))
+            titles.extend([
+                {"id": series, "type": "series", "key": series, "name": series, "category": "anime"},
+                {"id": season, "type": "season", "key": season, "name": season, "parent_id": series, "category": "anime"},
+                {"id": episode, "type": "episode", "key": episode, "name": episode, "parent_id": season, "category": "anime"},
+            ])
+            items.append({"id": item, "title": item, "title_id": episode, "kind": "episode", "status": "available", "visibility": "shared", "user_id": ALICE})
+            artifacts.append({"id": artifact, "root_id": ROOT, "relative_path": artifact, "ownership": "external", "lifecycle": "available"})
+            links.append({"library_item_id": item, "artifact_id": artifact})
+        db.execute(insert(MediaTitle), titles)
+        db.execute(insert(LibraryItem), items)
+        db.execute(insert(MediaArtifact), artifacts)
+        db.execute(insert(LibraryItemArtifact), links)
+        db.add(MemberAccess(user_id=BOB, sections=["anime"], unrated="allow"))
+        db.commit()
+        connection = db.connection().connection.driver_connection
+        calls = 0
+
+        def count_steps():  # noqa: ANN202
+            nonlocal calls
+            calls += 1
+            return calls > 15000  # Abort beyond 15 million SQLite VM instructions.
+
+        connection.set_progress_handler(count_steps, 1000)
+        try:
+            assert "anime" not in navigation(db, db.get(User, ALICE))["categories"]
+            assert "anime" not in navigation(db, db.get(User, BOB))["categories"]
+        finally:
+            connection.set_progress_handler(None, 0)

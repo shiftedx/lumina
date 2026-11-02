@@ -456,6 +456,9 @@ final class LuminaCoreTests: XCTestCase {
         await store.loadLibrary(kind: .collections, forceRefresh: true, preloadCatalog: true)
         XCTAssertEqual(store.items.map(\.id), ["boxset-1"])
         XCTAssertEqual(store.householdCollections.map(\.id), ["list-1", "list-2"])
+        let choices = try await store.collectionFilterOptions()
+        XCTAssertEqual(Set(choices.map(\.id)), Set(["boxset-1", "boxset-2", "list-1", "list-2"]))
+        XCTAssertEqual(store.items.map(\.id), ["boxset-1"], "Picker reads must retain the active library wall.")
         await store.loadMore()
         XCTAssertEqual(store.items.map(\.id), ["boxset-1", "boxset-2"])
         let franchiseMovies = try await store.loadChildren(of: store.items[0])
@@ -637,7 +640,7 @@ final class LuminaCoreTests: XCTestCase {
 
         await store.restore()
         let filters = VideoFilters(
-            resolution: .ultraHD, hdr: .dolbyVision, audio: .atmos, imaxOnly: true
+            resolution: .ultraHD, hdr: .dolbyVision, audio: .atmos, imaxOnly: true, collectionID: "collection-filter"
         )
         await store.loadLibrary(kind: .movies, filters: filters)
         await store.loadMore()
@@ -651,6 +654,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(catalogRequests.count, 2)
         for request in catalogRequests {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(query.first { $0.name == "LuminaCollectionId" }?.value, "collection-filter")
             XCTAssertEqual(query.first { $0.name == "LuminaHDR" }?.value, "dolbyvision")
             XCTAssertEqual(query.first { $0.name == "LuminaAudio" }?.value, "atmos")
             XCTAssertEqual(query.first { $0.name == "LuminaIMAX" }?.value, "true")
@@ -663,6 +667,7 @@ final class LuminaCoreTests: XCTestCase {
             return query.contains { $0.name == "LuminaResolution" && $0.value == "4k" }
         })
         let alphabetQuery = URLComponents(url: alphabet.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaCollectionId" }?.value, "collection-filter")
         XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaResolution" }?.value, "4k")
         XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaHDR" }?.value, "dolbyvision")
         XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaAudio" }?.value, "atmos")

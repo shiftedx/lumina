@@ -778,7 +778,14 @@ def test_collection_links_to_an_existing_nfo_boxset(library) -> None:  # noqa: A
     title_id = add_title(**NFO_IDS)
     kept_id = add_title(key="root:Movies/Kept", provider_ids={"Tmdb": "603"}, boxset_id=trilogy_id,
                         field_sources={"provider_ids": "nfo", "boxset_id": "nfo"})
+    protected_id = add_title(key="root:Movies/Protected", provider_ids={"Tmdb": "603"}, boxset_id=boxset_id,
+                             field_sources={"provider_ids": "nfo", "boxset_id": "nfo"})
+    assert run(protected_id) == "matched"
+    assert load(protected_id).boxset_id == boxset_id
+    assert load(protected_id).field_sources["boxset_id"] == "nfo"
+    assert load(boxset_id).images.get("Primary") is not None
     assert run(title_id) == "matched" and run(kept_id) == "matched"
+    assert not load(trilogy_id).images  # An unrelated hand-curated set must not inherit a franchise's art.
     boxset = load(boxset_id)
     assert load(title_id).boxset_id == boxset_id and load(kept_id).boxset_id == trilogy_id  # NFO set membership wins
     assert boxset.name == "Matrix Box" and boxset.provider_ids == {"Tmdb": "2344"}

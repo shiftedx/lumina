@@ -9,8 +9,8 @@ from sqlalchemy import select
 
 from app import db as db_module
 from app.main import app
-from app.models import MediaTitle, MemberFavorite
-from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, ROOT, add_file, jellyfin_household, mediabrowser, seed_gallery, uid
+from app.models import LibraryItem, MediaTitle, MemberFavorite
+from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, BOXSET, MOVIE, ROOT, S1E1, SERIES, add_file, jellyfin_household, mediabrowser, seed_gallery, uid
 
 
 PATH = "/Lumina/Library/alphabet"
@@ -73,6 +73,27 @@ def test_native_alphabet_uses_compact_member_visible_absolute_indexes(native: Te
 
     movies = alphabet(native, ALICE_TOKEN, IncludeItemTypes="Movie")
     assert movies == {"anchors": [{"letter": "F", "index": 0}, {"letter": "M", "index": 1}], "total": 2}
+    collection = {"IncludeItemTypes": "Movie", "LuminaCollectionId": BOXSET.replace("-", "")}
+    assert alphabet(native, ALICE_TOKEN, **collection) == expected_anchors(items(native, ALICE_TOKEN, **collection))
+    assert alphabet(native, ALICE_TOKEN, **collection)["total"] == 1
+    covers = items(native, ALICE_TOKEN, IncludeItemTypes="BoxSet")["Items"]
+    assert covers[0]["ParentPrimaryImageItemId"] == MOVIE.replace("-", "")
+    with db_module.SessionLocal.begin() as db:
+        boxset = db.get(MediaTitle, BOXSET)
+        boxset.images = {"Primary": {"removed": True}}
+        boxset.field_sources = {"images.Primary": "user"}
+    cleared = items(native, ALICE_TOKEN, IncludeItemTypes="BoxSet")["Items"][0]
+    assert "ParentPrimaryImageItemId" not in cleared  # An explicit image removal stays removed.
+    from app.services.household_collections import HouseholdCollectionService
+    with db_module.SessionLocal() as db:
+        lists = HouseholdCollectionService(db)
+        saved = lists.create(owner_user_id=ALICE, name="Episode picks", visibility="private")
+        episode_item = db.scalar(select(LibraryItem.id).where(LibraryItem.title_id == S1E1))
+        lists.add_item(member_user_id=ALICE, collection_id=saved.id, library_item_id=episode_item)
+        list_id = saved.id.replace("-", "")
+    shows = items(native, ALICE_TOKEN, IncludeItemTypes="Series", LuminaCollectionId=list_id)
+    assert [row["Id"] for row in shows["Items"]] == [SERIES.replace("-", "")]
+    assert alphabet(native, ALICE_TOKEN, IncludeItemTypes="Series", LuminaCollectionId=list_id) == expected_anchors(shows)
 
 
 def test_native_alphabet_refuses_non_name_search_and_unauthenticated_catalogs(native: TestClient) -> None:

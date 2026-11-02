@@ -417,6 +417,7 @@ class ItemsQuery(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     parentid: str | None = Field(None, max_length=64)
+    luminacollectionid: str | None = Field(None, max_length=64)
     includeitemtypes: list[str] = []
     excludeitemtypes: list[str] = []
     recursive: bool = False
@@ -602,13 +603,26 @@ class JellyfinMapper:
             self.user, titles, with_artifacts=sources, with_metadata=sources, with_artwork=False,
         )
         dtos = [self.title_dto(title, batch, sources=sources) for title in titles]
+        bare_sets = {title.id: dto for title, dto in zip(titles, dtos, strict=True)
+                     if title.type == "boxset" and not title.locked
+                     and (title.field_sources or {}).get("images.Primary") != "user"
+                     and not dto.get("ImageTags", {}).get("Primary")}
+        if bare_sets:
+            members = self.db.scalars(select(MediaTitle).where(
+                MediaTitle.type == "movie", MediaTitle.boxset_id.in_(bare_sets), TitleService.visible(self.user),
+                func.json_extract(MediaTitle.images, "$.Primary").is_not(None),
+            ).order_by(MediaTitle.year, MediaTitle.id))
+            for member in members:
+                dto = bare_sets[member.boxset_id]
+                if "ParentPrimaryImageItemId" not in dto and (tag := title_tag(self.key, member, "Primary", self.scope)):
+                    dto |= {"ParentPrimaryImageItemId": jid(member.id), "ParentPrimaryImageTag": tag}
         if self.catalog and not sources:
             # Native poster walls enumerate the catalog without retaining detail metadata
             # or scheduling hero-framing work for every title. Detail reads stay complete.
             fields = {
                 "Id", "Name", "Type", "ProductionYear", "UserData", "ImageTags",
                 "SeriesId", "SeriesName", "SeriesPrimaryImageTag", "SeasonId",
-                "IndexNumber", "ParentIndexNumber", "RunTimeTicks", "ChildCount",
+                "IndexNumber", "ParentIndexNumber", "RunTimeTicks", "ChildCount", "ParentPrimaryImageItemId", "ParentPrimaryImageTag",
             }
             return [{key: value for key, value in dto.items() if key in fields} for dto in dtos]
         backdrop_owners: dict[str, MediaTitle] = {}
@@ -930,10 +944,28 @@ class JellyfinMapper:
                 dtos[entity_id] = playlist
         return [dtos[entity_id] for entity_id in wanted if entity_id in dtos]
 
+    def playlist_dtos(self, playlists: list[pl.Playlist]) -> list[dict]:
+        """Borrow cover art from each list's first visible member, using one shared batch."""
+        first_ids = [p.entries[0].item_id for p in playlists if p.entries]
+        items = {item.id: item for item in self.db.scalars(select(LibraryItem).where(
+            LibraryItem.id.in_(first_ids), LibraryService.visible_predicate(self.user), LibraryItem.status != "missing",
+        ))}
+        image_ids = {item.id: item.title_id or item.id for item in items.values()}
+        sources = {row["Id"]: row for row in self.by_ids(list(dict.fromkeys(image_ids.values())))} if image_ids else {}
+        rows = []
+        for playlist in playlists:
+            row = playlist_dto(playlist, self.server_id)
+            source_id = image_ids.get(playlist.entries[0].item_id) if playlist.entries else None
+            source = sources.get(jid(source_id)) if source_id else None
+            if source and (tag := source.get("ImageTags", {}).get("Primary")):
+                row |= {"ParentPrimaryImageItemId": source["Id"], "ParentPrimaryImageTag": tag}
+            rows.append(row)
+        return rows
+
     def playlist(self, entity_id: str) -> dict | None:
         """The member's Watchlist or a collection they may see, as a Playlist folder; None otherwise."""
         try:
-            return playlist_dto(pl.get_playlist(self.db, self.user, entity_id), self.server_id)
+            return self.playlist_dtos([pl.get_playlist(self.db, self.user, entity_id)])[0]
         except pl.PlaylistNotFound:
             return None
 
@@ -967,6 +999,22 @@ class JellyfinMapper:
         if not wanted:
             return None
         stmt = stmt.where(MediaTitle.type.in_(sorted(wanted)))
+        if q.luminacollectionid:
+            collection_id = parse_item_id(q.luminacollectionid)
+            franchise = self.db.scalar(select(MediaTitle).where(
+                MediaTitle.id == collection_id, MediaTitle.type == "boxset", TitleService.visible(self.user),
+            ))
+            if franchise is not None:
+                stmt = stmt.where(MediaTitle.boxset_id == franchise.id)
+            else:
+                try:
+                    playlist = pl.get_playlist(self.db, self.user, collection_id or "")
+                except pl.PlaylistNotFound:
+                    return None
+                leaves = select(LibraryItem.title_id).where(LibraryItem.id.in_([entry.item_id for entry in playlist.entries]))
+                parents = select(season.parent_id).where(season.id.in_(leaves))
+                ancestors = select(season.parent_id).where(season.id.in_(parents))
+                stmt = stmt.where(or_(MediaTitle.id.in_(leaves), MediaTitle.id.in_(parents), MediaTitle.id.in_(ancestors)))
         if technical_filters_requested(q):
             # A technical filter describes a playable file, not a series folder.
             # Keep every selected property on the same file/version.

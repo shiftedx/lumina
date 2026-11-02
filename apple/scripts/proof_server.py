@@ -1438,7 +1438,9 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             boxset = MediaTitle(
                 id=str(uuid.uuid4()), type="boxset", key="proof:boxset:lantern-keepers",
                 name=FRANCHISE_COLLECTION_TITLE, provider_ids={"Tmdb": "9001"},
-                field_sources={"name": "user", "provider_ids": "user"}, metadata_json={},
+                field_sources={"name": "user", "provider_ids": "user"},
+                root_id=direct_title.root_id, images=dict(direct_title.images or {}),
+                metadata_json={"overview": "The Lantern Keepers film collection."},
             )
             db.add(boxset)
             direct_title.boxset_id = boxset.id
@@ -1590,7 +1592,7 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         f"/Lumina/Requests/catalog/search?{urlencode({'q': REQUEST_FRESH_ANIME_TITLE, 'page': 1})}", token=token,
     )
     fresh_anime = next((item for item in fresh_anime_search.get("items", []) if item.get("key") == REQUEST_FRESH_ANIME_KEY), None)
-    if not isinstance(fresh_anime, dict) or fresh_anime.get("status") != {"state": "none"}:
+    if not isinstance(fresh_anime, dict) or fresh_anime.get("status", {}).get("state") != "none":
         raise RuntimeError("The fresh anime request fixture was not search-reachable without a seeded request.")
     request_history = request_json("/Lumina/Requests", token=token)
     history_items = [item for item in request_history.get("items", []) if isinstance(item, dict)]

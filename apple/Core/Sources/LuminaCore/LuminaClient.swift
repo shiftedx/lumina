@@ -180,6 +180,7 @@ final class LuminaClient: @unchecked Sendable {
             URLQueryItem(name: "StartIndex", value: String(start)),
             URLQueryItem(name: "Limit", value: String(min(1000, max(1, limit)))),
         ]
+        if let collectionID = filters.collectionID { query.append(URLQueryItem(name: "LuminaCollectionId", value: collectionID)) }
         let genre = filters.genre.trimmingCharacters(in: .whitespacesAndNewlines)
         if !genre.isEmpty { query.append(URLQueryItem(name: "Genres", value: genre)) }
         if let year = filters.year { query.append(URLQueryItem(name: "Years", value: String(year))) }

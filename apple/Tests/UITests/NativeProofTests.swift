@@ -27,9 +27,15 @@ final class NativeSearchPresentationTests: NativeProofJourney {
 
 @MainActor
 final class NativeCollectionsTests: NativeProofJourney {
+    #if os(iOS)
+    func testCollectionsFilterTheExistingMovieLibrary() throws {
+        try journeyCollectionFilter()
+    }
+    #else
     func testMovieFranchisesAndHouseholdListsAppearInCollections() throws {
         try journeyCollections()
     }
+    #endif
 }
 
 #if os(iOS)
@@ -545,6 +551,43 @@ class NativeProofJourney: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
     }
+
+    #if os(iOS)
+    func journeyCollectionFilter() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        guard let franchiseID = fixture.franchiseCollectionID,
+              let manualID = fixture.manualCollectionID,
+              let smartID = fixture.smartCollectionID else { throw XCTSkip("Collections fixture required") }
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        XCTAssertFalse(element("libraryCategory-collections").exists)
+        let screen = element("libraryScreen")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "Unfiltered movie library")
+        try activate(element("videoOptionsMenu"))
+        try activate(element("videoFiltersButton"))
+        try activate(element("videoCollectionFilterButton"))
+        try waitForExistence(element("collectionFilterPicker"), timeout: 15, named: "Collection filter picker")
+        for id in [franchiseID, manualID, smartID] {
+            try waitForExistence(element("collectionFilter-\(id)"), timeout: 25, named: "Collection filter option")
+        }
+        XCTAssertGreaterThan(element("collectionFilterPicker").frame.height, try applicationViewport().height * 0.7,
+                             "The visual picker must have enough space for artwork and labels.")
+        try attachFrame(named: "Artwork-based collection filter within Movies")
+        try activate(element("collectionFilter-\(franchiseID)"))
+        try activate(element("videoApplyFiltersButton"))
+        try waitForExistence(element("videoActiveCollectionFilter"), timeout: 15, named: "Active franchise filter")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "Movie in selected franchise")
+        XCTAssertTrue(screen.exists)
+        XCTAssertFalse(element("movieCollectionScreen").exists)
+        try attachFrame(named: "Selected collection retains the ordinary movie grid")
+        try activate(element("videoClearCollectionFilterButton"))
+        try waitForExistence(element("libraryItem-\(fixture.convertedItemID)"), timeout: 25, named: "All movies restored after clearing collection")
+        completed = true
+    }
+    #endif
 
     func journeyCollections() throws {
         var completed = false

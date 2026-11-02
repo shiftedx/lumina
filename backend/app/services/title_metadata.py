@@ -361,20 +361,33 @@ def _reindex(db: Session, title: MediaTitle) -> None:
 
 
 def _link_boxset(db: Session, movie: MediaTitle, collection_id: int, name: str, parsed: tmdb.Parsed) -> None:
-    """Existing boxset by Tmdb id, else by the scanner's ``set:{name}`` key, else a new one; never over an NFO/user set."""
-    if (movie.field_sources or {}).get("boxset_id") in ("nfo", "user"):
-        return
+    """Enrich a verified franchise without replacing imported or member-chosen membership."""
     key = f"set:{name.strip().casefold()}"
-    boxset = db.scalar(select(MediaTitle).where(
-        MediaTitle.type == "boxset", func.json_extract(MediaTitle.provider_ids, "$.Tmdb") == str(collection_id),
-    ).limit(1)) or db.scalar(select(MediaTitle).where(MediaTitle.key == key))
+    protected = (movie.field_sources or {}).get("boxset_id") in ("nfo", "user")
+    existing = db.get(MediaTitle, movie.boxset_id) if movie.boxset_id else None
+    if protected:
+        if existing is None or existing.locked:
+            return
+        provider_id = (existing.provider_ids or {}).get("Tmdb")
+        if not provider_id and (existing.field_sources or {}).get("provider_ids") == "user":
+            return  # A deliberately unmatched collection stays unmatched.
+        if provider_id != str(collection_id) and (provider_id or existing.key != key):
+            return  # A custom set or conflicting provider match must retain its identity.
+        boxset = existing
+    else:
+        boxset = db.scalar(select(MediaTitle).where(
+            MediaTitle.type == "boxset", func.json_extract(MediaTitle.provider_ids, "$.Tmdb") == str(collection_id),
+        ).limit(1)) or db.scalar(select(MediaTitle).where(MediaTitle.key == key))
+    if boxset is not None and boxset.locked:
+        return
     if boxset is None:
         boxset = MediaTitle(id=str(uuid.uuid4()), type="boxset", key=key, name=name,
                             provider_ids={}, field_sources={}, images={}, metadata_json={})
         db.add(boxset)
     apply_field(boxset, "provider_ids", {**(boxset.provider_ids or {}), "Tmdb": str(collection_id)}, "tmdb")
     _apply(boxset, {"name": name, **parsed.fields})
-    apply_field(movie, "boxset_id", boxset.id, "tmdb")
+    if not protected:
+        apply_field(movie, "boxset_id", boxset.id, "tmdb")
 
 
 def _store_seasons(db: Session, series: MediaTitle, seasons: dict[int, tmdb.Parsed],
@@ -549,6 +562,11 @@ def run_due_batch(now: datetime | None = None) -> bool:
         if refresh_title(title_id, client, ai, now) == "matched":
             try:
                 warm_title_artwork(title_id, now)
+                with session_scope() as db:
+                    title = db.get(MediaTitle, title_id)
+                    boxset_id = title.boxset_id if title else None
+                if boxset_id:
+                    warm_title_artwork(boxset_id, now)
             except Exception as exc:  # noqa: BLE001 - artwork must not stop another title's metadata
                 logger.warning("TMDB artwork preparation failed: %s", type(exc).__name__)
 

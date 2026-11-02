@@ -606,6 +606,8 @@ public enum VideoAudioFormat: String, CaseIterable, Hashable, Sendable {
 }
 
 public struct VideoFilters: Equatable, Sendable {
+    public var collectionID: String?
+    public var collectionName: String?
     public var genre: String
     public var year: Int?
     public var unwatchedOnly: Bool
@@ -619,7 +621,9 @@ public struct VideoFilters: Equatable, Sendable {
 
     public init(genre: String = "", year: Int? = nil, unwatchedOnly: Bool = false, favoritesOnly: Bool = false,
                 resolution: VideoResolution? = nil, hdr: VideoHDR? = nil, audio: VideoAudioFormat? = nil,
-                imaxOnly: Bool = false) {
+                imaxOnly: Bool = false, collectionID: String? = nil, collectionName: String? = nil) {
+        self.collectionID = collectionID
+        self.collectionName = collectionName
         self.genre = genre
         self.year = year
         self.unwatchedOnly = unwatchedOnly

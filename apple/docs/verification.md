@@ -1803,3 +1803,12 @@ could not restart the chunked copy. Protected configuration/key copies and the
 stopped prior-image rollback pin were verified, including cleanup exclusion.
 Unused build cache was cleared to finish unpacking the built image; retained
 rollback images and backups were preserved. No native packaging or upload ran.
+
+
+## Library collection filters (2026-11-02)
+
+The iOS Library categories now remain media categories. Collections are selected through Movies/TV/Anime → Options → Filters → Collection; the searchable, full-height poster picker shows names and visible title counts. Applying a collection retains the ordinary poster wall and its other filters; Clear restores the full media category. Picker reads do not replace the active catalog. The existing tvOS collection destination remains covered by its retained workflow.
+
+The native API applies `LuminaCollectionId` to the ordinary member-visible title query and alphabet index, including series containing episodes in a personal list. Verified franchise metadata can enrich an imported collection without changing its membership, custom identity or protected fields. Unmatched collections and personal lists borrow artwork from visible members; locked or explicitly cleared collection images stay untouched.
+
+Focused evidence: five backend workflow checks passed for enrichment, collection filtering, alphabet consistency and artwork visibility; two Core checks passed for independent picker reads and filter propagation through paging/indexing. `NativeCollectionsTests/testCollectionsFilterTheExistingMovieLibrary` passed on a disposable iPhone 17 Pro / iOS 27.0 simulator. `/tmp/lumina-collection-ios-v7.xcresult` records the final 84.876-second workflow; picker/grid captures were inspected under `output/collection-refinement/`. This is source and simulator qualification for the next iOS build, not a TestFlight upload or physical-device qualification.

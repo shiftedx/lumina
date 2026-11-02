@@ -465,7 +465,28 @@ export const getChannelSuggestions = (keys: string[], options?: RequestJsonOptio
 export const searchChannels = (query: string, options?: RequestJsonOptions): Promise<ChannelCandidateList> => post('/api/discovery/channels/search', { query }, options);
 export const completeOnboarding = (keys: string[], follows: FollowChannelRequest[] = []): Promise<MemberOnboardingState> => post('/api/onboarding/complete', { keys, follows });
 export const skipOnboarding = (): Promise<MemberOnboardingState> => post('/api/onboarding/skip');
-export const getUpNext = (payload: UpNextRequest, options?: RequestJsonOptions): Promise<MemberRecommendationSnapshot> => post('/api/discovery/up-next', payload, options);
+export async function getUpNext(payload: UpNextRequest, options?: RequestJsonOptions): Promise<MemberRecommendationSnapshot> {
+  const deadline = Date.now() + 90_000;
+  while (true) {
+    options?.signal?.throwIfAborted();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Suggestions are still preparing. Please retry.');
+    const snapshot = await post<MemberRecommendationSnapshot>('/api/discovery/up-next', payload, {
+      ...options, timeoutMs: Math.min(options?.timeoutMs ?? 15_000, remaining),
+    });
+    if (snapshot.items?.length || !snapshot.refreshing) {
+      if (!snapshot.items?.length && snapshot.state === 'failed') throw new Error(snapshot.error || 'Suggestions could not load. Please retry.');
+      return snapshot;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const signal = options?.signal;
+      const abort = () => { clearTimeout(timer); reject(new DOMException('Request cancelled.', 'AbortError')); };
+      const timer = globalThis.setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, 5_000);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+  }
+}
 export const suppressRecommendation = (input: SuppressRecommendationInput): Promise<Suppression> => post('/api/discovery/suppressions', input);
 export const getSuppressions = (options?: RequestJsonOptions): Promise<SuppressionList> => requestJson('/api/discovery/suppressions', undefined, options);
 export const restoreSuppression = (id: string): Promise<void> => del(`/api/discovery/suppressions/${enc(id)}`);

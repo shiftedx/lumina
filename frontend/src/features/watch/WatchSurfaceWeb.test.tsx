@@ -87,7 +87,7 @@ describe('the web-video watch page', () => {
 
     await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
       source_url: item.webpage_url, source_id: 'saved-video', source: 'youtube', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}`, category_keys: ['music'],
-    })));
+    }), { signal: expect.any(AbortSignal) }));
     expect(await screen.findByRole('button', { name: /^Saved next/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Streamed next/ })).toBeTruthy();
     expect(screen.queryByText('Stale acquisition result')).toBeNull();
@@ -119,7 +119,7 @@ describe('the web-video watch page', () => {
     render(watchSurface({ selection: { kind: 'library', item }, upNextExclusions: ['url:https://www.twitch.tv/videos/111111'] }));
     await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
       source: 'twitch', source_url: item.webpage_url, excluded_sources: ['url:https://www.twitch.tv/videos/111111'],
-    })));
+    }), { signal: expect.any(AbortSignal) }));
   });
 
   it('shows a remote Up Next error and offers retry', async () => {
@@ -142,10 +142,12 @@ describe('the web-video watch page', () => {
       .mockResolvedValueOnce(upNext([remoteEntry('hydrated-next', { title: 'Hydrated next' })]));
     const view = render(watchSurface({ selection: { kind: 'library', item } }));
 
-    await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.not.objectContaining({ channel_id: expect.anything() })));
+    await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.not.objectContaining({ channel_id: expect.anything() }), { signal: expect.any(AbortSignal) }));
+    const oldSignal = api.getUpNext.mock.calls.at(-1)?.[1]?.signal;
     view.rerender(watchSurface({ selection: { kind: 'library', item: { ...item, metadata_json: { ...item.metadata_json, channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` } } } }));
+    expect(oldSignal.aborted).toBe(true);
 
-    await waitFor(() => expect(api.getUpNext).toHaveBeenLastCalledWith(expect.objectContaining({ channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` })));
+    await waitFor(() => expect(api.getUpNext).toHaveBeenLastCalledWith(expect.objectContaining({ channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` }), { signal: expect.any(AbortSignal) }));
     expect(await screen.findByRole('button', { name: /^Hydrated next/ })).toBeTruthy();
     await act(async () => { resolveFirst(upNext([remoteEntry('old-next', { title: 'Old response' })])); });
     expect(screen.queryByRole('button', { name: /^Old response/ })).toBeNull();

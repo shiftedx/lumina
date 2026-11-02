@@ -57,3 +57,26 @@ test('no red on the watch page, and the chat seam shows the live chat', async ({
   const reds = await redOrPinkInMain(page);
   expect(reds).toEqual([]);
 });
+
+test('Up next updates automatically after a cold subject lookup without replacing the watched video', async ({ page }) => {
+  await mockApi(page, { sidebar_collapsed: false });
+  await mockRemoteArtwork(page);
+  await page.route('**/api/preview', route => route.fulfill({ json: preview('vod') }));
+  let calls = 0;
+  await page.route('**/api/discovery/up-next', route => {
+    calls += 1;
+    return route.fulfill({ json: {
+      items: calls === 1 ? [] : [{ id: 'harbor-next', title: 'Harbor storms explained', uploader: 'Harbor Films', source: 'youtube',
+        webpage_url: 'https://www.youtube.com/watch?v=harbor-next', duration: 600, capabilities: caps('youtube', 'vod') }],
+      categories: [], state: calls === 1 ? 'loading' : 'ready', refreshing: calls === 1, stale: false, error: null,
+    } });
+  });
+  await page.goto(`/watch?url=${encodeURIComponent(url)}`); await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Harbor at night, live', level: 1 })).toBeVisible();
+  const rail = page.getByRole('region', { name: 'Up next', exact: true });
+  await expect(rail.getByText('Finding related videos…')).toBeVisible();
+  await expect(rail.getByText('No related videos from this source yet.')).toHaveCount(0);
+  await expect(rail.getByRole('button', { name: /^Harbor storms explained/ })).toBeVisible();
+  expect(calls).toBe(2);
+  await expect(page.getByRole('heading', { name: 'Harbor at night, live', level: 1 })).toBeVisible();
+});

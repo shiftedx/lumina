@@ -96,7 +96,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
   const previewAbort = useRef<AbortController | null>(null);
   const previewChoiceKey = useRef<string | null>(null);
   const activeQueueRequests = useRef(new Map<string, symbol>());
-  const relatedRequest = useRef<{ payload: UpNextRequest; generation: number; sessionToken: number } | null>(null);
+  const relatedRequest = useRef<{ payload: UpNextRequest; generation: number; sessionToken: number; signal: AbortSignal } | null>(null);
 
   useEffect(() => setFormat(preferredFormat), [preferredFormat]);
   useEffect(() => () => { previewGeneration.current += 1; previewAbort.current?.abort(); }, []);
@@ -129,7 +129,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     setRelatedLoading(true);
     setRelatedError(null);
     try {
-      const snapshot = await getUpNext(pending.payload);
+      const snapshot = await getUpNext(pending.payload, { signal: pending.signal });
       if (pending.generation === previewGeneration.current && workspace.isSessionTokenCurrent(pending.sessionToken)) {
         setRelated(snapshot.items);
       }
@@ -188,7 +188,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
           category_keys: relatedSubjectKeys(item, inspected.raw),
           ...upNextChannel(inspected, resolvedItem),
           excluded_sources: options.upNextExclusions?.() ?? [],
-        }, generation, sessionToken };
+        }, generation, sessionToken, signal: controller.signal };
         void retryRelated();
         return inspected;
       } catch (error) {

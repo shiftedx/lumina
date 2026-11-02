@@ -40,7 +40,7 @@ for (const scheme of ['light', 'dark'] as const) {
         const columns = await page.locator('.g-row[data-row="1"] .g-poster').evaluateAll((cells) => new Set(cells.map((cell) => Math.round(cell.getBoundingClientRect().left))).size);
         expect(columns).toBe(3);
         await expect(page.locator('.g-feature')).toHaveCount(0);
-        await expect(page.locator('.g-caption').first()).toBeHidden();
+        await expect(page.locator('.g-caption').first()).toBeVisible();
       }
       await page.screenshot({ path: `../output/playwright/gallery/movies-${scheme}-${viewport.width}.png` });
       await page.goto('/library/shows');

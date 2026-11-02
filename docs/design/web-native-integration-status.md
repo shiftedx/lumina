@@ -133,3 +133,24 @@ Initial runs caught real defects: moving search between two DOM positions lost f
 The review package at `output/web-native-final/index.html` compares all seven approved primary mockups with integrated desktop/phone captures and links additional Photos, Downloads, movie/album/artist/book details and Live views. `captures.json` records artifact provenance/hashes. These are synthetic browser captures, not private household media or shipping fixture behavior.
 
 Physical casting, external provider/account playback and physical CBR/PDF qualification remain the limits recorded above. The full repository/Core/native UI suite, merge, push, marketing-site edits and native releases remain unperformed. The separately authorized production review deployment is recorded below after verification.
+
+### Corrected production review build
+
+Application revision `e57290a23ccfb4df77d3fe889b60c8129279052a` is deployed as `lumina:direct-a-e57290a2`, image `sha256:68083c7796c6cf3c6e1f995f70619705af09f8917e4c193ed1599d11f20caba0`. This immutable frontend layer replaces the complete frontend artifact directory on the preceding verified application image. Backend/runtime/dependencies remain unchanged. The prototype branch and other worktrees remain separate.
+
+Final checks against that committed application bundle:
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| Production build | `output/web-native-build-committed.log` | Passed; aggregate CSS 81.1 KB gzip within 82 KB allowance; shared core 7.3 KB within 7.4 KB allowance; lazy JS, licenses and style contracts passed |
+| Typecheck | `output/web-native-typecheck-committed.log` | Application and E2E passed |
+| Gallery workflow regression | `output/web-native-gallery-final.log`; `e2e/gallery-wall.spec.ts` | 19 passed; phone captions are intentionally visible, and the retained expectation now checks that behavior |
+| Real backend journeys | `output/web-native-realstack-e57290a2.log`; `e2e/realstack/books.spec.ts` and `e2e/realstack/series.spec.ts` with the web-native realstack config | 3 passed in 1.2 minutes: owner setup, actual EPUB/CBZ chapter/checkpoint/resume, episode start/resume/Home/next |
+| Actual running source | `output/web-native-deployment-e57290a2/verify.py` | All 91 frontend artifacts and 308 backend source files match their SHA-256 manifests |
+| Public HTTPS smoke | `output/web-native-deployment-e57290a2/public-verification.json` | App, health, bootstrap status and public showcase: 200; unauthenticated session and recently played albums: 401; all 9 entry assets match by SHA-256 |
+| Runtime preservation | `output/web-native-deployment-e57290a2/verification.json` | Healthy; Compose only changes image; environment, host configuration, mounts, networks, startup and proxy labels unchanged |
+| Database / rollback | Read-only schema check and deployment verification | Code/database schema 42; 19 rollback pins stopped; preceding image pinned by `lumina-direct-a-e57290a2-rollback` and protected by cleanup exclusion |
+
+The gallery at `output/web-native-final/index.html` contains 35 captures and seven approved-A comparisons, each with integrated desktop and phone views. Its `captures.json` supplies provenance and hashes. The test-only gallery caption assertion and this deployment record were committed after the application revision; no shipping application code changed after the verified build.
+
+Production verification is signed-out HTTP and artifact/runtime verification. Authenticated playback and reading were exercised against the real test backend with synthetic media; household provider credentials and physical casting/CBR/PDF qualification remain untested. Full `make check` remains unrun under the owner's focused-testing instruction. No merge, push, marketing change or native release occurred.

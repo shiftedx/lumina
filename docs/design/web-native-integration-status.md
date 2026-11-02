@@ -248,3 +248,8 @@ The opening-opacity regression failed before the fix. Focused final checks: **37
 
 
 The production review build was updated to **324593c0b853ab23ed213be2da727a0f485058fc** using the existing verified frontend-layer procedure. Service health, normalized environment/host configuration, mounts, startup, networks and proxy labels passed unchanged checks; only the Compose image selection changed. All 91 frontend and 308 backend files match their manifests, and 9 public entry assets match the build. Home/video/Movies/settings/manage, health/bootstrap/showcase and unauthenticated guards pass the same public smoke checks recorded above. The prior image remains pinned by `lumina-ui-324593c-rollback`, with all 21 rollback pins stopped and the persistent cleanup exclusion preserved. Exact image/build/public-verification evidence is in ignored `output/web-native-deployment-324593c/`. Authenticated production layout review remains with the owner; the captured Home/Movies/All scroll journeys use synthetic fixtures. No merge, push, native/marketing change or application-data cleanup occurred.
+
+
+## Follow-up: clean drawer selection underline
+
+The selected web drawer item now uses a straight brand-gold underline without the filled rounded card. Strong selected label, full hit target, hover and keyboard focus behavior remain. The worker's eight focused browser checks passed across desktop/mobile, with light/dark screenshots in `output/nav-underline/`. The production build/style budgets passed in `output/nav-underline/build.log`. This is a presentation-only change; routes and capabilities are unchanged.

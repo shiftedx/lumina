@@ -340,9 +340,11 @@ for (const viewport of VIEWPORTS) {
     await page.route('**/api/requests/catalog/home', (route) => route.fulfill({ json: {
       hero: [], rails: [{ key: 'anime', title: 'Anime', items: [{ ...ANIME, status }] }],
     } }));
-    await page.route('**/api/requests/catalog/title/anime/16498*', (route) => route.fulfill({ json: {
-      ...ANIME_DETAIL, status: { ...status, language_requests_supported: true },
-    } }));
+    let titleLookups = 0;
+    await page.route('**/api/requests/catalog/title/anime/16498*', (route) => {
+      titleLookups++;
+      return route.fulfill({ json: { ...ANIME_DETAIL, status: { ...status, language_requests_supported: true } } });
+    });
     let release: () => void = () => undefined;
     const hold = new Promise<void>((resolve) => { release = resolve; });
     await page.route('**/api/requests/catalog/languages/title-anime', async (route) => {
@@ -354,6 +356,7 @@ for (const viewport of VIEWPORTS) {
     await page.getByRole('button', { name: /^Attack on Titan, 2013/ }).click();
     await expect(page).toHaveURL(/\/requests\/title\/anime\/16498/);
     await expect(page.getByText('Checking English availability…')).toBeVisible();
+    const loadedTitleLookups = titleLookups;
     await expect(page.getByRole('button', { name: 'Open in Library' })).toBeVisible();
     await page.getByRole('button', { name: 'Request another language' }).click();
     const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
@@ -361,6 +364,7 @@ for (const viewport of VIEWPORTS) {
     const submission = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/requests');
     await dialog.getByRole('button', { name: 'Request', exact: true }).click();
     expect((await submission).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', audio_language: 'en', seasons: 'all' });
+    expect(titleLookups).toBe(loadedTitleLookups);
     await expect(dialog).toBeHidden();
     release();
     const evidence = page.getByRole('status', { name: 'Anime English availability' });
@@ -393,3 +397,24 @@ for (const kind of ['movie', 'show'] as const) {
     expect(checks).toBe(0);
   });
 }
+
+test('anime card can request all seasons without waiting for optional title metadata', async ({ page }) => {
+  await mockApi(page, {});
+  await mockRequests(page, { discoverFailure: false, mineEmpty: false });
+  let release: () => void = () => undefined;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/requests/catalog/title/anime/16498*', async (route) => {
+    await hold;
+    await route.fulfill({ json: ANIME_DETAIL });
+  });
+  await page.goto('/requests');
+  await signIn(page);
+  await page.getByRole('button', { name: 'Request Attack on Titan', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
+  await dialog.getByRole('radio', { name: /English audio/ }).click();
+  const submission = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/requests');
+  await dialog.getByRole('button', { name: 'Request', exact: true }).click();
+  expect((await submission).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', seasons: 'all' });
+  release();
+  await expect(dialog).toBeHidden();
+});

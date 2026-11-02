@@ -154,8 +154,17 @@ def test_show_detail_seasons_tvdb_and_missing_title(client, fake) -> None:  # no
     assert client.get(f"{BASE}/title/show/5").status_code == 404
 
 
-def test_anime_detail_relations_trailer_and_recommendations(client, fake) -> None:  # noqa: ANN001
+def test_anime_detail_relations_trailer_and_recommendations(client, fake, monkeypatch) -> None:  # noqa: ANN001
+    mapped = []
+    original = catalog._map_to_tmdb
+
+    def record(client, media, hint=None):  # noqa: ANN001, ANN202
+        mapped.append(media["id"])
+        return original(client, media, hint)
+
+    monkeypatch.setattr(catalog, "_map_to_tmdb", record)
     body = client.get(f"{BASE}/title/anime/154587").json()
+    assert mapped == [154587]
     assert body["trailers"] == [{"youtube_id": "frierentrailer", "name": "Trailer", "type": "Trailer", "official": True}]
     assert [i["key"] for i in body["anime_relations"]] == ["anime:20001"]  # the manga is not an anime relation
     assert [i["key"] for i in body["recommendations"]] == ["anime:20002"] and body["studios"] == ["Madhouse"]

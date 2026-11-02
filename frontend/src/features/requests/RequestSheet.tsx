@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 
 import { Button, Checkbox, Dialog, Field, fieldProps, Select, SegmentedControl, Skeleton, useToast } from '../../ui';
-import { type CatalogItem, type CatalogStatus, createRequest, errorCode, getCatalogTitle, type Language, type Quota, type Season } from './requestsApi';
+import { type CatalogDetail, type CatalogItem, type CatalogStatus, createRequest, errorCode, getCatalogTitle, type Language, type Quota, type Season } from './requestsApi';
 import { useLoad } from './requestsContext';
 import {
   buildRequest, canAskFor, catalogId, errorCopy, isSeries, needsLanguage, optimisticState, quotaLine, rememberedLanguage, rememberLanguage,
@@ -81,11 +81,12 @@ export type RequestSheetProps = {
 export function RequestSheet({ item, userId, quota, onClose, onStatus, onRequested }: RequestSheetProps) {
   const toast = useToast();
   const id = catalogId(item);
-  // Series need their seasons, and an anime still being matched may have resolved since the card loaded: always ask fresh.
-  const needsDetail = Boolean(id) && (isSeries(item) || item.requestable === false);
+  const suppliedDetail = 'seasons' in item ? item as CatalogDetail : null;
+  // Reuse the open title; cards load season choices without blocking an all-seasons request.
+  const needsDetail = Boolean(id) && (!suppliedDetail && isSeries(item) || item.requestable === false);
   const detail = useLoad(needsDetail ? `${item.kind}:${id}` : '', (signal) => (needsDetail ? getCatalogTitle(item.kind, id!, signal) : Promise.resolve(null)));
-  const current: CatalogItem = detail.data ?? item;
-  const seasons = detail.data?.seasons ?? [];
+  const current: CatalogItem = detail.data ?? suppliedDetail ?? item;
+  const seasons = detail.data?.seasons ?? suppliedDetail?.seasons ?? [];
   const [mode, setMode] = useState<SeasonMode>('all');
   const [picked, setPicked] = useState<number[]>([]);
   const [language, setLanguage] = useState<Language | null>(() => rememberedLanguage(userId));
@@ -102,7 +103,7 @@ export function RequestSheet({ item, userId, quota, onClose, onStatus, onRequest
   const loading = needsDetail && detail.loading;
   const allowed = canAskFor(current) && quota?.can_request !== false && quota?.remaining !== 0;
   const chosenSeasons = series ? seasonsPayload(mode, picked, seasons) : null;
-  const ready = !loading && allowed && (!series || chosenSeasons !== null) && (!asksLanguage || language !== null || Boolean(audio)) && (current.status.state !== 'available' || Boolean(audio || subtitles || language));
+  const ready = (!loading || mode === 'all' && item.requestable !== false && Boolean(item.tmdb_id && item.tvdb_id)) && allowed && (!series || chosenSeasons !== null) && (!asksLanguage || language !== null || Boolean(audio)) && (current.status.state !== 'available' || Boolean(audio || subtitles || language));
 
   async function submit() {
     if (!ready) return;
@@ -156,8 +157,8 @@ export function RequestSheet({ item, userId, quota, onClose, onStatus, onRequest
       </div>
       {loading ? <Skeleton count={3} label="Loading seasons" shape="line" /> : null}
       {!loading && series && seasons.length && allowed ? <SeasonPicker mode={mode} onMode={setMode} onPicked={setPicked} picked={picked} seasons={seasons} /> : null}
-      {!loading && asksLanguage && allowed ? <LanguageChoice onChange={(value) => { setLanguage(value); setAudio(value === 'dub' ? 'en' : 'ja'); setSubtitles(value === 'sub' ? 'en' : ''); }} value={language} /> : null}
-      {!loading && allowed && (asksLanguage || current.kind === 'anime') ? <><LanguagePreferences audio={audio} onAudio={(value) => { setAudio(value); setLanguage(null); }} onSubtitles={(value) => { setSubtitles(value); setLanguage(null); }} subtitles={subtitles} observed={detail.data?.status.language_availability?.files.flatMap((file) => [...file.audio_languages, ...file.subtitle_languages])} /><p className="rq-muted">Language-specific requests may need an owner to review and search manually. Automatic anime searches follow the manager's settings and may replace an existing version.</p></> : null}
+      {asksLanguage && allowed ? <LanguageChoice onChange={(value) => { setLanguage(value); setAudio(value === 'dub' ? 'en' : 'ja'); setSubtitles(value === 'sub' ? 'en' : ''); }} value={language} /> : null}
+      {allowed && (asksLanguage || current.kind === 'anime') ? <><LanguagePreferences audio={audio} onAudio={(value) => { setAudio(value); setLanguage(null); }} onSubtitles={(value) => { setSubtitles(value); setLanguage(null); }} subtitles={subtitles} observed={detail.data?.status.language_availability?.files.flatMap((file) => [...file.audio_languages, ...file.subtitle_languages])} /><p className="rq-muted">Language-specific requests may need an owner to review and search manually. Automatic anime searches follow the manager's settings and may replace an existing version.</p></> : null}
       {blocked ? <p className="rq-sheet-note">{blocked}</p> : null}
       {problem ? <p className="rq-sheet-note is-problem" role="alert">{problem}</p> : null}
     </Dialog>

@@ -415,8 +415,9 @@ def _anime_detail(client: TmdbClient | None, anilist_id: int) -> dict:
         raise CatalogError(404, "not_found")
     relations = [e["node"] for e in (media.get("relations") or {}).get("edges") or [] if (e.get("node") or {}).get("type") == "ANIME"]
     recommended = [n["mediaRecommendation"] for n in (media.get("recommendations") or {}).get("nodes") or [] if n.get("mediaRecommendation")]
-    items = _anime_items(client, [media, *relations, *recommended])
-    detail, rest = items[0], items[1:]
+    detail = _anime_items(client, [media])[0]
+    # Related titles resolve when opened; their provider searches must not delay this title.
+    rest = _anime_items(client, [*relations, *recommended], budget=0)
     detail.update(
         runtime=media.get("duration"), status_text=anilist.status_text(media), seasons=[], trailers=anilist.trailer(media),
         cast=anilist.cast(media), crew=[], networks=[], studios=detail["anime"].get("studios", []),

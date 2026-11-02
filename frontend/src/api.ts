@@ -1013,6 +1013,7 @@ export const dismissNextUp = (seriesId: string): Promise<void> => post(`/api/tit
 export const hideContinueWatching = (itemId: string): Promise<void> => post(`/api/library/${enc(itemId)}/playback/dismiss`);
 export const unhideContinueWatching = (itemId: string): Promise<void> => del(`/api/library/${enc(itemId)}/playback/dismiss`);
 export const listSimilarTitles = (id: string, limit = 12): Promise<TitleSummary[]> => requestJson(`/api/titles/${enc(id)}/similar${qs({ limit })}`);
+export const getHomeArrivals = (): Promise<TitleSummary[]> => requestJson('/api/home/new-in-library');
 export const getHomeTitleRows = (): Promise<TitleRowsResponse> => requestJson('/api/home/title-rows');
 export const getRecap = (episodeId: string): Promise<RecapResponse> => requestJson(`/api/titles/${enc(episodeId)}/recap`, undefined, BACKGROUND);
 export const requestRecap = (episodeId: string): Promise<RecapResponse> => post(`/api/titles/${enc(episodeId)}/recap`);

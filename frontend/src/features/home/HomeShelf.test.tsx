@@ -10,7 +10,7 @@ import { forgetHomeCache, rememberShelf } from './homeCache';
 import { type CardSlot, FetchedShelf, HomeShelf, type ShelfActions } from './HomeShelf';
 import { createVisit } from './shelfSources';
 
-const api = vi.hoisted(() => ({ listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn() }));
+const api = vi.hoisted(() => ({ getHomeArrivals: vi.fn(), listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
 
 /** A stand-in IntersectionObserver: nothing is near until the test says so. */
@@ -79,7 +79,7 @@ describe('FetchedShelf', () => {
     expect(await screen.findByText('Hidden.')).toBeTruthy();
     first.unmount();
 
-    api.listTitles.mockResolvedValue({ items: [movieSummary('plain', { name: 'Plain Film' })] });
+    api.getHomeArrivals.mockResolvedValue([movieSummary('plain', { name: 'Plain Film' })]);
     render(wrap(shelf('new_in_library')));
     Observer.near();
     await screen.findByRole('button', { name: /Plain Film/ });

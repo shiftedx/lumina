@@ -86,6 +86,7 @@ test('only near shelves are requested until the member scrolls', async ({ page }
   await expect(page.getByRole('region', { name: 'Recently added music' })).toBeVisible();
   // Because you watched and Recommended share one title-rows request per visit.
   expect(requests.filter((request) => request.startsWith('GET /api/home/title-rows'))).toHaveLength(1);
+  expect(requests.filter((request) => request.startsWith('GET /api/home/new-in-library'))).toHaveLength(1);
 });
 
 test('rapid horizontal scrolling keeps delayed artwork bounded and fills the focused window', async ({ page }) => {

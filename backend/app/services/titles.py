@@ -618,6 +618,16 @@ class TitleService:
         wall = [WALL_TYPES] if set(types) <= {"movie", "series"} else []
         return [MediaTitle.type.in_(types), *wall, *rest]
 
+    def home_arrivals(self, user: User, limit: int = 20) -> list[MediaTitle]:
+        """Alternate recent movies and series so an episode-heavy library cannot bury every film.
+
+        Each type keeps its arrival order; a sparse type leaves room for the other.
+        The newest arrival determines which type leads the row.
+        """
+        groups = [self.page(user, types=(kind,), sort="created", limit=limit)[0] for kind in ("movie", "series")]
+        groups.sort(key=lambda rows: rows[0].arrived_at if rows else datetime.min, reverse=True)
+        return [rows[index] for index in range(limit) for rows in groups if index < len(rows)][:limit]
+
     def page(
         self, user: User, *, types: Sequence[str], sort: str, limit: int, filters: TitleFilters = TitleFilters(),
         after: TitleSeek | None = None, letter: str | None = None, category: str | None = None,

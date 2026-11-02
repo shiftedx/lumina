@@ -7,7 +7,7 @@ import { ToastProvider } from '../../ui';
 import { forgetHomeCache } from './homeCache';
 import { HomeSurface, type HomeSurfaceProps } from './HomeSurface';
 
-vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), listNextUp: vi.fn().mockResolvedValue([]), listTitles: vi.fn().mockResolvedValue({ items: [] }), getHomeTitleRows: vi.fn().mockResolvedValue({ rows: [] }), listHouseholdCollections: vi.fn().mockResolvedValue([]) }));
+vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), getHomeArrivals: vi.fn().mockResolvedValue([]), listNextUp: vi.fn().mockResolvedValue([]), listTitles: vi.fn().mockResolvedValue({ items: [] }), getHomeTitleRows: vi.fn().mockResolvedValue({ rows: [] }), listHouseholdCollections: vi.fn().mockResolvedValue([]) }));
 const user = { id: 'member', username: 'member', role: 'viewer', is_active: true } as UserProfile;
 const title = movieSummary('cached', { name: 'Old movie' });
 const progress: PlaybackProgress = { id: 'p', user_id: user.id, item_id: 'i', position_seconds: 1, completed: false, last_watched_at: '', created_at: '', updated_at: '', item: stillItem('i'), title };

@@ -166,10 +166,8 @@ def _title_dtos(mapper: jf.JellyfinMapper, items: list) -> list[dict]:
 
 
 def _new_in_library(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session) -> list[dict]:
-    """The website's All wall: movie and series titles by arrival time."""
-    titles, _start, _following = TitleService(db).page(
-        caller.user, types=("movie", "series"), sort="created", limit=_ROW_LIMIT,
-    )
+    """The website's balanced recent movies and series, with the same member visibility."""
+    titles = TitleService(db).home_arrivals(caller.user, _ROW_LIMIT)
     return mapper.title_dtos(titles)
 
 

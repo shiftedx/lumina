@@ -80,3 +80,31 @@ test('Up next updates automatically after a cold subject lookup without replacin
   expect(calls).toBe(2);
   await expect(page.getByRole('heading', { name: 'Harbor at night, live', level: 1 })).toBeVisible();
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [1440, 390]) {
+    test(`one compact chapter timeline in ${theme} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+      await mockApi(page, { sidebar_collapsed: false, theme });
+      await mockRemoteArtwork(page);
+      await page.route('**/api/preview', route => route.fulfill({ json: {
+        ...preview('vod'), chapters: Array.from({ length: 20 }, (_, index) => ({ start_time: index * 60, title: `Chapter ${index + 1}: Exploring the harbor` })),
+      } }));
+      await page.goto(`/watch?url=${encodeURIComponent(url)}`); await signIn(page);
+      const timeline = page.getByRole('region', { name: 'Chapters & moments', exact: true });
+      await expect(timeline).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Chapters', exact: true })).toHaveCount(0);
+      const list = timeline.getByRole('list');
+      await expect(list.getByRole('button')).toHaveCount(20);
+      await expect(timeline.getByText('Source', { exact: true })).toHaveCount(0);
+      expect((await list.boundingBox())!.height).toBeLessThanOrEqual(288);
+      const columns = await list.evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length);
+      expect(width > 700 ? columns > 1 : columns === 1).toBe(true);
+      await list.getByRole('button', { name: /^Seek to 19:00:/ }).click();
+      await expect(list.getByRole('button', { name: /^Seek to 19:00:/ })).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await timeline.screenshot({ path: `test-results/visual/watch-timeline-${theme}-${width}.png` });
+    });
+  }
+}

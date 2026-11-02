@@ -13,8 +13,8 @@ function column(props: Partial<WatchInfoColumnProps> = {}) {
   const onFollow = vi.fn();
   const view = render(
     <WatchInfoColumn
-      actions={<button type="button">Save to library</button>} badge={null} chapters={[]} channel={{ name: 'Harbor Films', id: CHANNEL_ID, followers: 2_100_000, imported: false, following: false, onFollow }}
-      currentTime={0} description={long} meta="3 Oct 2025 · 1.2M views · 24:12" onSeek={onSeek} provider="YouTube" saved={false}
+      actions={<button type="button">Save to library</button>} badge={null} channel={{ name: 'Harbor Films', id: CHANNEL_ID, followers: 2_100_000, imported: false, following: false, onFollow }}
+      description={long} meta="3 Oct 2025 · 1.2M views · 24:12" onSeek={onSeek} provider="YouTube" saved={false}
       timestamps={[{ start: at, end: at + 5, seconds: 754, label: '12:34' }]} title="Harbor walk at dawn" {...props}
     />,
   );

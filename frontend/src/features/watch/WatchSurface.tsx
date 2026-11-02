@@ -952,8 +952,6 @@ export function WatchSurface({
                 actions={actionButtons}
                 badge={badge}
                 channel={{ name: uploader, id: bylineChannelId(raw, remote, provider), avatarUrl: remote?.channel_artwork_url ?? null, followers: readNumber(raw, 'channel_follower_count'), imported, following, onFollow }}
-                chapters={chapters}
-                currentTime={currentTime}
                 description={description}
                 feedback={shareNote}
                 meta={meta}

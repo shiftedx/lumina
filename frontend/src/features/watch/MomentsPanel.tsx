@@ -57,6 +57,8 @@ export function MomentsPanel({ moments, currentTime, showSuggested, onShowSugges
   const [error, setError] = useState<string | null>(null);
   const hasSuggested = moments.some((moment) => moment.origin === 'suggested');
   const visible = showSuggested ? moments : moments.filter((moment) => moment.origin !== 'suggested');
+  const hasChapters = moments.some((moment) => moment.origin === 'source');
+  const heading = hasChapters ? 'Chapters & moments' : 'Moments';
   const active = visible.reduce<Moment | undefined>((current, moment) => (moment.seconds <= currentTime ? moment : current), undefined);
 
   async function run(action: () => Promise<unknown>) {
@@ -86,8 +88,8 @@ export function MomentsPanel({ moments, currentTime, showSuggested, onShowSugges
     <section aria-labelledby={headingId} className="chapter-navigation moments-panel">
       <header className="chapter-navigation__header">
         <div>
-          <h2 id={headingId}>Moments</h2>
-          <p className="chapter-navigation__count">{visible.length} {visible.length === 1 ? 'moment' : 'moments'}</p>
+          <h2 id={headingId}>{heading}</h2>
+          <p className="chapter-navigation__count">{visible.length} {hasChapters ? 'entries' : visible.length === 1 ? 'moment' : 'moments'}</p>
         </div>
         {hasSuggested ? <label className="notes-toggle"><input checked={showSuggested} onChange={(event) => onShowSuggested(event.target.checked)} role="switch" type="checkbox" /> Show AI suggestions</label> : null}
       </header>
@@ -99,19 +101,26 @@ export function MomentsPanel({ moments, currentTime, showSuggested, onShowSugges
       ) : null}
       {error ? <p className="auth-error" role="alert">{error}</p> : null}
       {visible.length ? (
-        <ol aria-label="Moments" className="chapter-navigation__list">
+        <ol aria-label={heading} className="chapter-navigation__list">
           {visible.map((moment) => (
             <li className="chapter-navigation__item" key={moment.key}>
               <button
                 aria-current={moment === active ? 'true' : undefined}
                 aria-label={`Seek to ${formatChapterTime(moment.seconds)}: ${moment.title}. ${moment.detail}`}
                 className="chapter-navigation__seek"
+                onKeyDown={(event) => {
+                  const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+                  if (!step) return;
+                  const rows = [...(event.currentTarget.closest('ol')?.querySelectorAll<HTMLButtonElement>('.chapter-navigation__seek') ?? [])];
+                  const next = rows[rows.indexOf(event.currentTarget) + step];
+                  if (next) { event.preventDefault(); next.focus(); }
+                }}
                 onClick={() => onSeek(moment.seconds)}
                 type="button"
               >
                 <time className="chapter-navigation__time">{formatChapterTime(moment.seconds)}</time>
-                <span className="chapter-navigation__title">{moment.title}<small>{moment.detail}</small></span>
-                <span className="moment-origin" data-origin={moment.origin}>{ORIGIN_LABEL[moment.origin]}</span>
+                <span className="chapter-navigation__title">{moment.title}</span>
+                {moment.origin !== 'source' ? <span className="moment-origin" data-origin={moment.origin} title={moment.detail}>{ORIGIN_LABEL[moment.origin]}</span> : null}
               </button>
               {moment.noteId ? <button aria-label={`Remove bookmark ${moment.title}`} className="g-text-button" disabled={busy} onClick={() => void run(() => deleteLibraryNote(moment.noteId!))} type="button">Remove</button> : null}
             </li>

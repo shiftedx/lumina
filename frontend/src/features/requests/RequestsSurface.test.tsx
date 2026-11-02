@@ -47,12 +47,13 @@ describe('Discover', () => {
     expect(results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(', ')}`)).toEqual([]);
   });
 
-  it('shows status ribbons: a download ring, and an available title opens the Library', async () => {
-    const { onOpenRoute } = renderSurface();
+  it('shows status ribbons and keeps available titles in Requests for language follow-ups', async () => {
+    const { onRoute, onOpenRoute } = renderSurface();
     const rail = (await screen.findByRole('heading', { name: 'Trending' })).closest('section')!;
     expect(within(rail).getByText('Downloading 42%')).toBeTruthy();
     await userEvent.click(within(rail).getByRole('button', { name: /^Spirited Away/ }));
-    expect(onOpenRoute).toHaveBeenCalledWith({ surface: 'library', titleId: 'title-7' });
+    expect(onRoute).toHaveBeenCalledWith({ surface: 'requests', view: 'title', kind: 'anime', id: 199 });
+    expect(onOpenRoute).not.toHaveBeenCalled();
   });
 
   it('opens a title from its card, and See all follows the rail', async () => {
@@ -195,6 +196,14 @@ describe('language variants', () => {
 });
 
 describe('My requests', () => {
+  it('opens a fulfilled request in Requests so another language can be requested', async () => {
+    api.listRequests.mockResolvedValue({ items: [request({ status: 'available', library_title_id: 'title-1' })], page: 1, total_pages: 1, counts: {} });
+    const { onRoute, onOpenRoute } = renderSurface({ surface: 'requests', view: 'mine' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Game of Thrones, In your vault' }));
+    expect(onRoute).toHaveBeenCalledWith({ surface: 'requests', view: 'title', kind: 'show', id: 1399 }, undefined);
+    expect(onOpenRoute).not.toHaveBeenCalled();
+  });
+
   it('lists requests with their timeline and lets a pending one be cancelled', async () => {
     api.listRequests.mockResolvedValue({ items: [request(), request({ id: 'r-2', status: 'processing', progress: 0.3, title: 'Dune', key: 'movie:1', kind: 'movie', media_type: 'movie', seasons: null })], page: 1, total_pages: 1, counts: {} });
     api.cancelRequest.mockResolvedValue(undefined);

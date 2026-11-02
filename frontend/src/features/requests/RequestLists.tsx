@@ -29,7 +29,7 @@ export function Timeline({ request }: { request: Pick<MediaRequest, 'status' | '
 function RequestRow({ request, showRequester, children }: { request: MediaRequest; showRequester?: boolean; children?: ReactNode }) {
   const { openLibrary, go } = useRequests();
   const id = catalogId(request);
-  const open = () => (request.status === 'available' && request.library_title_id ? openLibrary(request.library_title_id) : id ? go({ surface: 'requests', view: 'title', kind: request.kind, id }) : undefined);
+  const open = () => (id ? go({ surface: 'requests', view: 'title', kind: request.kind, id }) : request.status === 'available' && request.library_title_id ? openLibrary(request.library_title_id) : undefined);
   const details = [request.year, KIND_LABEL[request.kind], seasonsText(request.seasons), request.audio_language || request.subtitle_language ? [request.audio_language ? `${languageName(request.audio_language)} audio` : null, request.subtitle_language ? `${languageName(request.subtitle_language)} subtitles` : null].filter(Boolean).join(', ') : languageText(request.language), request.fulfillment_mode === 'manual' ? 'Manual review' : null].filter(Boolean).join(' · ');
   const people = [showRequester ? `Asked by ${request.requested_by.name}` : null, request.followers.length ? `also wanted by ${request.followers.map((member) => member.name).join(', ')}` : null].filter(Boolean).join(', ');
   return (

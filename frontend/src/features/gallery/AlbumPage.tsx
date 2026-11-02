@@ -18,7 +18,7 @@ import { MusicEnrichment, MusicVideoRail } from '../music/MusicExtras';
 import { MusicEditions } from '../music/MusicEditions';
 import { MusicTrackEditor } from '../music/MusicTrackEditor';
 
-const COVER_SIZES = '(max-width: 1023px) 280px, 360px';
+const COVER_SIZES = '(max-width: 599px) 300px, (max-width: 1023px) 280px, 400px';
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 
 export type AlbumPageProps = {
@@ -216,13 +216,15 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
             {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
           </div>
           {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
-          {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
-          <MusicVideoRail id={album.id} onWatch={onWatchVideo} />
-          <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
         </div>
         <section aria-label={`${album.name} track list`} className="g-album-track-panel">
           {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
         </section>
+        <div className="g-album-extra-panel">
+          {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
+          <MusicVideoRail hideEmpty id={album.id} onWatch={onWatchVideo} />
+          <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
+        </div>
       </div>
       <MusicTrackEditor albumId={album.id} albumName={album.name} onClose={() => setManagingTracks(false)} onRefreshed={onRefreshed} open={managingTracks} user={user ?? { role: 'viewer', can_edit_details: canEdit }} />
     </div>

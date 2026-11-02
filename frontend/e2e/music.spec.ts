@@ -273,3 +273,42 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(room).not.toBeVisible();
   });
 }
+
+for (const [scheme, viewport] of [['dark', { width: 1920, height: 1080 }], ['light', DESKTOP], ['dark', { width: 390, height: 844 }]] as const) {
+  test(`album cover palette and wide tracks keep large edition catalogs closed: ${scheme} ${viewport.width}px`, async ({ page }) => {
+    const album = albumDetail(albumSummary('album-1', { name: 'Signal Garden', poster: { url: '/api/artwork/remote/record-cover', widths: [], dominant: '#367c91', accent: '#59879b' } }), Array.from({ length: 13 }, (_, index) => albumTrack(index + 1)));
+    album.music = { release_type: 'album', edition: null, label: 'Signal Records', catalogue_number: null, country: 'US', original_year: 2019, origin: null, active_since: null, active_until: null, styles: [], mood: [], discography: [], candidates: [], identified: true, release_group_id: 'group-1' };
+    let editionRequests = 0;
+    page.on('request', (request) => { if (new URL(request.url()).pathname.endsWith('/album-1/editions')) editionRequests += 1; });
+    await open(page, '/audio/title/album-1', viewport, scheme, album);
+    const tracks = page.getByRole('region', { name: 'Signal Garden track list' });
+    await expect(tracks.getByRole('button')).toHaveCount(13);
+    const root = (await page.locator('.g-album-page').boundingBox())!;
+    expect(Math.abs(root.width - viewport.width)).toBeLessThanOrEqual(1);
+    if (viewport.width > 1000) expect((await tracks.boundingBox())!.width).toBeGreaterThan(viewport.width / 2);
+    const editions = page.locator('details.music-editions');
+    await expect(editions).not.toHaveAttribute('open', '');
+    expect(editionRequests).toBe(0);
+    await expect(page.getByRole('heading', { name: 'On film', exact: true })).toHaveCount(0);
+    await page.route('**/api/music/titles/album-1/editions?*', (route) => route.fulfill({ json: {
+      owned: [], items: Array.from({ length: 100 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, name: `Pressing ${index + 1}`, date: '2025-01-01', country: 'US', edition: `Variant ${index + 1}`, label: 'Signal Records' })),
+      next_offset: null, refreshing: false, error: null,
+    } }));
+    const closedHeight = await page.locator('.g-album-page').evaluate((element) => element.getBoundingClientRect().height);
+    await page.screenshot({ path: `../output/music-layout/album-palette-${scheme}-${viewport.width}.png`, fullPage: true });
+    await editions.locator('summary').click();
+    await expect(editions.getByText('Pressing 100', { exact: true })).toBeVisible();
+    expect(editionRequests).toBe(1);
+    const expandedHeight = await page.locator('.g-album-page').evaluate((element) => element.getBoundingClientRect().height);
+    expect(expandedHeight).toBeGreaterThan(closedHeight + 1000);
+    await editions.locator('summary').click();
+    await expect(editions.getByText('Pressing 1', { exact: true })).toBeHidden();
+    expect(await page.locator('.g-album-page').evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(closedHeight + 1);
+    await editions.locator('summary').click();
+    await expect(editions.getByText('Pressing 1', { exact: true })).toBeVisible();
+    expect(editionRequests).toBe(1);
+    await editions.locator('summary').click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await noSeriousAxe(page, `album palette ${scheme} ${viewport.width}`);
+  });
+}

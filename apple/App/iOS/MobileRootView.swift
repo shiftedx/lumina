@@ -1321,9 +1321,13 @@ private struct HomeLibraryView<Header: View>: View {
     let scrollsHeader: Bool
     @ViewBuilder let header: Header
     let onOpenLibrary: (LibraryCategory) -> Void
-    @State private var completedInitialHomeLoad = false
+    @State private var initialHomeLoadOwner: MobileHomeSessionScope?
+    @State private var homeRowsRefreshTask: Task<Void, Never>?
+    @State private var homeRowsRefreshID: UUID?
+    @State private var needsHomeRowsRefresh = false
     #if LUMINA_UI_TESTING
     @State private var uiTestingHomeRefreshCount = 0
+    @State private var uiTestingHomeLifecycleRefreshCount = 0
     #endif
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
@@ -1476,13 +1480,13 @@ private struct HomeLibraryView<Header: View>: View {
             Button("Done", role: .cancel) {}
         }
         #if LUMINA_UI_TESTING
-        .accessibilityValue("\(uiTestingNavigationDiagnostics ?? "") refreshes=\(uiTestingHomeRefreshCount)")
+        .accessibilityValue("\(uiTestingNavigationDiagnostics ?? "") refreshes=\(uiTestingHomeRefreshCount) lifecycleRefreshes=\(uiTestingHomeLifecycleRefreshCount)")
         #endif
         .task(id: MobileHomeSessionScope(store.session)) {
-            guard store.session != nil else {
-                completedInitialHomeLoad = false
-                return
-            }
+            cancelHomeRowsRefresh()
+            needsHomeRowsRefresh = scenePhase == .background
+            initialHomeLoadOwner = nil
+            guard let owner = MobileHomeSessionScope(store.session) else { return }
             let needsInitialLibraryLoad = !homeLayout.hasLoaded || !feed.hasLoaded
             async let savedLayout: Void = homeLayout.load()
             async let rows: Void = feed.load()
@@ -1490,17 +1494,22 @@ private struct HomeLibraryView<Header: View>: View {
                 async let library: Void = store.loadHome()
                 _ = await (savedLayout, rows, library)
             } else {
-                _ = await (savedLayout, rows)
+                async let navigation: Void = store.refreshNavigationCategories()
+                _ = await (savedLayout, rows, navigation)
             }
-            guard !Task.isCancelled else { return }
-            completedInitialHomeLoad = true
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshHomeRowsAfterInitialLoad() }
-        }
-        .onAppear {
+            guard !Task.isCancelled, MobileHomeSessionScope(store.session) == owner else { return }
+            initialHomeLoadOwner = owner
             refreshHomeRowsAfterInitialLoad()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                needsHomeRowsRefresh = true
+                cancelHomeRowsRefresh()
+            } else if phase == .active {
+                refreshHomeRowsAfterInitialLoad()
+            }
+        }
+        .onDisappear { cancelHomeRowsRefresh() }
     }
 
     private var browsingRow: some View {
@@ -1545,13 +1554,33 @@ private struct HomeLibraryView<Header: View>: View {
     }
 
     private func refreshHomeRowsAfterInitialLoad() {
-        guard completedInitialHomeLoad else { return }
-        Task {
+        guard scenePhase == .active, homeRowsRefreshTask == nil,
+              needsHomeRowsRefresh, let scope = MobileHomeSessionScope(store.session),
+              initialHomeLoadOwner == scope else { return }
+        let id = UUID()
+        needsHomeRowsRefresh = false
+        #if LUMINA_UI_TESTING
+        uiTestingHomeLifecycleRefreshCount += 1
+        #endif
+        homeRowsRefreshID = id
+        homeRowsRefreshTask = Task {
+            defer {
+                if homeRowsRefreshID == id {
+                    homeRowsRefreshTask = nil
+                    homeRowsRefreshID = nil
+                }
+            }
             async let layout: Void = homeLayout.load()
             async let rows: Void = feed.load()
             async let navigation: Void = store.refreshNavigationCategories()
             _ = await (layout, rows, navigation)
         }
+    }
+
+    private func cancelHomeRowsRefresh() {
+        homeRowsRefreshTask?.cancel()
+        homeRowsRefreshTask = nil
+        homeRowsRefreshID = nil
     }
 
     @ViewBuilder

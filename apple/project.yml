@@ -85,12 +85,15 @@ targets:
     sources:
       - path: Tests/UITests
         excludes: [Fixture.json]
+      - path: App/iOS/CastRequestAwaiter.swift
     postBuildScripts:
       - name: Include optional disposable test fixture
         script: '"$SRCROOT/scripts/copy_test_fixture.sh"'
         basedOnDependencyAnalysis: false
     dependencies:
       - target: Lumina-iOS
+      - package: GoogleCast
+        product: GoogleCastStatic
     settings:
       base:
         INFOPLIST_FILE: Config/TestInfo.plist

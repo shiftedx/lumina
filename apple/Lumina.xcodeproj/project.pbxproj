@@ -7,13 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00D8E1E5A17859F2D7A5C441 /* CastRequestAwaiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0BCF336CD725846EC1D357 /* CastRequestAwaiterTests.swift */; };
 		018BCDC4C4249F4ADDA89769 /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 91193C60B39E98FA6332ED6A /* LuminaCore */; };
 		03EEBCB2BF01A87B568C6149 /* GoogleCastNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 6093A778C97EC805E77CEFF8 /* GoogleCastNotices.txt */; };
+		0504DB85CFD9BB123C8A2685 /* CastRequestAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8754CAA4FEF3446D210609D1 /* CastRequestAwaiter.swift */; };
 		0C4CA8C5C41074C7B65AA6DB /* Newsreader-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */; };
 		107C0C096ADB400C94C2FCBD /* GoogleSansBold.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 8771476AFC629E08564F4F23 /* GoogleSansBold.bundle */; };
 		11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		17E1BC6B6D28688D68D12D3B /* LuminaMediaIcons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FFD5E1F5785018A9E72B1FC6 /* LuminaMediaIcons.xcassets */; };
 		1B021205E272789120A7F7E0 /* NativeAccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */; };
+		1EB98AF08823BCF473D39EBE /* GoogleCastStatic in Frameworks */ = {isa = PBXBuildFile; productRef = 63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */; };
 		24ACFE374AEA071A921A873F /* GoogleCastStatic in Frameworks */ = {isa = PBXBuildFile; productRef = 243D31D683EE1BCA676283D8 /* GoogleCastStatic */; };
 		256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
@@ -78,8 +81,10 @@
 		D05A5AD840A8E111D587CE29 /* GoogleCastCoreResources.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 6F308668F73F6F96E8F25FCF /* GoogleCastCoreResources.bundle */; };
 		D0A0CFA880AD5ED7C104C45D /* TVNativeVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B2DF874820F2A6BEF296797 /* TVNativeVideoPlayer.swift */; };
 		D2AAF52A2A5C9C7FC5004281 /* tvOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6AC830D81757A02673E5F7D0 /* tvOS.xcassets */; };
+		DD7DE56843F3752DEF60745E /* CastRequestAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8754CAA4FEF3446D210609D1 /* CastRequestAwaiter.swift */; };
 		DDEC54D073EBA11792DB92B1 /* Welcome.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63E82E4F101C1A735C456278 /* Welcome.xcassets */; };
 		DF70A83102C482A30F51A6DC /* NativeMusicCasting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D59285B6F891C3044052D36 /* NativeMusicCasting.swift */; };
+		E12E23468403DC69B5DC0219 /* CastRequestAwaiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0BCF336CD725846EC1D357 /* CastRequestAwaiterTests.swift */; };
 		E6A9A5DDAAF69D216B778C98 /* MPVKitLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */; };
 		E7362ADB5C9D56280AFD0B88 /* MPVKitLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */; };
 		EE32F9AA47B8C8462AC4740F /* GoogleSansMedium.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 4D7C4F87CA65A5DF9C1AE381 /* GoogleSansMedium.bundle */; };
@@ -143,8 +148,10 @@
 		6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicLibraryView.swift; sourceTree = "<group>"; };
 		6F308668F73F6F96E8F25FCF /* GoogleCastCoreResources.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastCoreResources.bundle; sourceTree = "<group>"; };
 		72EDB0D3E1376AA4A0663258 /* TVMusicDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMusicDetailView.swift; sourceTree = "<group>"; };
+		7C0BCF336CD725846EC1D357 /* CastRequestAwaiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastRequestAwaiterTests.swift; sourceTree = "<group>"; };
 		7D9AE71BF493F6A950E54538 /* GoogleCastPrivacy.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastPrivacy.bundle; sourceTree = "<group>"; };
 		819800A042573CF485DA0430 /* iOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = iOS.xcassets; sourceTree = "<group>"; };
+		8754CAA4FEF3446D210609D1 /* CastRequestAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastRequestAwaiter.swift; sourceTree = "<group>"; };
 		8771476AFC629E08564F4F23 /* GoogleSansBold.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleSansBold.bundle; sourceTree = "<group>"; };
 		892B855BCAA4EAABD1E4FC4B /* NativeBookReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookReader.swift; sourceTree = "<group>"; };
 		8B2B7C590CDB87E6A7405D5F /* NativeVideoCasting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVideoCasting.swift; sourceTree = "<group>"; };
@@ -189,6 +196,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F33AF3B98298410BBA61C006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1EB98AF08823BCF473D39EBE /* GoogleCastStatic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,6 +303,7 @@
 		6FDEA1AA6CD5C2D1F1D1A890 /* UITests */ = {
 			isa = PBXGroup;
 			children = (
+				7C0BCF336CD725846EC1D357 /* CastRequestAwaiterTests.swift */,
 				60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */,
 			);
 			name = UITests;
@@ -307,6 +323,7 @@
 		CC169E5289CF31A0E56000A5 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				8754CAA4FEF3446D210609D1 /* CastRequestAwaiter.swift */,
 				34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */,
 				579E2238336BCFC991DB98C2 /* MobileRootView.swift */,
 				EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */,
@@ -363,6 +380,7 @@
 			buildConfigurationList = 9DA7FB67C81F27389F52A7BB /* Build configuration list for PBXNativeTarget "Lumina-iOS-UITests" */;
 			buildPhases = (
 				1222174A120A1914C8AF2EB7 /* Sources */,
+				F33AF3B98298410BBA61C006 /* Frameworks */,
 				C219E07674B9A62021890A76 /* Include optional disposable test fixture */,
 			);
 			buildRules = (
@@ -372,6 +390,7 @@
 			);
 			name = "Lumina-iOS-UITests";
 			packageProductDependencies = (
+				63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */,
 			);
 			productName = "Lumina-iOS-UITests";
 			productReference = 15A0B5445C7C3DAFCEF9B848 /* Lumina-iOS-UITests.xctest */;
@@ -581,6 +600,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0504DB85CFD9BB123C8A2685 /* CastRequestAwaiter.swift in Sources */,
+				E12E23468403DC69B5DC0219 /* CastRequestAwaiterTests.swift in Sources */,
 				C2E4D0D64204BA92A4770A5D /* NativeProofTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -615,6 +636,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD7DE56843F3752DEF60745E /* CastRequestAwaiter.swift in Sources */,
 				ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */,
 				B533AFA094362744AEAA1AA7 /* LuminaIcon.swift in Sources */,
 				965980D5F8275B8D74B58999 /* LuminaIconControls.swift in Sources */,
@@ -652,6 +674,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				00D8E1E5A17859F2D7A5C441 /* CastRequestAwaiterTests.swift in Sources */,
 				B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1023,6 +1046,11 @@
 			productName = LuminaCore;
 		};
 		243D31D683EE1BCA676283D8 /* GoogleCastStatic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 65BB0CAA95EBCFB83E4083E4 /* XCRemoteSwiftPackageReference "google-cast-ios-sdk" */;
+			productName = GoogleCastStatic;
+		};
+		63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 65BB0CAA95EBCFB83E4083E4 /* XCRemoteSwiftPackageReference "google-cast-ios-sdk" */;
 			productName = GoogleCastStatic;

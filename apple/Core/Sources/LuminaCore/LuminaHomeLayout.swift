@@ -87,7 +87,7 @@ public struct HomeShelfPreference: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func load() async {
-        guard !isSaving, !isLoading else { return }
+        guard !Task.isCancelled, !isSaving, !isLoading else { return }
         let operation = beginOperation()
         guard let session else {
             if owns(operation) { errorMessage = "Sign in to customize Home." }
@@ -99,11 +99,11 @@ public struct HomeShelfPreference: Codable, Identifiable, Equatable, Sendable {
         defer { if owns(operation), owner == sessionGeneration { isLoading = false } }
         do {
             let layout: HomeLayoutResponse = try await request(session: session, method: "GET")
-            guard owns(operation), owner == sessionGeneration else { return }
+            guard !Task.isCancelled, owns(operation), owner == sessionGeneration else { return }
             shelves = Self.normalized(layout.shelves)
             hasLoaded = true
         } catch {
-            guard owns(operation), owner == sessionGeneration else { return }
+            guard !Task.isCancelled, owns(operation), owner == sessionGeneration else { return }
             errorMessage = Self.message(for: error)
         }
     }

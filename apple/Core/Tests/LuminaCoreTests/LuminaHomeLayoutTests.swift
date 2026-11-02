@@ -203,6 +203,67 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertNil(feed.errorMessage)
     }
 
+    func testCancelledRefreshRetainsHomeAndSubsequentRefreshWorks() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HomeLayoutProtocol.self]
+        let session = LuminaSession(
+            serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token", userID: "member",
+            username: "Member", serverName: "Lumina", deviceID: "home-cancellation-device"
+        )
+        let layout = LuminaHomeLayout(session: session, client: LuminaClient(configuration: configuration))
+        let feed = LuminaHomeFeed(session: session, client: LuminaClient(configuration: configuration))
+        HomeLayoutProtocol.handler = { request in
+            let body: [String: Any] = switch request.url?.path {
+            case "/Lumina/Home/layout": ["shelves": [["id": "continue", "visible": false]]]
+            case "/Lumina/Home/rows": ["rows": [[
+                "id": "continue", "shelf_id": "continue", "title": "Continue watching", "shape": "poster", "items": []
+            ]]]
+            default: ["detail": "not_found"]
+            }
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                           headerFields: ["Content-Type": "application/json"])!
+            return (response, try JSONSerialization.data(withJSONObject: body))
+        }
+
+        await layout.load()
+        await feed.load()
+        let displayedShelves = layout.shelves
+        let displayedRows = feed.rows
+
+        let refreshStarted = expectation(description: "Home refresh requests start")
+        refreshStarted.expectedFulfillmentCount = 2
+        HomeLayoutProtocol.onStart = { request in
+            if ["/Lumina/Home/layout", "/Lumina/Home/rows"].contains(request.url?.path) {
+                refreshStarted.fulfill()
+            }
+        }
+        HomeLayoutProtocol.responseDelay = 0.2
+        let pendingLayout = Task { await layout.load() }
+        let pendingFeed = Task { await feed.load() }
+        await fulfillment(of: [refreshStarted], timeout: 2)
+        pendingLayout.cancel()
+        pendingFeed.cancel()
+        await pendingLayout.value
+        await pendingFeed.value
+        try await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(layout.shelves, displayedShelves)
+        XCTAssertEqual(feed.rows.map(\.id), displayedRows.map(\.id))
+        XCTAssertTrue(layout.hasLoaded)
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertNil(layout.errorMessage)
+        XCTAssertNil(feed.errorMessage)
+
+        HomeLayoutProtocol.onStart = nil
+        HomeLayoutProtocol.responseDelay = 0
+        await layout.load()
+        await feed.load()
+        XCTAssertEqual(layout.shelves, displayedShelves)
+        XCTAssertEqual(feed.rows.map(\.id), displayedRows.map(\.id))
+        XCTAssertNil(layout.errorMessage)
+        XCTAssertNil(feed.errorMessage)
+    }
+
     func testHomeBlipsStayQuietAfterSuccessWhileInitialAndActionableFailuresRemainVisible() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HomeLayoutProtocol.self]

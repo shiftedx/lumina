@@ -342,14 +342,30 @@ for (const viewport of VIEWPORTS) {
     } }));
     await page.route('**/api/requests/catalog/title/anime/16498', (route) => route.fulfill({ json: {
       ...ANIME_DETAIL, status: { ...status, language_availability: {
-        state: 'known', total_files: 1, truncated: false,
-        files: [{ season: 1, episode: 1, audio_languages: ['ja'], subtitle_languages: ['en'], audio_known: true, subtitles_known: true }],
+        state: 'partial', total_files: 170, truncated: false,
+        files: Array.from({ length: 170 }, (_, index) => ({ season: 1, episode: 170 - index, audio_languages: index % 3 ? ['ja'] : ['en', 'ja'], subtitle_languages: ['en'], audio_known: true, subtitles_known: index > 0 })),
       } },
     } }));
     await page.goto('/requests');
     await signIn(page);
     await page.getByRole('button', { name: /^Attack on Titan, 2013/ }).click();
     await expect(page).toHaveURL(/\/requests\/title\/anime\/16498/);
+    const evidence = page.getByRole('region', { name: 'Languages in your library' });
+    await expect(evidence.getByText('57 / 170 files')).toBeVisible();
+    await expect(evidence.getByText('File details · 170 files')).toBeVisible();
+    expect((await evidence.boundingBox())!.height).toBeLessThan(500);
+    await expect(evidence.locator('details table')).toBeHidden();
+    await evidence.scrollIntoViewIfNeeded();
+    mkdirSync(OUT, { recursive: true });
+    await page.screenshot({ path: join(OUT, `language-summary-${viewport.name}.png`) });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.screenshot({ path: join(OUT, `language-summary-dark-${viewport.name}.png`) });
+    await evidence.locator('summary').click();
+    await expect(evidence.getByRole('region', { name: 'File language details' }).getByRole('row').nth(1)).toContainText('S1 · E1');
+    const fileList = evidence.getByRole('region', { name: 'File language details' });
+    expect((await fileList.boundingBox())!.height).toBeLessThanOrEqual(320);
+    await evidence.locator('summary').click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.getByRole('button', { name: 'Request another language' }).click();
     const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
     await dialog.getByRole('radio', { name: /English audio/ }).click();

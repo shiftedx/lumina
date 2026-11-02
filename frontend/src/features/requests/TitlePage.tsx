@@ -10,7 +10,7 @@ import { useLoad, useNow, useRequests } from './requestsContext';
 import { canAskFor, countdown, formatLabel, metaLine, stateLabel, unrequestableCopy } from './requestsModel';
 import { accentStyle, Art, CardRail, LoadProblem, Rail, StatusRibbon } from './parts';
 import { TrailerStage } from './TrailerStage';
-import { languageName } from './RequestSheet';
+import { LibraryLanguages } from './LibraryLanguages';
 
 // a length heuristic for the More toggle (about five lines at reading width); measure overflow if it misfires.
 const LONG_OVERVIEW = 360;
@@ -24,7 +24,7 @@ function AnimeFacts({ detail }: { detail: CatalogDetail }) {
   const anime = detail.anime;
   if (!anime) return null;
   const facts: Array<[string, string]> = [
-    ['Studio', anime.studios.join(', ')], ['Format', anime.format ? formatLabel(anime.format) : ''], ['Episodes', anime.episodes ? String(anime.episodes) : ''],
+    ['Studio', [...new Set(anime.studios.map((studio) => studio.trim()).filter(Boolean))].join(', ')], ['Format', anime.format ? formatLabel(anime.format) : ''], ['Episodes', anime.episodes ? String(anime.episodes) : ''],
     ['Season', anime.season && anime.season_year ? `${anime.season[0]}${anime.season.slice(1).toLowerCase()} ${anime.season_year}` : ''],
     ['Score', anime.score ? `${anime.score}%` : ''],
     ['Next episode', anime.next_episode ? `Ep ${anime.next_episode.number}, ${countdown(anime.next_episode.airing_at, now)}` : ''],
@@ -85,12 +85,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           <AnimeFacts detail={detail} />
         </div>
       </div>
-      {detail.status.language_availability ? <section aria-label="Languages in your library" className="rq-language-evidence"><div><h2>Languages in your library</h2>
-        {detail.status.language_availability.state === 'unknown' ? <p>Language information is unknown.</p> : null}
-        {detail.status.language_availability.files.map((file, index) => <p key={index}>{file.season !== null ? `Season ${file.season}${file.episode !== null ? `, episode ${file.episode}` : ''}: ` : `File ${index + 1}: `}Audio: {file.audio_known ? file.audio_languages.map(languageName).join(', ') || 'none recorded' : 'unknown'} · Subtitles: {file.subtitles_known ? file.subtitle_languages.map(languageName).join(', ') || 'none recorded' : 'unknown'}</p>)}
-        {detail.status.language_availability.truncated ? <p>Showing {detail.status.language_availability.files.length} of {detail.status.language_availability.total_files} files.</p> : null}
-        {detail.status.language_availability.state === 'partial' ? <p>Some language information is unknown.</p> : null}
-      </div></section> : null}
+      {detail.status.language_availability ? <LibraryLanguages availability={detail.status.language_availability} /> : null}
       {seasons.length ? (
         <Rail count={seasons.length} id="seasons" title="Seasons">
           {seasons.map((season) => {

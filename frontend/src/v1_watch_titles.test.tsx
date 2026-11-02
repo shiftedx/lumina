@@ -47,13 +47,17 @@ function available(overrides: Partial<typeof api> = {}) {
 describe('Watch for a title', () => {
   it('credits the show, adds subtitle tracks and settings, and plays the next episode when this one ends', async () => {
     available();
+    const ratedDetail = { ...detail, imdb_rating: 0, rotten_tomatoes_rating: 0, metacritic_rating: 0 };
+    api.getTitle.mockResolvedValue(ratedDetail);
     const onOpenTitle = vi.fn();
     const onOpenLibraryItem = vi.fn();
     render(watchSurface({ selection: { kind: 'library', item }, onOpenLibraryItem, onOpenTitle }));
     await userEvent.click(await screen.findByRole('button', { name: 'Harbor Lights' }));
-    expect(onOpenTitle).toHaveBeenCalledWith(detail);
+    expect(onOpenTitle).toHaveBeenCalledWith(ratedDetail);
     expect(screen.getByRole('heading', { level: 1, name: 'Episode 1' })).toBeTruthy();
-    expect(screen.getByText(/S1 · E1/)).toBeTruthy();
+    expect(screen.queryByText('No synopsis available.')).toBeNull();
+    expect(screen.queryByText('No next episode in your library.')).toBeNull();
+    expect(screen.getByText(/S1 · E1/).textContent).toContain('IMDb 0.0 · RT 0% · Metacritic 0');
     expect(screen.getByRole('button', { name: 'Playback settings' })).toBeTruthy();
     await waitFor(() => expect(document.querySelector('video track')?.id).toBe('s:0'));
     await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith('i-e1'));
@@ -70,7 +74,8 @@ describe('Watch for a title', () => {
     expect(synopsis.querySelector('button')).toBeNull();
     const sourceSeek = screen.getByRole('button', { name: 'Seek to 00:10' });
     expect(sourceSeek.closest('details')?.hasAttribute('open')).toBe(false);
-    expect(sourceSeek.closest('dd')?.textContent).toContain('Source chapter');
+    expect(sourceSeek.closest('details')?.textContent).toContain('Source chapter');
+    expect(synopsis.closest('details')?.hasAttribute('open')).toBe(false);
   });
 
   it('keeps the active tool when title detail changes the library layout', async () => {
@@ -81,11 +86,13 @@ describe('Watch for a title', () => {
     const { rerender } = render(watchSurface({ selection: { kind: 'library', item } }));
     await userEvent.click(await screen.findByRole('tab', { name: 'Notes' }));
     expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeTruthy();
+    await userEvent.type(screen.getByRole('textbox', { name: 'New note' }), 'Keep this draft');
 
     await act(async () => { resolveTitle(detail); });
 
     expect(await screen.findByRole('tab', { name: 'Notes', selected: true })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Notes' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: 'New note' }) as HTMLTextAreaElement).value).toBe('Keep this draft');
 
     rerender(watchSurface({ selection: { kind: 'library', item: { ...item, id: 'i-e2', title_id: 'e2' } } }));
     expect(await screen.findByRole('tab', { name: 'Details', selected: true })).toBeTruthy();
@@ -311,9 +318,8 @@ describe('Up next for library media', () => {
     const frame = container.querySelector('.player-frame') as HTMLElement;
     const story = container.querySelector('.watch-local-story.is-film') as HTMLElement;
     expect(frame.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(container.querySelector('.watch-local-poster')).not.toBeNull();
-    expect(screen.getByText('A winter crossing tests everyone aboard.')).toBeTruthy();
-    expect(container.querySelector('.watch-local-meta')?.textContent).toContain('2020 · PG · 8.2 / 10 · Drama');
+    expect(screen.getByText('A winter crossing tests everyone aboard.').closest('details')?.hasAttribute('open')).toBe(false);
+    expect(container.querySelector('.watch-local-meta')?.textContent).toContain('2020 · PG · Rating 8.2/10 · Drama');
     expect(container.querySelector('.watch-byline')).toBeNull();
     expect(screen.queryByRole('button', { name: 'In your vault' })).toBeNull();
     expect([...rail.querySelectorAll('strong')].map((node) => node.textContent)).toEqual(['Prequel', 'Movie', 'Sequel']);

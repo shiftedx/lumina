@@ -21,7 +21,7 @@ const day = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00
  * Where this library item came from and what else in the library relates to it.
  * Every row is a stored fact; a missing fact is simply not shown.
  */
-export function ProvenancePanel({ itemId, onOpenItem }: { itemId: string; onOpenItem?: (id: string) => void }) {
+export function ProvenancePanel({ itemId, onOpenItem, compact = false }: { itemId: string; onOpenItem?: (id: string) => void; compact?: boolean }) {
   const [data, setData] = useState<Provenance | null | undefined>(undefined);
 
   useEffect(() => {
@@ -30,8 +30,8 @@ export function ProvenancePanel({ itemId, onOpenItem }: { itemId: string; onOpen
     return () => controller.abort();
   }, [itemId]);
 
-  if (data === undefined) return <p aria-live="polite" className="provenance-state" role="status">Loading source details…</p>;
-  if (data === null) return <p className="provenance-state">Source details are unavailable right now.</p>;
+  if (data === undefined) return compact ? null : <p aria-live="polite" className="provenance-state" role="status">Loading source details…</p>;
+  if (data === null) return compact ? null : <p className="provenance-state">Source details are unavailable right now.</p>;
 
   const open = (event: MouseEvent<HTMLAnchorElement>, id: string) => {
     if (!onOpenItem || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -53,6 +53,21 @@ export function ProvenancePanel({ itemId, onOpenItem }: { itemId: string; onOpen
     ['File', format],
     ['Notes', data.notes_count ? `${data.notes_count} note${data.notes_count === 1 ? '' : 's'} you can read` : null],
   ] as Array<[string, ReactNode]>).filter(([, value]) => value);
+
+  if (compact) {
+    const facts = [
+      ['Video', [data.format?.width && data.format?.height ? `${data.format.width}×${data.format.height}` : null, data.format?.video_codec?.toUpperCase()].filter(Boolean).join(' · ')],
+      ['Audio', data.format?.audio_codec?.toUpperCase()],
+      ['Container', data.format?.container?.split(',')[0].toUpperCase()],
+      ['Size', data.file_size ? formatBytes(data.file_size) : null],
+      ['Storage', data.storage_label],
+      ['Status', data.media_state && STATE_NOTE[data.media_state]],
+    ].filter(([, value]) => value);
+    return <section aria-label="Media file" className="watch-file">
+      {facts.length ? <dl className="watch-file-facts">{facts.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl> : null}
+      <details className="watch-source-history"><summary>Source history</summary><dl className="watch-file-history">{rows.filter(([term]) => term !== 'File').map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl></details>
+    </section>;
+  }
 
   return (
     <section aria-labelledby="provenance-title" className="provenance">

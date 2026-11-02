@@ -8,7 +8,6 @@ import { Avatar, ErrorState, Skeleton, TextButton } from '../../ui';
 import { RemotePlayer, RemotePlayerLoading } from '../../remotePlayer';
 import { ChatReplayRail, LibraryCapturedChatRail, SourceChatUnavailableNote } from '../../chatReplayRail';
 import { LiveRecordingControls } from '../../liveRecordingControls';
-import { Artwork } from '../../Artwork';
 import { LuminaPlayer, PlayerPreferencesContext, type PlayerAudio } from '../../LuminaPlayer';
 import { pauseMediaForUser, playMediaForUser } from '../../playIntent';
 import { LocalLibraryPlayer, loudnessGain } from '../../localPlayer';
@@ -892,12 +891,21 @@ export function WatchSurface({
       label: mediaTitle ? 'Details' : 'Overview',
       panel: (
         <>
+        {local && mediaTitle ? <div className="watch-media-details">
+          {local.title !== title ? <dl className="watch-file-name"><div><dt>File</dt><dd>{local.title}</dd></div></dl> : null}
+          <ProvenancePanel compact itemId={local.id} key={local.id} onOpenItem={onOpenLibraryItem} />
+          <div className="watch-description-disclosures">
+          {description ? <details className="watch-synopsis"><summary>Synopsis</summary><p>{description}</p></details> : null}
+          {mediaTitle.overview && sourceDescription ? <details className="watch-source-description"><summary>Source description</summary><DescriptionWithTimestamps description={sourceDescription} onSeek={seekPlayback} timestamps={local.description_timestamps || []} /></details> : null}
+          </div>
+        </div> : <>
         <div className="description-card">
           {mediaTitle ? null : <><div className="description-meta">{views ? <strong>{formatCompactNumber(views)} views</strong> : null}{published ? <strong>{formatPublished(published)}</strong> : null}{duration ? <span>{formatDuration(duration)}</span> : null}</div>{description ? <DescriptionWithTimestamps description={`${description.slice(0, 900)}${description.length > 900 ? '…' : ''}`} onSeek={seekPlayback} timestamps={descriptionTimestamps.filter((token) => token.end <= 900)} /> : <p>Stream now, or keep this video in your household vault for later.</p>}</>}
-          {local && mediaTitle ? <details><summary>File details <ChevronDown /></summary><dl><div><dt>File name</dt><dd>{local.title}</dd></div><div><dt>Source</dt><dd>{imported ? 'Imported · read-only' : uploader}</dd></div>{mediaTitle.overview && sourceDescription ? <div><dt>Source description</dt><dd><DescriptionWithTimestamps description={sourceDescription} onSeek={seekPlayback} timestamps={local.description_timestamps || []} /></dd></div> : null}</dl></details> : null}
+
           {local ? null : <details><summary>Details &amp; provenance <ChevronDown /></summary><dl><div><dt>Original source</dt><dd>{readString(raw, 'extractor_key') || readString(raw, 'extractor') || 'Web video'}</dd></div>{knownResolution ? <div><dt>Known resolution</dt><dd>{knownResolution}</dd></div> : null}{sourceUrl ? <div><dt>Source address</dt><dd>{sourceUrl}</dd></div> : null}<div><dt>Availability</dt><dd>Streaming from source</dd></div></dl></details>}
         </div>
         {local ? <ProvenancePanel itemId={local.id} key={local.id} onOpenItem={onOpenLibraryItem} /> : null}
+        </>}
         </>
       ),
     },
@@ -915,7 +923,9 @@ export function WatchSurface({
     episode ? episodeCode(episode) : mediaTitle.year,
     duration ? formatDuration(duration) : null,
     mediaTitle.official_rating,
-    typeof mediaTitle.community_rating === 'number' ? `${mediaTitle.community_rating.toFixed(1)} / 10` : null,
+    typeof mediaTitle.imdb_rating === 'number' ? `IMDb ${mediaTitle.imdb_rating.toFixed(1)}` : typeof mediaTitle.community_rating === 'number' ? `Rating ${mediaTitle.community_rating.toFixed(1)}/10` : null,
+    typeof mediaTitle.rotten_tomatoes_rating === 'number' ? `RT ${mediaTitle.rotten_tomatoes_rating}%` : null,
+    typeof mediaTitle.metacritic_rating === 'number' ? `Metacritic ${mediaTitle.metacritic_rating}` : null,
     ...(mediaTitle.genres || []).slice(0, 3),
   ].filter(Boolean).join(' · ') : '';
 
@@ -974,13 +984,11 @@ export function WatchSurface({
               {mediaTitle ? (
               <div className="watch-local-body" data-focus-row>
                 <section aria-labelledby={localTitleId} className={`watch-info watch-title watch-local-story is-${episode ? 'episode' : 'film'}`}>
-                  {!episode ? <div aria-hidden="true" className="watch-local-poster"><Artwork alt="" sizes="144px" src={mediaTitle.poster?.url ?? mediaTitle.poster_url} /></div> : null}
                   <div className="watch-local-copy">
                     {episode?.series_id ? <p className="watch-local-series"><button className="g-text-button" data-focus-item onClick={() => onOpenTitle?.(episode)} type="button">{episode.series_name || 'Show'}</button></p> : null}
                     <h1 className="watch-local-title" id={localTitleId}>{title}</h1>
                     {localTitleMeta ? <p className="watch-local-meta">{localTitleMeta}</p> : null}
-                    <p className={`watch-local-synopsis${description ? '' : ' is-empty'}`}>{description || 'No synopsis available.'}</p>
-                    <div className="watch-actions watch-local-actions">{actionButtons}</div>
+                    <div className="watch-actions watch-local-actions">{actionButtons}{episode && libraryUpNext && !libraryUpNext.items.length ? <TextButton data-focus-item onClick={() => onOpenTitle?.(episode)}>See all episodes</TextButton> : null}</div>
                     {shareNote}
                   </div>
                 </section>
@@ -989,7 +997,6 @@ export function WatchSurface({
                   <WatchQueuePanel autoplay={autoplayUpNext} onPlay={playQueued} />
                   {libraryNext.loading && !libraryNext.error ? <Skeleton count={3} label="Loading up next…" shape="row" /> : null}
                   {libraryNext.error ? <ErrorState onRetry={() => setUpNextRevision((revision) => revision + 1)} retrying={libraryNext.loading} title="Up next couldn't load." /> : null}
-                  {episode && libraryUpNext && !libraryUpNext.items.length ? <p className="watch-local-empty-next">No next episode in your library. <TextButton data-focus-item onClick={() => onOpenTitle?.(episode)}>See all episodes</TextButton></p> : null}
                   {libraryUpNext ? <LibraryUpNextRail autoplay={autoplayUpNext} onAutoplayChange={onAutoplayUpNextChange} onOpenAll={episode ? () => onOpenTitle?.(episode) : undefined} onPlay={(itemId) => onOpenLibraryItem?.(itemId)} upNext={libraryUpNext} /> : null}
                 </aside>
               </div>

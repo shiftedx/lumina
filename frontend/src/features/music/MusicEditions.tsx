@@ -20,6 +20,7 @@ export interface MusicEditionsProps {
 }
 
 export function MusicEditions({ albumId, identified, canEdit = false, onOpenTitle, onRefreshed }: MusicEditionsProps) {
+  const [requested, setRequested] = useState(false);
   const [owned, setOwned] = useState<TitleSummary[] | null>(null);
   const [editions, setEditions] = useState<Edition[]>([]);
   const [next, setNext] = useState<number | null>(null);
@@ -61,10 +62,11 @@ export function MusicEditions({ albumId, identified, canEdit = false, onOpenTitl
   };
 
   useEffect(() => {
+    if (!requested) return;
     operation.current += 1; setSelected(null); setNotice(null); setChoosing(false);
     void load(0, true);
     return () => { operation.current += 1; };
-  }, [albumId]);
+  }, [albumId, requested]);
 
   async function choose() {
     if (!selected || choosing) return;
@@ -80,8 +82,8 @@ export function MusicEditions({ albumId, identified, canEdit = false, onOpenTitl
     finally { setChoosing(false); }
   }
 
-  return <section aria-labelledby="album-editions" className="soundstage-album-section music-editions">
-    <header className="music-section-head"><h2 id="album-editions">Editions &amp; releases</h2><span>Library &amp; MusicBrainz</span></header>
+  return <details className="music-editions" onToggle={(event) => { if (event.currentTarget.open) setRequested(true); }}>
+    <summary>Editions &amp; releases</summary>
     {owned === null ? <p aria-live="polite" className="music-note" role="status">Loading available editions…</p> : <>
       {owned.length ? <div className="music-editions-owned"><h3>In your library</h3><ul>{owned.map((album) => <li key={album.id}><button onClick={() => onOpenTitle(album)} type="button"><span><strong>{album.name}</strong><small>{[album.year, album.artist_name].filter(Boolean).join(' · ')}</small></span><span>Open album</span></button></li>)}</ul></div> : null}
       {identified ? editions.length ? <div className="music-editions-public"><h3>Other known releases</h3><ul>{editions.map((edition) => <li className={selected?.id === edition.id ? 'is-selected' : ''} key={edition.id}><div><strong>{edition.name}</strong><span>{[edition.date, edition.country, edition.edition, edition.label].filter(Boolean).join(' · ') || 'Release details unavailable'}</span></div><a aria-label={`Open ${edition.name} release on MusicBrainz`} className="g-icon-button" href={`https://musicbrainz.org/release/${encodeURIComponent(edition.id)}`} rel="noreferrer noopener" target="_blank"><ExternalLink aria-hidden="true" /></a>{canEdit ? <button aria-pressed={selected?.id === edition.id} className="g-text-button" onClick={() => setSelected(edition)} type="button">Select edition</button> : null}</li>)}</ul></div> : !owned.length && !error ? <p className="music-note">No other editions are known for this release yet.</p> : null : !owned.length && !error ? <p className="music-note">This album is not matched to a MusicBrainz release group yet. Library versions can still appear here, while public editions wait for a confident match.</p> : null}
@@ -90,7 +92,7 @@ export function MusicEditions({ albumId, identified, canEdit = false, onOpenTitl
     </>}
     {notice ? <p className="music-note" role="status">{notice}</p> : null}
     {error ? <div className="music-editions-error" role="alert"><p>{error}</p><button className="g-text-button" disabled={loadingMore || choosing} onClick={() => void load(0, true)} type="button"><RefreshCw aria-hidden="true" /> Try again</button></div> : null}
-  </section>;
+  </details>;
 }
 
 export { POLL_LIMIT };

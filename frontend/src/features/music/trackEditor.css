@@ -54,7 +54,7 @@
 /* Album soundstage additions live here so gallery/music.css can evolve independently. */
 .gallery.soundstage-album .g-album-body { gap: var(--g-space-4); }
 .gallery .soundstage-album-overview { max-width: 64ch; margin: var(--g-space-2) 0 0; color: var(--g-ink-2); font: 400 1.05rem / 1.6 var(--g-serif); white-space: pre-line; }
-.gallery .soundstage-album-sections { display: grid; gap: var(--g-space-6); margin-top: var(--g-space-5); }
+.gallery .soundstage-album-sections { display: grid; gap: 24px; }
 .gallery .soundstage-album-section { display: grid; gap: var(--g-space-3); }
 .gallery .soundstage-album-section h2 { margin: 0; font: 500 1.75rem / 1.15 var(--g-serif); }
 .gallery .soundstage-album-section > .music-discography { margin: 0; padding: 0; list-style: none; }
@@ -65,6 +65,9 @@
 .gallery .soundstage-credits { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--g-space-3); margin: 0; padding: 0; list-style: none; }
 .gallery .soundstage-credits li { display: grid; gap: 2px; padding-block: var(--g-space-2); border-bottom: var(--g-rule); }
 .gallery .soundstage-credits span { color: var(--g-ink-2); font: var(--g-type-small); }
+.gallery .music-editions > summary { min-height: 44px; align-content: center; cursor: pointer; font: var(--g-type-ui-strong); }
+.gallery .music-editions[open] > summary { margin-bottom: 16px; }
+.gallery .music-editions > :not(summary) { margin-bottom: 16px; }
 .gallery .music-editions h3 { margin: 0; font: var(--g-type-ui-strong); }
 .gallery .music-editions-owned, .gallery .music-editions-public { display: grid; gap: var(--g-space-2); }
 .gallery .music-editions-owned ul, .gallery .music-editions-public ul { margin: 0; padding: 0; list-style: none; }

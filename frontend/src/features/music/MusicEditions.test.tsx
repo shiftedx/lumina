@@ -19,6 +19,9 @@ describe('MusicEditions', () => {
   it('opens owned albums inside Lumina and external editions at canonical release URLs', async () => {
     const open = vi.fn();
     render(<MusicEditions albumId="album-1" identified onOpenTitle={open} />);
+    expect(screen.getByText('Editions & releases').closest('details')?.open).toBe(false);
+    expect(mocks.editions).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText('Editions & releases'));
     await userEvent.click(await screen.findByRole('button', { name: /Amber Rooms — Deluxe/ }));
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: 'owned-deluxe' }));
     const external = screen.getByRole('link', { name: /Open Amber Rooms release/ });
@@ -29,6 +32,7 @@ describe('MusicEditions', () => {
   it('shows a truthful unidentified state without rendering public releases', async () => {
     mocks.editions.mockResolvedValue(page({ owned: [], items: [] }));
     render(<MusicEditions albumId="album-unmatched" identified={false} onOpenTitle={vi.fn()} />);
+    await userEvent.click(screen.getByText('Editions & releases'));
     expect(await screen.findByText(/not matched to a MusicBrainz release group/)).toBeTruthy();
     expect(screen.queryByText('Other known releases')).toBeNull();
   });
@@ -37,6 +41,8 @@ describe('MusicEditions', () => {
     vi.useFakeTimers();
     mocks.editions.mockImplementation(async (id: string) => id === 'old' ? page({ refreshing: true }) : page({ owned: [albumSummary('new-owned', { name: 'New edition' })], items: [] }));
     const view = render(<MusicEditions albumId="old" identified onOpenTitle={vi.fn()} />);
+    const disclosure = screen.getByText('Editions & releases').closest('details')!;
+    disclosure.open = true; fireEvent(disclosure, new Event('toggle'));
     await act(async () => { await Promise.resolve(); });
     view.rerender(<MusicEditions albumId="new" identified onOpenTitle={vi.fn()} />);
     await act(async () => { await Promise.resolve(); vi.advanceTimersByTime(6000); await Promise.resolve(); });
@@ -47,6 +53,7 @@ describe('MusicEditions', () => {
   it('recovers from an actionable load error and paginates with the returned cursor', async () => {
     mocks.editions.mockRejectedValueOnce(new Error('MusicBrainz is unavailable.')).mockResolvedValueOnce(page({ next_offset: 100 })).mockResolvedValueOnce(page({ owned: [], items: [{ ...release, id: '66666666-7777-4888-8999-000000000000', name: 'Second pressing' }] }));
     render(<MusicEditions albumId="album-1" identified onOpenTitle={vi.fn()} />);
+    await userEvent.click(screen.getByText('Editions & releases'));
     expect((await screen.findByRole('alert')).textContent).toContain('MusicBrainz is unavailable.');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Load more editions' }));
@@ -58,6 +65,7 @@ describe('MusicEditions', () => {
   it('requires an explicit admin selection and applies the release UUID while protecting manual edits', async () => {
     const refreshed = vi.fn();
     render(<MusicEditions albumId="album-1" canEdit identified onOpenTitle={vi.fn()} onRefreshed={refreshed} />);
+    await userEvent.click(screen.getByText('Editions & releases'));
     await userEvent.click(await screen.findByRole('button', { name: 'Select edition' }));
     expect(screen.getByText(/protected manual edits stay protected/)).toBeTruthy();
     expect(mocks.identify).not.toHaveBeenCalled();

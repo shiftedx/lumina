@@ -11,7 +11,7 @@ import './music.css';
 
 const PERFORMANCE_LABEL = { official: 'Official upload', live: 'Live performance', cover: 'Cover', remix: 'Remix', performance: 'Performance' };
 
-export function MusicVideoRail({ id, kind = 'title', onWatch }: { id: string; kind?: 'track' | 'title'; onWatch?: (url: string, itemId?: string) => void }) {
+export function MusicVideoRail({ id, kind = 'title', onWatch, hideEmpty = false }: { id: string; kind?: 'track' | 'title'; onWatch?: (url: string, itemId?: string) => void; hideEmpty?: boolean }) {
   const [answer, setAnswer] = useState<MusicVideos | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -27,6 +27,7 @@ export function MusicVideoRail({ id, kind = 'title', onWatch }: { id: string; ki
     load();
     return () => { current = false; clearTimeout(timer); };
   }, [id, kind, attempt]);
+  if (hideEmpty && answer && !answer.items.length && !answer.refreshing && !answer.error) return null;
   return <section aria-labelledby={`music-film-${id}`} className="music-films">
     <header className="music-section-head"><h2 id={`music-film-${id}`}>On film</h2>{answer?.error ? <button className="g-text-button" onClick={() => setAttempt((n) => n + 1)} type="button">Try again</button> : null}</header>
     {!answer ? <div aria-label="Loading performances" className="music-film-skeleton" role="status" /> : answer.items.length ? <ul className="music-film-row" data-focus-row>

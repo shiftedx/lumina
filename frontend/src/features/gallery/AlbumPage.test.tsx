@@ -169,7 +169,9 @@ describe('AlbumPage', () => {
     expect(screen.getByText('Night Records')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Credits' })).toBeTruthy();
     expect(screen.getByText('Mira Lane')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Editions & releases' })).toBeTruthy();
+    expect(screen.getByText('Editions & releases').closest('details')?.open).toBe(false);
+    expect(api.getMusicEditions).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText('Editions & releases'));
     expect(await screen.findByRole('button', { name: /Album One Expanded/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /Open Album One Japanese pressing release/ }).getAttribute('href')).toBe('https://musicbrainz.org/release/11111111-2222-4333-8444-555555555555');
     expect(api.getMusicVideos).toHaveBeenCalledWith('album-1', 'title');

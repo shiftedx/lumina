@@ -5,12 +5,12 @@ from __future__ import annotations
 from html import escape
 
 
-GENERIC_TITLE = "Lumina — Your household media vault"
-GENERIC_DESCRIPTION = "Movies, music, and favorites. One household. One media vault."
-GENERIC_IMAGE = "/social/lumina-share-v3.jpg"
-INVITE_TITLE = "You’re invited to a Lumina media vault"
-INVITE_DESCRIPTION = "You’re invited to explore a Lumina media vault. Movies, music, and favorites, ready to discover."
-INVITE_IMAGE = "/social/lumina-invite-v2.jpg"
+GENERIC_TITLE = "Lumina — Your media. On every screen."
+GENERIC_DESCRIPTION = "Movies, series, music and books. One self-hosted library."
+GENERIC_IMAGE = "/social/lumina-share-v4.jpg"
+INVITE_TITLE = "You’re invited to Lumina"
+INVITE_DESCRIPTION = "Movies, series, music and books. A shared library, ready to explore."
+INVITE_IMAGE = "/social/lumina-invite-v3.jpg"
 IMAGE_PATHS = frozenset({GENERIC_IMAGE.removeprefix("/"), INVITE_IMAGE.removeprefix("/")})
 
 
@@ -22,8 +22,8 @@ def render(index_html: str, *, origin: str, invite: bool) -> str:
     image = INVITE_IMAGE if invite else GENERIC_IMAGE
     title = escape(title, quote=True)
     description = escape(description, quote=True)
-    image_url = escape(f"{base}{image}?v=brand-dbb688", quote=True)
-    image_alt = escape("Lumina’s horizon mark beside an ivory-and-gold drawing of a media vault holding film reels and records.", quote=True)
+    image_url = escape(f"{base}{image}?v=visual-20261102", quote=True)
+    image_alt = escape("Lumina’s sunrise mark beside public-demo Apple TV and iPhone screens featuring the Blender open film Spring.", quote=True)
     canonical_url = escape(f"{base}/invite" if invite else f"{base}/", quote=True)
     tags = f"""
     <meta property="og:type" content="website" />

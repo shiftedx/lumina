@@ -16,8 +16,8 @@ def spa(tmp_path, origin="https://lumina.example.test"):
     (tmp_path / "music-sw.js").write_text("worker")
     social = tmp_path / "social"
     social.mkdir(exist_ok=True)
-    (social / "lumina-share-v3.jpg").write_bytes(b"generic-card")
-    (social / "lumina-invite-v2.jpg").write_bytes(b"invite-card")
+    (social / "lumina-share-v4.jpg").write_bytes(b"generic-card")
+    (social / "lumina-invite-v3.jpg").write_bytes(b"invite-card")
     app = FastAPI()
     origin_option = {} if origin is None else {"public_origin": lambda: origin}
     app.mount("/", SpaStaticFiles(directory=tmp_path, html=True, **origin_option), name="frontend")
@@ -52,17 +52,17 @@ def test_spa_shell_has_server_rendered_generic_social_preview_from_the_trusted_o
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
-    assert '<meta property="og:title" content="Lumina — Your household media vault"' in response.text
-    assert '<meta property="og:description" content="Movies, music, and favorites. One household. One media vault."' in response.text
+    assert '<meta property="og:title" content="Lumina — Your media. On every screen."' in response.text
+    assert '<meta property="og:description" content="Movies, series, music and books. One self-hosted library."' in response.text
     assert '<meta property="og:url" content="https://lumina.example.test/"' in response.text
-    assert '<meta property="og:image" content="https://lumina.example.test/social/lumina-share-v3.jpg?v=brand-dbb688"' in response.text
+    assert '<meta property="og:image" content="https://lumina.example.test/social/lumina-share-v4.jpg?v=visual-20261102"' in response.text
     assert '<meta property="og:image:type" content="image/jpeg"' in response.text
     assert '<meta property="og:image:width" content="1200"' in response.text
     assert '<meta property="og:image:height" content="630"' in response.text
     assert '<meta name="twitter:card" content="summary_large_image"' in response.text
-    assert '<meta name="twitter:title" content="Lumina — Your household media vault"' in response.text
-    assert '<meta name="twitter:description" content="Movies, music, and favorites. One household. One media vault."' in response.text
-    assert '<meta name="twitter:image" content="https://lumina.example.test/social/lumina-share-v3.jpg?v=brand-dbb688"' in response.text
+    assert '<meta name="twitter:title" content="Lumina — Your media. On every screen."' in response.text
+    assert '<meta name="twitter:description" content="Movies, series, music and books. One self-hosted library."' in response.text
+    assert '<meta name="twitter:image" content="https://lumina.example.test/social/lumina-share-v4.jpg?v=visual-20261102"' in response.text
     for private in ("attacker.example", "private-media-id", "query-secret", "session-secret"):
         assert private not in response.text
 
@@ -71,17 +71,17 @@ def test_spa_shell_defaults_to_the_configured_link_base(tmp_path, monkeypatch):
     monkeypatch.setattr(public_address, "link_base", lambda: "https://configured.example.test")
     response = spa(tmp_path, origin=None).get("/", headers={"Host": "attacker.example"})
 
-    assert "https://configured.example.test/social/lumina-share-v3.jpg?v=brand-dbb688" in response.text
+    assert "https://configured.example.test/social/lumina-share-v4.jpg?v=visual-20261102" in response.text
     assert "attacker.example" not in response.text
 
 
 def test_invite_path_has_fixed_token_free_invitation_preview(tmp_path):
     client = spa(tmp_path)
     expected = {
-        "You’re invited to a Lumina media vault",
-        "You’re invited to explore a Lumina media vault. Movies, music, and favorites, ready to discover.",
+        "You’re invited to Lumina",
+        "Movies, series, music and books. A shared library, ready to explore.",
         "https://lumina.example.test/invite",
-        "https://lumina.example.test/social/lumina-invite-v2.jpg?v=brand-dbb688",
+        "https://lumina.example.test/social/lumina-invite-v3.jpg?v=visual-20261102",
     }
 
     for path in ("/invite", "/invite/?invite=query-secret"):
@@ -89,8 +89,8 @@ def test_invite_path_has_fixed_token_free_invitation_preview(tmp_path):
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-cache"
         assert all(value in response.text for value in expected)
-        assert response.text.count("You’re invited to a Lumina media vault") == 2
-        assert response.text.count("lumina-invite-v2.jpg") == 2
+        assert response.text.count("You’re invited to Lumina") == 2
+        assert response.text.count("lumina-invite-v3.jpg") == 2
         assert "query-secret" not in response.text
 
 
@@ -103,8 +103,8 @@ def test_shell_head_and_versioned_social_assets_keep_http_semantics(tmp_path):
     assert shell_head.headers["content-length"] == shell.headers["content-length"]
     assert shell_head.headers["cache-control"] == "no-cache"
 
-    image = client.get("/social/lumina-share-v3.jpg?v=brand-dbb688")
-    image_head = client.head("/social/lumina-share-v3.jpg?v=brand-dbb688")
+    image = client.get("/social/lumina-share-v4.jpg?v=visual-20261102")
+    image_head = client.head("/social/lumina-share-v4.jpg?v=visual-20261102")
     assert image.content == b"generic-card" and image.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert image_head.content == b"" and image_head.headers["content-length"] == image.headers["content-length"]
     assert image_head.headers["cache-control"] == "public, max-age=31536000, immutable"

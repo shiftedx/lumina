@@ -11,6 +11,8 @@ export const luminaRouteIconNames = [
   'library',
   'movies',
   'shows',
+  'anime',
+  'youtube',
   'music',
   'books',
   'photos',
@@ -34,6 +36,8 @@ const routeGlyphs: Record<LuminaRouteIconName, LuminaIconName | null> = {
   library: 'library',
   movies: 'movies',
   shows: 'series',
+  anime: 'rating-star',
+  youtube: 'video',
   music: 'music',
   // The approved set does not yet include a book glyph. Keep the existing geometry
   // distinct from Library until the canonical icon package gains one.

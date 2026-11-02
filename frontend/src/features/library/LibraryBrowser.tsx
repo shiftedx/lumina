@@ -1,5 +1,5 @@
 /**
- * The Library: the tab row over each lens's body. All is the chaptered landing; Movies,
+ * Independent library destinations with shared collection/recovery tools. Legacy All remains an embedding fallback; Movies,
  * Shows and Anime are gallery walls; Music is the Music tab; YouTube and Recordings are still walls; Deleted lists the
  * files waiting out their retention window.
  */

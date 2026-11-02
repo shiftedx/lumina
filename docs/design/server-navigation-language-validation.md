@@ -145,3 +145,21 @@ New content-detail navigation resets to the top after rendering, while shared ro
 Focused validation: 63 routes/Home/accessibility unit tests; four browser workflows checking wide/phone detail hero entry, Home Back/Forward offsets, library wall filters/scroll/poster focus across browser and page Back, and a scrolled Books overview opening its detail at zero. Production build/style gate passed without further budget changes. Initial browser checks reproduced lost Home browse restoration before the fix. Evidence is ignored under `output/detail-scroll/`.
 
 Deployed source `57f41d6a7b0c04364eb6bbfb1055c9271fd91c04`: healthy, all 398 application hashes and nine entry assets verified. Authenticated production journeys at 2048×700 and 390×844 opened real title details at scrollY zero and restored the original Home browse offset on Back. Hero captures were inspected. Backend/schema/runtime configuration unchanged; 32 rollback pins stopped; temporary verification session removed. Production captures: ignored `output/detail-scroll/deployment/detail-hero-{wide,phone}.png`.
+
+## Independent video-library experiences
+
+Movies, Shows, Anime and YouTube are first-class navigation destinations, each exposed only when present in the server's authenticated navigation contract. Recordings remains a conditional first-class destination too. The All video menu item and cross-category page tabs are retired. Legacy `/video` and `/library` umbrella addresses replace themselves with the first configured video category, preserving applicable query state; existing category/detail/collection/recovery routes remain public. Mobile navigation follows the active enabled category and handles Anime-only configurations.
+
+| Capability | Integrated behavior |
+| --- | --- |
+| Movies | Scoped cinematic spotlight; real genre artwork tiles, era filters and full searchable catalog |
+| Shows | Series spotlight and scoped genre/era catalog controls |
+| Anime | Anime spotlight; real anime genres/eras and both anime film/series detail flows |
+| YouTube saved videos | Saved-video artwork stage, creator filter action, server-filtered contextual search and preserved source/sort/playback controls |
+| YouTube creators | Creator spotlight/tiles, real recency/unwatched indicators, complete-server-list contextual channel search and Streaming-aware destinations |
+| Shared tools | Collections, Deleted/recovery, Refresh, permissions and editing remain available without cross-category links |
+| History/focus | Member-scoped facet snapshots follow existing wall stores so Back restores exact scroll and poster focus without a later layout shift |
+
+Genre imagery is selected only from matching titles in the loaded scoped catalog; absent matching art uses the established neutral/art fallback. Facets and era ranges come from production APIs, not prototype fixtures. No schema or backend changes, no native/marketing release changes. Desktop/mobile visual captures and focused check records stay in ignored `output/category-browse/`.
+
+Completed ownership: primary owned shared shell/navigation, routes, server-navigation mapping, integration and review; category worker owned GalleryWall/facet controls; YouTube worker owned saved-video/creator surfaces and searches; test worker owned navigation contracts and migrated integration journeys. Implementation and final source checks passed: 86 focused unit tests across six files, 12 final browser workflows, frontend typecheck, production build and style gate. CSS is 82.6 KB gzip within the existing 83 KB ceiling; core/JavaScript ceilings unchanged. Final browser coverage includes artwork/genre/era routes, both YouTube search contexts, Movies-disabled/Anime-only mobile fallback, no cross-category links, retained library tools, and exact wall Back scroll/focus restoration. Earlier broader integration checks also passed after the facet restoration fix; final results are not reported as additive counts.

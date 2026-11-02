@@ -4,7 +4,8 @@ import type { ServerNavigation, UserProfile } from '../types';
 import type { CollectionLoadState } from '../workspace';
 import { LENS_LABELS, type LibraryLens } from '../features/gallery/libraryLens';
 import { MobileTabs, NavigationPopover } from './Navigation';
-import type { Surface } from './routes';
+import type { Surface, VideoLibraryView } from './routes';
+import { videoLibraryViews } from './useServerNavigation';
 import { TopBar } from './TopBar';
 import { useLibraryActivity } from './useLibraryActivity';
 import './shell.css';
@@ -21,7 +22,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   navigation?: ServerNavigation | null;
   videoView?: string;
   hideContextLabel?: boolean;
-  onVideoView?: (view: 'movies' | 'shows') => void;
+  onVideoView?: (view: VideoLibraryView) => void;
   children: ReactNode;
   surface: Surface;
   /** Requests waiting for an admin (the Requests nav badge); 0 for members. */
@@ -52,7 +53,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   onSignOut: () => void;
   moreItems: ReactNode;
 }) {
-  const libraryLabel = videoView && Object.hasOwn(LENS_LABELS, videoView) ? LENS_LABELS[videoView as LibraryLens] : videoView === 'collections' ? 'Collections' : 'All video';
+  const libraryLabel = videoView && Object.hasOwn(LENS_LABELS, videoView) ? LENS_LABELS[videoView as LibraryLens] : videoView === 'collections' ? 'Collections' : LENS_LABELS[videoLibraryViews(navigation)[0] ?? 'movies'];
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const libraryActivity = useLibraryActivity(user.id);

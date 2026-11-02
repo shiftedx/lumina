@@ -17,9 +17,9 @@ const scrollTo = vi.fn();
 // A page that says there are more titles than it holds carries a cursor: the store ends the wall where the chain ends.
 const page = (count: number, patch: Partial<TitlePage> = {}) => titlePage(Array.from({ length: count }, (_, index) => movieSummary(`movie-${index}`, { name: `Title ${index}` })), { next_cursor: (patch.total ?? count) > count ? 'more' : null, ...patch });
 
-function Harness({ initial = '', changes = [], onPlayAt = vi.fn() }: { initial?: string; changes?: string[]; onPlayAt?: (itemId: string, startSeconds: number) => void }) {
-  const [wall, setWall] = useState(initial);
-  return <GalleryWall onOpen={vi.fn()} onPlayAt={onPlayAt} onWallChange={(next) => { changes.push(next); setWall(next); }} state={wall} wall="movies" />;
+function Harness({ initial = '', changes = [], onPlayAt = vi.fn(), wall = 'movies' }: { initial?: string; changes?: string[]; onPlayAt?: (itemId: string, startSeconds: number) => void; wall?: 'movies' | 'shows' | 'anime' }) {
+  const [state, setState] = useState(initial);
+  return <GalleryWall onOpen={vi.fn()} onPlayAt={onPlayAt} onWallChange={(next) => { changes.push(next); setState(next); }} state={state} wall={wall} />;
 }
 
 const searchResponse = (matches: LocalSearchResponse['matches']): LocalSearchResponse => ({ query: 'lighthouse', mode: 'lexical', matches, items: [], index_generation: 1 });
@@ -35,6 +35,7 @@ beforeEach(() => {
   forgetWallStores();
   resetImageLoader();
   window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+  vi.spyOn(api, 'getTitleFacets').mockResolvedValue(facets);
 });
 afterEach(() => { vi.restoreAllMocks(); scrollTo.mockReset(); });
 
@@ -307,6 +308,21 @@ describe('GalleryWall', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Shows' })).toBeTruthy();
     expect(await screen.findByText('3 titles · Sorted by recently added')).toBeTruthy();
     expect(list.mock.calls[0][0]).toMatchObject({ category: 'shows', sort: 'created' });
+  });
+
+  it('turns the server-owned category facets into scoped editorial browse controls', async () => {
+    const list = vi.spyOn(api, 'listTitles').mockImplementation(async (query) => page(3, { total: query.genre?.includes('Drama') ? 12 : 300 }));
+    const facetsSpy = vi.spyOn(api, 'getTitleFacets').mockResolvedValue({ ...facets, years: { min: 2024, max: 2026 } });
+    const changes: string[] = [];
+    render(<Harness changes={changes} wall="shows" />);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Explore shows' })).toBeTruthy();
+    expect(facetsSpy).toHaveBeenCalledWith({ category: 'shows' }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    const genres = screen.getByRole('group', { name: 'Browse shows by genre' });
+    await userEvent.click(within(genres).getByRole('button', { name: 'Drama, 30 titles' }));
+    expect(changes.at(-1)).toBe('genre=Drama');
+    await userEvent.click(screen.getByRole('button', { name: '2020s' }));
+    expect(changes.at(-1)).toBe('genre=Drama&from=2020&to=2029');
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ category: 'shows', genre: ['Drama'], year_from: 2020, year_to: 2029 });
   });
 
   it('draws the Anime wall from its category, mixing movies and series with their own markers', async () => {

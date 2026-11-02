@@ -16,17 +16,17 @@ for (const width of [1440, 768, 390, 320]) {
     await page.goto('/video/movies');
     await signIn(page);
     await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeAttached();
-    if (width < 680) await expect(page.getByRole('navigation', { name: 'Library', exact: true }).getByRole('link', { name: 'YouTube', exact: true })).toBeInViewport({ ratio: 1 });
     const dialog = page.getByRole('dialog', { name: 'Navigation', exact: true });
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Search Lumina/ })).toHaveCount(0);
     await page.keyboard.press('Control+k');
-    await expect(page.locator('main input[type="search"]')).toBeFocused();
+    await expect(page.locator('.g-header-search input[type="search"]')).toBeFocused();
     await expect(page.getByRole('dialog', { name: 'Search Lumina' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     await expect(dialog).toBeVisible();
     if (width < 680) await expect(dialog.getByRole('button', { name: 'Add a link', exact: true })).toBeVisible();
-    for (const name of ['Movies', 'Shows', 'Music', 'Books', 'Photos', 'Streaming', 'Requests', 'Downloads', 'My Settings']) await expect(dialog.getByRole('button', { name, exact: true })).toBeVisible();
+    for (const name of ['Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Music', 'Books', 'Photos', 'Streaming', 'Requests', 'Downloads', 'My Settings']) await expect(dialog.getByRole('button', { name, exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'All video', exact: true })).toHaveCount(0);
     const before = await page.locator('main').boundingBox();
     await page.screenshot({ path: `../output/web-native/menu-${width}.png` });
     await dialog.getByRole('button', { name: 'Shows', exact: true }).click();
@@ -174,7 +174,7 @@ for (const width of [1440, 768, 390, 320]) for (const lens of ['movies', 'shows'
 
 for (const scheme of ['dark', 'light'] as const) {
   for (const width of [1920, 1440, 390, 320]) {
-    test(`All video has one continuous hero with clear navigation in ${scheme} at ${width}px`, async ({ page }) => {
+    test(`legacy video opens the first configured movie experience with detail restoration in ${scheme} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width < 680 ? 844 : 1080 });
       await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: scheme });
       await mockApi(page, {});
@@ -182,42 +182,33 @@ for (const scheme of ['dark', 'light'] as const) {
       await mockGalleryWall(page, { total: 60, artwork: true });
       await mockLibrarySections(page, { movies: 60, shows: 60, anime: 12, youtube: 7, recordings: 0, albums: 0, artists: 0, saved_audio: 0 });
       await page.goto('/video'); await signIn(page);
-      const stage = page.locator('.g-all.is-stage-led .g-all-stage');
+      await expect(page).toHaveURL(/\/video\/movies$/);
+      const stage = page.locator('.g-browse-hero');
       await expect(stage).toBeVisible();
-      await expect.poll(() => stage.locator('.is-lead img.g-art-image').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(1);
+      await expect.poll(() => stage.locator('img').last().evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(1);
       await page.evaluate(() => window.scrollTo(0, 0));
       const bounds = await stage.boundingBox();
-      const shade = await stage.locator('.is-lead .g-feature-copy').boundingBox();
-      const art = await stage.locator('.is-lead .g-art').boundingBox();
+      const details = page.locator('[data-browse-details]');
       const header = await page.locator('.g-topbar').boundingBox();
-      const nav = await page.getByRole('navigation', { name: 'Library', exact: true }).boundingBox();
-      const chapter = await page.locator('#g-chapter-movies .g-chapter-head').boundingBox();
       expect.soft(bounds!.y).toBe(0);
-      expect.soft(Math.abs(art!.height - bounds!.height), 'artwork covers the full stage').toBeLessThanOrEqual(1);
-      expect.soft(Math.abs(shade!.y - bounds!.y), 'hero shading starts at the top, without a horizontal seam').toBeLessThanOrEqual(1);
-      expect.soft(Math.abs(shade!.height - bounds!.height), 'one continuous shade covers the hero').toBeLessThanOrEqual(1);
-      expect.soft(nav!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
-      expect.soft(chapter!.y - bounds!.y - bounds!.height, 'catalog follows the hero without a double divider/gap').toBeLessThanOrEqual(56);
-      await expect(page.locator('.g-topbar-context')).toHaveText('All video');
+      expect.soft(bounds!.height, 'the dedicated category still begins with its artwork-forward hero').toBeGreaterThan(header!.height);
+      await expect(page.locator('.g-topbar-context')).toHaveText('Movies');
+      await expect(page.getByRole('navigation', { name: 'Library tools', exact: true }).getByRole('link', { name: 'Collections', exact: true })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Library tools', exact: true }).getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: `../output/all-video-fix/all-${scheme}-${width}.png` });
-      const lead = stage.locator('.is-lead');
-      await lead.click();
+      await page.screenshot({ path: `../output/category-hero/movies-${scheme}-${width}.png` });
+      await details.click();
       await expect(page).toHaveURL(/\/video\/title\/movie-0000$/);
       await expect(page.locator('.t-hero')).toBeVisible();
       await page.goBack();
-      await expect(lead).toBeFocused();
+      await expect(details).toBeFocused();
       expect(await page.evaluate(() => window.scrollY)).toBeLessThan(10);
-      await page.locator('#g-chapter-movies .g-chapter-head a').click();
-      await expect(page).toHaveURL(/\/video\/movies$/);
-      await page.goBack();
-      await expect(page.locator('#g-chapter-movies .g-chapter-head a')).toBeFocused();
     });
   }
 }
 
 for (const scheme of ['dark', 'light'] as const) {
-  for (const surface of ['home', 'movies', 'all'] as const) {
+  for (const surface of ['home', 'movies', 'anime'] as const) {
     for (const width of [1440, 390]) {
       test(`hero navigation reveals artwork until scrolling on ${surface} in ${scheme} at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -229,8 +220,8 @@ for (const scheme of ['dark', 'light'] as const) {
           const artwork = readFileSync(new URL('./fixtures/open-films/sintel-backdrop.jpg', import.meta.url));
           await page.route('**/api/art/**', (route) => route.fulfill({ contentType: 'image/jpeg', body: artwork }));
         }
-        await page.goto(surface === 'home' ? '/' : surface === 'all' ? '/video' : '/video/movies'); await signIn(page);
-        await expect(page.locator(surface === 'home' ? '.h-hero' : surface === 'all' ? '.g-all.is-stage-led' : '.g-browse-hero')).toBeVisible();
+        await page.goto(surface === 'home' ? '/' : `/video/${surface}`); await signIn(page);
+        await expect(page.locator(surface === 'home' ? '.h-hero' : '.g-browse-hero')).toBeVisible();
         const header = page.locator('.g-topbar');
         const opacity = () => header.evaluate((node) => {
           const color = getComputedStyle(node).backgroundColor;

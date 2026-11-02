@@ -10,6 +10,8 @@ export type { LibraryLens } from '../features/gallery/libraryLens';
 export const CHANNEL_PAGE_TABS = ['videos', 'live', 'shorts', 'playlists', 'library'] as const;
 export type ChannelPageTab = (typeof CHANNEL_PAGE_TABS)[number];
 
+export type VideoLibraryView = 'movies' | 'shows' | 'anime' | 'youtube' | 'recordings';
+
 export type StreamingView = 'home' | 'live' | 'search' | 'channels';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 

@@ -363,3 +363,17 @@
   .gallery.is-video-browse .g-toolbar > .g-chips { flex-basis: 100%; flex-wrap: nowrap; }
   .gallery.is-video-browse .g-toolbar > .g-sort { flex: 1 1 140px; }
 }
+
+/* Category discovery uses artwork only from matching, loaded titles in that library. */
+.gallery section.g-category-browse { margin-top: 20px; padding-top: 16px; }
+.gallery .g-category-browse .g-rail-head { margin-bottom: 12px; }
+.gallery .g-genre-strip { display: flex; gap: 12px; overflow-x: auto; margin-inline: -4px; padding: 6px 4px 12px; scroll-snap-type: x proximity; }
+.gallery .g-genre-tile { position: relative; flex: 0 0 180px; height: 104px; padding: 0; overflow: hidden; border: 0; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); color: var(--g-on-art); text-align: left; cursor: pointer; scroll-snap-align: start; }
+.gallery .g-genre-tile .g-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.gallery .g-genre-tile::after { position: absolute; inset: 0; background: linear-gradient(transparent, var(--g-overlay-halo)); content: ''; }
+.gallery .g-genre-copy { position: absolute; z-index: 1; inset: auto 12px 12px; }
+.gallery .g-genre-copy strong, .gallery .g-genre-copy small { display: block; }
+.gallery .g-genre-copy strong { font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
+.gallery .g-genre-copy small { font: var(--g-type-small); }
+.gallery .g-genre-tile[aria-pressed='true'] { box-shadow: inset 0 -3px var(--g-gold); }
+.gallery .g-genre-tile[aria-pressed='true'] .g-genre-copy { border-bottom: 2px solid var(--g-gold); padding-bottom: 4px; }

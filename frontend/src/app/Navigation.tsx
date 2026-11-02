@@ -2,20 +2,22 @@ import { Ellipsis, Server, X } from '../luminaIcons';
 import { memo, type ReactNode, useRef, useLayoutEffect, type RefObject } from 'react';
 
 import type { ServerNavigation } from '../types';
-import { isNavigationSurfaceAvailable } from './useServerNavigation';
+import { isNavigationSurfaceAvailable, videoLibraryViews } from './useServerNavigation';
 import { LuminaRouteIcon, type LuminaRouteIconName } from '../LuminaRouteIcons';
 import { BrandMark } from '../ui';
 import { moveFocus } from '../features/media/focusNav';
-import { type Surface } from './routes';
+import { type Surface, type VideoLibraryView } from './routes';
 
-type NavItem = { surface: Surface; label: string; icon: LuminaRouteIconName; view?: 'movies' | 'shows' };
+type NavItem = { surface: Surface; label: string; icon: LuminaRouteIconName; view?: VideoLibraryView };
 /** Navigation only, grouped. Video, Audio and Books each have their own destination. */
 export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[] }> = [
   { label: 'Watch', items: [
     { surface: 'home', label: 'Home', icon: 'home' },
     { surface: 'video', label: 'Movies', icon: 'movies', view: 'movies' },
     { surface: 'video', label: 'Shows', icon: 'shows', view: 'shows' },
-    { surface: 'video', label: 'All video', icon: 'library' },
+    { surface: 'video', label: 'Anime', icon: 'anime', view: 'anime' },
+    { surface: 'video', label: 'YouTube', icon: 'youtube', view: 'youtube' },
+    { surface: 'video', label: 'Recordings', icon: 'live', view: 'recordings' },
     { surface: 'audio', label: 'Music', icon: 'music' },
     { surface: 'books', label: 'Books', icon: 'books' },
     { surface: 'photos', label: 'Photos', icon: 'photos' },
@@ -38,17 +40,20 @@ export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, m
   navigation?: ServerNavigation | null;
   moreButtonRef?: RefObject<HTMLButtonElement | null>;
   videoView?: string;
-  onVideoView?: (view: 'movies' | 'shows') => void;
+  onVideoView?: (view: VideoLibraryView) => void;
   surface: Surface; activeDownloads: number; moreOpen: boolean; onNavigate: (surface: Surface) => void; onSearch: () => void; onMore: () => void;
 }) {
+  const views = videoLibraryViews(navigation);
+  const currentVideo = views.find((view) => view === videoView) ?? views[0];
+  const videoItem = navGroups[0].items.find((item) => item.view === currentVideo);
   const tab = (target: Surface, label: string, icon: LuminaRouteIconName) => {
     const active = surfaceIsActive(surface, target);
-    return <button aria-current={active ? 'page' : undefined} className={active ? 'is-active' : ''} key={target} onClick={() => target === 'video' && onVideoView && (navigation?.categories.includes('movies') || navigation?.categories.includes('tv')) ? onVideoView(videoView === 'shows' && navigation.categories.includes('tv') || !navigation.categories.includes('movies') ? 'shows' : 'movies') : onNavigate(target)} type="button"><LuminaRouteIcon route={icon} selected={active} /><span>{label}</span></button>;
+    return <button aria-current={active ? 'page' : undefined} className={active ? 'is-active' : ''} key={target} onClick={() => target === 'video' && onVideoView && currentVideo ? onVideoView(currentVideo) : onNavigate(target)} type="button"><LuminaRouteIcon route={icon} selected={active} /><span>{label}</span></button>;
   };
   return (
     <nav aria-label="Mobile primary navigation" className="g-mobile-tabs">
       {tab('home', 'Home', 'home')}
-      {surface === 'audio' && isNavigationSurfaceAvailable(navigation, 'audio') ? tab('audio', 'Music', 'music') : surface === 'books' && isNavigationSurfaceAvailable(navigation, 'books') ? tab('books', 'Books', 'books') : surface === 'photos' && isNavigationSurfaceAvailable(navigation, 'photos') ? tab('photos', 'Photos', 'photos') : isNavigationSurfaceAvailable(navigation, 'video') ? tab('video', videoView === 'shows' && navigation?.categories.includes('tv') || !navigation?.categories.includes('movies') && navigation?.categories.includes('tv') ? 'Shows' : navigation?.categories.includes('movies') ? 'Movies' : 'All video', videoView === 'shows' && navigation?.categories.includes('tv') || !navigation?.categories.includes('movies') && navigation?.categories.includes('tv') ? 'shows' : navigation?.categories.includes('movies') ? 'movies' : 'library') : null}
+      {surface === 'audio' && isNavigationSurfaceAvailable(navigation, 'audio') ? tab('audio', 'Music', 'music') : surface === 'books' && isNavigationSurfaceAvailable(navigation, 'books') ? tab('books', 'Books', 'books') : surface === 'photos' && isNavigationSurfaceAvailable(navigation, 'photos') ? tab('photos', 'Photos', 'photos') : videoItem ? tab('video', videoItem.label, videoItem.icon) : null}
       {isNavigationSurfaceAvailable(navigation, 'streaming') ? tab('streaming', 'Streaming', 'live') : null}
       {isNavigationSurfaceAvailable(navigation, 'requests') ? tab('requests', 'Requests', 'requests') : null}
       <button ref={moreButtonRef} onPointerDownCapture={(event) => { event.currentTarget.dataset.navigationKeyboard = 'false'; }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.currentTarget.dataset.navigationKeyboard = 'true'; }} aria-expanded={moreOpen} aria-haspopup="dialog" aria-label={activeDownloads ? `Browse, ${activeDownloads} active downloads` : 'Browse'} onClick={onMore} type="button">
@@ -63,7 +68,7 @@ export const NavigationPopover = memo(function NavigationPopover({ surface, acti
   navigation?: ServerNavigation | null;
   surface: Surface; activeDownloads: number; open: boolean; onNavigate: (surface: Surface) => void; onClose: () => void;
   anchorRef?: RefObject<HTMLButtonElement | null>;
-  onVideoView?: (view: 'movies' | 'shows') => void;
+  onVideoView?: (view: VideoLibraryView) => void;
   videoView?: string;
   pendingRequests?: number;
   onManageServer?: () => void;
@@ -121,7 +126,7 @@ export const NavigationPopover = memo(function NavigationPopover({ surface, acti
         {navGroups.map(({ label: group, items }) => (
           <div className="g-nav-group" key={group}>
             <h3 className="g-nav-group-label">{group}</h3>
-            {items.filter(({ surface: target, view }) => isNavigationSurfaceAvailable(navigation, target) && (!view || navigation?.categories.includes(view === 'shows' ? 'tv' : 'movies'))).map(({ surface: target, label, icon, view }) => {
+            {items.filter(({ surface: target, view }) => isNavigationSurfaceAvailable(navigation, target) && (!view || videoLibraryViews(navigation).includes(view))).map(({ surface: target, label, icon, view }) => {
               const active = surfaceIsActive(surface, target) && (target !== 'video' || (view ? videoView === view : !videoView || videoView === 'all')) && !(target === 'settings' && managingServer);
               const count = target === 'downloads' ? activeDownloads : target === 'requests' ? pendingRequests : 0;
               const countLabel = target === 'requests' ? 'waiting' : 'active';

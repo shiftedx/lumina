@@ -1,5 +1,5 @@
 /**
- * The Library's tab row: All, then each lens with something the member can see, and
+ * Video destinations use a utility row; embedded legacy libraries retain their scoped tabs and
  * the quiet Deleted link. It renders at once from the member's last sections answer, kept in localStorage, and follows
  * GET /api/library/sections.
  */
@@ -100,7 +100,7 @@ export type LibraryTabsProps = {
 };
 
 export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false, navigation }: LibraryTabsProps) {
-  const shownTabs = TABS.filter((tab) => {
+  const shownTabs = videoOnly ? [] : TABS.filter((tab) => {
     if (tab === 'all') return true;
     if (videoOnly && tab === 'music') return false;
     if (tab === 'recordings') return Boolean(navigation?.categories.includes('recordings')) && tabShown(tab, sections);
@@ -130,7 +130,7 @@ export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = fa
     <a aria-current={current === place ? 'page' : undefined} className={className} href={placePath(place)} key={place} onClick={(event) => followInApp(event, () => onOpen(place))}>{label}</a>
   );
   return (
-    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel="Library" as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
+    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel={videoOnly ? 'Library tools' : 'Library'} as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
       {shownTabs.map((tab) => link(tab, tab === 'all' ? 'All' : LENS_LABELS[tab], 'g-tab'))}
       {link('collections', 'Collections', 'g-tabs-deleted')}
       {deletedShown ? link('deleted', LENS_LABELS.deleted, 'g-tabs-deleted') : null}

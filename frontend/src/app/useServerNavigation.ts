@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getServerNavigation } from '../api';
 import type { ServerNavigation } from '../types';
-import type { Surface } from './routes';
+import type { Surface, VideoLibraryView } from './routes';
+
+/** The server's enabled, member-visible video libraries in navigation order. */
+export function videoLibraryViews(navigation: ServerNavigation | null | undefined): VideoLibraryView[] {
+  const categories = navigation?.categories ?? [];
+  return (['movies', 'shows', 'anime', 'youtube', 'recordings'] as const).filter((view) => categories.some((category) => category === (view === 'shows' ? 'tv' : view)));
+}
 
 export function isNavigationSurfaceAvailable(navigation: ServerNavigation | null | undefined, surface: Surface): boolean {
   if (surface === 'streaming' || surface === 'subscriptions') return Boolean(navigation?.features.streaming);

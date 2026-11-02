@@ -1,0 +1,23 @@
+/* YouTube's saved-library views share the gallery stage, then switch to creator-first labels and compact activity cues. */
+.gallery.g-youtube-browse .g-browse-hero::before { position: absolute; right: var(--g-gutter); bottom: 0; left: var(--g-gutter); z-index: 1; height: 2px; background: var(--g-gold); content: ''; opacity: .85; }
+.gallery.g-youtube-browse .g-browse-hero-copy { position: relative; z-index: 2; }
+.gallery .g-youtube-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.gallery .g-youtube-hero-actions .g-button { flex: none; }
+.gallery .g-youtube-hero-actions .g-youtube-creator-action { min-height: var(--g-control); padding-inline: 0; border: 0; background: transparent; color: var(--g-on-art); text-decoration: underline 1px var(--g-gold); text-underline-offset: 6px; }
+.gallery .g-youtube-hero-actions .g-youtube-creator-action:hover { background: transparent; color: var(--g-on-art); }
+.gallery .g-youtube-library-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.gallery .g-youtube-library-head h2 { margin: 0; font: var(--g-type-h2); letter-spacing: var(--g-track-chapter); text-wrap: balance; }
+.gallery .g-youtube-library-head .g-kicker { margin: 0; }
+.gallery .g-library-channels .g-channel-card { border-bottom: 1px solid transparent; padding-bottom: 4px; transition: border-color var(--g-hover), color var(--g-hover); }
+.gallery .g-library-channels .g-channel-card:hover { border-bottom-color: var(--g-gold); }
+.gallery .g-channel-card-activity { color: var(--g-gold-ink); font: var(--g-type-label); }
+
+@media (max-width: 599px) {
+  .gallery.g-youtube-browse .g-browse-hero::before { right: var(--g-gutter); left: var(--g-gutter); }
+  .gallery .g-youtube-library-head { display: block; }
+  .gallery .g-youtube-library-head h2 { margin-bottom: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery .g-library-channels .g-channel-card { transition: none; }
+}

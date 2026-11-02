@@ -9,9 +9,9 @@ import { type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, 
 import { flushSync } from 'react-dom';
 import { Search, SlidersHorizontal, X } from '../../luminaIcons';
 
-import { searchLibrary } from '../../api';
+import { getTitleFacets, searchLibrary } from '../../api';
 import { undoBatch } from '../titles/editor/editorActions';
-import type { LocalSearchMatch, SearchScope, TitleSort, TitleSummary, TitleType } from '../../types';
+import type { LocalSearchMatch, SearchScope, TitleFacets, TitleSort, TitleSummary, TitleType } from '../../types';
 import { Button, Select, useToast } from '../../ui';
 import { formatDuration } from '../../utils';
 import { moveFocus } from '../media/focusNav';
@@ -35,6 +35,53 @@ const SORTS: ReadonlyArray<[TitleSort, string, string]> = [['created', 'Recently
 export const RAIL = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 /** The title hits "Find the one where…" keeps per wall; the scope has already narrowed the category. */
 const HIT_TYPES: Partial<Record<WallKind, readonly TitleType[]>> = { movies: ['movie'], shows: ['series'], anime: ['movie', 'series'] };
+// Wall stores are member-scoped and discarded on session changes and library refresh.
+const browseFacetsByStore = new WeakMap<object, TitleFacets>();
+const BROWSE_COPY: Record<Extract<WallKind, 'movies' | 'shows' | 'anime'>, { title: string; body: string; spotlight: string }> = {
+  movies: { spotlight: 'Movie spotlight', title: 'Explore movies', body: 'Choose a genre or revisit an era.' },
+  shows: { spotlight: 'Series spotlight', title: 'Explore shows', body: 'Find the next series by genre or era.' },
+  anime: { spotlight: 'Anime spotlight', title: 'Explore anime', body: 'Browse your anime by genre or era.' },
+};
+
+function browseDecades(facets: TitleFacets): number[] {
+  if (!facets.years) return [];
+  const latest = Math.floor(facets.years.max / 10) * 10;
+  const earliest = Math.floor(facets.years.min / 10) * 10;
+  return Array.from({ length: 4 }, (_, index) => latest - index * 10).filter((year) => year >= earliest);
+}
+
+function CategoryBrowseRail({ wall, facets, query, titles, onChange }: { titles: TitleSummary[]; wall: Extract<WallKind, 'movies' | 'shows' | 'anime'>; facets: TitleFacets; query: WallQuery; onChange: (query: WallQuery) => void }) {
+  const copy = BROWSE_COPY[wall];
+  const genres = facets.genres.slice(0, 8);
+  const decades = browseDecades(facets);
+  if (!genres.length && !decades.length) return null;
+  const toggleGenre = (genre: string) => onChange({
+    ...query,
+    genre: query.genre.includes(genre) ? query.genre.filter((entry) => entry !== genre) : [...query.genre, genre].slice(0, 10),
+  });
+  const toggleDecade = (year: number) => onChange({
+    ...query,
+    from: query.from === year && query.to === year + 9 ? null : year,
+    to: query.from === year && query.to === year + 9 ? null : year + 9,
+  });
+  return (
+    <section aria-labelledby={`g-browse-${wall}`} className="g-rail g-category-browse">
+      <header className="g-rail-head"><h2 id={`g-browse-${wall}`}>{copy.title}</h2><p className="g-label">{copy.body}</p></header>
+      {genres.length ? <div aria-label={`Browse ${WALLS[wall].heading.toLowerCase()} by genre`} className="g-genre-strip" role="group">
+        {genres.map((genre, index) => {
+          const sample = titles.find((title) => title.genres.includes(genre.name));
+          return <button aria-label={`${genre.name}, ${genre.count.toLocaleString()} ${genre.count === 1 ? 'title' : 'titles'}`} aria-pressed={query.genre.includes(genre.name)} className="g-genre-tile" key={genre.name} onClick={() => toggleGenre(genre.name)} type="button">
+            <GalleryArt alt="" art={sample?.backdrop ?? sample?.poster} card={null} colour={sample ? cardColour(sample, 'backdrop') : { colour: fallbackColour(genre.name), fromPalette: true }} kind="backdrop" position={index} priority={3} sizes="180px" />
+            <span className="g-genre-copy"><strong>{genre.name}</strong><small>{genre.count.toLocaleString()} {genre.count === 1 ? 'title' : 'titles'}</small></span>
+          </button>;
+        })}
+      </div> : null}
+      {decades.length ? <div aria-label={`Browse ${WALLS[wall].heading.toLowerCase()} by era`} className="g-chips g-category-chips" role="group">
+        {decades.map((year) => <button aria-pressed={query.from === year && query.to === year + 9} className="g-chip g-button-text" key={year} onClick={() => toggleDecade(year)} type="button">{year}s</button>)}
+      </div> : null}
+    </section>
+  );
+}
 
 export type GalleryWallProps = {
   /** Which wall. */
@@ -56,6 +103,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   const def = WALLS[wall];
   const searchLabel = `Search ${def.heading.toLowerCase()}`;
   const videoBrowse = !header && ['movies', 'shows', 'anime'].includes(wall);
+  const browseWall = videoBrowse ? wall as Extract<WallKind, 'movies' | 'shows' | 'anime'> : null;
   const query = wallQueryFor(wall, state);
   const key = wallKey(wall, query);
   const store = useWallStore(key, wallListQuery(wall, query));
@@ -80,6 +128,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [browseFacets, setBrowseFacets] = useState<TitleFacets | null>(() => browseFacetsByStore.get(store) ?? null);
   const lastPick = useRef<number | null>(null);
   const selectButton = useRef<HTMLButtonElement>(null);
   const pick = (title: TitleSummary, index: number, shift: boolean) => {
@@ -110,6 +159,21 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     toast({ tone: 'success', message, action: batchId ? { label: 'Undo', onAction: undo } : undefined });
   };
   const [bubble, setBubble] = useState<{ letter: string; y: number } | null>(null);
+
+  useEffect(() => { if (browseFacets) browseFacetsByStore.set(store, browseFacets); }, [store, browseFacets]);
+
+  // The category masthead is only a shortcut into the same filtered catalog below it.
+  // Facets remain server-owned, so an empty or newly configured category never gains made-up genres or eras.
+  useEffect(() => {
+    if (!browseWall || !def.facets) return undefined;
+    const controller = new AbortController();
+    setBrowseFacets(browseFacetsByStore.get(store) ?? null);
+    getTitleFacets(def.facets, { signal: controller.signal }).then(
+      (next) => { if (!controller.signal.aborted) { browseFacetsByStore.set(store, next); setBrowseFacets(next); } },
+      () => undefined,
+    );
+    return () => controller.abort();
+  }, [browseWall, def.facets]);
 
   useEffect(() => {
     if (!announceNext.current || store.total === null) return;
@@ -239,7 +303,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
       {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? <ContextualSearch label={searchLabel}>{searchForm}</ContextualSearch> : null}</div> : lenses}
       {hero ? <section aria-label={hero.name} className="g-browse-hero">
         <HeroFrame className="g-browse-hero-art" src={hero.backdrop?.url ?? hero.poster?.url} placement="home"><GalleryArt alt="" art={hero.backdrop ?? hero.poster} card={null} colour={cardColour(hero, 'backdrop')} kind={hero.backdrop ? 'backdrop' : 'poster'} priority={1} sizes="100vw" /></HeroFrame>
-        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">In your library{hero.year ? ` · ${hero.year}` : ''}</p><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
+        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">{[browseWall ? BROWSE_COPY[browseWall].spotlight : 'In your library', hero.year, ...hero.genres.slice(0, 2)].filter(Boolean).join(' · ')}</p><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
       </section> : null}
       {header ? header(sortedBy) : (
         <header className="g-masthead" onKeyDown={downToGrid}>
@@ -250,6 +314,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
           ) : null}
         </header>
       )}
+      {browseWall && browseFacets && !query.q && !selecting ? <CategoryBrowseRail titles={Array.from({ length: Math.min(store.total ?? 0, 48) }, (_, index) => store.itemAt(index)).filter((title): title is TitleSummary => Boolean(title))} facets={browseFacets} onChange={refilter} query={query} wall={browseWall} /> : null}
       <div className={`g-toolbar${searchOpen ? ' is-searching' : ''}`} onKeyDown={toolbarKeys} ref={toolbar}>
         <label className="g-sort">
           <span className="g-label">Sort</span>

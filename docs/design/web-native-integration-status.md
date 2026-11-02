@@ -253,3 +253,6 @@ The production review build was updated to **324593c0b853ab23ed213be2da727a0f485
 ## Follow-up: clean drawer selection underline
 
 The selected web drawer item now uses a straight brand-gold underline without the filled rounded card. Strong selected label, full hit target, hover and keyboard focus behavior remain. The worker's eight focused browser checks passed across desktop/mobile, with light/dark screenshots in `output/nav-underline/`. The production build/style budgets passed in `output/nav-underline/build.log`. This is a presentation-only change; routes and capabilities are unchanged.
+
+
+The drawer underline is live at production source `c3f4a5acfdd126620f779198a49cb32751c852e7`. Service/configuration and public route/asset checks passed; all 399 recorded application files and 9 entry assets match the build. The previous review image remains protected by a stopped rollback pin; all 22 retained pins are stopped. Exact evidence is in ignored `output/web-native-deployment-c3f4a5ac/`. Native Home/header/focus follow-up work is isolated on `codex/native-home-navigation` at `370a9c4`; it is simulator-verified source, not a native distribution release.

@@ -54,6 +54,33 @@ describe('admin overview', () => {
     expect(screen.getByText('1 unavailable library item.')).not.toBeNull();
   });
 
+  it('leads with actionable snapshot health before neutral metrics without duplicating failures', async () => {
+    api.getAdminOverview.mockResolvedValue({ ...overview, roots: [{ ...overview.roots[0], state: 'low_space' }, overview.roots[1]], persistence: { job_update: { ...overview.persistence.job_update, busy_timeouts: 2 } } });
+    api.getAdminSettings.mockResolvedValue(settings);
+    render(<AdminOverview />);
+
+    const health = await screen.findByRole('region', { name: 'Server health' });
+    expect(within(health).getByRole('heading', { name: 'Needs attention' })).not.toBeNull();
+    expect(within(health).getByText('1 unavailable library item.')).not.toBeNull();
+    expect(within(health).getByText('Media: Low space')).not.toBeNull();
+    expect(within(health).getByText('1 database write error since the server started.')).not.toBeNull();
+    expect(within(health).getByText('2 database busy timeouts since the server started.')).not.toBeNull();
+    expect(within(health).getByText('HTTP Error 403: Forbidden')).not.toBeNull();
+    expect(screen.getAllByText('HTTP Error 403: Forbidden')).toHaveLength(1);
+    const metrics = screen.getByText('Library items').closest('.g-stat')!;
+    expect(health.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('bounds a clear snapshot to the issues its data reports', async () => {
+    api.getAdminOverview.mockResolvedValue({ ...overview, library_items_by_status: { available: 42, missing: 2 }, missing_media: { retired_versions: 2, unreplaced_items: 0 }, recent_failures: [], persistence: { job_update: { ...overview.persistence.job_update, errors: 0, busy_timeouts: 0 } } });
+    api.getAdminSettings.mockResolvedValue(settings);
+    render(<AdminOverview />);
+
+    const health = await screen.findByRole('region', { name: 'Server health' });
+    expect(within(health).getByText('No issues reported by this snapshot.')).not.toBeNull();
+    expect(within(health).queryByRole('heading', { name: 'Needs attention' })).toBeNull();
+  });
+
   it('Overview is a stat strip of tabular figures with labels, and states are words with an icon', async () => {
     api.getAdminOverview.mockResolvedValue(overview);
     api.getAdminSettings.mockResolvedValue(settings);
@@ -98,15 +125,13 @@ describe('admin overview', () => {
     api.updateAdminSettings.mockRejectedValueOnce(new Error('Input should be less than or equal to 8')).mockResolvedValueOnce({ ...settings, concurrency: 4 });
     render(<SettingsHostContext.Provider value={{ user: admin }}><SectionRows section={sectionById('overview')!} /></SettingsHostContext.Provider>);
     const concurrency = await screen.findByRole('spinbutton', { name: 'Simultaneous downloads' });
-    const save = screen.getByRole('button', { name: 'Save download limits' }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
     expect(screen.getByRole('button', { name: 'About Downloads at once' })).toBeTruthy();
     await browser.clear(concurrency);
     await browser.type(concurrency, '4');
-    await browser.click(save);
+    await browser.click(screen.getByRole('button', { name: 'Save download limits' }));
     expect((await screen.findByText('Input should be less than or equal to 8')).closest('[role="alert"]')).not.toBeNull();
     expect((concurrency as HTMLInputElement).value).toBe('4');
-    await browser.click(save);
+    await browser.click(screen.getByRole('button', { name: 'Save download limits' }));
     expect(await screen.findByText(/^Saved\./)).not.toBeNull();
     expect(api.updateAdminSettings).toHaveBeenLastCalledWith({ concurrency: 4, max_active_jobs_per_user: 25, min_free_disk_mb: 2048 });
     expect(api.getAdminOverview).toHaveBeenCalledTimes(2);
@@ -120,14 +145,13 @@ describe('admin overview', () => {
     render(<SettingsHostContext.Provider value={{ user: admin }}><SectionRows section={sectionById('overview')!} /></SettingsHostContext.Provider>);
     const ports = await screen.findByRole('textbox', { name: 'Extra allowed source ports' }) as HTMLInputElement;
     expect(ports.value).toBe('8000');
-    const save = screen.getByRole('button', { name: 'Save download limits' });
     await browser.type(ports, ', icecast');
-    await browser.click(save);
+    await browser.click(screen.getByRole('button', { name: 'Save download limits' }));
     expect(await screen.findByText(/Enter port numbers separated by commas/)).not.toBeNull();
     expect(api.updateAdminSettings).not.toHaveBeenCalled();
     await browser.clear(ports);
     await browser.type(ports, '8080 8000');
-    await browser.click(save);
+    await browser.click(screen.getByRole('button', { name: 'Save download limits' }));
     expect(await screen.findByText(/^Saved\./)).not.toBeNull();
     expect(api.updateAdminSettings).toHaveBeenLastCalledWith({ concurrency: 2, max_active_jobs_per_user: 25, min_free_disk_mb: 2048, extra_source_ports: [8080, 8000] });
     await waitFor(() => expect(ports.value).toBe('8000, 8080'));

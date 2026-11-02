@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.models import ArrServer, MediaRequest, MediaRequestFollower, RequestPolicy, User, utcnow
 from app.persistence import write_transaction
 from app.services import tmdb, two_factor
-from app.services.requests import notify, status as catalog_status
+from app.services.requests import languages, notify, status as catalog_status
 from app.services.requests.arr import ArrClient, ArrError, add_movie, add_series
 from app.services.yt_dlp_service import YtDlpService
 
@@ -172,12 +172,20 @@ def create(db: Session, user: User, body: dict[str, Any]) -> tuple[MediaRequest,
         raise RequestError(403, "not_allowed")
     seasons = None if media_type == "movie" else body.get("seasons") or "all"
     language = body.get("language") if kind == "anime" and media_type == "tv" else None
-    if kind == "anime" and media_type == "tv" and language not in ("dub", "sub"):
+    audio = languages.code(body.get("audio_language"))
+    subtitles = languages.code(body.get("subtitle_language"))
+    legacy = {"dub": ("en", None), "sub": ("ja", "en")}.get(language)
+    if legacy and (audio is not None or subtitles is not None) and (audio, subtitles) != legacy:
+        raise RequestError(422, "conflicting_language_preferences")
+    if legacy:
+        audio, subtitles = legacy
+    if kind == "anime" and media_type == "tv" and language not in ("dub", "sub") and audio is None and subtitles is None:
         raise RequestError(422, "language_required")
     no_approval = admin or policy_for(db, user.id, kind)["auto_approve"]
 
     same = list(db.scalars(select(MediaRequest).where(MediaRequest.media_type == media_type, MediaRequest.tmdb_id == tmdb_id)
                            .order_by(MediaRequest.created_at)))
+    same = [r for r in same if languages.preference(r) == (audio, subtitles)]
     opens = [r for r in same if r.status in OPEN]
     covering = next((r for r in opens if media_type == "movie" or _covers(r.seasons, seasons)), None)
     if opens:
@@ -199,7 +207,8 @@ def create(db: Session, user: User, body: dict[str, Any]) -> tuple[MediaRequest,
         for r in opens:
             have = _merge_seasons(have, r.seasons)
         seasons = _extra_seasons(have, seasons)
-    elif any(r.status == "available" and (media_type == "movie" or _covers(r.seasons, seasons)) for r in same) or (
+    elif audio is None and subtitles is None and (
+        any(r.status == "available" and (media_type == "movie" or _covers(r.seasons, seasons)) for r in same) or
         media_type == "movie" and catalog_status.library_title_for(db, user, "movie", tmdb_id, None)
     ):
         raise RequestError(409, "already_available")
@@ -207,7 +216,7 @@ def create(db: Session, user: User, body: dict[str, Any]) -> tuple[MediaRequest,
     req = MediaRequest(
         id=str(uuid.uuid4()), kind=kind, media_type=media_type, tmdb_id=tmdb_id, tvdb_id=found["tvdb_id"],
         anilist_id=found["anilist_id"], title=found["title"], year=found["year"], poster_url=found["poster_url"],
-        seasons=seasons, language=language, status="approved" if no_approval else "pending", requested_by=user.id,
+        seasons=seasons, language=language, audio_language=audio, subtitle_language=subtitles, status="approved" if no_approval else "pending", requested_by=user.id,
         decided_by=user.id if admin else None, decided_at=now if no_approval else None, created_at=now, updated_at=now,
     )
     with write_transaction(db, name="request_create"):
@@ -222,14 +231,26 @@ def create(db: Session, user: User, body: dict[str, Any]) -> tuple[MediaRequest,
     return req, True
 
 
-def approve(db: Session, admin: User, req: MediaRequest, seasons: Any = None, language: str | None = None) -> None:
+def approve(db: Session, admin: User, req: MediaRequest, seasons: Any = None, language: str | None = None, preferences: dict | None = None) -> None:
     if req.status != "pending":
         raise RequestError(409, "not_pending")
+    if language in ("dub", "sub") and preferences:
+        expected_audio, expected_subtitles = {"dub": ("en", None), "sub": ("ja", "en")}[language]
+        if ("audio_language" in preferences and languages.code(preferences["audio_language"]) != expected_audio or
+                "subtitle_language" in preferences and languages.code(preferences["subtitle_language"]) != expected_subtitles):
+            raise RequestError(422, "conflicting_language_preferences")
     with write_transaction(db, name="request_approve"):
         if seasons is not None and req.media_type == "tv":
             req.seasons = seasons
         if language in ("dub", "sub") and req.kind == "anime" and req.media_type == "tv":
             req.language = language
+        if language in ("dub", "sub") and req.kind == "anime" and req.media_type == "tv":
+            req.audio_language, req.subtitle_language = {"dub": ("en", None), "sub": ("ja", "en")}[language]
+        for field in ("audio_language", "subtitle_language"):
+            if field in (preferences or {}):
+                setattr(req, field, languages.code(preferences[field]))
+        if (preferences or {}).keys() & {"audio_language", "subtitle_language"} and language is None:
+            req.language = None
         req.status, req.decided_by, req.decided_at = "approved", admin.id, utcnow()
         notify.request_event(db, req, "approved")
     dispatch(db, req)
@@ -273,6 +294,11 @@ def dispatch(db: Session, req: MediaRequest, *, followup: bool = False) -> None:
 
     A ``followup`` (extra seasons on a request already running) that fails is logged and leaves the request as it was.
     """
+    if languages.mode(req, db) == "manual":
+        from app.services.requests import sync
+
+        sync.wake()
+        return
     server = server_for(db, req.media_type)
     item_id, error = None, None
     try:
@@ -330,11 +356,12 @@ def serialize(db: Session, requests: list[MediaRequest], viewer: User | None = N
         item = {
             "id": r.id, "kind": r.kind, "media_type": r.media_type, "key": key_of(r), "tmdb_id": r.tmdb_id, "tvdb_id": r.tvdb_id,
             "anilist_id": r.anilist_id, "title": r.title, "year": r.year, "poster_url": r.poster_url, "seasons": r.seasons,
-            "language": r.language, "status": "approved" if withheld and r.status in ("available", "partially_available") else r.status,
+            "language": r.language, "audio_language": languages.preference(r)[0], "subtitle_language": languages.preference(r)[1],
+            "fulfillment_mode": languages.mode(r, db), "status": "approved" if withheld and r.status in ("available", "partially_available") else r.status,
             "progress": r.progress, "requested_by": person(r.requested_by),
             "followers": [person(u) for u in followers[r.id]], "decided_by": person(r.decided_by) if r.decided_by else None,
             "decline_reason": r.decline_reason, "failure_reason": r.failure_reason, "library_title_id": None if withheld else r.library_title_id,
             "created_at": r.created_at.isoformat() + "Z", "updated_at": r.updated_at.isoformat() + "Z",
         }
-        items.append({k: v for k, v in item.items() if v is not None or k in ("seasons", "language")})
+        items.append({k: v for k, v in item.items() if v is not None or k in ("seasons", "language", "audio_language", "subtitle_language")})
     return items

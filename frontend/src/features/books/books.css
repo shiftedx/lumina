@@ -288,7 +288,7 @@
 .books-title-cover progress { width: 100%; }
 .books-title-story { min-width: 0; }
 .books-title-heading > .g-kicker { margin: 0 0 12px; color: var(--g-gold-ink); }
-.books-title-heading h1 { margin: 0; font: italic 600 clamp(34px, 3.4vw, 56px) / 1.08 var(--g-serif); text-wrap: balance; overflow-wrap: break-word; }
+.books-title-heading h1 { margin: 0; font: italic 600 var(--g-media-title-size, 3rem) / 1.08 var(--g-serif); text-wrap: balance; overflow-wrap: break-word; }
 .books-title-author { margin: var(--g-space-4) 0 0; color: var(--g-ink-2); font: 400 21px / 1.4 var(--g-serif); }
 .books-title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: var(--g-space-5) 0 var(--g-space-6); }
 .books-title-actions > .g-button { margin-right: 8px; }
@@ -296,6 +296,12 @@
 .books-title-synopsis p { margin: 0 0 16px; font: 400 19px / 1.65 var(--g-serif); white-space: pre-line; color: var(--g-ink); overflow-wrap: break-word; }
 .books-title-genres { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; list-style: none; margin: var(--g-space-5) 0 0; color: var(--g-ink-2); font: var(--g-type-small); }
 .books-title-genres li { background: var(--g-paper-2); border-radius: 4px; padding: 5px 9px; }
+.books-title-chapters { margin-top: var(--g-space-6); border-top: var(--g-rule); padding-top: var(--g-space-5); }
+.books-title-chapters h2 { margin: 0 0 var(--g-space-3); font: var(--g-type-h2); }
+.books-title-chapters ol { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.books-title-chapters button { align-items: baseline; background: none; border: 0; color: var(--g-ink); cursor: pointer; display: flex; font: var(--g-type-ui); gap: var(--g-space-3); min-height: 44px; padding: 8px 0; text-align: left; width: 100%; }
+.books-title-chapters button > span { color: var(--g-ink-2); flex: 0 0 64px; font: var(--g-type-small); }
+.books-title-chapters button:hover { color: var(--g-gold-ink); }
 .books-title-information { min-width: 0; padding-left: var(--g-space-5); border-left: var(--g-rule); }
 .books-title-information section + section { margin-top: var(--g-space-6); }
 .books-title-information dl { margin: 0; display: grid; gap: 16px; }
@@ -332,9 +338,9 @@
   .books-title-story { display: contents; }
   .books-title-heading { grid-column: 2; grid-row: 1; }
   .books-title-heading > .g-kicker { font-size: 12px; }
-  .books-title-heading h1 { font-size: 30px; }
+  .books-title-heading h1 { font-size: var(--g-media-title-size, 2.125rem); }
   .books-title-author { font-size: 18px; }
-  .books-title-actions, .books-title-synopsis, .books-title-genres, .books-title-information, .books-title-story > .books-form-error { grid-column: 1 / -1; }
+  .books-title-actions, .books-title-synopsis, .books-title-genres, .books-title-chapters, .books-title-information, .books-title-story > .books-form-error { grid-column: 1 / -1; }
   .books-title-actions { justify-content: flex-start; margin: 0; }
   .books-title-synopsis p { font-size: 18px; }
   .books-title-synopsis p:last-child { margin-bottom: 0; }
@@ -346,3 +352,115 @@
 .books-reader-format .g-select, .books-reader-format .g-select-trigger { width: 100%; min-width: 0; }
 .books-reader-format .g-select-trigger { min-height: 44px; color: var(--g-ink); background: var(--g-paper-2); font: var(--g-type-small); border: 0; border-radius: 4px; padding: 8px; }
 @media (max-width: 699px) { .books-reader-format { max-width: 110px; } }
+
+/* Approved A composition: real cover art makes the library feel like a place to read,
+   while all catalog controls and actions remain in the ordinary content flow. */
+.books-surface { max-width: 1600px; }
+.books-overview { gap: 48px; }
+.books-overview.is-sparse.has-reading { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
+.books-overview-hero, .books-series-hero, .books-title-hero { position: relative; isolation: isolate; overflow: hidden; color: var(--g-overlay-ink); background: var(--g-reader-dark-paper); }
+.books-overview-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); min-height: 500px; align-items: center; gap: clamp(32px, 7vw, 120px); padding: clamp(40px, 6vw, 80px); margin: -8px calc(var(--g-gutter) * -1) 0; }
+.books-overview-hero-art, .books-series-hero-art, .books-title-hero-art { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .88; }
+.books-overview-hero-shade, .books-series-hero-shade, .books-title-hero-shade { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--g-reader-dark-paper) 94%, transparent) 0%, color-mix(in srgb, var(--g-reader-dark-paper) 72%, transparent) 44%, color-mix(in srgb, var(--g-reader-dark-paper) 38%, transparent) 100%); }
+.books-overview-hero-copy, .books-series-hero-copy { min-width: 0; max-width: 680px; }
+.books-overview-hero .g-kicker, .books-series-hero .g-kicker, .books-title-hero .g-kicker { margin: 0 0 14px; color: var(--g-brand); }
+.books-overview-hero h2, .books-series-hero h1, .books-title-heading h1 { margin: 0; color: inherit; font: 400 var(--g-media-title-size) / 1.04 var(--g-serif); letter-spacing: -.025em; text-wrap: balance; overflow-wrap: anywhere; }
+.books-overview-hero-copy > p:not(.g-kicker), .books-series-hero .books-detail-author { margin: 16px 0 0; color: var(--g-overlay-ink-2); font: 400 20px / 1.35 var(--g-serif); }
+.books-overview-hero-progress { display: grid; max-width: 360px; gap: 8px; margin: 28px 0; }
+.books-overview-hero progress, .books-title-hero progress { background: var(--g-overlay-track); }
+.books-overview-hero progress::-webkit-progress-bar, .books-title-hero progress::-webkit-progress-bar { background: var(--g-overlay-track); }
+.books-overview-hero-progress small { color: var(--g-overlay-ink-2); font: var(--g-type-small); }
+.books-overview-hero-cover { display: block; width: min(100%, 286px); justify-self: center; transform: rotate(4deg); filter: drop-shadow(0 24px 26px color-mix(in srgb, var(--g-overlay-bg) 45%, transparent)); transition: transform 180ms ease; }
+.books-overview-hero-cover:hover { transform: rotate(1deg) translateY(-4px); }
+.books-overview-hero-cover .books-cover { box-shadow: 0 0 0 1px var(--g-overlay-rule); }
+.books-overview-reading { padding-top: 0; }
+.books-overview .books-section > header, .books-section > header { align-items: baseline; justify-content: space-between; }
+.books-section h2, .books-first-shelf h2 { font: 400 var(--g-section-title-size, 28px) / 1.15 var(--g-serif); letter-spacing: -.015em; }
+.books-cover-grid { grid-template-columns: repeat(auto-fill, minmax(154px, 1fr)); gap: 36px 24px; }
+.books-card-art .books-cover, .books-card-art { border-radius: 3px; }
+.books-card-art { box-shadow: 0 12px 24px color-mix(in srgb, var(--g-ink) 14%, transparent); transition: transform 180ms ease, box-shadow 180ms ease; }
+.books-card:hover .books-card-art { transform: translateY(-4px); box-shadow: 0 20px 28px color-mix(in srgb, var(--g-ink) 19%, transparent); }
+.books-card-caption { padding: 13px 20px 0 0; }
+.books-card-title { font-weight: 400; font-size: 18px; }
+.books-cover-fallback > strong { font-style: normal; font-weight: 400; }
+.books-series-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 278px); min-height: 450px; align-items: center; gap: clamp(28px, 8vw, 130px); padding: clamp(36px, 6vw, 76px); margin: 0 calc(var(--g-gutter) * -1) 48px; }
+.books-series-hero-copy { position: relative; z-index: 0; }
+.books-series-hero .books-detail-facts, .books-series-hero .books-detail-position { color: var(--g-overlay-ink-2); }
+.books-series-hero .books-description { margin: 20px 0; color: var(--g-overlay-ink); font: 400 18px / 1.55 var(--g-serif); }
+.books-series-hero-cover { width: min(100%, 250px); justify-self: center; transform: rotate(4deg); filter: drop-shadow(0 24px 26px color-mix(in srgb, var(--g-overlay-bg) 48%, transparent)); }
+.books-series-hero-cover .books-cover { border-radius: 3px; }
+.books-series-volumes { margin-inline: 0; }
+.books-title-detail { display: block; margin: 0 0 var(--g-space-7); }
+.books-title-hero { display: grid; grid-template-columns: minmax(190px, 278px) minmax(0, 1fr); align-items: center; gap: clamp(28px, 6vw, 96px); min-height: 448px; padding: clamp(36px, 6vw, 76px); margin: 0 calc(var(--g-gutter) * -1); }
+.books-title-hero .books-title-cover { position: relative; z-index: 0; width: min(100%, 278px); justify-self: center; }
+.books-title-hero .books-title-cover .books-cover { border-radius: 3px; box-shadow: 0 24px 30px color-mix(in srgb, var(--g-overlay-bg) 48%, transparent); }
+.books-title-hero .books-title-status { color: var(--g-overlay-ink-2); }
+.books-title-hero .books-title-story { position: relative; z-index: 0; }
+.books-title-heading > .g-kicker { color: var(--g-brand); }
+.books-title-author { color: var(--g-overlay-ink-2); }
+.books-title-actions { margin: var(--g-space-5) 0 0; }
+.books-title-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: clamp(32px, 6vw, 92px); margin-top: clamp(36px, 5vw, 72px); }
+.books-title-reading { min-width: 0; max-width: 760px; }
+.books-title-synopsis h2, .books-title-information h2, .books-title-chapters h2 { font: 400 var(--g-section-title-size, 28px) / 1.2 var(--g-serif); }
+.books-title-synopsis p { font: 400 18px / 1.65 var(--g-serif); }
+.books-title-information { padding-left: clamp(20px, 3vw, 48px); }
+.books-title-management { margin-top: var(--g-space-6); }
+.books-prose h1, .books-prose h2 { font: 400 32px / 1.25 var(--g-serif); }
+@media (max-width: 799px) {
+  .books-overview-hero, .books-series-hero, .books-title-hero { margin-inline: calc(var(--g-gutter) * -1); padding: 36px var(--g-gutter); }
+  .books-overview-hero { grid-template-columns: minmax(0, 1fr) minmax(116px, 34vw); min-height: 420px; gap: 24px; }
+  .books-overview-hero-cover { width: min(100%, 154px); }
+  .books-overview-hero-copy > p:not(.g-kicker), .books-series-hero .books-detail-author { font-size: 17px; }
+  .books-series-hero { grid-template-columns: minmax(0, 1fr) minmax(118px, 34vw); min-height: 390px; gap: 24px; margin-bottom: 36px; }
+  .books-series-hero-cover { width: min(100%, 156px); }
+  .books-series-hero .books-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .books-title-hero { grid-template-columns: 112px minmax(0, 1fr); min-height: 0; gap: 20px; }
+  .books-title-hero .books-title-cover { width: 112px; }
+  .books-title-hero .books-title-cover .books-cover-fallback > strong { font-size: 16px; }
+  .books-title-content { grid-template-columns: minmax(0, 1fr); gap: 36px; margin-top: 36px; }
+  .books-title-information { padding: 28px 0 0; border-top: var(--g-rule); border-left: 0; }
+}
+@media (max-width: 499px) {
+  .books-overview-hero { grid-template-columns: minmax(0, 1fr) 104px; min-height: 390px; gap: 16px; }
+  .books-overview-hero-copy .g-kicker { margin-bottom: 10px; }
+  .books-overview-hero-progress { margin: 20px 0; }
+  .books-overview-hero-cover { width: 104px; }
+  .books-overview-hero-copy > p:not(.g-kicker) { font-size: 16px; }
+  .books-series-hero { grid-template-columns: minmax(0, 1fr) 102px; min-height: 370px; gap: 16px; }
+  .books-series-hero-cover { width: 102px; }
+  .books-series-hero .books-detail-facts { font-size: 12px; }
+  .books-series-hero .books-detail-actions { gap: 8px; }
+  .books-title-hero { gap: 16px; }
+  .books-title-actions { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .books-card-art, .books-overview-hero-cover { transition: none; } }
+
+/* A's reading stage starts at the viewport edge; context floats above its artwork. */
+.books-surface:has(.books-overview-hero, .books-title-hero, .books-series-hero) { position: relative; max-width: none; padding-top: 0; }
+.books-surface:has(.books-overview-hero) > .g-masthead { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); right: var(--g-gutter); margin: 0; padding: 0; border: 0; }
+.books-surface:has(.books-overview-hero) > .g-masthead .g-masthead-copy { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.books-surface:has(.books-overview-hero) > .g-masthead .g-button { color: var(--g-on-art); }
+.books-surface:has(.books-overview-hero) > .g-tab-scroller { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); left: var(--g-gutter); right: calc(var(--g-gutter) + 250px); }
+.books-surface:has(.books-overview-hero) .books-tabs { margin: 0; border: 0; }
+.books-surface:has(.books-overview-hero) .books-tabs a { color: var(--g-on-art); }
+.books-surface .books-overview-hero { min-height: 600px; margin-top: 0; padding: 220px var(--g-gutter) 56px; }
+.books-overview-hero-shade, .books-title-hero-shade, .books-series-hero-shade { background: var(--g-stage-shade); }
+.books-surface .books-overview-hero .g-button.is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
+.books-surface:has(.books-title-hero, .books-series-hero) > .books-back { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); left: var(--g-gutter); color: var(--g-on-art); }
+.books-surface :is(.books-title-hero, .books-series-hero) { min-height: 560px; padding-top: 168px; }
+@media (max-width: 680px) {
+  .books-surface:has(.books-overview-hero) > .g-tab-scroller { right: var(--g-gutter); }
+  .books-surface:has(.books-overview-hero) > .g-masthead { top: calc(var(--g-topbar) + 70px); }
+  .books-surface .books-overview-hero { min-height: 640px; padding-top: 254px; padding-bottom: 40px; }
+  .books-surface :is(.books-title-hero, .books-series-hero) { padding-top: 218px; }
+}
+
+
+.books-surface :is(.books-overview-hero, .books-title-hero, .books-series-hero) .g-button:not(.is-primary) { color: var(--g-on-art); }
+.books-surface :is(.books-title-hero, .books-series-hero) .g-button.is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
+
+@media (min-width: 1101px) {
+  .books-overview.is-sparse:has(> .books-overview-hero) { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
+  .books-overview.is-sparse:has(> .books-overview-hero):has(> .books-overview-reading) { grid-template-areas: 'hero hero' 'reading reading' 'additions shelves' 'additions discover'; }
+  .books-overview.is-sparse > .books-overview-hero { grid-area: hero; }
+}

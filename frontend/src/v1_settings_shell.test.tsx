@@ -27,25 +27,25 @@ const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & stre
 const server = ['Overview & activity', 'Household', 'Library & storage', 'Connections', 'AI features', 'Maintenance', 'About Lumina'];
 
 describe('flat settings workspaces', () => {
-  it('opens playback controls immediately, with all personal areas directly available', () => {
-    shell({ onPlaybackMaxHeightChange: vi.fn() });
+  it('opens Profile by default, with all personal areas directly available', () => {
+    shell({ onUpdateDisplayName: vi.fn() });
     expect(categoryNames()).toEqual(personal);
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'Maximum quality' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'My settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Profile & security' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Display name' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'All settings' })).toBeNull();
-    expect(screen.queryByRole('combobox', { name: 'Settings page' })).toBeNull();
+    expect((screen.getByRole('combobox', { name: 'Choose settings section' }) as HTMLSelectElement).value).toBe('profile');
   });
 
-  it('exposes personal and household areas together for owners without preloading other areas', () => {
+  it('keeps an owner in one six-category space without preloading other areas', () => {
     shell({ user: admin });
-    expect(categoryNames()).toEqual([...personal.slice(0, -1), ...server]);
+    expect(categoryNames()).toEqual(personal);
     expect(api.listUsers).not.toHaveBeenCalled();
     expect(api.listBackups).not.toHaveBeenCalled();
   });
 
   it('shows every playback group without another navigation step', async () => {
-    shell({ onPlaybackMaxHeightChange: vi.fn() });
+    shell({ onPlaybackMaxHeightChange: vi.fn(), section: 'playback' });
     const quality = screen.getByRole('combobox', { name: 'Maximum quality' });
     expect(quality.closest('details')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
@@ -70,7 +70,7 @@ describe('flat settings workspaces', () => {
     shell({ user: admin, section: 'tasks' });
     expect(within(nav()).getByRole('link', { name: 'Maintenance' }).getAttribute('aria-current')).toBe('page');
     expect(await screen.findByRole('heading', { name: 'Background tasks' })).toBeTruthy();
-    expect(screen.queryByText('Advanced options', { selector: 'summary' })).toBeNull();
+    expect(screen.getAllByText('Advanced settings', { selector: 'summary' }).length).toBeGreaterThan(0);
   });
 
   it('refuses owner-only links for a member without fetching admin data', () => {
@@ -110,16 +110,19 @@ describe('flat settings workspaces', () => {
     render(<><Dirty /><SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onLocation={onLocation} section="playback" user={admin} /></>);
     await userEvent.click(within(nav()).getByRole('link', { name: 'Display' }));
     await userEvent.click(screen.getByRole('link', { name: 'Subtitles' }));
-    await userEvent.click(within(nav()).getByRole('link', { name: 'Library & storage' }));
+    await userEvent.click(within(nav()).getByRole('link', { name: 'Downloads' }));
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'x');
     expect(confirm).toHaveBeenCalledTimes(3);
     expect(onLocation).not.toHaveBeenCalled();
     expect(screen.queryByRole('region', { name: 'Search results' })).toBeNull();
   });
 
-  it('keeps playback tuning visible alongside captions and skipping', () => {
+  it('keeps playback tuning reachable beside captions and skipping', async () => {
     shell({ section: 'playback', remotePlaybackCache: { enabled: true, recent_video_limit: 5, storage_limit_mb: 2048 } });
-    expect(document.getElementById('setting-playback-stream-cache')?.closest('details')).toBeNull();
+    const cache = document.getElementById('setting-playback-stream-cache')!;
+    expect(cache.closest('details')).toBeTruthy();
+    await userEvent.click(screen.getByText('Advanced settings', { selector: 'summary' }));
+    expect(cache.closest('details')?.open).toBe(true);
     expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Skip automatically' })).toBeTruthy();
   });

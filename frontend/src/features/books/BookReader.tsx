@@ -51,7 +51,7 @@ function hasChapterContent(nodes: BookNode[], depth = 0): boolean {
   ));
 }
 
-export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange }: { bookId: string; userId: string; onBack: () => void; onBookChange: (book: Book) => void; onFileChange?: (id: string) => void }) {
+export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange, initialPage }: { bookId: string; userId: string; onBack: () => void; onBookChange: (book: Book) => void; onFileChange?: (id: string) => void; initialPage?: number }) {
   const [manifest, setManifest] = useState<BookReaderManifest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -89,13 +89,14 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
   const alive = useRef(true);
   const book = manifest?.book;
   const count = Math.max(1, book?.format !== 'epub' ? manifest?.page_count ?? 0 : manifest?.chapters.length ?? 0);
+  const illustratedChapters = book?.format !== 'epub' ? manifest?.chapters.filter((chapter): chapter is { label: string; start_page: number } => Number.isInteger(chapter.start_page) && chapter.start_page! >= 0 && chapter.start_page! < count) ?? [] : [];
 
   useEffect(() => {
     const controller = new AbortController();
     setLoadError(null); setManifest(null); setLoadedChapter(null); setPrefetchedChapter(null); ready.current = false; pendingTurn.current = null;
     getBookReader(bookId, controller.signal).then((next) => {
       const total = next.book.format !== 'epub' ? next.page_count : next.chapters.length;
-      const first = clamp(next.book.progress.unit_index, 0, Math.max(0, total - 1));
+      const first = clamp(next.book.format !== 'epub' && Number.isInteger(initialPage) ? initialPage! : next.book.progress.unit_index, 0, Math.max(0, total - 1));
       checkpoint.current = { unit_index: first, offset: clamp(next.book.progress.offset, 0, 1) };
       // Opening a reader is itself reading activity: the checkpoint refresh also updates last_read_at.
       // Debounce it so the first navigation can coalesce into the same write.
@@ -105,7 +106,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       setUnit(first); setManifest(next); setContentsOpen(window.innerWidth >= 1400 && next.book.format === 'epub');
     }).catch((error: unknown) => { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'The book could not be opened.'); });
     return () => controller.abort();
-  }, [bookId, retry, userId]);
+  }, [bookId, initialPage, retry, userId]);
 
   useEffect(() => setPageDraft(String(unit + 1)), [unit]);
 
@@ -295,17 +296,17 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       <h1 className="books-reader-title" tabIndex={-1}><span>Books / </span>{book.title}</h1>
       <div className="books-reader-tools">
         {onFileChange && book.files && book.files.length > 1 ? <div className="books-reader-format"><span className="sr-only">Read format</span><Select aria-label="Read format" disabled={busy} onChange={(event) => { const id = event.target.value; if (id === book.id) return; void persist().then((saved) => { if (saved || !ready.current) { ready.current = false; onFileChange(id); } }); }} value={book.id}>{book.files.map((file) => <option disabled={!file.available} key={file.id} value={file.id}>{file.format.toUpperCase()} · {file.filename}</option>)}</Select></div> : null}
-        <IconButton aria-controls="book-contents" aria-expanded={contentsOpen} icon={<List />} label={book.format === 'epub' ? 'Chapters' : 'Pages'} onClick={() => { setContentsOpen((value) => !value); setAppearanceOpen(false); }} />
+        <IconButton aria-controls="book-contents" aria-expanded={contentsOpen} icon={<List />} label={book.format === 'epub' || illustratedChapters.length ? 'Chapters' : 'Pages'} onClick={() => { setContentsOpen((value) => !value); setAppearanceOpen(false); }} />
         <IconButton aria-controls="book-appearance" aria-expanded={appearanceOpen} icon={<Settings2 />} label="Reading appearance" onClick={() => { setAppearanceOpen((value) => !value); if (window.innerWidth < 1000) setContentsOpen(false); }} />
         <IconButton aria-pressed={book.reading_list} icon={<Bookmark />} label={book.reading_list ? 'Remove from reading list' : 'Add to reading list'} onClick={() => { void updateBookState(bookId, { reading_list: !book.reading_list }).then((updated) => { setManifest((value) => value ? { ...value, book: { ...updated, progress: value.book.progress, reading_file_id: value.book.id } } : value); onBookChange(updated); }).catch((error: unknown) => setSaveError(error instanceof Error ? error.message : 'Your reading list could not be updated.')); }} />
         <IconButton icon={<Maximize />} label="Toggle fullscreen" onClick={() => { void (document.fullscreenElement ? document.exitFullscreen() : root.current?.requestFullscreen())?.catch(() => setSaveError('Fullscreen is unavailable in this browser.')); }} />
       </div>
     </header>
     <div className={`books-reader-workspace${contentsOpen ? ' has-contents' : ''}${appearanceOpen ? ' has-appearance' : ''}`}>
-      {contentsOpen ? <aside aria-label={book.format === 'epub' ? 'Table of contents' : 'Page navigation'} className="books-reader-aside" id="book-contents">
+      {contentsOpen ? <aside aria-label={book.format === 'epub' || illustratedChapters.length ? 'Table of contents' : 'Page navigation'} className="books-reader-aside" id="book-contents">
         <header><div><strong>{book.title}</strong><span>{book.author}</span></div><IconButton icon={<X />} label="Close contents" onClick={() => { setContentsOpen(false); reading.current?.focus({ preventScroll: true }); }} /></header>
-        <h2>{book.format === 'epub' ? 'Contents' : 'Pages'}</h2>
-        {book.format === 'epub' ? <ol>{manifest.chapters.map((chapter, index) => <li key={index}><button aria-current={unit === index ? 'location' : undefined} onClick={() => { void go(index); }} type="button"><span>{index + 1}</span>{chapter.label}</button></li>)}</ol> : <div className="books-reader-page-jump"><label htmlFor="book-page-input">Go to page</label><input id="book-page-input" max={count} min={1} onChange={(event) => setPageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const value = Number(pageDraft); if (Number.isInteger(value)) void go(value - 1); } }} type="number" value={pageDraft} /><Button disabled={!Number.isInteger(Number(pageDraft)) || Number(pageDraft) < 1 || Number(pageDraft) > count || busy} onClick={() => { void go(Number(pageDraft) - 1); }} variant="quiet">Go to page</Button><p>{count} pages · {manifest.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p></div>}
+        <h2>{book.format === 'epub' ? 'Contents' : illustratedChapters.length ? 'Chapters & pages' : 'Pages'}</h2>
+        {book.format === 'epub' ? <ol>{manifest.chapters.map((chapter, index) => <li key={index}><button aria-current={unit === index ? 'location' : undefined} onClick={() => { void go(index); }} type="button"><span>{index + 1}</span>{chapter.label}</button></li>)}</ol> : <>{illustratedChapters.length ? <ol>{illustratedChapters.map((chapter, index) => { const end = illustratedChapters[index + 1]?.start_page ?? count; return <li key={`${chapter.start_page}:${chapter.label}`}><button aria-current={unit >= chapter.start_page && unit < end ? 'location' : undefined} onClick={() => { void go(chapter.start_page); }} type="button"><span>{chapter.start_page + 1}</span>{chapter.label}</button></li>; })}</ol> : null}<div className="books-reader-page-jump"><label htmlFor="book-page-input">Go to page</label><input id="book-page-input" max={count} min={1} onChange={(event) => setPageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const value = Number(pageDraft); if (Number.isInteger(value)) void go(value - 1); } }} type="number" value={pageDraft} /><Button disabled={!Number.isInteger(Number(pageDraft)) || Number(pageDraft) < 1 || Number(pageDraft) > count || busy} onClick={() => { void go(Number(pageDraft) - 1); }} variant="quiet">Go to page</Button><p>{count} pages · {manifest.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p></div></>}
       </aside> : null}
       <div aria-label={book.format === 'epub' ? 'Book chapter' : book.kind === 'manga' ? 'Manga pages' : 'Book pages'} className={`books-reader-page is-${appearance.fit}`} onScroll={recordScroll} ref={reading} tabIndex={0}>
         {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p>{unit === 0 && !hasChapterContent(nodes) && bookCoverUrl(book.cover_url) ? <img alt={`Cover of ${book.title}`} className="books-prose-cover" src={bookCoverUrl(book.cover_url)!} /> : null}<BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>

@@ -126,3 +126,24 @@ export function titleCaption(title: TitleSummary, left: string | null = null): C
 
 /** The card's accessible name is its caption: "Harbor Lights, S2 · E4 · 28 min left". */
 export const captionLabel = ({ name, line }: Caption): string => (line ? `${name}, ${line}` : name);
+
+/** Server navigation controls visibility even when a Home cache contains older media. */
+export function homeTitleVisible(title: TitleSummary, navigation: import('../../types').ServerNavigation | null | undefined): boolean {
+  const category = title.category === 'shows' ? 'tv' : title.category ?? (title.type === 'movie' ? 'movies' : title.type === 'album' || title.type === 'artist' ? 'music' : 'tv');
+  return Boolean(navigation?.categories.includes(category));
+}
+
+export function homeItemVisible(item: import('../../types').LibraryItem, navigation: import('../../types').ServerNavigation | null | undefined): boolean {
+  const category = item.kind === 'recording' ? 'recordings' : item.kind === 'audio' || item.kind === 'track' ? 'music' : item.kind === 'video' ? 'youtube' : item.kind === 'movie' ? 'movies' : item.kind === 'episode' ? 'tv' : null;
+  return Boolean(category && navigation?.categories.includes(category));
+}
+
+export function homeShelfAvailable(id: import('./homeShelves').HomeShelfId, navigation: import('../../types').ServerNavigation | null | undefined): boolean {
+  const categories = navigation?.categories ?? [];
+  if (id === 'live' || id === 'watchlist' || id === 'picked_for_you' || id === 'from_follows') return Boolean(navigation?.features.streaming);
+  if (id === 'new_anime') return categories.includes('anime');
+  if (id === 'recent_music' || id === 'continue_listening') return categories.includes('music');
+  if (id === 'next_up') return categories.includes('tv') || categories.includes('anime');
+  if (id === 'recently_saved') return categories.some((category) => ['youtube', 'recordings', 'music'].includes(category));
+  return categories.some((category) => ['movies', 'tv', 'anime', 'music', 'youtube', 'recordings'].includes(category));
+}

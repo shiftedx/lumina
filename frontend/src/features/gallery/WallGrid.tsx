@@ -75,7 +75,7 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
   const columns = wallColumns(width, gap, phone);
   const layout: WallLayout = { columns, featured: featured && shape === 'poster' && wallFeatured(query, columns, phone) };
   const posterWidth = Math.max(1, (width - gap * (columns - 1)) / columns);
-  const rowHeight = Math.round(posterWidth * (shape === 'poster' ? 1.5 : 1) + (phone ? 0 : 44));
+  const rowHeight = Math.round(posterWidth * (shape === 'poster' ? 1.5 : 1) + 44);
   const pitch = rowHeight + gap;
   const loaded = store.total !== null;
   const total = store.total ?? rowStart(LOADING_ROWS, layout);
@@ -130,7 +130,7 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
     if (range.pitch === pitch && range.rows === rows && range.to >= range.from) store.ensure(rowStart(range.from, layout), rowStart(range.to + 1, layout) - 1);
   }, [store, range.from, range.to, range.pitch, range.rows, pitch, rows, layout.columns, layout.featured]); // layout is rebuilt from these each render
 
-  const [focus, setFocus] = useState(() => store.focusIndex ?? 0);
+  const [focus, setFocus] = useState(() => Math.max(0, store.focusIndex ?? 0));
   const pendingFocus = useRef(false);
   const focusInside = useRef(false);
   const laidOut = useRef(columns);
@@ -161,7 +161,8 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
       window.scrollTo(0, scrollY);
       const seen = visibleRows(-element.getBoundingClientRect().top, window.innerHeight, pitch, rows, 0);
       store.revalidate(rowStart(seen.first, layout), rowStart(seen.last + 1, layout) - 1);
-      if (focusIndex !== null) element.querySelector<HTMLElement>(`button[data-index="${focusIndex}"]`)?.focus({ preventScroll: true });
+      const origin = focusIndex === -1 ? element.closest('.g-wall')?.querySelector<HTMLElement>('[data-browse-details]') : focusIndex === null ? null : element.querySelector<HTMLElement>(`button[data-index="${focusIndex}"]`);
+      origin?.focus({ preventScroll: true });
     });
   }, [store, width]); // runs once the width is known; pitch and rows come from that same render
 
@@ -195,8 +196,10 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
     if (!element) return;
     const top = element.getBoundingClientRect().top + window.scrollY + rowOf(next, layout) * pitch;
     const offset = stickyOffset();
+    const bottomInset = document.querySelector<HTMLElement>('.g-mobile-tabs')?.offsetHeight ?? 0;
+    const visibleHeight = window.innerHeight - bottomInset;
     if (top < window.scrollY + offset) window.scrollTo({ top: top - offset, behavior: 'auto' });
-    else if (top + rowHeight > window.scrollY + window.innerHeight) window.scrollTo({ top: top + rowHeight + gap - window.innerHeight, behavior: 'auto' });
+    else if (top + rowHeight > window.scrollY + visibleHeight) window.scrollTo({ top: top + rowHeight + gap - visibleHeight, behavior: 'auto' });
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -300,7 +303,7 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
             const picking = select?.on ? { selectable: true, selected: select.selected.has(title.id) } : null;
             if (cell.span === 3) return <FeatureTile index={cell.index} key={cell.index} onFocus={onFocus} onOpen={onOpenCell} position={position} priority={priority} sizes={tileSizes} style={style} tabIndex={tabIndex} title={title} {...picking} />;
             const Card = shape === 'square' ? AlbumCard : PosterCard;
-            return <Card caption={!phone} className="g-cell" data-index={cell.index} key={cell.index} onFocus={onFocus} onOpen={onOpenCell} position={position} priority={priority} sizes={sizes} style={style} tabIndex={tabIndex} title={title} {...(shape === 'square' ? null : picking)} />;
+            return <Card caption className="g-cell" data-index={cell.index} key={cell.index} onFocus={onFocus} onOpen={onOpenCell} position={position} priority={priority} sizes={sizes} style={style} tabIndex={tabIndex} title={title} {...(shape === 'square' ? null : picking)} />;
           })}
         </div>
       ))}

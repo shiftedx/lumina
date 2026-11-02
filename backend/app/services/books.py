@@ -578,7 +578,15 @@ class BookService:
 
     def reader(self, book: BookItem) -> dict[str, Any]:
         manifest = book.manifest or {}
-        return {"book": book, "chapters": [{"label": _clean(row.get("label")) or f"Chapter {index + 1}"} for index, row in enumerate(manifest.get("chapters") or []) if isinstance(row, dict)], "page_count": len(manifest.get("pages") or []), "reading_direction": self._canonical(book).reading_direction}
+        chapters = []
+        for index, row in enumerate(manifest.get("chapters") or []):
+            if not isinstance(row, dict):
+                continue
+            chapter = {"label": _clean(row.get("label")) or f"Chapter {index + 1}"}
+            if book.format != "epub" and isinstance(row.get("start_page"), int):
+                chapter["start_page"] = row["start_page"]
+            chapters.append(chapter)
+        return {"book": book, "chapters": chapters, "page_count": len(manifest.get("pages") or []), "reading_direction": self._canonical(book).reading_direction}
 
     def chapter_nodes(self, book: BookItem, index: int) -> list[dict]:
         if book.format != "epub":

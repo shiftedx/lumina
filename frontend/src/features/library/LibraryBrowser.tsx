@@ -1,5 +1,5 @@
 /**
- * The Library: the tab row over each lens's body. All is the chaptered landing; Movies,
+ * Independent library destinations with shared collection/recovery tools. Legacy All remains an embedding fallback; Movies,
  * Shows and Anime are gallery walls; Music is the Music tab; YouTube and Recordings are still walls; Deleted lists the
  * files waiting out their retention window.
  */
@@ -8,7 +8,7 @@ import { memo, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import { refreshLibrary, restoreLibraryFile, scanLibraries } from '../../api';
 import { canDeleteLibraryFile, libraryBadge, libraryByline, libraryThumbnail } from '../../luminaModel';
-import type { LibraryItem, LibrarySections, TitleSummary } from '../../types';
+import type { LibraryItem, LibrarySections, ServerNavigation, TitleSummary } from '../../types';
 import { AllLanding } from '../gallery/AllLanding';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { fallbackColour } from '../gallery/galleryModel';
@@ -24,6 +24,7 @@ import { scanSummary } from '../palette/actions';
 import './library.css';
 
 export type LibraryBrowserProps = {
+  navigation?: ServerNavigation | null;
   videoOnly?: boolean;
   view: LibraryPlace;
   /** The lens's state in the address, without '?'. */
@@ -43,7 +44,7 @@ export type LibraryBrowserProps = {
 };
 
 function LibraryBrowserView(props: LibraryBrowserProps) {
-  const { view, currentUser, onViewChange, videoOnly = false } = props;
+  const { view, currentUser, onViewChange, videoOnly = false, navigation } = props;
   const { sections, failed, refresh } = useLibrarySections(currentUser.id);
   const [refreshing, setRefreshing] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -68,20 +69,21 @@ function LibraryBrowserView(props: LibraryBrowserProps) {
     }
   }
   const tabs = <div className="g-library-toolbar">
-    <LibraryTabs current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} videoOnly={videoOnly} />
+    <LibraryTabs navigation={navigation} current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} videoOnly={videoOnly} />
     <Button busy={refreshing} icon={<RefreshCw />} onClick={() => void refreshNow()} ref={refreshButton} title={isAdmin ? 'Refresh the library and rescan imported folders' : 'Refresh the library'}>Refresh</Button>
   </div>;
   return <LibraryContents {...props} failed={failed} key={`${currentUser.id}:${revision}`} refresh={refresh} sections={sections} tabs={tabs} />;
 }
 
-function LibraryContents({ view, wall, currentUser, collections, collectionsPage, onViewChange, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, failed, refresh, tabs, videoOnly = false }: LibraryBrowserProps & { sections: LibrarySections | null; failed: boolean; refresh: () => void; tabs: ReactNode }) {
+function LibraryContents({ navigation, view, wall, currentUser, collections, collectionsPage, onViewChange, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, failed, refresh, tabs, videoOnly = false }: LibraryBrowserProps & { sections: LibrarySections | null; failed: boolean; refresh: () => void; tabs: ReactNode }) {
   const canDelete = (item: LibraryItem) => canDeleteLibraryFile(item, currentUser);
-  if (view === 'all') return <AllLanding title={videoOnly ? 'Video' : 'Library'} collections={collections} lenses={tabs} onOpenTitle={onOpenTitle} onPlay={onPlay} onRetrySections={refresh} onSeeAll={onViewChange} sections={videoOnly && sections ? { ...sections, albums: 0, artists: 0, saved_audio: 0 } : sections} sectionsFailed={failed} />;
+  const visibleSections = sections && { ...sections, movies: navigation?.categories.includes('movies') ? sections.movies : 0, shows: navigation?.categories.includes('tv') ? sections.shows : 0, anime: navigation?.categories.includes('anime') ? sections.anime : 0, albums: !videoOnly && navigation?.categories.includes('music') ? sections.albums : 0, artists: !videoOnly && navigation?.categories.includes('music') ? sections.artists : 0, saved_audio: !videoOnly && navigation?.categories.includes('music') ? sections.saved_audio : 0, youtube: navigation?.categories.includes('youtube') ? sections.youtube : 0, recordings: navigation?.categories.includes('recordings') ? sections.recordings : 0 };
+  if (view === 'all') return <AllLanding title={videoOnly ? 'Video' : 'Library'} collections={collections} lenses={tabs} onOpenTitle={onOpenTitle} onPlay={onPlay} onRetrySections={refresh} onSeeAll={onViewChange} sections={visibleSections} sectionsFailed={failed} />;
   if (view === 'movies' || view === 'shows' || view === 'anime') return <GalleryWall canEdit={Boolean(currentUser.can_edit_details)} key={view} lenses={tabs} onOpen={onOpenTitle} onPlayAt={onPlayAt} onWallChange={onWallChange} state={wall} wall={view} />;
   if (view === 'music') return <MusicTab canDelete={canDelete} lenses={tabs} onItemChanged={onItemChanged} onOpen={onOpenTitle} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={wall} />;
   if (view === 'collections') return collectionsPage?.(tabs) ?? <div className="surface gallery">{tabs}<Skeleton count={4} label="Loading collections…" shape="still" /></div>;
   if (view === 'youtube' && new URLSearchParams(wall ?? '').get('view') === 'channels') {
-    return <ChannelsView lenses={tabs} onWallChange={onWallChange} state={wall} viewSwitch={<LibraryViewSwitch current="channels" onWallChange={onWallChange} />} />;
+    return <ChannelsView streamingEnabled={Boolean(navigation?.features.streaming)} lenses={tabs} onWallChange={onWallChange} state={wall} viewSwitch={<LibraryViewSwitch current="channels" onWallChange={onWallChange} />} />;
   }
   if (view === 'youtube' || view === 'recordings') {
     return <StillWall canDelete={canDelete} count={sections ? sections[view] : null} key={view} kind={view === 'youtube' ? 'video' : 'recording'} lenses={tabs} onItemChanged={onItemChanged} onPlay={onPlay} onWallChange={onWallChange} shape="still" viewSwitch={view === 'youtube' ? <LibraryViewSwitch current="videos" onWallChange={onWallChange} /> : undefined} wall={wall} />;

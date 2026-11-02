@@ -64,7 +64,7 @@ describe('Settings destination search', () => {
     expect(api.getMediaServerSettings).not.toHaveBeenCalled();
     await userEvent.click(within(results()).getByRole('link', { name: /Conversion cache/ }));
     const cache = await screen.findByRole('spinbutton', { name: 'Conversion cache (GB)' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Manage server' })).toBeTruthy();
     await userEvent.clear(cache);
     await userEvent.type(cache, '20');
     await userEvent.click(screen.getByRole('button', { name: 'Save playback and transcoding settings' }));
@@ -84,12 +84,12 @@ describe('Settings destination search', () => {
     expect((cache as HTMLInputElement).value).toBe('30');
   });
 
-  it('opens and focuses a searched tuning control without a disclosure', async () => {
+  it('opens and focuses a searched advanced tuning control through its disclosure', async () => {
     shell();
     await userEvent.type(search(), 'recent stream cache');
     await userEvent.click(within(results()).getByRole('link', { name: /Recent stream cache/ }));
     const row = document.getElementById('setting-playback-stream-cache')!;
-    expect(row.closest('details')).toBeNull();
+    expect(row.closest('details')?.open).toBe(true);
     expect(row.contains(document.activeElement)).toBe(true);
   });
 });

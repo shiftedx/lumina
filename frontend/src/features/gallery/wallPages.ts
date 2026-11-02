@@ -24,6 +24,7 @@ export class WallStore {
   letters: TitleLetter[] = [];
   /** Where the wall was, and the poster to refocus, when it is shown again. */
   scrollY = 0;
+  /** -1 restores the browse hero action; non-negative indices restore catalog cards. */
   focusIndex: number | null = null;
   /** Set when a title page or search takes over, so their scroll moves are not recorded as the wall's. */
   frozen = false;

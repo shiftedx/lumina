@@ -64,6 +64,15 @@ for (const viewport of [{ label: 'desktop', width: 1440, height: 1000 }, { label
     expect(initialTiles).toBeLessThan(70);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
     await page.screenshot({ path: testInfo.outputPath(`photos-${viewport.label}.png`), fullPage: false });
+    await expect(page.getByRole('button', { name: /^Search Lumina/ })).toHaveCount(0);
+    await page.keyboard.press('Control+k');
+    await expect(page.getByRole('searchbox', { name: 'Search photos' })).toBeFocused();
+    await page.locator('.ph-filters summary').click();
+    await page.screenshot({ path: testInfo.outputPath('filters-open.png') });
+    await page.getByRole('combobox', { name: 'Sort photos' }).click({ timeout: 10_000 });
+    await page.getByRole('option', { name: 'Recently added', exact: true }).click();
+    await expect(page).toHaveURL(/sort=added/);
+    await page.locator('.ph-filters summary').click();
 
     const first = page.getByRole('button', { name: 'View Landscape 1', exact: true });
     await first.click();

@@ -159,11 +159,15 @@ describe('admin storage', () => {
 
   it('asks before leaving unsaved routing rules', async () => {
     const browser = setup();
+    expect((await screen.findByText('Manual save')).textContent).toBe('Manual save');
+    expect(screen.queryByRole('button', { name: 'Save rules' })).toBeNull();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     await browser.click(await screen.findByRole('button', { name: 'Move rule 2 up' }));
     expect(confirmLeaveSettings()).toBe(false);
     expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Library & storage. Leave without saving?');
     confirm.mockRestore();
+    await browser.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('button', { name: 'Save rules' })).toBeNull();
   });
 
   it('offers Import now after adding an external root, for the household by default', async () => {

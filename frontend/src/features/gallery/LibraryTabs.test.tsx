@@ -6,9 +6,9 @@ import { librarySections } from '../../test/galleryFixtures';
 import type { LibrarySections } from '../../types';
 import { forgetStoredSections, type LibraryPlace, LibraryTabs, readStoredSections, useLibrarySections } from './LibraryTabs';
 
-function Harness({ current = 'all', isAdmin = false, onOpen = vi.fn() }: { current?: LibraryPlace; isAdmin?: boolean; onOpen?: (place: LibraryPlace) => void }) {
+function Harness({ current = 'all', isAdmin = false, onOpen = vi.fn(), videoOnly = false }: { current?: LibraryPlace; isAdmin?: boolean; onOpen?: (place: LibraryPlace) => void; videoOnly?: boolean }) {
   const { sections } = useLibrarySections('member-1');
-  return <div className="gallery"><LibraryTabs current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} /><button type="button">Sort</button></div>;
+  return <div className="gallery"><LibraryTabs navigation={sections ? { categories: [ ...(sections.movies ? ['movies' as const] : []), ...(sections.shows ? ['tv' as const] : []), ...(sections.anime ? ['anime' as const] : []), ...(sections.albums + sections.saved_audio ? ['music' as const] : []), ...(sections.youtube ? ['youtube' as const] : []), ...(sections.recordings ? ['recordings' as const] : []) ], features: { streaming: true, requests: false } } : null} current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} videoOnly={videoOnly} /><button type="button">Sort</button></div>;
 }
 const links = () => within(screen.getByRole('navigation', { name: 'Library' })).queryAllByRole('link');
 const names = () => links().map((link) => link.textContent);
@@ -140,4 +140,25 @@ describe('LibraryTabs', () => {
     render(<Harness />);
     await waitFor(() => expect(names().slice(-2)).toEqual(['Collections', 'Deleted']));
   });
+
+  it('renders only retained library tools on a dedicated video category page', async () => {
+    answer({ deleted: 2 });
+    render(<Harness current="movies" isAdmin videoOnly />);
+    const tools = await screen.findByRole('navigation', { name: 'Library tools' });
+    expect(within(tools).getAllByRole('link').map((link) => link.textContent)).toEqual(['Collections', 'Deleted']);
+    expect(within(tools).queryByRole('link', { name: /^(All|Movies|Shows|Anime|Music|YouTube|Recordings)$/ })).toBeNull();
+    expect(within(tools).getByRole('link', { name: 'Collections' }).getAttribute('href')).toBe('/library/collections');
+    expect(within(tools).getByRole('link', { name: 'Deleted' }).getAttribute('href')).toBe('/library/deleted');
+  });
+});
+
+
+it('refreshes visible library sections when returning to the app after server changes', async () => {
+  const fetch = vi.spyOn(api, 'getLibrarySections').mockResolvedValueOnce(librarySections({ albums: 0, artists: 0, saved_audio: 0 })).mockResolvedValueOnce(librarySections({ albums: 12, artists: 4, saved_audio: 0 }));
+  render(<Harness />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  expect(screen.queryByRole('link', { name: 'Music' })).toBeNull();
+  fireEvent(document, new Event('visibilitychange'));
+  await screen.findByRole('link', { name: 'Music' });
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

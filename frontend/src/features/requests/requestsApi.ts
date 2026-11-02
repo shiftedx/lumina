@@ -4,7 +4,8 @@ import type { RequestKind } from '../../app/routes';
 
 export type Kind = RequestKind;
 export type RequestState = 'none' | 'pending' | 'approved' | 'processing' | 'partially_available' | 'available' | 'declined' | 'failed';
-export type CatalogStatus = { state: RequestState; request_id?: string; progress?: number; library_title_id?: string };
+export type LanguageAvailability = { state: 'known' | 'partial' | 'unknown'; files: Array<{ audio_languages: string[]; subtitle_languages: string[]; audio_known: boolean; subtitles_known: boolean; season: number | null; episode: number | null }>; truncated: boolean; total_files: number };
+export type CatalogStatus = { language_availability?: LanguageAvailability; state: RequestState; request_id?: string; progress?: number; library_title_id?: string };
 export type AnimeSeason = 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
 export type AnimeInfo = {
   season?: AnimeSeason; season_year?: number; format?: string; episodes?: number; next_episode?: { number: number; airing_at: string };
@@ -31,13 +32,14 @@ export type Language = 'dub' | 'sub';
 export type MediaRequest = {
   id: string; kind: Kind; media_type: 'movie' | 'tv'; key: string; tmdb_id?: number; tvdb_id?: number; anilist_id?: number;
   title: string; year?: number; poster_url?: string; seasons: number[] | 'all' | null; language: Language | null;
+  audio_language?: string | null; subtitle_language?: string | null; fulfillment_mode?: 'automatic' | 'manual';
   status: RequestState; progress?: number; requested_by: Member; followers: Member[]; decided_by?: Member;
   decline_reason?: string; failure_reason?: string; library_title_id?: string; created_at: string; updated_at: string;
 };
 export type RequestsPage = { items: MediaRequest[]; page: number; total_pages: number; counts: Partial<Record<RequestState, number>> };
 export type Quota = { kind: Kind; can_request: boolean; auto_approve: boolean; limit: number | null; days: number | null; used: number; remaining: number | null };
-export type NewRequest = { kind: Kind; media_type?: 'movie'; tmdb_id?: number; anilist_id?: number; tvdb_id?: number; seasons?: number[] | 'all'; language?: Language };
-export type Amend = { seasons?: number[] | 'all'; language?: Language };
+export type NewRequest = { kind: Kind; media_type?: 'movie'; tmdb_id?: number; anilist_id?: number; tvdb_id?: number; seasons?: number[] | 'all'; language?: Language; audio_language?: string | null; subtitle_language?: string | null };
+export type Amend = { seasons?: number[] | 'all'; language?: Language; audio_language?: string | null; subtitle_language?: string | null };
 
 const enc = encodeURIComponent;
 const query = (params: Record<string, string | number | undefined | null>) => {

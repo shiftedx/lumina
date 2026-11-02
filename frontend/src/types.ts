@@ -1212,7 +1212,7 @@ export type SmartRuleOp = 'is' | 'is_not' | 'in' | 'not_in' | 'gte' | 'lte' | 'w
 export type SmartRuleSortField = 'name' | 'year' | 'rating' | 'added' | 'runtime';
 export type SortOrder = 'asc' | 'desc';
 export type TitleResolution = '4k' | '1080p' | '720p' | 'sd';
-export type SearchScope = 'movies' | 'shows' | 'anime';
+export type SearchScope = 'movies' | 'shows' | 'anime' | 'music';
 export type TitleCategory = 'movies' | 'shows' | 'anime';
 export type ClientMetricName = 'wall_first_screen_ms' | 'wall_sharp_ms' | 'detail_hero_ms' | 'home_first_screen_ms' | 'home_hero_ms' | 'image_load_ms' | 'image_failed' | 'ttff_ms' | 'long_tasks';
 
@@ -2466,3 +2466,8 @@ export interface HouseholdResources {
 export type ResourceOverrides = Partial<ResourceAllowances>;
 export interface MemberResources { overrides: ResourceOverrides; effective: ResourceAllowances }
 export interface ResourceJob { id: string; kind: string; state: string }
+
+export interface ServerNavigation {
+  categories: Array<'movies' | 'tv' | 'anime' | 'music' | 'books' | 'youtube' | 'recordings' | 'photos'>;
+  features: { streaming: boolean; requests: boolean };
+}

@@ -160,6 +160,26 @@ describe('Explore', () => {
     expect(screen.getByRole('button', { name: 'More options for Picked one' })).toBeTruthy();
   });
 
+  it('leads embedded Streaming with followed uploads and does not repeat those cards in its rails', () => {
+    const followed = [remoteEntry('followed-one', { title: 'Followed one', category_keys: ['gaming'] }), remoteEntry('followed-two', { title: 'Followed two', category_keys: ['gaming'] }), remoteEntry('followed-three', { title: 'Followed three', category_keys: ['gaming'] })];
+    const withFollowed = {
+      ...popular,
+      items: [...followed, remoteEntry('popular-only', { title: 'Popular only', category_keys: ['gaming'] })],
+      for_you: [followed[0], remoteEntry('for-you-only', { category_keys: ['gaming'] })],
+    } as PopularSnapshot;
+    const { container } = explore({ embedded: true, fromChannels: followed, popular: withFollowed });
+
+    const feature = screen.getByRole('heading', { name: 'Featured from your channels' }).closest('section')!;
+    expect([...feature.querySelectorAll('[data-remote-key]')].map((card) => card.getAttribute('data-remote-key'))).toEqual([
+      followed[0].webpage_url, followed[1].webpage_url,
+    ]);
+    expect(screen.getByRole('heading', { name: 'More from your channels' })).toBeTruthy();
+    for (const item of followed.slice(0, 2)) {
+      expect([...container.querySelectorAll('[data-remote-key]')].filter((card) => card.getAttribute('data-remote-key') === item.webpage_url)).toHaveLength(1);
+    }
+    expect(screen.getByRole('heading', { name: 'Recommended for you' })).toBeTruthy();
+  });
+
   const shell = (snapshot: PopularSnapshot, handlers = { suppress: vi.fn().mockResolvedValue({ id: 's1' }), restore: vi.fn().mockResolvedValue(undefined) }) => {
     render(<RecoFeedbackProvider onError={vi.fn()} onExpired={vi.fn()} resetKey="m" {...handlers}><ExploreSurface {...exploreProps({ popular: snapshot })} onOpen={vi.fn()} onQueue={vi.fn()} onSearch={vi.fn()} /></RecoFeedbackProvider>);
   };

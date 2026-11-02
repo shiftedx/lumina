@@ -553,3 +553,25 @@ def test_face_index_readme_rollback_preserves_corrections_and_rebuilds_keys(tmp_
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM photo_face_index_vectors WHERE face_id='retained-face' AND active=1")) == 1
         assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION
+
+
+def test_v43_rechecks_legacy_language_requests_after_upgrade_and_rollback(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    from app.models import MediaRequest
+
+    engine = _init(tmp_path, monkeypatch)
+    with Session(engine) as db, db.begin():
+        for identifier, language, status in (("dub", "dub", "available"), ("sub", "sub", "partially_available"),
+                                               ("generic", None, "available")):
+            db.add(MediaRequest(id=identifier, kind="anime", media_type="tv", title="Test", language=language,
+                                status=status, requested_by="member", arr_server_id="existing", progress=1.0))
+    guide = (Path(__file__).resolve().parents[2] / "docker" / "README.md").read_text()
+    match = re.search(r"\| Before request language preferences \(schema 42\) \| `([^`]+)`", guide)
+    assert match
+    with engine.begin() as connection:
+        connection.exec_driver_sql(match[1])
+    db_module.init_db()
+    with Session(engine) as db:
+        for identifier in ("dub", "sub"):
+            req = db.get(MediaRequest, identifier)
+            assert (req.status, req.progress, req.arr_server_id) == ("approved", None, "existing")
+        assert db.get(MediaRequest, "generic").status == "available"

@@ -542,7 +542,7 @@ test('a member suppresses a recommended item and channel, then restores them fro
 
   // Settings lists both suppressions with safe metadata and restores each.
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('button', { name: 'My Settings' }).click();
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Discovery & streaming' }).click();
   await page.getByRole('link', { name: 'Hidden recommendations', exact: true }).click();
   await expect(page.getByRole('heading', { level: 3, name: 'Hidden recommendations' })).toBeVisible();

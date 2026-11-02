@@ -296,6 +296,13 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     42: (
         "ALTER TABLE app_settings ADD COLUMN autoplay_presence JSON NOT NULL DEFAULT '{}'",
     ),  # Household episode-autoplay presence policy; rollback keeps the additive JSON column.
+    43: (
+        "ALTER TABLE media_requests ADD COLUMN audio_language VARCHAR(32)",
+        "ALTER TABLE media_requests ADD COLUMN subtitle_language VARCHAR(32)",
+        "UPDATE media_requests SET status = 'approved', progress = NULL "
+        "WHERE status IN ('available', 'partially_available') "
+        "AND (language IN ('dub', 'sub') OR audio_language IS NOT NULL OR subtitle_language IS NOT NULL)",
+    ),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

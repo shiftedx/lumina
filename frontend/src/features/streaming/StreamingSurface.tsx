@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * Streaming (2.3.0): one page for YouTube, Twitch and Kick. It composes the Live, Explore and Subscriptions screens in
  * their embedded mode behind a provider switch (shown only when the member turned another provider on). Home is
@@ -81,21 +82,21 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
   return (
     // The shell parks focus on the h1 when a See all wall opens, outside the embedded screen's own Back handler (the screens preventDefault theirs) and its arrow handler, so the h1 routes arrows itself.
     <div className="surface gallery g-streaming" onKeyDown={(event) => { if (rail && !query && (view === 'home' || view === 'live') && isBackKey(event)) { event.preventDefault(); window.history.back(); return; } if (event.target === event.currentTarget.querySelector('h1')) moveFocus(event); }}>
+      <div className="g-toolbar g-streaming-bar" onKeyDown={moveFocus}>
+        {views.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">View</span><SegmentedControl hideLegend legend="Streaming view" onChange={(next) => onNavigate({ view: next, provider })} options={views} value={current} /></div> : null}
+        {providers.length > 1 ? <div className="g-streaming-choice"><span aria-hidden="true" className="g-streaming-choice-label">Provider</span><SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /></div> : null}
+      </div>
       <Masthead
         actions={!searchable ? undefined : (
           // Only YouTube search exists server-side; Twitch and Kick show their live and followed channels instead.
-          <form className="g-search" onSubmit={submit} role="search">
+          <ContextualSearch label={`Search ${name}`}><form className="g-search" onSubmit={submit} role="search">
             <Search aria-hidden="true" />
             <label className="sr-only" htmlFor="g-streaming-q">{`Search ${name}`}</label>
             <input className="g-input" id="g-streaming-q" onChange={(event) => setDraft(event.currentTarget.value)} placeholder={`Search ${name}`} type="search" value={draft} />
-          </form>
+          </form></ContextualSearch>
         )}
         title="Streaming"
       />
-      <div className="g-toolbar g-streaming-bar" onKeyDown={moveFocus}>
-        {views.length > 1 ? <SegmentedControl hideLegend legend="Streaming view" onChange={(next) => onNavigate({ view: next, provider })} options={views} value={current} /> : null}
-        {providers.length > 1 ? <SegmentedControl hideLegend legend="Provider" onChange={(next) => onNavigate({ view: view === 'search' ? 'home' : view, provider: next })} options={providers.map((value) => ({ value, label: SOURCE_LABELS[value] }))} value={provider} /> : null}
-      </div>
       {body}
     </div>
   );

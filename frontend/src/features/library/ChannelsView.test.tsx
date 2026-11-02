@@ -22,11 +22,28 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('Library Channels view', () => {
+  it('features a saved channel with a Browse link to its library view', async () => {
+    const { container } = render(<ChannelsView streamingEnabled onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
+    const hero = await screen.findByRole('region', { name: 'Harbor Films' });
+    expect(within(hero).getByRole('link', { name: 'Browse' }).getAttribute('href')).toBe(`/channel/youtube/${CHANNEL_ID}?tab=library`);
+    expect(hero.querySelector('img')?.getAttribute('src')).toMatch(/^\/api\/library\//);
+    expect(container.querySelector('.has-browse-hero.is-video-browse')).toBeTruthy();
+  });
+
+  it('opens the saved channel filter when Streaming is off', async () => {
+    render(<ChannelsView streamingEnabled={false} onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
+    const hero = await screen.findByRole('region', { name: 'Harbor Films' });
+    const channel = screen.getByRole('link', { name: /^Harbor Films/ });
+    expect(within(hero).getByRole('link', { name: 'Browse' }).getAttribute('href')).toBe('/video/youtube?channel=Harbor+Films');
+    expect(channel.getAttribute('href')).toBe('/video/youtube?channel=Harbor+Films');
+  });
+
   it('walls the channels with the count badge, caption, avatar and the right destination', async () => {
-    const { container } = render(<ChannelsView onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
+    const { container } = render(<ChannelsView streamingEnabled onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
     const harbor = await screen.findByRole('link', { name: /^Harbor Films/ });
     expect(harbor.getAttribute('href')).toBe(`/channel/youtube/${CHANNEL_ID}?tab=library`);
     expect(within(harbor).getByText('24 videos · newest 3 days ago')).toBeTruthy();
+    expect(within(harbor).getByText('3 unwatched')).toBeTruthy();
     expect(harbor.querySelector('.g-marker-count')?.textContent).toBe('3');
     expect(harbor.querySelector('.g-avatar img')?.getAttribute('src')).toBe('/api/artwork/remote/av');
     expect(harbor.getAttribute('aria-label')).toBe('Harbor Films, 24 videos, 3 unwatched');
@@ -34,31 +51,48 @@ describe('Library Channels view', () => {
     expect(tide.getAttribute('href')).toBe('/video/youtube?channel=Tide+Talk');
     expect(screen.getByRole('link', { name: /^Unknown/ }).getAttribute('href')).toBe('/video/youtube?channel=');
     expect(tide.querySelector('.g-marker-count')).toBeNull();
+    expect(within(tide).getByText('Up to date')).toBeTruthy();
     for (const image of container.querySelectorAll('img')) expect(image.getAttribute('src') ?? '').toMatch(/^\/api\//);
   });
 
   it('reads the kicker in the singular, is silent while loading', async () => {
     api.listLibraryChannels.mockResolvedValueOnce([libraryChannel('a', { name: 'Harbor Films', newest_item_id: 'video-1', count: 1 })]);
-    const { container } = render(<ChannelsView onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
+    const { container } = render(<ChannelsView streamingEnabled onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
     expect(container.querySelector('.g-kicker')).toBeNull();
     await screen.findByRole('link', { name: /^Harbor Films/ });
-    expect(container.querySelector('.g-kicker')?.textContent).toBe('1 channel');
+    expect(container.querySelector('.g-kicker')?.textContent).toBe('1 channel in your library');
   });
 
   it('sorts through the address and asks the server for that order', async () => {
     const onWallChange = vi.fn();
-    const { rerender } = render(<ChannelsView onWallChange={onWallChange} state="view=channels" viewSwitch={null} />);
+    const { rerender } = render(<ChannelsView streamingEnabled onWallChange={onWallChange} state="view=channels" viewSwitch={null} />);
     await screen.findByRole('link', { name: /^Harbor Films/ });
     vi.useRealTimers();
     chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Name A–Z');
     expect(onWallChange).toHaveBeenCalledWith('view=channels&sort=name');
-    rerender(<ChannelsView onWallChange={onWallChange} state="view=channels&sort=name" viewSwitch={null} />);
+    rerender(<ChannelsView streamingEnabled onWallChange={onWallChange} state="view=channels&sort=name" viewSwitch={null} />);
     expect(api.listLibraryChannels).toHaveBeenLastCalledWith('name');
+  });
+
+  it('filters the complete saved-channel response through contextual search while preserving its address state', async () => {
+    const onWallChange = vi.fn();
+    const { rerender } = render(<ChannelsView streamingEnabled onWallChange={onWallChange} state="view=channels&sort=name" viewSwitch={null} />);
+    await screen.findByRole('link', { name: /^Harbor Films/ });
+    vi.useRealTimers();
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search saved channels' }), 'harbor{Enter}');
+    expect(onWallChange).toHaveBeenLastCalledWith('view=channels&sort=name&search=harbor');
+    rerender(<ChannelsView streamingEnabled onWallChange={onWallChange} state="view=channels&sort=name&search=harbor" viewSwitch={null} />);
+    expect(await screen.findByRole('link', { name: /^Harbor Films/ })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /^Tide Talk/ })).toBeNull();
+    expect(screen.getByText('1 matching saved channel')).toBeTruthy();
+    expect(document.querySelector('.g-browse-hero')).toBeNull();
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search saved channels' }), '{Escape}');
+    expect(onWallChange).toHaveBeenLastCalledWith('view=channels&sort=name');
   });
 
   it('keeps a failure to itself with Try again', async () => {
     api.listLibraryChannels.mockRejectedValueOnce(new Error('x'));
-    render(<ChannelsView onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
+    render(<ChannelsView streamingEnabled onWallChange={vi.fn()} state="view=channels" viewSwitch={null} />);
     expect(await screen.findByText('Lumina could not load your channels.')).toBeTruthy();
     vi.useRealTimers();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));

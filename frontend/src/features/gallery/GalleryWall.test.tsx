@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,9 +17,9 @@ const scrollTo = vi.fn();
 // A page that says there are more titles than it holds carries a cursor: the store ends the wall where the chain ends.
 const page = (count: number, patch: Partial<TitlePage> = {}) => titlePage(Array.from({ length: count }, (_, index) => movieSummary(`movie-${index}`, { name: `Title ${index}` })), { next_cursor: (patch.total ?? count) > count ? 'more' : null, ...patch });
 
-function Harness({ initial = '', changes = [], onPlayAt = vi.fn() }: { initial?: string; changes?: string[]; onPlayAt?: (itemId: string, startSeconds: number) => void }) {
-  const [wall, setWall] = useState(initial);
-  return <GalleryWall onOpen={vi.fn()} onPlayAt={onPlayAt} onWallChange={(next) => { changes.push(next); setWall(next); }} state={wall} wall="movies" />;
+function Harness({ initial = '', changes = [], onPlayAt = vi.fn(), wall = 'movies' }: { initial?: string; changes?: string[]; onPlayAt?: (itemId: string, startSeconds: number) => void; wall?: 'movies' | 'shows' | 'anime' }) {
+  const [state, setState] = useState(initial);
+  return <GalleryWall onOpen={vi.fn()} onPlayAt={onPlayAt} onWallChange={(next) => { changes.push(next); setState(next); }} state={state} wall={wall} />;
 }
 
 const searchResponse = (matches: LocalSearchResponse['matches']): LocalSearchResponse => ({ query: 'lighthouse', mode: 'lexical', matches, items: [], index_generation: 1 });
@@ -35,6 +35,7 @@ beforeEach(() => {
   forgetWallStores();
   resetImageLoader();
   window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+  vi.spyOn(api, 'getTitleFacets').mockResolvedValue(facets);
 });
 afterEach(() => { vi.restoreAllMocks(); scrollTo.mockReset(); });
 
@@ -103,7 +104,7 @@ describe('GalleryWall', () => {
     const changes: string[] = [];
     const onPlayAt = vi.fn();
     render(<Harness changes={changes} onPlayAt={onPlayAt} />);
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.type(field, 'lighthouse');
     expect(search).not.toHaveBeenCalled();
     await userEvent.type(field, '{Enter}');
@@ -124,7 +125,7 @@ describe('GalleryWall', () => {
     vi.spyOn(api, 'searchLibrary').mockImplementation((_q, _limit, _scope, options) => { signals.push(options?.signal as AbortSignal); return new Promise(() => undefined); });
     render(<Harness initial="q=first" />);
     expect(await screen.findByText('Searching…')).toBeTruthy();
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.clear(field);
     await userEvent.type(field, 'second{Enter}');
     await waitFor(() => expect(signals).toHaveLength(2));
@@ -140,7 +141,7 @@ describe('GalleryWall', () => {
     expect(await screen.findByText('Search is unavailable right now.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Nothing in your movies matches “nothing”.')).toBeTruthy();
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Find the one where…' }), '{Escape}');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search movies' }), '{Escape}');
     expect(changes.at(-1)).toBe('');
   });
 
@@ -196,7 +197,7 @@ describe('GalleryWall', () => {
     const filters = screen.getByRole('button', { name: 'Filters' });
     filters.focus();
     fireEvent.keyDown(filters, { key: 'ArrowLeft' });
-    const find = screen.getByRole('searchbox', { name: 'Find the one where…' }) as HTMLInputElement;
+    const find = screen.getByRole('searchbox', { name: 'Search movies' }) as HTMLInputElement;
     expect(document.activeElement).toBe(find);
   });
 
@@ -204,7 +205,7 @@ describe('GalleryWall', () => {
     vi.spyOn(api, 'listTitles').mockResolvedValue(page(12, { total: 12 }));
     render(<Harness />);
     const poster = await screen.findByRole('button', { name: /^Title 0,/ });
-    const find = screen.getByRole('searchbox', { name: 'Find the one where…' }) as HTMLInputElement;
+    const find = screen.getByRole('searchbox', { name: 'Search movies' }) as HTMLInputElement;
     await userEvent.type(find, 'ab');
     find.setSelectionRange(1, 1);
     expect(fireEvent.keyDown(find, { key: 'ArrowLeft' })).toBe(true); // native caret movement
@@ -263,10 +264,10 @@ describe('GalleryWall', () => {
     render(<Harness initial="q=lighthouse" />);
     expect(await screen.findAllByRole('button', { name: 'Northern Lantern, 2019, unwatched' })).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search movies' }));
   });
 
-  it('on a phone, Close search returns focus to the Search button', async () => {
+  it('on a phone, contextual search stays visible and Escape clears without losing focus', async () => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: (query: string) => ({ matches: query === '(max-width: 599px)', media: query, addEventListener() {}, removeEventListener() {} }),
@@ -274,10 +275,12 @@ describe('GalleryWall', () => {
     try {
       vi.spyOn(api, 'listTitles').mockResolvedValue(page(3, { total: 3 }));
       render(<Harness />);
-      await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-      expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
-      await userEvent.click(screen.getByRole('button', { name: 'Close search' }));
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Search' }));
+      const search = screen.getByRole('searchbox', { name: 'Search movies' });
+      await userEvent.type(search, 'northern');
+      await userEvent.keyboard('{Escape}');
+      expect((search as HTMLInputElement).value).toBe('');
+      expect(document.activeElement).toBe(search);
+      expect(screen.getAllByRole('searchbox')).toHaveLength(1);
     } finally {
       delete (window as { matchMedia?: unknown }).matchMedia;
     }
@@ -291,12 +294,12 @@ describe('GalleryWall', () => {
     first.unmount();
     render(<Harness initial="sort=name" />); // Back to the wall
     await waitFor(() => expect(document.activeElement?.getAttribute('data-index')).toBe('1'));
-    const field = screen.getByRole('searchbox', { name: 'Find the one where…' });
+    const field = screen.getByRole('searchbox', { name: 'Search movies' });
     await userEvent.type(field, 'lighthouse{Enter}');
     await userEvent.click(await screen.findByRole('button', { name: 'Clear' }));
     await screen.findByRole('button', { name: /^Title 1,/ });
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Find the one where…' }));
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search movies' }));
   });
 
   it('lists the wall its wall prop names (library gallery contract)', async () => {
@@ -307,15 +310,34 @@ describe('GalleryWall', () => {
     expect(list.mock.calls[0][0]).toMatchObject({ category: 'shows', sort: 'created' });
   });
 
+  it('turns the server-owned category facets into scoped editorial browse controls', async () => {
+    const list = vi.spyOn(api, 'listTitles').mockImplementation(async (query) => page(3, { total: query.genre?.includes('Drama') ? 12 : 300 }));
+    const facetsSpy = vi.spyOn(api, 'getTitleFacets').mockResolvedValue({ ...facets, years: { min: 2024, max: 2026 } });
+    const changes: string[] = [];
+    render(<Harness changes={changes} wall="shows" />);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Explore shows' })).toBeTruthy();
+    expect(facetsSpy).toHaveBeenCalledWith({ category: 'shows' }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    const genres = screen.getByRole('group', { name: 'Browse shows by genre' });
+    await userEvent.click(within(genres).getByRole('button', { name: 'Drama, 30 titles' }));
+    expect(changes.at(-1)).toBe('genre=Drama');
+    await userEvent.click(screen.getByRole('button', { name: '2020s' }));
+    expect(changes.at(-1)).toBe('genre=Drama&from=2020&to=2029');
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ category: 'shows', genre: ['Drama'], year_from: 2020, year_to: 2029 });
+  });
+
   it('draws the Anime wall from its category, mixing movies and series with their own markers', async () => {
     const mixed = [movieSummary('anime-movie', { name: 'Film', category: 'anime' }), seriesSummary('anime-series', { name: 'Show A', category: 'anime' })];
     const list = vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage(mixed, { total: 2 }));
     const metric = vi.spyOn(perfMetrics, 'recordMetric');
-    const { container } = render(<GalleryWall onOpen={vi.fn()} onPlayAt={vi.fn()} onWallChange={vi.fn()} wall="anime" />);
+    const onOpen = vi.fn();
+    const { container } = render(<GalleryWall onOpen={onOpen} onPlayAt={vi.fn()} onWallChange={vi.fn()} wall="anime" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Anime' })).toBeTruthy();
     expect(await screen.findByText('2 titles · Sorted by recently added')).toBeTruthy();
     expect(list.mock.calls[0][0]).toMatchObject({ category: 'anime', sort: 'created' });
     expect(list.mock.calls[0][0]).not.toHaveProperty('type');
+    const hero = screen.getByRole('region', { name: 'Film' });
+    await userEvent.click(within(hero).getByRole('button', { name: 'Details' }));
+    expect(onOpen).toHaveBeenCalledWith(mixed[0]);
     expect(screen.getByRole('button', { name: 'Film, 2019, unwatched' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Show A, 4 unwatched episodes' })).toBeTruthy();
     expect(container.querySelector('.g-marker-triangle')).not.toBeNull();

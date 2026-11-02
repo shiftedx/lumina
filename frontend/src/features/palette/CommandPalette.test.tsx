@@ -11,6 +11,7 @@ const match = (id: string, name: string, category = 'movies') => ({ kind: 'title
 let token = 1;
 function props(patch: Partial<CommandPaletteProps> = {}): CommandPaletteProps {
   return {
+    navigation: { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } },
     open: true, mode: 'search', onClose: vi.fn(), user,
     history: [{ id: 'h1', query: 'alpine', searched_at: '' }, { id: 'h2', query: 'baking', searched_at: '' }] as never,
     channels: [], sessionKey: 'u1', captureSessionToken: () => token, isSessionTokenCurrent: (value) => value === token,
@@ -26,6 +27,36 @@ beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); token = 1; });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('CommandPalette', () => {
+  it('hides unavailable results, Streaming actions and link acquisition when server Streaming is off', async () => {
+    const youtube = vi.spyOn(api, 'youtubeSearch');
+    vi.spyOn(api, 'searchLibrary').mockResolvedValue({ query: 'al', mode: 'lexical', matches: [match('m', 'Allowed movie'), match('s', 'Hidden show', 'shows')], items: [], index_generation: 1 } as never);
+    const p = props({ navigation: { categories: ['movies'], features: { streaming: false, requests: false } } });
+    render(<CommandPalette {...p} />);
+    await userEvent.type(input(), 'al');
+    await act(async () => { vi.advanceTimersByTime(200); });
+    expect(await screen.findByText('Allowed movie')).toBeTruthy();
+    expect(screen.queryByText('Hidden show')).toBeNull();
+    expect(youtube).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Search everything/)).toBeNull();
+    await userEvent.clear(input());
+    await userEvent.type(input(), 'streaming');
+    expect(screen.queryByRole('option', { name: 'Streaming' })).toBeNull();
+    await userEvent.clear(input());
+    await userEvent.type(input(), 'https://example.test/video');
+    await userEvent.keyboard('{Enter}');
+    expect(p.onOpenUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole('option', { name: /Open link/ })).toBeNull();
+  });
+
+  it('fails closed for unavailable destination suggestions', async () => {
+    render(<CommandPalette {...props({ navigation: null })} />);
+    await userEvent.type(input(), 'photos');
+    expect(screen.queryByRole('option', { name: /Photos/ })).toBeNull();
+    await userEvent.clear(input());
+    await userEvent.type(input(), 'library');
+    expect(screen.queryByRole('option', { name: /^Library Go to/ })).toBeNull();
+  });
+
   it('opens with the input focused, recents and pinned actions, and no request', () => {
     const search = vi.spyOn(api, 'searchLibrary');
     render(<CommandPalette {...props()} />);

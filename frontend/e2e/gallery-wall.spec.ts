@@ -40,7 +40,7 @@ for (const scheme of ['light', 'dark'] as const) {
         const columns = await page.locator('.g-row[data-row="1"] .g-poster').evaluateAll((cells) => new Set(cells.map((cell) => Math.round(cell.getBoundingClientRect().left))).size);
         expect(columns).toBe(3);
         await expect(page.locator('.g-feature')).toHaveCount(0);
-        await expect(page.locator('.g-caption').first()).toBeHidden();
+        await expect(page.locator('.g-caption').first()).toBeVisible();
       }
       await page.screenshot({ path: `../output/playwright/gallery/movies-${scheme}-${viewport.width}.png` });
       await page.goto('/library/shows');
@@ -115,19 +115,19 @@ test('keyboard only: Down from the heading into the grid, arrows move, Up reache
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('button', { name: /^Filters/ })).toBeFocused(); // never the Sort select, which would eat Up and Down
   await page.keyboard.press('ArrowLeft'); // Left and Right walk the toolbar
-  await expect(page.getByRole('searchbox', { name: 'Find the one where…' })).toBeFocused();
+  await expect(page.getByRole('searchbox', { name: 'Search movies' })).toBeFocused();
   await page.locator('.g-grid button[tabindex="0"]').focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/video\/title\/movie-0001$/);
 });
 
-test('"Find the one where…" searches on Enter and opens the player at the moment', async ({ page }) => {
+test('"Search movies" searches on Enter and opens the player at the moment', async ({ page }) => {
   const movie = wallTitles('movie', 300)[42];
   const hit = { kind: 'title', id: movie.id, title: movie.name, subtitle: String(movie.year), score: 1, lexical_score: 1, semantic_score: 0, match_mode: 'lexical', title_id: movie.id, media_title: movie };
   const moment = { ...hit, kind: 'moment', id: `${item.id}@761000`, subtitle: 'At 12:41', item, start_ms: 761_000 };
   const search = { query: 'lamp', mode: 'lexical', matches: [hit, moment], items: [item], index_generation: 1 } as unknown as LocalSearchResponse;
   const requests = await openWall(page, '/library/movies', { search });
-  const field = page.getByRole('searchbox', { name: 'Find the one where…' });
+  const field = page.getByRole('searchbox', { name: 'Search movies' });
   await field.fill('lamp');
   await page.waitForTimeout(400);
   expect(requests.some((url) => url.pathname === '/api/search')).toBe(false);
@@ -136,7 +136,7 @@ test('"Find the one where…" searches on Enter and opens the player at the mome
   await expect(page.getByRole('heading', { level: 2, name: 'Results for “lamp”' })).toBeVisible();
   expect(requests.find((url) => url.pathname === '/api/search')?.searchParams.get('scope')).toBe('movies');
   await expect(page.getByRole('button', { name: new RegExp(`^${movie.name},`) })).toBeVisible();
-  await page.getByRole('searchbox', { name: 'Find the one where…' }).press('Escape');
+  await page.getByRole('searchbox', { name: 'Search movies' }).press('Escape');
   await expect(page).toHaveURL(/\/video\/movies$/);
   await field.fill('lamp');
   await field.press('Enter');
@@ -172,10 +172,10 @@ test('reduced motion turns every gallery transition off', async ({ page }) => {
   await expect(page.locator('.g-art-image').first()).toHaveCSS('transition-duration', '0.4s');
 });
 
-test('headlines use the real Newsreader italic, not a synthesised slant', async ({ page }) => {
+test('media headlines use the real normal Newsreader face', async ({ page }) => {
   await openWall(page);
   await page.evaluate(() => document.fonts.ready);
-  expect(await page.evaluate(() => [...document.fonts].some((face) => face.family.replace(/['"]/g, '') === 'Newsreader' && face.style === 'italic' && face.status === 'loaded'))).toBe(true);
+  expect(await page.evaluate(() => [...document.fonts].some((face) => face.family.replace(/['"]/g, '') === 'Newsreader' && face.style === 'normal' && face.status === 'loaded'))).toBe(true);
 });
 
 test('a page that fails to load says so and offers Try again', async ({ page }) => {
@@ -219,24 +219,22 @@ for (const width of [390, 320]) {
 }
 
 for (const without of [['backdrop'], ['backdrop', 'poster']] as const) {
-  test(`a feature tile without ${without.join(' or ')} names its title once, over ${without.length === 1 ? 'the poster' : 'a bare colour field'}`, async ({ page }) => {
+  test(`a browse stage without ${without.join(' or ')} names its title once, over ${without.length === 1 ? 'the poster' : 'a bare colour field'}`, async ({ page }) => {
     await openWall(page, '/library/movies', { without: [...without] });
-    const tile = page.locator('.g-feature').first();
+    const tile = page.locator('.g-browse-hero');
     await expect(tile).toBeVisible();
-    const name = (await tile.locator('.g-feature-name').textContent()) ?? '';
+    const name = (await tile.getByRole('heading').textContent()) ?? '';
     expect(name).toMatch(/^A Title 0$/);
     await expect(tile.getByText(name, { exact: true })).toHaveCount(1);
     await expect(tile.locator('.g-card')).toHaveCount(0);
-    await expect(tile.locator('.g-feature-copy')).toHaveCSS('background-image', /linear-gradient/);
+    expect(await tile.evaluate((stage) => getComputedStyle(stage, '::after').backgroundImage)).toContain('linear-gradient');
     if (without.length === 1) await expect(tile.locator('.g-art-poster img.g-art-image.is-shown')).toHaveCount(1);
     else await expect(tile.locator('img.g-art-image')).toHaveCount(0);
   });
 }
 
-test('dark: the feature tile keeps a hairline bottom edge; the current tab is underlined in gold', async ({ page }) => {
+test('dark: the active catalog tab retains the approved brand underline', async ({ page }) => {
   await openWall(page, '/library/movies', {}, DESKTOP, 'dark');
-  await expect(page.locator('.g-feature').first()).toBeVisible();
-  expect(await page.locator('.g-feature').first().evaluate((tile) => getComputedStyle(tile, '::after').boxShadow)).toContain('0px -1px');
   const gold = await page.locator('.gallery').evaluate((wall) => getComputedStyle(wall).getPropertyValue('--g-gold').trim());
   const underline = await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Movies', exact: true }).evaluate((tab) => getComputedStyle(tab).textDecorationColor);
   expect(underline).toBe(await page.evaluate((hex) => { const probe = document.createElement('i'); probe.style.color = hex; document.body.append(probe); const colour = getComputedStyle(probe).color; probe.remove(); return colour; }, gold));

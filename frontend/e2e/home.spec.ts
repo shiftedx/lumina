@@ -246,12 +246,40 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await openHome(page, {
         continueWatching: [continueEntry(episodeSummary(2, 4))], nextUp: [episodeSummary(2, 5)], newest: Array.from({ length: 8 }, (_, index) => homeMovie(index)),
-        albums: [albumSummary('album-1')],
+        albums: [albumSummary('album-1')], artwork: true,
       }, viewport);
       await expect(page.locator('.h-hero')).toBeVisible();
-      await page.screenshot({ path: `../output/playwright/home/home-${scheme}-${viewport.width}.png`, fullPage: true });
+      await expect.poll(() => page.locator('.h-hero img.g-art-image').first().evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(1);
+      expect((await page.locator('.h-hero').boundingBox())?.y).toBe(0);
+      await page.screenshot({ path: `../output/playwright/home/home-${scheme}-${viewport.width}.png` });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       expect(errors).toEqual([]);
     });
   }
+}
+
+for (const width of [2048, 390]) {
+  test(`opening a detail starts at its hero and Back restores Home at ${width}`, async ({ page }) => {
+    const newest = homeMovie(1, { name: 'Hero Destination' });
+    await openHome(page, { artwork: true, continueWatching: [continueEntry(newest)], newest: [newest, homeMovie(2)] }, { width, height: 600 });
+    await expect(page.locator('.h-body:not([inert])')).toBeVisible();
+    const card = page.locator('[data-shelf-section="new_in_library"] .h-card [data-focus-item]').first();
+    await expect(card).toBeAttached();
+    await card.scrollIntoViewIfNeeded();
+    const browseY = await page.evaluate(() => window.scrollY);
+    expect(browseY).toBeGreaterThan(100);
+    await card.click();
+    await expect(page).toHaveURL(/\/video\/title\/home-movie-1$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Hero Destination' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBe(0);
+    await page.evaluate(() => window.scrollTo({ top: 400, behavior: 'instant' }));
+    const detailY = await page.evaluate(() => window.scrollY);
+    expect(detailY).toBeGreaterThan(100);
+    await page.goBack();
+    await expect(page.locator('.h-body:not([inert])')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBeCloseTo(browseY, 0);
+    await page.goForward();
+    await expect(page.locator('.t-page')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBeCloseTo(detailY, 0);
+  });
 }

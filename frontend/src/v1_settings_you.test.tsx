@@ -10,7 +10,8 @@ const { YOU_SECTIONS } = await import('./features/settings/sections/you');
 const { SectionRows } = await import('./features/settings/SettingRow');
 const { SettingsHostContext } = await import('./features/settings/settingsHost');
 const { sectionById } = await import('./features/settings/registry');
-const { MUTE_COPY } = await import('./features/settings/youCards');
+const { MUTE_COPY, MuteWords, ProfileNameSettings } = await import('./features/settings/youCards');
+const { confirmLeaveSettings } = await import('./features/settings/unsavedChanges');
 const { SourceSettings } = await import('./SourceSettings');
 
 const user = { id: 'u1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as never;
@@ -70,6 +71,38 @@ describe('"You" sections', () => {
     const downloads = document.querySelector('[data-setting-id="downloads.defaults"]') as HTMLElement;
     expect(downloads.querySelector('details')).toBeNull();
     expect(within(downloads).getByRole('combobox', { name: 'Container' })).toBeTruthy();
+  });
+});
+
+describe('manual personal forms', () => {
+  it('retains a rejected profile draft, exposes its dirty save bar, and discards it explicitly', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('That display name is unavailable.'));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<ProfileNameSettings onSave={onSave} user={user} />);
+    const name = screen.getByRole('textbox', { name: 'Display name' });
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Updated name');
+    expect(screen.getByRole('status').textContent).toBe('Manual save · Unsaved changes');
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('That display name is unavailable.');
+    expect((name as HTMLInputElement).value).toBe('Updated name');
+    expect(confirmLeaveSettings()).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Profile. Leave without saving?');
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect((name as HTMLInputElement).value).toBe('One');
+    expect(confirmLeaveSettings()).toBe(true);
+  });
+
+  it('guards a muted-words draft until the member saves or discards it', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<MuteWords onChange={vi.fn()} value={{ enabled: true, words: ['original'] }} />);
+    const words = screen.getByRole('textbox', { name: 'Your extra words' });
+    await userEvent.clear(words);
+    await userEvent.type(words, 'new word');
+    expect(confirmLeaveSettings()).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Mute words. Leave without saving?');
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect((words as HTMLTextAreaElement).value).toBe('original');
   });
 });
 

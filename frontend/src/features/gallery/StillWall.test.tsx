@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,12 +34,28 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('StillWall', () => {
+  it('features a fetched saved video and plays that exact item while retaining the wall controls', async () => {
+    const saved = stillItem('chosen', { title: 'Canal film', kind: 'video', artwork_url: '/api/library/chosen/artwork', uploader: 'Canal' });
+    vi.spyOn(api, 'listLibrary').mockResolvedValue(page([saved]));
+    const { props, container } = wall({ viewSwitch: <button type="button">Channels</button> });
+    const hero = await screen.findByRole('region', { name: 'Canal film' });
+    expect(hero.querySelector('img')?.getAttribute('src')).toBe('/api/library/chosen/artwork');
+    await userEvent.click(within(hero).getByRole('button', { name: 'Play' }));
+    expect(props.onPlay).toHaveBeenCalledWith(saved);
+    expect(screen.getByRole('button', { name: 'Channels' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'More from Canal' }));
+    expect(props.onWallChange).toHaveBeenLastCalledWith('channel=Canal');
+    expect(screen.getByRole('combobox', { name: 'Source' })).toBeTruthy();
+    expect(container.querySelector('.has-browse-hero.is-video-browse')).toBeTruthy();
+  });
+
   it('lists the newest 60 under the masthead and its count', async () => {
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem('v1'), stillItem('v2', { title: 'Canal at noon' })]));
     wall();
     expect(screen.getByRole('heading', { level: 1, name: 'YouTube' })).toBeTruthy();
     expect(screen.getByText('318 videos · Sorted by recently added')).toBeTruthy();
     expect(await screen.findByRole('button', { name: /^Canal at noon, / })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Saved videos' })).toBeTruthy();
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ kind: 'video', source: 'saved', status: 'available', sort: 'recent', limit: 60, cursor: null }));
   });
 
@@ -47,9 +63,12 @@ describe('StillWall', () => {
     expect(parseStillQuery('video', 'sort=bogus&source=vimeo')).toEqual({ sort: 'recent', source: '' });
     expect(parseStillQuery('video', 'sort=title&source=twitch&view=saved')).toEqual({ sort: 'title', source: 'twitch' });
     expect(parseStillQuery('video', 'source=other_web')).toEqual({ sort: 'recent', source: 'other_web' });
+    expect(parseStillQuery('video', 'search=%20Harbor%20walk%20')).toEqual({ sort: 'recent', source: '', search: 'Harbor walk' });
+    expect(parseStillQuery('recording', 'search=Harbor')).toEqual({ sort: 'recent', source: '' });
     expect(parseStillQuery('recording', 'source=twitch')).toEqual({ sort: 'recent', source: '' });
     expect(serializeStillQuery({ sort: 'title', source: 'kick' })).toBe('sort=title&source=kick');
     expect(serializeStillQuery({ sort: 'recent', source: 'other_web' })).toBe('source=other_web');
+    expect(serializeStillQuery({ sort: 'recent', source: '', search: 'Harbor walk' })).toBe('search=Harbor+walk');
     expect(serializeStillQuery({ sort: 'recent', source: '' })).toBe('');
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem()]));
     const { props, rerender } = wall();
@@ -64,6 +83,20 @@ describe('StillWall', () => {
     expect(screen.getByText('Filtered · Sorted by title')).toBeTruthy();
     rerender(<ToastProvider><StillWall {...props} kind="recording" wall="" /></ToastProvider>);
     expect(screen.queryByRole('combobox', { name: 'Source' })).toBeNull();
+  });
+
+  it('commits saved-video search through the URL and server query, then clears it with Escape', async () => {
+    const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem()]));
+    const { props, rerender } = wall();
+    const search = screen.getByRole('searchbox', { name: 'Search saved videos' });
+    await userEvent.type(search, ' harbor  walk {Enter}');
+    expect(props.onWallChange).toHaveBeenLastCalledWith('search=harbor++walk');
+    rerender(<ToastProvider><StillWall {...props} wall="search=harbor++walk" /></ToastProvider>);
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'harbor  walk', kind: 'video', source: 'saved', cursor: null })));
+    expect(screen.getByRole('heading', { level: 2, name: 'Results for “harbor walk”' })).toBeTruthy();
+    expect(document.querySelector('.g-browse-hero')).toBeNull();
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search saved videos' }), '{Escape}');
+    expect(props.onWallChange).toHaveBeenLastCalledWith('');
   });
 
   it('loads the next page as the sentinel comes within a viewport', async () => {
@@ -120,6 +153,7 @@ describe('StillWall', () => {
     vi.spyOn(api, 'listLibrary').mockResolvedValue(page([]));
     const videos = wall();
     expect(await screen.findByText('No saved videos yet')).toBeTruthy();
+    expect(document.querySelector('.g-browse-hero')).toBeNull();
     videos.unmount();
     const recordings = wall({ kind: 'recording', count: 0 });
     expect(await screen.findByText('Recordings of live streams you record appear here.')).toBeTruthy();

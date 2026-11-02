@@ -383,13 +383,14 @@ export function AdminStorage() {
                 )}
               </Field>
             </div>
-            <div className="g-save-bar">
+            {!dirty && !saveState.busy && !saveState.done ? <p className="g-save-mode">Manual save</p> : null}
+            {dirty || saveState.busy || saveState.done ? <div className={`g-save-bar${dirty || saveState.busy ? ' is-pending' : ''}`}>
               <p className="g-save-status" role="status">{saveState.busy ? 'Saving…' : saveState.done ? 'Saved. New downloads use these rules; existing files stay where they are.' : dirty ? <span className="g-label">Unsaved changes</span> : `Revision ${saved?.revision ?? 0}.`}</p>
-              <div className="g-save-actions">
+              {dirty || saveState.busy ? <div className="g-save-actions">
                 {dirty ? <Button onClick={() => saved && (setDraft(normalize(saved)), setSaveState({}))} variant="quiet">Discard</Button> : null}
                 <Button busy={saveState.busy} disabled={!dirty || saveState.conflict || problems.some(Boolean)} onClick={() => { void save(); }} variant="primary">Save rules</Button>
-              </div>
-            </div>
+              </div> : null}
+            </div> : null}
           </>
         ) : saveState.error ? null : <p className="admin-note" role="status">Loading rules…</p>}
         {saveState.error ? (

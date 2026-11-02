@@ -24,7 +24,7 @@ import { CategoryRail, ForYouRail } from '../reco/ExploreRails';
 import { RecoRowOwnersProvider, rowOwners } from '../reco/recoFeedback';
 import { RecoPersonalScope } from '../reco/recoPersonal';
 import { orderRails, remoteTarget } from '../reco/recoModel';
-import { channelTarget, exploreGroups, exploreKicker, GROUP_ORDER, type GroupKey, LIBRARY_GROUP_MAX, LIVE_TEASER, liveTeaser, popularNotice, popularRails } from './exploreModel';
+import { channelTarget, exploreGroups, exploreKicker, featuredEntries, GROUP_ORDER, type GroupKey, LIBRARY_GROUP_MAX, LIVE_TEASER, liveTeaser, popularNotice, popularRails, remoteEntryKey, withoutRemoteEntries } from './exploreModel';
 import { REMOTE_CARD_SIZES, remoteProvider } from '../gallery/remoteModel';
 import './explore.css';
 
@@ -143,12 +143,22 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
     const expanded = rail ? rails.find((entry) => entry.key === rail) : null;
     // The new policy always sends category_order; the legacy (kill switch off) branch never does, and ignores "Show fewer".
     const personal = Boolean(popular?.category_order?.length);
-    const shownRails = expanded ? [expanded] : [{ key: 'for-you', entries: popular?.for_you ?? [] }, ...rails];
+    const isVisibleHomeItem = (item: RemoteEntry) => (!provider || remoteProvider(item) === provider) && isProviderVisible(providers, item.source);
+    const followed = embedded ? (props.fromChannels ?? []).filter(isVisibleHomeItem) : [];
+    // These are real discovery entries, not a promoted fixture. Keeping their keys out of
+    // every following home rail lets the first two thumbnails earn their larger treatment.
+    const featured = embedded && !expanded ? featuredEntries(followed, (popular?.items ?? []).filter(isVisibleHomeItem)) : [];
+    const featuredKeys = new Set(featured.map(remoteEntryKey).filter((key): key is string => Boolean(key)));
+    const stripFeatured = (items: readonly RemoteEntry[]) => withoutRemoteEntries(items, featuredKeys);
+    const homeRails = rails.map((entry) => ({ ...entry, entries: stripFeatured(entry.entries) })).filter((entry) => entry.entries.length);
+    const forYou = stripFeatured(popular?.for_you ?? []);
+    const shownRails = expanded ? [expanded] : [{ key: 'for-you', entries: forYou }, ...homeRails];
     const owners = rowOwners(shownRails.map((entry) => ({ key: entry.key, targets: entry.entries.map(remoteTarget) })));
     if (expanded) {
       return <div className={shell} onKeyDown={onKeyDown}>{masthead}<RecoPersonalScope value={personal}><RecoRowOwnersProvider value={owners}><CategoryRail eager expanded extra={actionsFor} onOpen={onOpen} rail={expanded} /></RecoRowOwnersProvider></RecoPersonalScope></div>;
     }
-    const teaser = liveTeaser(live, (item) => (!provider || remoteProvider(item) === provider) && isProviderVisible(providers, item.source));
+    const teaser = stripFeatured(liveTeaser(live, isVisibleHomeItem));
+    const remainingFollowed = stripFeatured(followed);
     // One compact, sideways-scrolling row (owner, 2.3.1): Live now and the rows stay above the fold, and nothing shifts.
     const categories = (
       <nav aria-label="Browse by category" className="g-chips g-category-chips" data-focus-row>
@@ -157,7 +167,10 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
     );
     const notice = popularNotice(popular);
     let popularBody: ReactNode = null;
-    if (rails.length) popularBody = rails.map((entry) => <CategoryRail key={entry.key} onOpen={onOpen} onSeeAll={(key) => { lastSeeAll.current = key; changeRail(key); }} rail={entry} />);
+    if (homeRails.length) popularBody = homeRails.map((entry) => <CategoryRail key={entry.key} onOpen={onOpen} onSeeAll={(key) => { lastSeeAll.current = key; changeRail(key); }} rail={entry} />);
+    // Every available popular entry can legitimately be leading the page. Do not follow
+    // that real featured shelf with a contradictory empty-state message.
+    else if (featured.length && rails.length) popularBody = null;
     else if (popularError || popular?.state === 'failed') popularBody = <div className="g-empty-result" key="popular-failed"><p className="g-explore-empty-title">Popular is taking a pause.</p><p className="g-label">{popularError || popular?.error || 'Previously gathered results are unavailable.'}</p></div>;
     else if (popular && popular.state !== 'loading') popularBody = <div className="g-empty-result" key="popular-empty"><p className="g-explore-empty-title">Nothing popular yet.</p><p>Discovery will try fresh categories shortly.</p></div>;
     else popularBody = <div aria-busy="true" aria-label="Loading Popular" className="g-rail-slots" key="popular-loading" role="status">{[0, 1, 2, 3].map((slot) => <span className="g-still-slot" key={slot} />)}</div>;
@@ -166,14 +179,25 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
         <RecoPersonalScope value={personal}><RecoRowOwnersProvider value={owners}>
         {masthead}
         {searchField}
+        {featured.length ? (
+          <section aria-labelledby="g-explore-featured" className="g-explore-featured">
+            <header className="g-explore-featured-head">
+              <h2 id="g-explore-featured">{followed.length ? 'Featured from your channels' : 'Featured'}</h2>
+              {followed.length && props.onSeeAllChannels ? <button className="g-text-button" data-focus-item onClick={props.onSeeAllChannels} type="button">See all</button> : null}
+            </header>
+            <div className="g-explore-featured-grid">
+              {featured.map((item, index) => <RemoteStillCard featured actions={actionsFor(item)} item={item} key={remoteEntryKey(item) ?? index} onOpen={onOpen} position={index} priority={1} showProvider={!provider} sizes="(max-width: 599px) 100vw, 50vw" />)}
+            </div>
+          </section>
+        ) : null}
         {/* While a row loads it holds its place (heading + card slots), so rows below never jump when it lands (CLS). */}
         {!props.liveError && (props.liveSnapshot === undefined ? liveLoading : !props.liveSnapshot) && !teaser.length ? <RailSlot heading="Live now" /> : null}
         {props.liveError && !teaser.length ? <p className="g-label" role="status">{props.liveError}</p> : null}
         {teaser.length ? <StillRail eager heading="Live now" items={teaser} liveCount={provider ? null : live?.live_total} onOpen={onOpen} onSeeAll={onSeeAllLive ?? (() => openAppPath('/streaming/live'))} railKey="live-now" seeAllHref="/streaming/live" showProvider={!provider} /> : null}
         {live?.language_pending && teaser.length < LIVE_TEASER ? <p className="g-label" role="status">Finding more live streams in your language…</p> : null}
-        {embedded && props.fromChannels?.length ? <StillRail heading="From your channels" items={props.fromChannels.filter((item) => isProviderVisible(providers, item.source))} onOpen={onOpen} onSeeAll={props.onSeeAllChannels} railKey="from-channels" seeAllHref="/streaming/channels" /> : null}
+        {embedded && remainingFollowed.length ? <StillRail heading={featured.length ? 'More from your channels' : 'From your channels'} items={remainingFollowed} onOpen={onOpen} onSeeAll={props.onSeeAllChannels} railKey="from-channels" seeAllHref="/streaming/channels" /> : null}
         {!popular && !popularError ? <RailSlot heading={embedded ? 'Recommended for you' : 'For you'} /> : null}
-        <ForYouRail heading={embedded ? 'Recommended for you' : undefined} items={popular?.for_you ?? []} onOpen={onOpen} />
+        <ForYouRail heading={embedded ? 'Recommended for you' : undefined} items={forYou} onOpen={onOpen} />
         {categories}
         {popularBody}
         {/* Below the rows, so a late notice never pushes them down (CLS). */}

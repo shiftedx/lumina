@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import AppSettings, LibraryItem, MediaTitle, PlaybackProgress, MusicCastTicket, MusicLookup, MusicTrackOverride, User, utcnow
+from app.media_schemas import TitleSummary
 from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtworkPlan, MusicIdentify, MusicLyrics, MusicPlanApply, MusicPlaylistSave, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit, MusicVideos, MusicWriteback
 from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
@@ -55,6 +56,11 @@ def highlights(title_id: str, limit: int = Query(8, ge=1, le=50), user: User = D
                LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(user))
         .order_by(func.coalesce(PlaybackProgress.plays, 0).desc(), MediaTitle.year.desc(), LibraryItem.title, LibraryItem.id).limit(limit)))
     return music_library.manifests(db, user, items)
+
+
+def recently_played_albums(limit: int = Query(12, ge=1, le=50), user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict[str, list[TitleSummary]]:
+    """Member-scoped listening recency, grouped by visible album rather than files."""
+    return {"items": music_library.recently_played_albums(db, user, limit)}
 
 
 def audio(item_id: str, request: Request, format_: Literal["native", "flac", "wav"] = Query("native", alias="format"),
@@ -481,6 +487,7 @@ def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     app.add_api_route("/api/music/playlists/{playlist_id}/tracks", playlist_tracks, methods=["GET"])
     app.add_api_route("/api/music/mixes/{kind}", mix, methods=["GET"])
     app.add_api_route("/api/music/queue", queue, methods=["POST"])
+    app.add_api_route("/api/music/albums/recently-played", recently_played_albums, methods=["GET"])
     app.add_api_route("/api/music/albums", create_release, methods=["POST"])
     app.add_api_route("/api/music/tracks/edit", edit_tracks, methods=["POST"])
     app.add_api_route("/api/music/edits/{batch_id}/undo", undo, methods=["POST"])

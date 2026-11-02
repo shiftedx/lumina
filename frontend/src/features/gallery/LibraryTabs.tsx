@@ -1,12 +1,12 @@
 /**
- * The Library's tab row: All, then each lens with something the member can see, and
+ * Video destinations use a utility row; embedded legacy libraries retain their scoped tabs and
  * the quiet Deleted link. It renders at once from the member's last sections answer, kept in localStorage, and follows
  * GET /api/library/sections.
  */
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useState } from 'react';
 
 import { getLibrarySections } from '../../api';
-import type { LibrarySections } from '../../types';
+import type { LibrarySections, ServerNavigation } from '../../types';
 import { TabScroller } from '../../ui';
 import { LENS_LABELS, LIBRARY_LENSES, type LibraryLens } from './libraryLens';
 
@@ -54,6 +54,7 @@ export function useLibrarySections(member: string): { sections: LibrarySections 
   useEffect(() => {
     const controller = new AbortController();
     getLibrarySections({ signal: controller.signal }).then((sections) => {
+      if (controller.signal.aborted) return;
       storeSections(member, sections);
       setState({ member, sections, failed: false });
     }, () => {
@@ -65,6 +66,11 @@ export function useLibrarySections(member: string): { sections: LibrarySections 
     setState((previous) => ({ ...previous, failed: false }));
     setAttempt((value) => value + 1);
   }, []);
+  useEffect(() => {
+    const foreground = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => document.removeEventListener('visibilitychange', foreground);
+  }, [refresh]);
   return { sections: current.sections, failed: current.failed, refresh };
 }
 
@@ -84,6 +90,7 @@ export function followInApp(event: MouseEvent<HTMLAnchorElement>, open: () => vo
 }
 
 export type LibraryTabsProps = {
+  navigation?: ServerNavigation | null;
   videoOnly?: boolean;
   current: LibraryPlace;
   sections: LibrarySections | null;
@@ -92,8 +99,14 @@ export type LibraryTabsProps = {
   onOpen: (place: LibraryPlace) => void;
 };
 
-export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false }: LibraryTabsProps) {
-  const shownTabs = TABS.filter((tab) => (!videoOnly || tab !== 'music') && tabShown(tab, sections));
+export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false, navigation }: LibraryTabsProps) {
+  const shownTabs = videoOnly ? [] : TABS.filter((tab) => {
+    if (tab === 'all') return true;
+    if (videoOnly && tab === 'music') return false;
+    if (tab === 'recordings') return Boolean(navigation?.categories.includes('recordings')) && tabShown(tab, sections);
+    const category = tab === 'shows' ? 'tv' : tab;
+    return Boolean(navigation?.categories.includes(category));
+  });
   const deletedShown = isAdmin || (sections?.deleted ?? 0) > 0;
   /** Left and Right step along the row and stop at its ends; Down leaves for the page's next control. */
   const keys = (event: KeyboardEvent<HTMLElement>) => {
@@ -117,7 +130,7 @@ export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = fa
     <a aria-current={current === place ? 'page' : undefined} className={className} href={placePath(place)} key={place} onClick={(event) => followInApp(event, () => onOpen(place))}>{label}</a>
   );
   return (
-    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel="Library" as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
+    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel={videoOnly ? 'Library tools' : 'Library'} as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
       {shownTabs.map((tab) => link(tab, tab === 'all' ? 'All' : LENS_LABELS[tab], 'g-tab'))}
       {link('collections', 'Collections', 'g-tabs-deleted')}
       {deletedShown ? link('deleted', LENS_LABELS.deleted, 'g-tabs-deleted') : null}

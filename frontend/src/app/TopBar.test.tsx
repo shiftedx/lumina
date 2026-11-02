@@ -26,7 +26,7 @@ describe('TopBar', () => {
     const p = props();
     render(<TopBar {...p} />);
     expect(screen.getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('link', { name: 'Lumina' }).getAttribute('href')).toBe('/');
+    expect(screen.getByRole('link', { name: 'Lumina home' }).getAttribute('href')).toBe('/');
     await userEvent.click(screen.getByRole('button', { name: /^Search Lumina, (⌘K|Ctrl K)$/ }));
     expect(p.onSearch).toHaveBeenCalledOnce();
   });
@@ -167,19 +167,17 @@ describe('TopBar', () => {
     const stop = onCommand(MEMBER_PICKER_EVENT, picker);
     render(<TopBar {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
-    expect(screen.getByRole('group', { name: 'Dana Lee · Vault owner', hidden: true })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: 'Mobile connect', hidden: true })).toBeTruthy();
-    expect(screen.getByRole('menuitemradio', { name: /Dark/, hidden: true }).getAttribute('aria-checked')).toBe('true');
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Switch member…', hidden: true }));
+    expect(screen.getByRole('dialog', { name: 'Your activity' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Mobile connect', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Dark/, hidden: true })).toHaveProperty('checked', true);
+    await userEvent.click(screen.getByRole('button', { name: 'Switch member…', hidden: true }));
     expect(picker).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
-    await userEvent.click(screen.getByRole('menuitemradio', { name: /Light/, hidden: true }));
+    await userEvent.click(screen.getByRole('radio', { name: /Light/, hidden: true }));
     expect(p.onTheme).toHaveBeenCalledWith('light');
-    await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
-    await userEvent.click(screen.getByRole('menuitemradio', { name: /OLED/, hidden: true }));
+    await userEvent.click(screen.getByRole('radio', { name: /OLED/, hidden: true }));
     expect(p.onTheme).toHaveBeenLastCalledWith('oled');
-    await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Sign out', hidden: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out', hidden: true }));
     expect(p.onSignOut).toHaveBeenCalledOnce();
     stop();
   });
@@ -190,14 +188,26 @@ describe('TopBar', () => {
     const stop = onCommand(EDIT_HOME_EVENT, edit);
     render(<TopBar {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit home', hidden: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Edit home', hidden: true }));
     await waitFor(() => expect(edit).toHaveBeenCalledOnce());
     stop();
   });
 
-  it('is icon-only for Add link on phones and shows only the sun when compact', () => {
+  it('leaves phone link acquisition to Browse and keeps the compact brand accessible', () => {
     render(<TopBar {...props({ mobile: true, compact: true })} />);
-    expect(screen.getByRole('button', { name: 'Add a link' }).textContent).not.toContain('Add link');
+    expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
     expect(screen.getByText('Lumina').className).toContain('sr-only');
   });
+});
+
+
+it('shows Add Link only after server Streaming is enabled', async () => {
+  const p = props({ streamingEnabled: false });
+  const view = render(<TopBar {...p} />);
+  expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
+  view.rerender(<TopBar {...p} streamingEnabled />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add a link' }));
+  expect(p.onAddLink).toHaveBeenCalledOnce();
+  view.rerender(<TopBar {...p} />);
+  expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
 });

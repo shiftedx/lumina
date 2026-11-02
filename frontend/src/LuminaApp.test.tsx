@@ -1,3 +1,4 @@
+import type { ServerNavigation } from './types';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
@@ -37,6 +38,8 @@ vi.mock('./features/gallery/GalleryTitlePage', async (importOriginal) => {
   chunks.titlePage();
   return importOriginal();
 });
+
+const navigation: ServerNavigation = { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } };
 
 const noop = vi.fn();
 
@@ -108,18 +111,18 @@ describe('authenticated navigation accessibility', () => {
   const user = { id: 'user-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as const;
 
   it('marks the current destination inside the navigation dialog', () => {
-    const html = renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" />);
+    const html = renderToStaticMarkup(<NavigationPopover navigation={navigation} activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" />);
     expect(html).toContain('popover="manual"');
-    expect(html).toMatch(/aria-current="page" aria-label="Video"/);
+    expect(html).toMatch(/aria-current="page" aria-label="All video"/);
   });
 
   it('does not render navigation until its dialog opens', () => {
-    expect(renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open={false} surface="home" />)).toBe('');
+    expect(renderToStaticMarkup(<NavigationPopover navigation={navigation} activeDownloads={0} onClose={noop} onNavigate={noop} open={false} surface="home" />)).toBe('');
   });
 
   it('marks the active mobile tab, and Watch does not pretend to be Home', () => {
-    const tabs = { activeDownloads: 0, moreOpen: false, onMore: noop, onNavigate: noop, onSearch: noop };
-    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="video" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Video<\/span>/);
+    const tabs = { navigation, activeDownloads: 0, moreOpen: false, onMore: noop, onNavigate: noop, onSearch: noop };
+    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="video" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Movies<\/span>/);
     expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="watch" />)).not.toMatch(/aria-current/);
   });
 
@@ -136,6 +139,7 @@ describe('authenticated navigation accessibility', () => {
 describe('member interest Home presentation', () => {
   const user = { id: 'member-1', username: 'member', display_name: 'Member', role: 'viewer', is_active: true } as const;
   const base = {
+    navigation,
     channels: [], continueWatching: [], homeShelves: null, isQueueing: () => false, library: [], libraryProblem: null, libraryRetrying: false,
     libraryState: 'empty' as const, onHomeShelvesChange: noop, onNavigate: noop, onOpenLibrary: noop, onOpenRemote: noop, onOpenRoute: noop, onOpenTitle: noop,
     onPlay: noop, onQueueRemote: noop, onRetryLibrary: noop, onSignIn: noop, recentLibrary: [], subscriptionOutcomes: [], subscriptionVideos: [], user,

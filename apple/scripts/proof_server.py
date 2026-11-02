@@ -916,6 +916,29 @@ class _RequestsCatalogMetrics:
             return dict(self._counts)
 
 
+def install_navigation_fixture_controls(app: Any) -> None:
+    """Change only disposable server settings and synthetic music availability."""
+    from app.db import session_scope
+    from app.models import AppSettings, LibraryItem
+
+    async def set_navigation_fixture(mode: str):
+        if mode not in {"off", "on", "remove-music"}:
+            return {"ok": False}
+        with session_scope() as db:
+            settings = db.get(AppSettings, 1)
+            settings.requests_enabled = mode != "off"
+            settings.native_streaming_enabled = mode != "off"
+            for item in db.query(LibraryItem).filter(LibraryItem.kind.in_(("track", "audio"))).all():
+                item.status = "missing" if mode == "remove-music" else "available"
+            db.commit()
+        return {"ok": True}
+
+    app.add_api_route("/proof/navigation/{mode}", set_navigation_fixture, methods=["POST"], include_in_schema=False)
+    route = app.router.routes.pop()
+    frontend_index = next((i for i, candidate in enumerate(app.router.routes) if getattr(candidate, "name", None) == "frontend"), len(app.router.routes))
+    app.router.routes.insert(frontend_index, route)
+
+
 def install_requests_catalog_metrics(app: Any) -> _RequestsCatalogMetrics:
     """Add proof-only Requests aggregate counters without exposing request data."""
     recorder = _RequestsCatalogMetrics()
@@ -1265,7 +1288,11 @@ def make_show(media_root: Path) -> None:
         season = show / f"Season {season_number:02d}"
         season.mkdir(parents=True, exist_ok=True)
         stem = f"{SHOW_TITLE} S{season_number:02d}E{episode_number:02d}"
-        if os.environ.get("LUMINA_NATIVE_EPISODE_MKV") == "1":
+        if "NativeServerMediaLanguageTests" in str(FIXTURE_PATH) and title == EPISODE_TITLE:
+            ffmpeg("-i", movie / f"{DIRECT_TITLE} (2026).mp4", "-map", "0", "-c", "copy",
+                   "-metadata:s:a:0", "language=jpn", season / f"{stem}.mp4")
+            (season / f"{stem}.en.srt").write_text("1\n00:00:01,000 --> 00:00:02,000\nSynthetic English subtitle.\n", encoding="utf-8")
+        elif os.environ.get("LUMINA_NATIVE_EPISODE_MKV") == "1":
             ffmpeg("-i", movie / f"{DIRECT_TITLE} (2026).mp4", "-c", "copy", season / f"{stem}.mkv")
         else:
             shutil.copyfile(movie / f"{DIRECT_TITLE} (2026).mp4", season / f"{stem}.mp4")
@@ -1374,6 +1401,9 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         if not season_id or not second_season_id or season_id == second_season_id:
             raise RuntimeError("The synthetic show did not import two distinct seasons.")
         first_episode_item = db.query(LibraryItem).filter_by(title_id=first_episode_title.id).one()
+        if "NativeServerMediaLanguageTests" in str(FIXTURE_PATH):
+            from app.services.media_probe import MediaProbeService
+            MediaProbeService(db).facts(first_episode_item)
         media_segments.save_user_segments(db, first_episode_item.id, [
             MediaSegmentInput(type="intro", start_seconds=0, end_seconds=EPISODE_INTRO_END_SECONDS),
             MediaSegmentInput(type="credits", start_seconds=EPISODE_CREDITS_START_SECONDS, end_seconds=90),
@@ -1576,7 +1606,7 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     if not any(row.get("number") == 1 for row in request_show.get("seasons", []) if isinstance(row, dict)):
         raise RuntimeError("The native Requests title route did not expose the show season selector.")
     request_unlinked_show = request_json("/Lumina/Requests/catalog/title/show/95396", token=token)
-    if request_unlinked_show.get("key") != REQUEST_UNAVAILABLE_SHOW_KEY or request_unlinked_show.get("status") != {"state": "none"}:
+    if request_unlinked_show.get("key") != REQUEST_UNAVAILABLE_SHOW_KEY or request_unlinked_show.get("status", {}).get("state") != "none":
         raise RuntimeError("The unlinked Requests show fixture did not retain its requestable identity.")
     if request_unlinked_show.get("tvdb_id") != 371980 or not any(
         row.get("number") == 1 for row in request_unlinked_show.get("seasons", []) if isinstance(row, dict)
@@ -1588,7 +1618,7 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     if request_anime.get("status", {}).get("state") != "partially_available" or request_anime.get("status", {}).get("library_title_id") is None:
         raise RuntimeError("The seeded partial anime request fixture lost its vault and partial-coverage state.")
     fresh_anime_detail = request_json(f"/Lumina/Requests/catalog/title/anime/{REQUEST_FRESH_ANIME_ID}", token=token)
-    if fresh_anime_detail.get("key") != REQUEST_FRESH_ANIME_KEY or fresh_anime_detail.get("status") != {"state": "none"}:
+    if fresh_anime_detail.get("key") != REQUEST_FRESH_ANIME_KEY or fresh_anime_detail.get("status", {}).get("state") != "none":
         raise RuntimeError("The fresh anime request fixture did not retain a distinct unrequested identity.")
     if not any(row.get("number") == 1 for row in fresh_anime_detail.get("seasons", []) if isinstance(row, dict)):
         raise RuntimeError("The fresh anime request fixture did not expose its first-season selector.")
@@ -1866,6 +1896,8 @@ def main() -> None:
         import uvicorn
         from app.main import app
         install_showcase_art_fixture(state_root)
+        if "NativeServerNavigationTests" in str(FIXTURE_PATH):
+            install_navigation_fixture_controls(app)
         install_playback_info_delay(app, playback_info_delay)
         if os.environ.get("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE") == "1":
             install_audio_format_failure(app)

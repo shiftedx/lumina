@@ -1,0 +1,36 @@
+{
+  "credit": "Blender Studio / Blender Foundation \u2014 Creative Commons Attribution",
+  "usage": "Production-component browser review fixtures only; excluded from the shipping bundle.",
+  "assets": [
+    {
+      "file": "cosmos-poster.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/07/poster-cosmoslaundromat.jpg",
+      "sha256": "c3af7c9de01cfbbd261355d7a9702b4182cc87fb1cc9647fd053440c3e8588a5"
+    },
+    {
+      "file": "cosmos-backdrop.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/05/gooseberry_teaser_image_lo.jpg",
+      "sha256": "5e428c99554d0776ecd9bda0f39f94be67bc9061f5c359c31ab15c1845c04031"
+    },
+    {
+      "file": "sintel-poster.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/07/poster-sintel.jpg",
+      "sha256": "754516a1b236223e34d6cf26a92e1e50f871ca0075fcf4b00d028c7e3193ac15"
+    },
+    {
+      "file": "sintel-backdrop.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/04/sintel.jpg",
+      "sha256": "9d617cd0e7746edae53160cfcd137a489342d4c8c9ed7acfa4bffdd3fe6327ad"
+    },
+    {
+      "file": "bunny-poster.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/07/poster-bigbuckbunny.jpg",
+      "sha256": "b99e951cfe454787fb10b9ad5ba8453d5d5294f7dd6fd3783e4906220ff86f2b"
+    },
+    {
+      "file": "bunny-backdrop.jpg",
+      "source": "https://www.blender.org/wp-content/uploads/2013/04/big-buck-bunny.jpg",
+      "sha256": "9cb06109aea737ba47fe6bcd2f1179052fc0255262c2c22966a6945b58215b24"
+    }
+  ]
+}

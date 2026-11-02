@@ -1,3 +1,4 @@
+import type { ServerNavigation } from './types';
 import axe from 'axe-core';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,6 +27,8 @@ homeApi.listTitles.mockResolvedValue({ items: [] });
 homeApi.getHomeTitleRows.mockResolvedValue({ rows: [] });
 homeApi.listHouseholdCollections.mockResolvedValue([]);
 
+const navigation: ServerNavigation = { categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } };
+
 const noop = vi.fn();
 const user = { id: 'user-1', username: 'one', display_name: 'One Person', role: 'viewer', is_active: true } as UserProfile;
 
@@ -44,6 +47,7 @@ function renderRecommendedHome(overrides: Partial<Parameters<typeof HomeSurface>
   const view = render(
     <RecoFeedbackProvider resetKey="member-1" {...handlers}>
       <HomeSurface
+      navigation={navigation}
         channels={[]}
         continueWatching={[]}
         homeShelves={null}

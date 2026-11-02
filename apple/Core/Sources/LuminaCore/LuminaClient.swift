@@ -216,12 +216,9 @@ final class LuminaClient: @unchecked Sendable {
         try await json(request(origin: origin, path: "/UserViews", token: token, deviceID: deviceID))
     }
 
-    func navigationCategories(origin: URL, token: String, deviceID: String) async throws -> Set<String> {
-        let result: NativeNavigation = try await json(request(origin: origin, path: "/Lumina/Settings/navigation", token: token, deviceID: deviceID))
-        return Set(result.categories)
+    func navigationCategories(origin: URL, token: String, deviceID: String) async throws -> NativeNavigation {
+        try await json(request(origin: origin, path: "/Lumina/Settings/navigation", token: token, deviceID: deviceID))
     }
-
-    private struct NativeNavigation: Decodable { let categories: [String] }
 
     func children(origin: URL, token: String, deviceID: String, item: MediaItem, start: Int) async throws -> ItemPage {
         if item.type == "Series" {
@@ -1101,4 +1098,13 @@ private extension PlaybackStream {
                   language: stream.language, channels: stream.channels, isDefault: stream.isDefault,
                   isForced: stream.isForced, isExternal: stream.isExternal, subtitleDeliveryURL: subtitleDeliveryURL)
     }
+}
+
+struct NativeNavigation: Decodable {
+    struct Features: Decodable {
+        let streaming: Bool
+        let requests: Bool
+    }
+    let categories: [String]
+    let features: Features?
 }

@@ -136,30 +136,27 @@ describe('GalleryTitlePage: hero, headline and states', () => {
     expect(screen.queryByLabelText('Ratings')).toBeNull();
   });
 
-  it('sets a long name in its logo art, and falls back to the words when the logo fails', async () => {
+  it('keeps a long name as accessible text even when title data includes a logo', async () => {
     const name = 'The Lamp Keepers of the Northern Ice';
     api.getTitle.mockResolvedValue(titleDetail(movieSummary('movie-long', { name })));
     const { container } = render(page({ id: 'movie-long' }));
-    expect(await screen.findByRole('heading', { level: 1, name })).toBeTruthy();
-    const logo = lastArt('logo');
-    expect([logo?.priority, logo?.alt, logo?.colour.colour]).toEqual([1, name, 'transparent']);
-    act(() => logo?.onFail?.());
+    const headline = await screen.findByRole('heading', { level: 1, name });
+    expect(headline.textContent).toBe(name);
     expect(container.querySelector('[data-art="logo"]')).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(name);
   });
 
-  it('keeps a short name as words even when a logo exists', async () => {
+  it('keeps a short name as words when title data includes a logo', async () => {
     api.getTitle.mockResolvedValue(movie);
     render(page());
     await screen.findByRole('heading', { level: 1, name: 'Northern Lantern' });
     expect(art.props.some((props) => props.kind === 'logo')).toBe(false);
   });
 
-  it('drops a capital into a lede that starts with a letter, keeps the tagline, and tints the page', async () => {
-    api.getTitle.mockResolvedValue({ ...movie, tagline: 'Carry the light.', overview: 'Keepers carry the lamp north. '.repeat(6) }); // long enough for a drop cap
+  it('keeps the lede quiet under the artwork stage, preserves the tagline, and tints the page', async () => {
+    api.getTitle.mockResolvedValue({ ...movie, tagline: 'Carry the light.', overview: 'Keepers carry the lamp north. '.repeat(6) });
     const first = render(page());
     await screen.findByRole('heading', { level: 1 });
-    expect(first.container.querySelector('.t-lede')?.classList.contains('has-dropcap')).toBe(true);
+    expect(first.container.querySelector('.t-lede')?.classList.contains('has-dropcap')).toBe(false);
     expect(screen.getByText('Carry the light.')).toBeTruthy();
     expect((first.container.querySelector('.t-page') as HTMLElement).style.getPropertyValue('--g-accent')).toBe(readableAccent('#c08a4b', 'dark'));
     first.unmount();

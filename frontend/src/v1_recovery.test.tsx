@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
 vi.mock('./api', () => api);
 
 const { AdminBackups, BackupSchedule } = await import('./features/admin/AdminBackups');
+const { confirmLeaveSettings } = await import('./features/settings/unsavedChanges');
 
 afterEach(() => { vi.resetAllMocks(); });
 
@@ -62,7 +63,7 @@ describe('admin backups', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps a failed create actionable and saves the schedule', async () => {
+  it('keeps a failed create actionable and saves the schedule only after its draft is confirmed', async () => {
     const browser = userEvent.setup();
     api.listBackups.mockResolvedValue({ backups: [], schedule: { daily: true, keep: 7 } });
     api.createBackup.mockRejectedValue(new Error('A backup is already being created'));
@@ -70,11 +71,24 @@ describe('admin backups', () => {
     render(<><AdminBackups /><BackupSchedule /></>);
     await browser.click(await screen.findByRole('button', { name: /Back up now/ }));
     expect((await screen.findByRole('alert')).textContent).toContain('already being created');
-    await browser.click(screen.getByRole('switch', { name: /every day/ }));
-    const keep = screen.getByRole('spinbutton', { name: /to keep/ });
+    const schedule = screen.getByRole('form', { name: 'Automatic backups' });
+    expect(within(schedule).getByText('Manual save')).not.toBeNull();
+    expect(within(schedule).queryByRole('button', { name: 'Save schedule' })).toBeNull();
+    await browser.click(within(schedule).getByRole('switch', { name: /every day/ }));
+    const keep = within(schedule).getByRole('spinbutton', { name: /to keep/ });
     await browser.clear(keep);
     await browser.type(keep, '3');
-    await browser.click(screen.getByRole('button', { name: 'Save schedule' }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expect(confirmLeaveSettings()).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Automatic backups. Leave without saving?');
+    confirm.mockRestore();
+    await browser.click(within(schedule).getByRole('button', { name: 'Discard' }));
+    expect(api.updateBackupSchedule).not.toHaveBeenCalled();
+    expect((keep as HTMLInputElement).value).toBe('7');
+    await browser.click(within(schedule).getByRole('switch', { name: /every day/ }));
+    await browser.clear(keep);
+    await browser.type(keep, '3');
+    await browser.click(within(schedule).getByRole('button', { name: 'Save schedule' }));
     expect(api.updateBackupSchedule).toHaveBeenCalledWith({ daily: false, keep: 3 });
   });
 });

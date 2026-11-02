@@ -149,6 +149,58 @@ final class LuminaRequestsTests: XCTestCase {
 
     }
 
+    func testLanguageAvailabilityAndVariantSubmissionStayPerFile() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestsProtocol.self]
+        let session = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token", userID: "member", username: "Member", serverName: "Lumina", deviceID: "request-device")
+        let requests = LuminaRequests(session: session, client: LuminaClient(configuration: configuration))
+        let recorder = RequestsBodyRecorder()
+        var fixture = catalogItem()
+        fixture["status"] = ["state": "available", "library_title_id": "vault", "language_availability": [
+            "state": "partial", "truncated": false, "total_files": 2,
+            "files": [
+                ["audio_languages": ["ja"], "subtitle_languages": ["en"], "audio_known": true, "subtitles_known": true, "season": 1, "episode": 1],
+                ["audio_languages": ["en"], "subtitle_languages": [], "audio_known": true, "subtitles_known": false, "season": 1, "episode": 2],
+            ],
+        ]]
+        let detailData = try JSONSerialization.data(withJSONObject: fixture)
+        let item = try JSONDecoder().decode(RequestCatalogDetail.self, from: detailData).item
+        let files = try XCTUnwrap(item.status.languageAvailability?.files)
+        XCTAssertEqual(files[0].audioLanguages, ["ja"])
+        XCTAssertEqual(files[0].subtitleLanguages, ["en"])
+        XCTAssertEqual(files[1].audioLanguages, ["en"])
+        XCTAssertTrue(files[1].description.contains("Unknown"))
+        XCTAssertTrue(item.status.canRequestLanguageVariant)
+        RequestsProtocol.handler = { request in
+            recorder.body = try requestsBody(request)
+            var result = requestRecord()
+            result["audio_language"] = "en"
+            result["subtitle_language"] = NSNull()
+            result["fulfillment_mode"] = "manual"
+            return requestsResponse(request, status: 201, json: result)
+        }
+        let created = try await requests.create(item, audioLanguage: "en")
+        XCTAssertEqual(recorder.body?["audio_language"] as? String, "en")
+        XCTAssertNil(recorder.body?["subtitle_language"])
+        XCTAssertEqual(created.audioLanguage, "en")
+        XCTAssertEqual(created.fulfillmentMode, "manual")
+        do {
+            _ = try await requests.create(item)
+            XCTFail("A generic request for an available title must remain blocked")
+        } catch let error as RequestAPIError {
+            XCTAssertEqual(error, .invalidRequest)
+        }
+        fixture["status"] = ["state": "available", "library_title_id": "vault"]
+        let old = try JSONDecoder().decode(RequestCatalogDetail.self, from: JSONSerialization.data(withJSONObject: fixture)).item
+        XCTAssertFalse(old.status.canRequestLanguageVariant)
+        do {
+            _ = try await requests.create(old, audioLanguage: "en")
+            XCTFail("An older server must not expose unsupported language variants")
+        } catch let error as RequestAPIError {
+            XCTAssertEqual(error, .invalidRequest)
+        }
+    }
+
     func testRequestErrorRetainsStructuredServerCode() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RequestsProtocol.self]

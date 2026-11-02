@@ -26,6 +26,15 @@ describe('the Live page model', () => {
     expect(view.rails.map((rail) => [rail.key, ids(rail.entries)])).toEqual([['gaming', ['g2', 'g3']], ['music', ['m1', 'm2']]]);
   });
 
+  it('does not repeat a followed hero when discovery also includes it in a category rail', () => {
+    const hero = liveEntry('followed-lead', { view_count: 500 });
+    const other = liveEntry('other-live', { view_count: 20 });
+    const view = liveView(liveSnapshot({ hero: [hero], items: [hero, other] }), 'all');
+    expect(view.hero?.id).toBe('followed-lead');
+    expect(view.alsoFollowed.map((entry) => entry.id)).toEqual([]);
+    expect(view.rails.flatMap((rail) => rail.entries).map((entry) => entry.id)).not.toContain('followed-lead');
+  });
+
   it('omits the hero when nothing is live, and filters by provider', () => {
     expect(liveView(liveSnapshot({ items: [endedEntry('e1')] }), 'all').hero).toBeNull();
     const twitch = liveView(liveSnapshot(), 'twitch');

@@ -103,6 +103,24 @@ describe('BooksSurface', () => {
     expect(screen.queryByText(/sample catalog/i)).toBeNull();
   });
 
+  it('keeps one contextual search on overview and title pages, then searches both book kinds from a title', async () => {
+    const browser = userEvent.setup();
+    const crossKind = [book(), mangaVolume()];
+    api.listBooks.mockResolvedValue(page(crossKind));
+    render(<Surface initial={{ surface: 'books', view: 'overview' }} />);
+    await screen.findByRole('heading', { level: 1, name: 'Books' });
+    expect(screen.getAllByRole('searchbox', { name: 'Search books, authors, and series' })).toHaveLength(1);
+    await browser.click(screen.getAllByRole('button', { name: 'Open Northbound' })[0]);
+    await screen.findByRole('heading', { level: 1, name: 'Northbound' });
+    expect(screen.getAllByRole('searchbox', { name: 'Search books, authors, and series' })).toHaveLength(1);
+    await browser.type(screen.getByRole('searchbox', { name: 'Search books, authors, and series' }), ' Skybound ');
+    await browser.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByRole('heading', { level: 1, name: 'Results for “Skybound”' });
+    expect(api.listBooks).toHaveBeenLastCalledWith({ q: 'Skybound', limit: 48 });
+    expect(screen.getByRole('button', { name: 'Open Northbound' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Skybound, Volume 1' })).toBeTruthy();
+  });
+
   it('keeps continued stories out of Recent and sends Recent View all to the complete book list', async () => {
     const browser = userEvent.setup();
     const continuing = book({ progress: { unit_index: 0, offset: 0.25, percent: 25, completed: false, updated_at: '2026-10-02T00:00:00Z' } });
@@ -115,6 +133,16 @@ describe('BooksSurface', () => {
     await browser.click(within(recent).getByRole('button', { name: 'View all' }));
     await screen.findByRole('heading', { level: 1, name: 'All books' });
     expect(api.listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'added', status: 'all' }));
+  });
+
+  it('continues the featured story in its saved file without changing its checkpoint while browsing', async () => {
+    const continuing = book({ reading_file_id: 'saved-format', progress: { unit_index: 2, offset: 0.4, percent: 45, completed: false, updated_at: '2026-10-02T00:00:00Z' } });
+    api.getBooksOverview.mockResolvedValue(overview({ continue_reading: [continuing] }));
+    const onRoute = vi.fn();
+    render(<AccessProvider value={permitted}><BooksSurface onRoute={onRoute} route={{ surface: 'books', view: 'overview' }} user={booksUser} /></AccessProvider>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue reading' }));
+    expect(onRoute).toHaveBeenCalledWith({ surface: 'books', view: 'read', bookId: 'saved-format' }, false);
+    expect(api.updateBookState).not.toHaveBeenCalled();
   });
 
   it('combines selected catalog entries through a reviewable file-preserving dialog', async () => {

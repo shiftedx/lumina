@@ -21,7 +21,7 @@ const downloadingLabel = (percent: number) => (percent >= 100 ? 'Downloaded — 
 export const stateLabel = (state: RequestState) => STATE_LABEL[state];
 
 /** A new request is possible from nothing, after a decline, or for more seasons of a partly-available series. */
-export const canAskFor = (item: Pick<CatalogItem, 'status' | 'requestable'>) => item.requestable !== false && ['none', 'declined', 'partially_available'].includes(item.status.state);
+export const canAskFor = (item: Pick<CatalogItem, 'status' | 'requestable'>) => item.requestable !== false && (['none', 'declined', 'partially_available'].includes(item.status.state) || item.status.state === 'available' && Boolean(item.status.language_availability));
 export const isSeries = (item: Pick<CatalogItem, 'media_type'>) => item.media_type === 'tv';
 /** Anime series ask English dub or Japanese + subtitles; anime films and everything else do not. */
 export const needsLanguage = (item: Pick<CatalogItem, 'kind' | 'media_type'>) => item.kind === 'anime' && item.media_type === 'tv';
@@ -39,7 +39,7 @@ export function seasonsPayload(mode: SeasonMode, picked: readonly number[], seas
   return picked.length ? [...new Set(picked)].sort((a, b) => a - b) : null;
 }
 
-export function buildRequest(item: CatalogItem, choice: { seasons?: number[] | 'all' | null; language?: Language | null }): NewRequest {
+export function buildRequest(item: CatalogItem, choice: { seasons?: number[] | 'all' | null; language?: Language | null; audio_language?: string | null; subtitle_language?: string | null }): NewRequest {
   const ids = { ...(item.tmdb_id ? { tmdb_id: item.tmdb_id } : {}), ...(item.tvdb_id ? { tvdb_id: item.tvdb_id } : {}), ...(item.anilist_id ? { anilist_id: item.anilist_id } : {}) };
   return {
     kind: item.kind, ...ids,
@@ -47,6 +47,8 @@ export function buildRequest(item: CatalogItem, choice: { seasons?: number[] | '
     ...(item.kind === 'anime' && item.media_type === 'movie' ? { media_type: 'movie' as const } : {}),
     ...(isSeries(item) && choice.seasons ? { seasons: choice.seasons } : {}),
     ...(needsLanguage(item) && choice.language ? { language: choice.language } : {}),
+    ...(choice.audio_language ? { audio_language: choice.audio_language } : {}),
+    ...(choice.subtitle_language ? { subtitle_language: choice.subtitle_language } : {}),
   };
 }
 

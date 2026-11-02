@@ -14,10 +14,10 @@ for (const width of [390, 975, 1536]) {
     for (const destination of SETTINGS_PAGES) {
       await page.goto(`/settings/${destination.section}?page=${destination.id}`);
       await expect(page.locator('[data-setting-id]').first()).toBeVisible();
-      for (const summary of await page.locator('.g-settings-local-advanced > summary').all()) await summary.click();
+      for (const summary of await page.locator('.g-settings-advanced > summary').all()) await summary.click();
       const report = await page.locator('.g-settings-pane').evaluate((pane) => ({
         rows: [...pane.querySelectorAll<HTMLElement>('[data-setting-id]')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.dataset.settingId),
-        overflow: [...pane.querySelectorAll<HTMLElement>('.g-settings-rows, .g-settings-local-advanced')].some((panel) => panel.scrollWidth > panel.clientWidth + 1),
+        overflow: [...pane.querySelectorAll<HTMLElement>('.g-settings-rows, .g-settings-advanced')].some((panel) => panel.scrollWidth > panel.clientWidth + 1),
         documentOverflow: document.documentElement.scrollWidth > innerWidth + 1,
       }));
       const expected = destination.id === 'about' ? destination.rows : SETTINGS_PAGES.filter((entry) => entry.category === destination.category && entry.id !== 'about').flatMap((entry) => entry.rows);
@@ -175,3 +175,40 @@ test('request rules render household defaults and member overrides from complete
   await expect(page.getByRole('button', { name: 'Edit Eleanor Whitcombe-Harrington' })).toBeEnabled();
   await expect(page.getByText('Custom', { exact: true })).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+  test(`connection tests are separate from save and write-only replacement survives a rejected save at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockApi(page, { theme: 'dark' }); await mockAdminFixtures(page);
+    const server = { id: 'fixture-sonarr', name: 'Shows', kind: 'sonarr', base_url: 'http://sonarr.example.test:8989', api_key_set: true, root_folder: '/tv', quality_profile_id: 1, anime_root_folder: '/tv', anime_quality_profile_id: 1, path_mappings: [], enabled: true, last_ok_at: null, last_error: null };
+    const writes: Record<string, unknown>[] = [];
+    let rejectSave = true;
+    await page.route('**/api/admin/requests/servers', (route) => route.fulfill({ json: [server] }));
+    await page.route('**/api/admin/requests/servers/test', (route) => route.fulfill({ json: { ok: true, version: 'fixture', root_folders: [{ path: '/tv' }], quality_profiles: [{ id: 1, name: 'HD' }] } }));
+    await page.route('**/api/admin/requests/servers/fixture-sonarr', (route) => {
+      writes.push(route.request().postDataJSON());
+      return rejectSave ? route.fulfill({ status: 422, json: { detail: 'Review the server address.' } }) : route.fulfill({ json: server });
+    });
+    await page.goto('/manage/requests?page=sonarr'); await signIn(page);
+    const form = page.getByRole('form', { name: 'Sonarr', exact: true });
+    const secret = form.getByLabel('Sonarr API key', { exact: true });
+    await expect(secret).toHaveValue('');
+    await expect(secret).toHaveAttribute('placeholder', 'Saved key hidden');
+    await secret.fill('synthetic-replacement');
+    await form.getByRole('button', { name: 'Test Sonarr connection' }).click();
+    await expect(form.getByRole('status').filter({ hasText: 'Connected to Sonarr' })).toBeVisible();
+    expect(writes).toHaveLength(0);
+    if (process.env.SETTINGS_VISUAL_DIR) await form.screenshot({ path: `${process.env.SETTINGS_VISUAL_DIR}/server-connections-dirty-${width}.png` });
+    await form.getByRole('button', { name: 'Save Sonarr', exact: true }).click();
+    await expect(form.getByRole('alert')).toContainText('Review the server address.');
+    await expect(secret).toHaveValue('synthetic-replacement');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].api_key).toBe('synthetic-replacement');
+    if (process.env.SETTINGS_VISUAL_DIR) await form.screenshot({ path: `${process.env.SETTINGS_VISUAL_DIR}/server-connections-error-${width}.png` });
+    rejectSave = false;
+    await form.getByRole('button', { name: 'Save Sonarr', exact: true }).click();
+    await expect(secret).toHaveValue('');
+    await expect(form.getByRole('button', { name: 'Save Sonarr', exact: true })).toHaveCount(0);
+    expect(writes).toHaveLength(2);
+  });
+}

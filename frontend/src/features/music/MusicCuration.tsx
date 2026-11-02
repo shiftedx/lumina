@@ -428,7 +428,7 @@ export function MusicCuration({ user, onOpenTitle, onChanged }: MusicCurationPro
   ) : null;
 
   return (
-    <main className="music-curation surface" aria-busy={loading}>
+    <section aria-label="Manage music" className="music-curation surface" aria-busy={loading}>
       <Masthead lede="Clean up albums and artists in batches. Changes stay manual and can be undone." title="Manage music" />
       <SegmentedControl legend="Music type" name="music-curation-type" onChange={changeKind} options={[{ value: 'album', label: 'Albums' }, { value: 'artist', label: 'Artists' }]} value={kind} />
       {!canEdit ? <p className="g-notice music-curation-permission" role="status">You can browse music metadata, but detail editing is not enabled for this account.</p> : null}
@@ -495,7 +495,7 @@ export function MusicCuration({ user, onOpenTitle, onChanged }: MusicCurationPro
         </section>
       ) : null}
       {resultBody}
-    </main>
+    </section>
   );
 }
 

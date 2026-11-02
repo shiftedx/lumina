@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * Requests: discover films, series and anime, watch trailers inline, and ask the
  * household's Sonarr/Radarr for them. Pages: Discover, Films, Series, Anime, search, a title, My requests and Manage (admins).
@@ -78,6 +79,13 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
     timer.current = window.setTimeout(() => search(text, true), SEARCH_DEBOUNCE_MS);
   };
   const submit = (event: FormEvent) => { event.preventDefault(); window.clearTimeout(timer.current); search(draft, false); };
+  const searchForm = (
+    <ContextualSearch label="Search films, series and anime"><form className="g-search" onSubmit={submit} role="search">
+      <Search aria-hidden="true" />
+      <label className="sr-only" htmlFor="rq-search">Search films, series and anime</label>
+      <input className="g-input" id="rq-search" onChange={(event) => onDraft(event.currentTarget.value)} placeholder="Search films, series and anime" type="search" value={draft} />
+    </form></ContextualSearch>
+  );
 
   const tabs: Array<{ view: RequestsRoute['view']; label: string }> = [
     { view: 'discover', label: 'Discover' }, { view: 'movies', label: 'Films' }, { view: 'shows', label: 'Series' }, { view: 'anime', label: 'Anime' },
@@ -99,13 +107,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
         {route.view === 'title' ? null : (
           <>
             <Masthead
-              actions={(
-                <form className="g-search" onSubmit={submit} role="search">
-                  <Search aria-hidden="true" />
-                  <label className="sr-only" htmlFor="rq-search">Search films, series and anime</label>
-                  <input className="g-input" id="rq-search" onChange={(event) => onDraft(event.currentTarget.value)} placeholder="Search films, series and anime" type="search" value={draft} />
-                </form>
-              )}
+              actions={searchForm}
               title={route.view === 'search' ? `Results for “${route.query}”` : 'Requests'}
             />
             <TabScroller activeKey={`${route.view}:${isAdmin}`} ariaLabel="Requests pages" as="nav" className="rq-tab-scroller" rowClassName="rq-tabs">
@@ -115,6 +117,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
             </TabScroller>
           </>
         )}
+        {route.view === 'title' ? <>{searchForm}</> : null}
         {body}
       </div>
       {asking ? <RequestSheet item={asking} key={asking.key} onClose={() => setAsking(null)} onRequested={() => { loadQuotas(); onQueueChanged?.(); }} onStatus={setStatus} quota={quota} userId={user.id} /> : null}

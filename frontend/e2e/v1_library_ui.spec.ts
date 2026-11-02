@@ -226,7 +226,7 @@ test('a member who signs in after another sees none of their wall: no filters an
   await page.getByRole('button', { name: /^Gallery 000,/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeVisible();
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Sign out' }).click(); // Sign out lives in the account menu
+  await page.getByRole('button', { name: 'Sign out' }).click(); // Sign out lives in the account menu
   await expect(page.locator('.g-auth')).toBeVisible();
   const before = lists.length;
   await signIn(page);

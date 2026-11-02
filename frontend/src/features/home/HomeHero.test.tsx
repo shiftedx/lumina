@@ -93,6 +93,17 @@ describe('HomeHero', () => {
     expect(document.querySelector('.h-slide.is-field')).not.toBeNull();
   });
 
+  it('keeps a long logo-marked name as title text and supplies field contrast without artwork', async () => {
+    const name = 'The Lamp Keepers of the Northern Ice';
+    const bare = movieSummary('long-no-art', { name, backdrop: null, poster: null });
+    renderHero({ kind: 'newest', title: bare }, titleDetail(bare));
+    await flush();
+    const headline = screen.getByRole('heading', { level: 2, name });
+    expect(headline.textContent).toBe(name);
+    expect(document.querySelector('.h-hero-logo')).toBeNull();
+    expect((document.querySelector('.h-slide.is-field') as HTMLElement).style.getPropertyValue('--h-hero-ink')).toBeTruthy();
+  });
+
   it('warms the playback decision once, after the first screen and a second, and never under Save-Data', async () => {
     vi.useFakeTimers();
     const { rerender, onOpenTitle, onPlay } = renderHero(continuePick(), titleDetail(seriesSummary('series-1')), { ready: false });

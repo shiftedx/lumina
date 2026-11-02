@@ -11,7 +11,7 @@ import { onHomeEdit } from '../../app/commands';
 import type { AppRoute, Surface } from '../../app/routes';
 import { recordMetric, sinceNavigation } from '../../perfMetrics';
 import type { SubscriptionChannelOutcome } from '../../subscriptionFeed';
-import type { LibraryItem, MemberInterests, MemberRecommendationSnapshot, PlaybackProgress, SourceAutomation, TitleRow, TitleSummary, UserProfile, WatchQueueEntry, YouTubeSearchResult } from '../../types';
+import type { LibraryItem, ServerNavigation, MemberInterests, MemberRecommendationSnapshot, PlaybackProgress, SourceAutomation, TitleRow, TitleSummary, UserProfile, WatchQueueEntry, YouTubeSearchResult } from '../../types';
 import type { CollectionLoadProblem, CollectionLoadState } from '../../workspace';
 import { useToast } from '../../ui';
 import { FOCUS_TARGETS, moveFocus } from '../media/focusNav';
@@ -26,13 +26,14 @@ import { cachedShelf, rememberShelf } from './homeCache';
 import { HomeEditor } from './HomeEditor';
 import { HomeHero } from './HomeHero';
 import { FetchedShelf, HomeShelf, itemStill, NearGate, remoteStill, RemoveButton, type ShelfActions, titleStill, useNear } from './HomeShelf';
-import { entryLeft, entryPercent, firstName, greeting, heroSlides, isListeningEntry, mastheadDate, titleCaption } from './homeModel';
+import { entryLeft, entryPercent, homeItemVisible, homeShelfAvailable, homeTitleVisible, heroSlides, isListeningEntry, titleCaption } from './homeModel';
 import { HOME_CATALOGUE, HOME_SHELF_IDS, type HomeShelfId, type HomeShelfPref, normalizeHomeShelves, type ShelfStatus } from './homeShelves';
 import { LiveShelf } from './LiveShelf';
 import { createVisit, FETCHED_SHELVES, isFetchedShelf, SHELF_LIMIT } from './shelfSources';
 import './home.css';
 
 export type HomeSurfaceProps = {
+  navigation?: ServerNavigation | null;
   user: UserProfile;
   library: LibraryItem[];
   recentLibrary: LibraryItem[];
@@ -139,7 +140,7 @@ function PickedShelf({ recommendations, recommendationError, recommendationsLoad
 const HERO_WAIT_MS = 800;
 
 function HomeSurfaceView({
-  user, library, recentLibrary, continueWatching, subscriptionVideos, subscriptionOutcomes, channels, homeShelves, onHomeShelvesChange,
+  navigation, user, library, recentLibrary, continueWatching, subscriptionVideos, subscriptionOutcomes, channels, homeShelves, onHomeShelvesChange,
   onNavigate, onOpenRoute, onOpenLibrary, onOpenRemote, onOpenQueued, onOpenTitle, onPlay, onQueueRemote, isQueueing,
   libraryState, libraryProblem, libraryRetrying, onRetryLibrary, onSignIn,
   interests = null, recommendations = null, recommendationError = null, recommendationsLoading = false, onPersonalize, onRetryRecommendations,
@@ -148,7 +149,9 @@ function HomeSurfaceView({
   const { queue, loading: queueLoading, message: queueMessage } = useWatchQueue();
   const queueFailed = !queue && !queueLoading && Boolean(queueMessage);
   const layout = useMemo(() => normalizeHomeShelves(homeShelves), [homeShelves]);
-  const visible = useMemo(() => new Set(layout.filter((shelf) => shelf.visible).map((shelf) => shelf.id)), [layout]);
+  const availableLayout = useMemo(() => layout.filter((shelf) => homeShelfAvailable(shelf.id, navigation)), [layout, navigation]);
+  const visible = useMemo(() => new Set(availableLayout.filter((shelf) => shelf.visible).map((shelf) => shelf.id)), [availableLayout]);
+  const streaming = Boolean(navigation?.features.streaming);
   // Each closed Undo window starts a new visit, so the title rows re-fetch without the title the member just hid.
   const recoGeneration = useRecoGeneration();
   const visit = useMemo(createVisit, [recoGeneration]);
@@ -169,8 +172,8 @@ function HomeSurfaceView({
   const restoreFocusRef = useRef(false);
 
   // Hero: the Continue titles; else the newest, fetched now and shared with its shelf (9.2 row 4a).
-  const watching = useMemo(() => continueWatching.filter((entry) => !isListeningEntry(entry)), [continueWatching]);
-  const listening = useMemo(() => continueWatching.filter(isListeningEntry), [continueWatching]);
+  const watching = useMemo(() => continueWatching.filter((entry) => !isListeningEntry(entry) && (entry.title ? homeTitleVisible(entry.title, navigation) : homeItemVisible(entry.item, navigation))), [continueWatching, navigation]);
+  const listening = useMemo(() => continueWatching.filter((entry) => isListeningEntry(entry) && (entry.title ? homeTitleVisible(entry.title, navigation) : homeItemVisible(entry.item, navigation))), [continueWatching, navigation]);
   const needsNewest = !watching.some((entry) => entry.title);
   useEffect(() => {
     if (!needsNewest || newest !== undefined) return undefined;
@@ -194,7 +197,7 @@ function HomeSurfaceView({
     visit.titleRows().then((response) => { if (current) setTitleRows(response.rows); }, () => undefined);
     return () => { current = false; };
   }, [visit]);
-  const slides = useMemo(() => (heroDecided ? heroSlides(continueWatching, titleRows, newest ?? null) : []), [heroDecided, continueWatching, titleRows, newest]);
+  const slides = useMemo(() => (heroDecided ? heroSlides(watching, titleRows?.map((row) => ({ ...row, items: row.items.filter((title) => homeTitleVisible(title, navigation)) })) ?? null, newest?.filter((title) => homeTitleVisible(title, navigation)) ?? null) : []), [heroDecided, watching, titleRows, newest, navigation]);
 
   // First screen: the frame after the masthead, the hero (or its absence) and the first shelves' frames paint.
   useEffect(() => {
@@ -206,14 +209,19 @@ function HomeSurfaceView({
     return () => cancelAnimationFrame(frame);
   }, [bodyReady, firstScreen]);
 
-  // A return visit comes back to where the member left it; cached shelves render in the same commit.
+  // Restore after the hero and shelves have height, so the browser cannot clamp the saved offset to zero.
   useLayoutEffect(() => {
+    if (!bodyReady) return;
     const top = cachedShelf<number>(user.id, 'scroll');
-    if (top) window.scrollTo({ top });
+    if (top) window.scrollTo({ top, behavior: 'instant' });
+    const frame = top ? requestAnimationFrame(() => window.scrollTo({ top, behavior: 'instant' })) : null;
     const save = () => rememberShelf(user.id, 'scroll', window.scrollY);
     window.addEventListener('scroll', save, { passive: true });
-    return () => window.removeEventListener('scroll', save);
-  }, [user.id]);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', save);
+    };
+  }, [user.id, bodyReady]);
 
   // A library retry started here hands focus back to the page or the recovery button when it settles (as today).
   useEffect(() => {
@@ -268,7 +276,7 @@ function HomeSurfaceView({
   const pickedSignal = interestsChosen || channels.length > 0 || Boolean(recommendations?.items.length);
   const queued = onOpenQueued ? (queue?.entries ?? []).filter((entry) => entry.availability === 'available') : [];
   // Recently saved lists media saved from the web; titled movies and episodes have their own shelves.
-  const recent = recentLibrary.filter((item) => item.status !== 'missing' && !item.title_id).slice(0, SHELF_LIMIT);
+  const recent = recentLibrary.filter((item) => item.status !== 'missing' && !item.title_id && homeItemVisible(item, navigation)).slice(0, SHELF_LIMIT);
   const libraryUnavailable = (libraryState === 'offline' || libraryState === 'failed') && !recent.length;
   const followFailures = subscriptionOutcomes.filter((outcome) => outcome.status === 'authentication-required' || outcome.status === 'failed');
   const followsLoading = subscriptionOutcomes.some((outcome) => outcome.status === 'loading');
@@ -285,18 +293,20 @@ function HomeSurfaceView({
   // P-I3: failing to load is settled (not stuck), so it stops blocking "fresh" forever, but a failed load's real
   // content is unknown, so the start card logic treats it as not-empty rather than guessing it is empty.
   const queueKnown = !onOpenQueued || !visible.has('watchlist') || queue !== null || queueFailed;
-  const titlesEmpty = FETCHED_SHELVES.every((id) => statuses[id] === 'empty');
+  const titlesEmpty = FETCHED_SHELVES.every((id) => !homeShelfAvailable(id, navigation) || statuses[id] === 'empty');
   // P-I2: a hidden shelf's content is unknown, so it must not count towards "fresh" — only a from-scratch or
   // all-visible layout can be fresh, and never while mid-edit (leaving edit mode must never be caused by fresh).
   const noHiddenShelves = homeShelves === null || layout.every((shelf) => shelf.visible);
-  const fresh = !editing && noHiddenShelves && !continueWatching.length && !queued.length && !queueFailed && queueKnown
-    && !pickedSignal && !channels.length && !recent.length && !subscriptionVideos.length && !followFailures.length && !followsLoading && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
+  const fresh = !editing && noHiddenShelves && !watching.length && !listening.length && (!streaming || !queued.length) && !queueFailed && queueKnown
+    && (!streaming || (!pickedSignal && !channels.length && !subscriptionVideos.length && !followFailures.length && !followsLoading)) && !recent.length && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
+  // The media artwork leads Home; personal greeting and activity live in the account dialog.
+  const stageLed = !fresh && !editing && slides.length > 0;
 
   // Account menu and palette share the command; the editor can also customize a fresh Home.
   useEffect(() => onHomeEdit(() => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // From the greeting, Down reaches the first control below the masthead and Up reaches the account menu,
+    // From the Home heading, Down reaches the first content control and Up reaches the account menu,
     // rather than whichever target is nearest the middle of a wide heading.
     if (event.target === headingRef.current && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       const target = event.key === 'ArrowUp' ? document.querySelector<HTMLButtonElement>('.g-profile-trigger') : event.currentTarget.querySelector('.h-body')?.querySelector<HTMLElement>(FOCUS_TARGETS);
@@ -324,7 +334,7 @@ function HomeSurfaceView({
 
   function shelf(id: HomeShelfId): ReactNode {
     if (isFetchedShelf(id)) {
-      return <FetchedShelf actions={id === 'next_up' ? nextUpActions : actions} hidden={id === 'next_up' ? dismissed : undefined} id={id} onStatus={setStatus} userId={user.id} visit={visit} />;
+      return <FetchedShelf navigation={navigation} actions={id === 'next_up' ? nextUpActions : actions} hidden={id === 'next_up' ? dismissed : undefined} id={id} onStatus={setStatus} userId={user.id} visit={visit} />;
     }
     switch (id) {
       case 'continue':
@@ -387,7 +397,7 @@ function HomeSurfaceView({
               : libraryState === 'stale' ? <StaleCollectionNotice buttonRef={recoveryButtonRef} label="Library" onRetry={retryLibrary} onSignIn={onSignIn} problem={libraryProblem} retrying={libraryRetrying} /> : null}
             renderCard={(item, slot) => itemStill(item, slot, onOpenLibrary)}
             sectionKey="recently_saved"
-            seeAll={{ label: 'Open library', onClick: () => onNavigate('library') }}
+            seeAll={navigation?.categories.some((category) => ['movies', 'tv', 'anime', 'youtube'].includes(category)) ? { label: 'Open library', onClick: () => onNavigate('library') } : null}
             shape="still"
             state={libraryState === 'loading' && !recent.length ? 'loading' : 'ready'}
           />
@@ -398,11 +408,8 @@ function HomeSurfaceView({
   }
 
   return (
-    <div className="surface gallery home" onKeyDown={onKeyDown}>
-      <header className="h-masthead">
-        <h1 ref={headingRef} tabIndex={-1}>{greeting()}, {firstName(user)}</h1>
-        <p className="g-label g-kicker h-date">{mastheadDate()}</p>
-      </header>
+    <div className={`surface gallery home${stageLed ? ' has-home-stage' : ''}`} onKeyDown={onKeyDown}>
+      <h1 className="sr-only" ref={headingRef} tabIndex={-1}>Home</h1>
       {/* Wait for the hero and Next Up (or the bounded fallback) before painting. */}
       <div aria-hidden={bodyReady ? undefined : true} className="h-body" inert={!bodyReady} style={bodyReady ? undefined : { opacity: 0, pointerEvents: 'none' }}>
         {fresh ? (
@@ -411,18 +418,18 @@ function HomeSurfaceView({
             <h2 id="h-start-title">Make Home yours</h2>
             <p>Home fills with what you watch, queue, follow, and save. Nothing is invented here, so start with something real.</p>
             <div className="h-start-actions" data-focus-row>
-              <button className="g-button g-button-text is-primary" data-focus-item onClick={() => onOpenRoute({ surface: 'streaming', view: 'home' })} type="button">Discover something</button>
-              <button className="g-button g-button-text" data-focus-item onClick={() => onOpenRoute({ surface: 'streaming', view: 'channels' })} type="button">Follow a channel</button>
-              {interests && onPersonalize ? <button className="g-button g-button-text" data-focus-item onClick={onPersonalize} type="button">Choose interests</button> : null}
+              {streaming ? <button className="g-button g-button-text is-primary" data-focus-item onClick={() => onOpenRoute({ surface: 'streaming', view: 'home' })} type="button">Discover something</button> : null}
+              {streaming ? <button className="g-button g-button-text" data-focus-item onClick={() => onOpenRoute({ surface: 'streaming', view: 'channels' })} type="button">Follow a channel</button> : null}
+              {streaming && interests && onPersonalize ? <button className="g-button g-button-text" data-focus-item onClick={onPersonalize} type="button">Choose interests</button> : null}
             </div>
           </section>
         ) : editing ? (
-          <HomeEditor empty={emptyShelves} onChange={changeLayout} onDone={leaveEditing} shelves={layout} />
+          <HomeEditor empty={emptyShelves} onChange={(next) => { if (next === null && availableLayout.length === layout.length) changeLayout(null); else { const edited = next ?? normalizeHomeShelves(null).filter((entry) => homeShelfAvailable(entry.id, navigation)); let index = 0; changeLayout(layout.map((entry) => homeShelfAvailable(entry.id, navigation) ? edited[index++] : entry)); } }} onDone={leaveEditing} shelves={availableLayout} />
         ) : (
           <>
             {slides.length ? <HomeHero onOpenTitle={onOpenTitle} onPlay={onPlay} ready={firstScreen} slides={slides} /> : null}
-            {layout.filter((entry) => entry.visible).map(({ id }) => <Fragment key={id}>{shelf(id)}</Fragment>)}
-            {interests && !interestsChosen && onPersonalize ? (
+            {availableLayout.filter((entry) => entry.visible).map(({ id }) => <Fragment key={id}>{shelf(id)}</Fragment>)}
+            {streaming && interests && !interestsChosen && onPersonalize ? (
               <section aria-labelledby="h-personalize-title" className="h-personalize">
                 <p className="g-label">Discovery, your way</p>
                 <h2 id="h-personalize-title">Make Home yours</h2>

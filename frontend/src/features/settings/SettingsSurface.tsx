@@ -1,4 +1,5 @@
-import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
+import { ContextualSearch } from '../../app/ContextualSearch';
+import { type ChangeEvent, type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
 import { CircleUserRound, Compass, Download, FolderOpen, Gauge, Palette, Play, Plug, ShieldCheck, Sparkles, Users, Wrench } from '../../luminaIcons';
 
 import { routePath, type SettingsSectionId } from '../../app/routes';
@@ -44,15 +45,19 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   const forbidden = host.user.role !== 'admin' && selectedSpace === 'server';
   const activeSpace = forbidden ? 'personal' : selectedSpace;
   const categories = SETTINGS_CATEGORIES.filter((category) => host.user.role === 'admin' || category.space === 'personal');
-  const current = requestedPage ?? pageById(activeSpace === 'server' ? 'dashboard' : 'watching')!;
+  const current = requestedPage ?? pageById(activeSpace === 'server' ? 'dashboard' : 'profile')!;
   const category = categoryForPage(current);
   const pages = current.id === 'about' ? [current] : SETTINGS_PAGES.filter((entry) => entry.category === category.id && entry.id !== 'about');
   const rows = pages.flatMap((entry) => entry.rows);
+  // A destination made entirely of advanced rows must not strand a deep link
+  // behind a closed disclosure. Otherwise the preference is honored.
+  const currentPageHasOnlyAdvancedRows = current.rows.length > 0 && current.rows.every((id) => sectionById(current.section)?.entries.find((row) => row.id === id)?.advanced);
   const sections = [...new Set(pages.map((entry) => entry.section))].map((id) => sectionById(id)!);
   const allowed = visibleSections(host.user);
   const navRef = useRef<HTMLElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(host.advanced));
   const searching = query.trim() !== '';
   const locationKey = `${effectiveSection}:${(local ? local.page : page)}:${activeSpace}`;
   const [seenLocation, setSeenLocation] = useState(locationKey);
@@ -105,6 +110,11 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   function openPage(next: SettingsPage, row?: string) {
     return choose({ section: next.section, page: next.id, space: categoryForPage(next).space }, row);
   }
+  function chooseFromPicker(event: ChangeEvent<HTMLSelectElement>) {
+    const selectedCategory = SETTINGS_CATEGORIES.find((entry) => entry.id === event.currentTarget.value);
+    const next = selectedCategory ? pageById(selectedCategory.page) : null;
+    if (next) openPage(next);
+  }
   function follow(event: MouseEvent<HTMLAnchorElement>, next: SettingsPage) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
@@ -118,27 +128,32 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   useEffect(() => {
     const row = pendingFocus.current ?? (bookmark.startsWith('setting-') || bookmark.startsWith('settings-group-') ? bookmark : null);
     if (!row || searching) return;
-    const waitingFrom = document.activeElement;
+    let waitingFrom = document.activeElement;
     const focus = () => {
-      if (document.activeElement !== waitingFrom && document.activeElement !== document.body) { pendingFocus.current = null; return true; }
+      if (document.activeElement !== waitingFrom && document.activeElement !== document.body && document.activeElement?.id !== 'settings-section-title') { pendingFocus.current = null; return true; }
       const heading = row.startsWith('settings-');
       const target = document.getElementById(heading || row.startsWith('setting-') ? row : settingDomId(row));
       if (!target || (!heading && !paneRef.current?.contains(target))) return false;
       const details = target.closest('details');
-      if (details) details.open = true;
+      if (details && !details.open) { setAdvancedOpen(true); return false; }
       const controls = target.querySelector('.g-setting-control') ?? target;
       const control = controls.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled):not([hidden]), textarea:not(:disabled)') ?? controls.querySelector<HTMLElement>('button:not(:disabled), a[href]');
-      (heading ? target : control ?? target).focus();
-      target.scrollIntoView?.({ block: 'nearest', behavior: 'instant' });
+      if (!heading && !control) {
+        const label = target.querySelector<HTMLElement>('.g-setting-label') ?? target;
+        label.tabIndex = -1; label.focus(); waitingFrom = label;
+        return false; // A provider may enable or mount its real field after loading.
+      }
+      (heading ? target : control!).focus();
+      target.scrollIntoView?.({ block: heading ? 'start' : 'nearest', behavior: 'instant' });
       pendingFocus.current = null;
       return true;
     };
     if (focus()) return;
     // Providers load asynchronously; focus once the searched row is present.
     const observer = new MutationObserver(() => { if (focus()) observer.disconnect(); });
-    if (paneRef.current) observer.observe(paneRef.current, { childList: true, subtree: true });
+    if (paneRef.current) observer.observe(paneRef.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'open', 'aria-busy'] });
     return () => observer.disconnect();
-  }, [locationKey, searching, member, bookmark]);
+  }, [locationKey, searching, member, bookmark, advancedOpen]);
 
   function firstNavControl(selected = false) {
     return (selected ? navRef.current?.querySelector<HTMLElement>('.g-settings-link[aria-current="page"]') : null) ?? navRef.current?.querySelector<HTMLElement>('.g-settings-link');
@@ -180,23 +195,24 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   }
 
   return (
-    <SettingsHostContext.Provider value={{ ...host, showAdvanced: true, visibleSettingIds: rows, onOpenSection: (id) => openPage(resolveSettingsPage(id)), onOpenSetting: (id) => { const next = pageForRow(id); return next ? openPage(next, id) : false; }, onOpenMember: (id) => { if (!confirmLeaveSettings()) return; onMember(id); } }}>
+    <SettingsHostContext.Provider value={{ ...host, showAdvanced: advancedOpen || currentPageHasOnlyAdvancedRows, visibleSettingIds: rows, onOpenSection: (id) => openPage(resolveSettingsPage(id)), onOpenSetting: (id) => { const next = pageForRow(id); return next ? openPage(next, id) : false; }, onOpenMember: (id) => { if (!confirmLeaveSettings()) return; onMember(id); } }}>
       <div className="g-settings" data-view="detail" data-space={activeSpace}>
-        <header className="g-settings-header"><Masthead title="Settings" /><p className="g-settings-welcome">A little more your way.</p></header>
-        <div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = searching ? paneRef.current?.querySelector<HTMLElement>('.g-settings-result-link') : firstNavControl(); if (first) { event.preventDefault(); first.focus(); } } }}>
-          <Field hideLabel label="Search settings">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => changeQuery(event.target.value)} placeholder="Find any setting" type="search" value={query} />}</Field>
-        </div>
+        <header className="g-settings-header"><Masthead title={activeSpace === 'personal' ? 'My settings' : 'Manage server'} /><p className="g-settings-welcome">{activeSpace === 'personal' ? 'Your profile, your defaults.' : 'Household-wide controls and connections.'}</p></header>
         <div className="g-settings-navigation">
+        <ContextualSearch label="Search settings"><div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = searching ? paneRef.current?.querySelector<HTMLElement>('.g-settings-result-link') : firstNavControl(); if (first) { event.preventDefault(); first.focus(); } } }}>
+          <Field hideLabel label="Search settings">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => changeQuery(event.target.value)} placeholder="Find any setting" type="search" value={query} />}</Field>
+        </div></ContextualSearch>
         <nav aria-label="Settings sections" className="g-settings-sidebar" onKeyDown={onNavKeyDown} ref={navRef}>
-          {(['personal', 'server'] as const).filter((scope) => scope === 'personal' || host.user.role === 'admin').map((scope) => <div className="g-settings-nav-group" key={scope}>
-            <h2>{scope === 'personal' ? 'For you' : 'Your household'}</h2>
+          {(['personal', 'server'] as const).filter((scope) => scope === activeSpace).map((scope) => <div className="g-settings-nav-group" key={scope}>
+            <h2>{scope === 'personal' ? 'Your preferences' : 'Server'}</h2>
             <ul>{categories.filter((entry) => entry.space === scope).map((entry) => {
               const next = pageById(entry.page)!;
               const Icon = CATEGORY_ICONS[entry.id];
               return <li data-focus-row key={entry.id}><a aria-label={entry.label} aria-current={!forbidden && !searching && !member && current.id !== 'about' && category.id === entry.id ? 'page' : undefined} className="g-settings-link" href={routePath({ surface: 'settings', section: next.section, page: next.id, space: scope })} onClick={(event) => follow(event, next)}><Icon aria-hidden="true" /><span>{entry.label}</span></a></li>;
             })}</ul>
           </div>)}
-          <a aria-current={current.id === 'about' ? 'page' : undefined} className="g-settings-link g-settings-about" href="/settings/about" onClick={(event) => follow(event, pageById('about')!)}>About Lumina</a>
+          {activeSpace === 'personal' ? <a aria-current={current.id === 'about' ? 'page' : undefined} className="g-settings-link g-settings-about" href="/settings/about" onClick={(event) => follow(event, pageById('about')!)}>About Lumina</a> : null}
+          <label className="g-settings-mobile-picker"><span>Section</span><select aria-label="Choose settings section" onChange={chooseFromPicker} value={category.id}>{categories.filter((entry) => entry.space === activeSpace).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</select></label>
         </nav>
         </div>
         <div className="g-settings-pane" onKeyDown={onPaneKeyDown} onKeyDownCapture={onPaneKeyDownCapture} ref={paneRef}>
@@ -208,7 +224,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
               if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
               event.preventDefault(); const target = document.getElementById(`settings-group-${next.id}`); target?.focus(); target?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
             }}>{next.label}</a>)}</nav> : null}
-            {sections.map((shown) => <SectionRows entries={shown.entries.filter((entry) => rows.includes(entry.id))} key={`${category.id}:${shown.id}`} pages={pages.filter((entry) => entry.section === shown.id)} section={shown} />)}
+            {sections.map((shown) => <SectionRows advancedOpen={advancedOpen} entries={shown.entries.filter((entry) => rows.includes(entry.id))} forceAdvancedOpenFor={currentPageHasOnlyAdvancedRows ? current.id : undefined} key={`${category.id}:${shown.id}`} onAdvancedOpenChange={(open) => { setAdvancedOpen(open); host.onAdvancedChange?.(open); }} pages={pages.filter((entry) => entry.section === shown.id)} section={shown} />)}
           </section>}
         </div>
       </div>

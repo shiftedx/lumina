@@ -22,7 +22,12 @@ async function open(page: Page, scheme: 'light' | 'dark', viewport: { width: num
 }
 
 test('test_completed_download_opens_watch_route', async ({ page }) => {
-  await open(page, 'light', { width: 1536, height: 960 });
+  await open(page, 'dark', { width: 1440, height: 900 });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `../output/web-native/downloads-${width}.png` });
+  }
   const done = page.locator('.g-job').filter({ hasText: 'Evening concert recording' });
   await done.getByRole('button', { name: 'Open' }).click();
   await expect(page).toHaveURL(/\/watch\/library\/library-1/);

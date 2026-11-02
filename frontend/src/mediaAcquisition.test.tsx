@@ -68,7 +68,7 @@ function acquisitionWorkspace() {
       captions: { size: 'medium', background: 'shadow' },
       profanity: DEFAULT_PROFANITY,
       homeShelves: null,
-      settingsAdvanced: false,
+      settingsAdvanced: false, musicBrowseView: 'albums',
     },
   } as Pick<WorkspaceState, 'currentUser' | 'jobs' | 'library' | 'preferences'>;
   return {

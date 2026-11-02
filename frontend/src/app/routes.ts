@@ -10,6 +10,8 @@ export type { LibraryLens } from '../features/gallery/libraryLens';
 export const CHANNEL_PAGE_TABS = ['videos', 'live', 'shorts', 'playlists', 'library'] as const;
 export type ChannelPageTab = (typeof CHANNEL_PAGE_TABS)[number];
 
+export type VideoLibraryView = 'movies' | 'shows' | 'anime' | 'youtube' | 'recordings';
+
 export type StreamingView = 'home' | 'live' | 'search' | 'channels';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 
@@ -309,6 +311,16 @@ export function routePath(route: AppRoute): string {
 }
 
 /** Identifies the page a route shows. A new key means a new page: the shell moves focus to its heading. Tabs, lenses, walls, rails, queries and Settings sections are in-page state and keep the key. */
+/** Content detail pages begin at the hero on a new navigation; readers keep their own position. */
+export function isDetailRoute(route: AppRoute | null): boolean {
+  return Boolean(route && (
+    ('titleId' in route && !('edit' in route && route.edit))
+    || (route.surface === 'books' && (route.view === 'title' || route.view === 'series'))
+    || (route.surface === 'requests' && route.view === 'title')
+    || (route.surface === 'subscriptions' && ('channelId' in route || 'youtubeChannelId' in route || 'channelUrl' in route))
+  ));
+}
+
 export function routeFocusKey(route: AppRoute | null): string {
   if (!route) return '';
   if (route.surface === 'books') return booksRouteFocusKey(route);

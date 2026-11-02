@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CHANNEL_ID, endedEntry, liveEntry, liveSnapshot, remoteEntry } from '../../test/remoteFixtures';
 import type { PopularSnapshot } from '../../types';
-import { channelTarget, exploreGroups, liveTeaser, popularNotice, popularRails } from './exploreModel';
+import { channelTarget, exploreGroups, featuredEntries, liveTeaser, popularNotice, popularRails, remoteEntryKey, withoutRemoteEntries } from './exploreModel';
 
 const kinds = (id: string, kind: 'video' | 'short' | 'live' | 'channel' | 'playlist' | null) => remoteEntry(id, { kind });
 
@@ -32,6 +32,16 @@ describe('Explore model', () => {
     const teaser = liveTeaser(liveSnapshot({ hero: [followed], items: [...twitch, ...youtube] }), (item) => item.source === 'youtube');
     expect(teaser).toHaveLength(16);
     expect(teaser.map((entry) => entry.id)).toEqual(['followed-youtube', ...youtube.map((entry) => entry.id)]);
+  });
+
+  it('selects up to two followed uploads, then fills a sparse followed feed from popular without repeats', () => {
+    const followed = [remoteEntry('followed'), remoteEntry('same')];
+    const popular = [remoteEntry('same'), remoteEntry('popular'), remoteEntry('later')];
+    const selected = featuredEntries(followed, popular);
+    expect(selected.map((item) => item.id)).toEqual(['followed', 'same']);
+    expect(featuredEntries([remoteEntry('followed')], popular).map((item) => item.id)).toEqual(['followed', 'same']);
+    const selectedKeys = new Set(selected.map(remoteEntryKey).filter((key): key is string => Boolean(key)));
+    expect(withoutRemoteEntries(popular, selectedKeys).map((item) => item.id)).toEqual(['popular', 'later']);
   });
 
   it('makes one rail per ready or stale popular category, in snapshot order', () => {

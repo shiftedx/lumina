@@ -100,6 +100,7 @@ describe('Books routes', () => {
       { surface: 'books', view: 'title', bookId: 'book-1' },
       { surface: 'books', view: 'series', seriesId: 'series-1' },
       { surface: 'books', view: 'read', bookId: 'book-1' },
+      { surface: 'books', view: 'read', bookId: 'book-1', page: 24 },
     ];
     for (const route of routes) {
       const url = new URL(routePath(route), 'http://lumina.test');
@@ -107,6 +108,8 @@ describe('Books routes', () => {
     }
     expect(routePath({ surface: 'books', view: 'overview' })).toBe('/books');
     expect(routePath({ surface: 'books', view: 'shelves', shelfId: 'weekend_reads' })).toBe('/books/shelves/weekend_reads');
+    expect(parseRoute('/books/read/book-1', '?page=-1')).toEqual({ surface: 'books', view: 'read', bookId: 'book-1' });
+    expect(parseRoute('/books/read/book-1', '?page=2500')).toEqual({ surface: 'books', view: 'read', bookId: 'book-1' });
   });
 
   it('keeps malformed Books locations inside Books at the overview', () => {

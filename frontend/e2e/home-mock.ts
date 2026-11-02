@@ -4,6 +4,7 @@
  */
 import type { Page } from '@playwright/test';
 
+import { readFileSync } from 'node:fs';
 import { movieSummary, seriesSummary, stillItem, titleDetail } from '../src/test/galleryFixtures';
 import type { HouseholdCollection, LiveSnapshot, PlaybackProgress, TitleDetail, TitleRow, TitleSummary, WatchQueueEntry, YouTubeSearchResult } from '../src/types';
 import { user } from './lumina-mock';
@@ -13,6 +14,7 @@ const PIXEL = Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'b
 const AT = '2026-09-28T20:00:00Z';
 
 export type HomeMock = {
+  artwork?: boolean;
   continueWatching?: PlaybackProgress[];
   nextUp?: TitleSummary[];
   newest?: TitleSummary[];
@@ -67,7 +69,10 @@ export async function mockHome(page: Page, options: HomeMock = {}): Promise<stri
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (path.startsWith('/api/art/') || path.startsWith('/api/artwork/remote/')) return route.fulfill({ status: 200, contentType: 'image/webp', body: PIXEL });
+    if (path.startsWith('/api/art/') || path.startsWith('/api/artwork/remote/')) {
+      if (options.artwork) return route.fulfill({ contentType: 'image/jpeg', body: readFileSync(new URL(`./fixtures/open-films/${/Backdrop/i.test(path) ? 'cosmos-backdrop' : 'sintel-poster'}.jpg`, import.meta.url)) });
+      return route.fulfill({ status: 200, contentType: 'image/webp', body: PIXEL });
+    }
     requests.push(`${request.method()} ${path}${url.search}`);
     if (options.fail?.includes(path)) return json({ detail: 'mock failure' }, 500);
     if (path === '/api/playback/continue') return json(options.continueWatching ?? []);

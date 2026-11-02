@@ -9,6 +9,36 @@ export const GROUP_ORDER: ReadonlyArray<readonly [GroupKey, string, string]> = [
 export const LIVE_TEASER = 16;
 export const LIBRARY_GROUP_MAX = 12;
 
+/** A remote item can occur in more than one discovery response; its resolved URL is its stable identity. */
+export function remoteEntryKey(item: RemoteEntry): string | null {
+  return item.webpage_url || item.id || null;
+}
+
+/**
+ * The Streaming home opens with the newest followed uploads when it has them. A sparse
+ * followed feed is completed with the already-fetched popular response, rather than a
+ * synthetic spotlight. Callers remove these entries from their rails before rendering.
+ */
+export function featuredEntries(followed: readonly RemoteEntry[], popular: readonly RemoteEntry[], limit = 2): RemoteEntry[] {
+  const seen = new Set<string>();
+  const selected: RemoteEntry[] = [];
+  for (const item of [...followed, ...popular]) {
+    const key = remoteEntryKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    selected.push(item);
+    if (selected.length === limit) break;
+  }
+  return selected;
+}
+
+export function withoutRemoteEntries(items: readonly RemoteEntry[], excluded: ReadonlySet<string>): RemoteEntry[] {
+  return items.filter((item) => {
+    const key = remoteEntryKey(item);
+    return !key || !excluded.has(key);
+  });
+}
+
 export function exploreGroups(results: readonly RemoteEntry[]): Record<GroupKey, RemoteEntry[]> {
   const groups: Record<GroupKey, RemoteEntry[]> = { channels: [], live: [], videos: [], shorts: [], playlists: [] };
   for (const item of results) {

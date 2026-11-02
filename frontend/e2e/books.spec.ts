@@ -10,6 +10,7 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 type Viewport = { width: number; height: number };
 const PAGE_PNG = readFileSync(new URL('./fixtures/books-page.png', import.meta.url));
+const OPEN_FILM_ART = readFileSync(new URL('./fixtures/open-films/cosmos-backdrop.jpg', import.meta.url));
 
 const ebook = {
   id: 'ebook-1', kind: 'ebook', format: 'epub', title: 'Northbound', author: 'Mira Vale', description: 'A quiet voyage north.', language: 'en', genres: ['Adventure'],
@@ -51,11 +52,12 @@ const richOverview = {
 };
 
 async function mockBooks(page: Page) {
-  await page.route('**/api/books/**', async (route) => {
+  await page.route((url) => url.pathname === '/api/books' || url.pathname.startsWith('/api/books/'), async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const { pathname } = url;
-    if (/\/(pages\/\d+|cover)$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: PAGE_PNG });
+    if (/\/cover$/.test(pathname)) return route.fulfill({ contentType: 'image/jpeg', body: OPEN_FILM_ART });
+    if (/\/pages\/\d+$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: PAGE_PNG });
     if (pathname === '/api/books/overview') return json(route, overview);
     if (pathname === '/api/books') return json(route, { items: url.searchParams.get('kind') === 'manga' ? [manga] : [ebook], total: 1, next_cursor: null });
     if (pathname === '/api/books/series') return json(route, { items: [series], total: 1, next_cursor: null });
@@ -103,7 +105,7 @@ async function openRichBooks(page: Page, path: string, viewport: Viewport) {
 
 async function assertAccessibleAndNoOverflow(page: Page) {
   const results = await new AxeBuilder({ page }).include('main').analyze();
-  expect(results.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);
+  expect(results.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => ({ id: violation.id, nodes: violation.nodes.map((node) => ({ html: node.html, summary: node.failureSummary })) }))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
 }
 
@@ -161,6 +163,8 @@ test('Books deep link has its own navigation and reaches a manga reader without 
   await page.getByRole('button', { name: 'Back to Books' }).click();
   await expect(page).toHaveURL(/\/books\/series\/series-1$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Skybound' })).toBeVisible();
+  await page.setViewportSize(PHONE);
+  await expect(page.getByRole('button', { name: 'Add series to shelf', exact: true })).toBeVisible();
 });
 
 for (const width of [320, 390]) {
@@ -252,7 +256,7 @@ for (const [name, viewport] of [['desktop', DESKTOP], ['phone', PHONE]] as const
       { id: 'pdf-1', filename: 'Northbound - Mira Vale.pdf', format: 'pdf', chapter_count: 0, page_count: 30, available: true },
     ] };
     await page.route('**/api/books/ebook-1', (route) => json(route, bundled));
-    await page.route('**/api/books/ebook-1/cover', (route) => route.fulfill({ contentType: 'image/png', body: PAGE_PNG }));
+    await page.route('**/api/books/ebook-1/cover', (route) => route.fulfill({ contentType: 'image/jpeg', body: OPEN_FILM_ART }));
     await page.route(/\/api\/books(?:\?|$)/, (route) => json(route, { items: [{ ...ebook, id: 'ebook-2', title: 'After the Storm', cover_url: '/api/books/ebook-1/cover' }], total: 1, next_cursor: null }));
     await page.goto('/books/title/ebook-1');
     await expect(page.getByRole('heading', { level: 1, name: 'Northbound' })).toBeVisible();
@@ -274,4 +278,27 @@ test('phone book detail keeps a missing-cover title on one line', async ({ page 
     range.selectNodeContents(title);
     return [...range.getClientRects()].filter((rect) => rect.width > 0).length;
   })).toBe(1);
+});
+
+test('book overview and details keep one contextual search that opens real catalog results', async ({ page }) => {
+  await openBooks(page, '/books/title/ebook-1', PHONE);
+  const search = page.getByRole('searchbox', { name: 'Search books, authors, and series' });
+  await expect(search).toBeVisible();
+  await expect(page.getByRole('searchbox')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Search Lumina/ })).toHaveCount(0);
+  await page.keyboard.press('Control+k'); await expect(search).toBeFocused();
+  await search.fill('Northbound'); await search.press('Enter');
+  await expect(page).toHaveURL(/\/books\?q=Northbound$/);
+  await expect(page.getByRole('button', { name: 'Open Northbound', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox')).toHaveCount(1);
+});
+
+test('opening a book from a scrolled overview starts at the detail hero', async ({ page }) => {
+  await openBooks(page, '/books', { width: 390, height: 600 });
+  const card = page.getByRole('button', { name: 'Open Skybound, Volume 1', exact: true });
+  await card.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+  await card.click();
+  await expect(page.getByRole('heading', { level: 1, name: /Skybound/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });

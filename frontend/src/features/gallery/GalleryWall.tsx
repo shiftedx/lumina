@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * The Library walls: Movies, Shows, Anime and the Music tab's Albums
  * and Artists. Editorial masthead (or the Music tab's own), sticky toolbar (sort, quick chips, "Find the one where…",
@@ -8,9 +9,9 @@ import { type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, 
 import { flushSync } from 'react-dom';
 import { Search, SlidersHorizontal, X } from '../../luminaIcons';
 
-import { searchLibrary } from '../../api';
+import { getTitleFacets, searchLibrary } from '../../api';
 import { undoBatch } from '../titles/editor/editorActions';
-import type { LocalSearchMatch, SearchScope, TitleSort, TitleSummary, TitleType } from '../../types';
+import type { LocalSearchMatch, SearchScope, TitleFacets, TitleSort, TitleSummary, TitleType } from '../../types';
 import { Button, Select, useToast } from '../../ui';
 import { formatDuration } from '../../utils';
 import { moveFocus } from '../media/focusNav';
@@ -19,6 +20,7 @@ import { episodeCode, useFetched } from '../titles/titleModel';
 import { rangeIds, selectionNote, toggleId } from './bulkModel';
 import { CHIPS, FilterDrawer } from './FilterDrawer';
 import { GalleryArt } from './GalleryArt';
+import { HeroFrame } from './HeroFrame';
 import { activeFacetCount, cardColour, countNoun, DEFAULT_WALL, fallbackColour, serializeWallQuery, wallFiltered, wallKey, type WallKind, wallListQuery, type WallQuery, wallQueryFor, WALLS } from './galleryModel';
 import { PosterCard } from './PosterCard';
 import { forgetTitle } from './titleCache';
@@ -33,6 +35,53 @@ const SORTS: ReadonlyArray<[TitleSort, string, string]> = [['created', 'Recently
 export const RAIL = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 /** The title hits "Find the one where…" keeps per wall; the scope has already narrowed the category. */
 const HIT_TYPES: Partial<Record<WallKind, readonly TitleType[]>> = { movies: ['movie'], shows: ['series'], anime: ['movie', 'series'] };
+// Wall stores are member-scoped and discarded on session changes and library refresh.
+const browseFacetsByStore = new WeakMap<object, TitleFacets>();
+const BROWSE_COPY: Record<Extract<WallKind, 'movies' | 'shows' | 'anime'>, { title: string; body: string; spotlight: string }> = {
+  movies: { spotlight: 'Movie spotlight', title: 'Explore movies', body: 'Choose a genre or revisit an era.' },
+  shows: { spotlight: 'Series spotlight', title: 'Explore shows', body: 'Find the next series by genre or era.' },
+  anime: { spotlight: 'Anime spotlight', title: 'Explore anime', body: 'Browse your anime by genre or era.' },
+};
+
+function browseDecades(facets: TitleFacets): number[] {
+  if (!facets.years) return [];
+  const latest = Math.floor(facets.years.max / 10) * 10;
+  const earliest = Math.floor(facets.years.min / 10) * 10;
+  return Array.from({ length: 4 }, (_, index) => latest - index * 10).filter((year) => year >= earliest);
+}
+
+function CategoryBrowseRail({ wall, facets, query, titles, onChange }: { titles: TitleSummary[]; wall: Extract<WallKind, 'movies' | 'shows' | 'anime'>; facets: TitleFacets; query: WallQuery; onChange: (query: WallQuery) => void }) {
+  const copy = BROWSE_COPY[wall];
+  const genres = facets.genres.slice(0, 8);
+  const decades = browseDecades(facets);
+  if (!genres.length && !decades.length) return null;
+  const toggleGenre = (genre: string) => onChange({
+    ...query,
+    genre: query.genre.includes(genre) ? query.genre.filter((entry) => entry !== genre) : [...query.genre, genre].slice(0, 10),
+  });
+  const toggleDecade = (year: number) => onChange({
+    ...query,
+    from: query.from === year && query.to === year + 9 ? null : year,
+    to: query.from === year && query.to === year + 9 ? null : year + 9,
+  });
+  return (
+    <section aria-labelledby={`g-browse-${wall}`} className="g-rail g-category-browse">
+      <header className="g-rail-head"><h2 id={`g-browse-${wall}`}>{copy.title}</h2><p className="g-label">{copy.body}</p></header>
+      {genres.length ? <div aria-label={`Browse ${WALLS[wall].heading.toLowerCase()} by genre`} className="g-genre-strip" role="group">
+        {genres.map((genre, index) => {
+          const sample = titles.find((title) => title.genres.includes(genre.name));
+          return <button aria-label={`${genre.name}, ${genre.count.toLocaleString()} ${genre.count === 1 ? 'title' : 'titles'}`} aria-pressed={query.genre.includes(genre.name)} className="g-genre-tile" key={genre.name} onClick={() => toggleGenre(genre.name)} type="button">
+            <GalleryArt alt="" art={sample?.backdrop ?? sample?.poster} card={null} colour={sample ? cardColour(sample, 'backdrop') : { colour: fallbackColour(genre.name), fromPalette: true }} kind="backdrop" position={index} priority={3} sizes="180px" />
+            <span className="g-genre-copy"><strong>{genre.name}</strong><small>{genre.count.toLocaleString()} {genre.count === 1 ? 'title' : 'titles'}</small></span>
+          </button>;
+        })}
+      </div> : null}
+      {decades.length ? <div aria-label={`Browse ${WALLS[wall].heading.toLowerCase()} by era`} className="g-chips g-category-chips" role="group">
+        {decades.map((year) => <button aria-pressed={query.from === year && query.to === year + 9} className="g-chip g-button-text" key={year} onClick={() => toggleDecade(year)} type="button">{year}s</button>)}
+      </div> : null}
+    </section>
+  );
+}
 
 export type GalleryWallProps = {
   /** Which wall. */
@@ -52,6 +101,9 @@ export type GalleryWallProps = {
 
 export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen, onPlayAt, canEdit = false }: GalleryWallProps) {
   const def = WALLS[wall];
+  const searchLabel = `Search ${def.heading.toLowerCase()}`;
+  const videoBrowse = !header && ['movies', 'shows', 'anime'].includes(wall);
+  const browseWall = videoBrowse ? wall as Extract<WallKind, 'movies' | 'shows' | 'anime'> : null;
   const query = wallQueryFor(wall, state);
   const key = wallKey(wall, query);
   const store = useWallStore(key, wallListQuery(wall, query));
@@ -76,6 +128,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [browseFacets, setBrowseFacets] = useState<TitleFacets | null>(() => browseFacetsByStore.get(store) ?? null);
   const lastPick = useRef<number | null>(null);
   const selectButton = useRef<HTMLButtonElement>(null);
   const pick = (title: TitleSummary, index: number, shift: boolean) => {
@@ -106,6 +159,21 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     toast({ tone: 'success', message, action: batchId ? { label: 'Undo', onAction: undo } : undefined });
   };
   const [bubble, setBubble] = useState<{ letter: string; y: number } | null>(null);
+
+  useEffect(() => { if (browseFacets) browseFacetsByStore.set(store, browseFacets); }, [store, browseFacets]);
+
+  // The category masthead is only a shortcut into the same filtered catalog below it.
+  // Facets remain server-owned, so an empty or newly configured category never gains made-up genres or eras.
+  useEffect(() => {
+    if (!browseWall || !def.facets) return undefined;
+    const controller = new AbortController();
+    setBrowseFacets(browseFacetsByStore.get(store) ?? null);
+    getTitleFacets(def.facets, { signal: controller.signal }).then(
+      (next) => { if (!controller.signal.aborted) { browseFacetsByStore.set(store, next); setBrowseFacets(next); } },
+      () => undefined,
+    );
+    return () => controller.abort();
+  }, [browseWall, def.facets]);
 
   useEffect(() => {
     if (!announceNext.current || store.total === null) return;
@@ -152,6 +220,13 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     const left = event.key === 'ArrowLeft';
     const leaves = (left || event.key === 'ArrowRight') && (field.getAttribute('role') === 'combobox'
       || (field instanceof HTMLInputElement && field.selectionStart === field.selectionEnd && (left ? field.selectionStart === 0 : field.selectionEnd === field.value.length)));
+    if (videoBrowse && ((field === filtersButton.current && left) || (field.matches('.g-chip') && !left && field === toolbar.current?.querySelector('.g-chips')?.lastElementChild))) { event.preventDefault(); searchField.current?.focus(); return; }
+    if (videoBrowse && field === searchField.current && leaves) {
+      event.preventDefault();
+      if (left) (toolbar.current?.querySelector('.g-chips')?.lastElementChild as HTMLElement | null ?? sortSelect.current)?.focus();
+      else (filtersButton.current ?? sortSelect.current)?.focus();
+      return;
+    }
     moveFocus(event, { targets: ':is(button, input):not(:disabled)', verticalExit: 'input', horizontalExit: leaves ? '[role="combobox"], input' : '[role="combobox"]' });
     if (leaves) event.preventDefault();
   };
@@ -174,9 +249,9 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     <form className="g-search" onSubmit={(event: FormEvent) => { event.preventDefault(); find(draft.trim().slice(0, 200)); }} role="search">
       <Search aria-hidden="true" />
       <input
-        aria-label="Find the one where…"
+        aria-label={searchLabel}
         className="g-input"
-        autoFocus={phone}
+        autoFocus={phone && searchOpen}
         enterKeyHint="search"
         maxLength={200}
         onChange={(event) => setDraft(event.target.value)}
@@ -186,18 +261,18 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
           setDraft('');
           find('');
         }}
-        placeholder="Find the one where…"
+        placeholder={searchLabel}
         ref={searchField}
         type="search"
         value={draft}
       />
-      {phone ? <button aria-label="Close search" className="g-icon-button" onClick={() => { flushSync(() => setSearchOpen(false)); searchButton.current?.focus(); }} type="button"><X aria-hidden="true" /></button> : null}
+      {phone && searchOpen ? <button aria-label="Close search" className="g-icon-button" onClick={() => { flushSync(() => setSearchOpen(false)); searchButton.current?.focus(); }} type="button"><X aria-hidden="true" /></button> : null}
     </form>
   );
 
   let body: ReactNode;
   if (query.q && def.search) {
-    body = <SearchResults onClear={() => { find(''); (searchField.current ?? searchButton.current)?.focus(); }} onOpen={onOpen} onPlayAt={onPlayAt} phone={phone} q={query.q} scope={def.search} types={HIT_TYPES[wall] ?? []} />;
+    body = <SearchResults onClear={() => { find(''); (searchField.current ?? searchButton.current)?.focus(); }} onOpen={onOpen} onPlayAt={onPlayAt} q={query.q} scope={def.search} types={HIT_TYPES[wall] ?? []} />;
   } else if (store.total === 0 && wallFiltered(query)) {
     body = (
       <div className="g-empty-result">
@@ -210,7 +285,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   } else {
     body = (
       <>
-        <WallGrid featured={def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
+        <WallGrid featured={videoBrowse ? false : def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
         {store.failed ? (
           <div className="g-inline-error" role="alert">
             <p>Lumina could not load these titles.</p>
@@ -221,18 +296,25 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     );
   }
 
+  const featured = videoBrowse && !query.q && !selecting && !wallFiltered(query) ? store.itemAt(0) : undefined;
+  const hero = featured;
   return (
-    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}`}>
-      {lenses}
+    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
+      {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? <ContextualSearch label={searchLabel}>{searchForm}</ContextualSearch> : null}</div> : lenses}
+      {hero ? <section aria-label={hero.name} className="g-browse-hero">
+        <HeroFrame className="g-browse-hero-art" src={hero.backdrop?.url ?? hero.poster?.url} placement="home"><GalleryArt alt="" art={hero.backdrop ?? hero.poster} card={null} colour={cardColour(hero, 'backdrop')} kind={hero.backdrop ? 'backdrop' : 'poster'} priority={1} sizes="100vw" /></HeroFrame>
+        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">{[browseWall ? BROWSE_COPY[browseWall].spotlight : 'In your library', hero.year, ...hero.genres.slice(0, 2)].filter(Boolean).join(' · ')}</p><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
+      </section> : null}
       {header ? header(sortedBy) : (
         <header className="g-masthead" onKeyDown={downToGrid}>
-          <h1>{def.heading}</h1>
+          <h1 className={hero || videoBrowse ? 'sr-only' : undefined}>{def.heading}</h1>
           <p className="g-label g-kicker">{kicker}</p>
           {canEdit && def.shape !== 'square' ? (
             <button aria-pressed={selecting} className="g-button g-button-text" onClick={() => (selecting ? stopSelecting() : setSelecting(true))} ref={selectButton} type="button">Select</button>
           ) : null}
         </header>
       )}
+      {browseWall && browseFacets && !query.q && !selecting ? <CategoryBrowseRail titles={Array.from({ length: Math.min(store.total ?? 0, 48) }, (_, index) => store.itemAt(index)).filter((title): title is TitleSummary => Boolean(title))} facets={browseFacets} onChange={refilter} query={query} wall={browseWall} /> : null}
       <div className={`g-toolbar${searchOpen ? ' is-searching' : ''}`} onKeyDown={toolbarKeys} ref={toolbar}>
         <label className="g-sort">
           <span className="g-label">Sort</span>
@@ -245,7 +327,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
             {CHIPS.map(([chip, label]) => <button aria-pressed={query[chip]} className="g-chip g-button-text" key={chip} onClick={() => refilter({ ...query, [chip]: !query[chip] })} type="button">{label}</button>)}
           </div>
         )}
-        {!def.search ? null : phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}
+        {!def.search || videoBrowse ? null : <ContextualSearch label={searchLabel} fallback={phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}>{searchForm}</ContextualSearch>}
         {!def.facets ? null : phone ? (
           <button aria-label={filterCount ? `Filters (${filterCount})` : 'Filters'} className="g-icon-button g-filters" onClick={() => setFiltersOpen(true)} ref={filtersButton} type="button">
             <SlidersHorizontal aria-hidden="true" />
@@ -300,12 +382,12 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
 }
 
 type SearchResultsProps = {
-  scope: SearchScope; types: readonly TitleType[]; q: string; phone: boolean;
+  scope: SearchScope; types: readonly TitleType[]; q: string;
   onClear: () => void; onOpen: (title: TitleSummary) => void; onPlayAt: (itemId: string, startSeconds: number) => void;
 };
 
 /** "Find the one where…" results: title posters, then moments that open the player at their time. */
-function SearchResults({ scope, types, q, phone, onClear, onOpen, onPlayAt }: SearchResultsProps) {
+function SearchResults({ scope, types, q, onClear, onOpen, onPlayAt }: SearchResultsProps) {
   const [attempt, setAttempt] = useState(0);
   // A search the member replaced (or left) is cancelled rather than left to finish unseen.
   const inFlight = useRef<AbortController | null>(null);
@@ -333,7 +415,7 @@ function SearchResults({ scope, types, q, phone, onClear, onOpen, onPlayAt }: Se
       ) : data && !hits.length && !scenes.length ? <p className="g-empty-result">Nothing in your {scope} matches “{q}”.</p> : loading && !data ? <p className="g-empty-result">Searching…</p> : null}
       {hits.length ? (
         <div className="g-results-grid">
-          {hits.map((title, index) => <PosterCard caption={!phone} key={title.id} onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 33vw, 180px" title={title} />)}
+          {hits.map((title, index) => <PosterCard caption key={title.id} onOpen={onOpen} position={index} priority={2} sizes="(max-width: 599px) 33vw, 180px" title={title} />)}
         </div>
       ) : null}
       {scenes.length ? <div className="g-scenes">{scenes.map((match) => <SceneCard key={match.id} match={match} onPlayAt={onPlayAt} />)}</div> : null}

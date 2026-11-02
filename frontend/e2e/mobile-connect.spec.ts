@@ -33,7 +33,7 @@ for (const [width, colorScheme] of [[320, 'light'], [1440, 'dark']] as const) {
     await page.goto('/');
     await signIn(page);
     await page.getByRole('button', { name: /account menu$/ }).click();
-    await page.getByRole('menuitem', { name: 'Mobile connect' }).click();
+    await page.getByRole('button', { name: 'Mobile connect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Mobile connect' });
     await expect(dialog.getByRole('img', { name: /QR/i })).toBeVisible();
     expect(created[0].server_url).toBe(new URL(page.url()).origin);
@@ -86,7 +86,7 @@ test('an owner can email and download a member code from a narrow phone', async 
   await page.goto('/');
   await signIn(page);
   await page.getByRole('button', { name: /account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Mobile connect' }).click();
+  await page.getByRole('button', { name: 'Mobile connect' }).click();
   const dialog = page.getByRole('dialog', { name: 'Mobile connect' });
   await expect(dialog.getByRole('img', { name: /QR/i })).toBeVisible();
   await dialog.getByText('Advanced', { exact: true }).click();

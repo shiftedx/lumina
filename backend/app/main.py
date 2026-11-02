@@ -35,7 +35,7 @@ from app.routers import books, admin_invites, admin_ai, admin_backups, admin_act
 from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, jellyfin_auth, mobile_connect, oauth as oauth_routes
 from app.routers import two_factor as two_factor_routes
-from app.routers import household_transfer, jellyfin_history, plex_history
+from app.routers import household_transfer, jellyfin_history, plex_history, member_activity
 from app.services import omdb_ratings, title_metadata  # metadata workers
 from app.services import member_access, provider_budget
 from app.services import resource_policy
@@ -49,7 +49,7 @@ from app.routers import music as music_routes
 from app.services import metadata_history, tmdb
 from app.routers import hero_framing as hero_framing_routes, jellyfin, photo_faces as photo_face_routes, photos, titles
 from app.routers import requests_catalog, showcase as showcase_routes
-from app.routers import library_sections  # library gallery sections
+from app.routers import library_sections, navigation  # member navigation and library sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
 from app.services.requests.catalog import warm_loop as catalog_warm_loop
 from app.services.requests.sync import request_sync_loop
@@ -1108,10 +1108,12 @@ mobile_connect.register(app)
 two_factor_routes.register(app)
 jellyfin_history.register(app)
 plex_history.register(app)
+member_activity.register(app)
 household_transfer.register(app)
 oauth_routes.register(app)
 jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its catch-all
 admin_media_server.register(app)
+navigation.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below
 requests_routes.register(app)
 arr_observations.register(app)
@@ -3622,7 +3624,7 @@ def list_library_channels(
 # The title and moment kinds each wall's search asks for; the title's category
 # then decides (a moment belongs to its movie's or episode's category).
 SEARCH_SCOPE_TYPES = {
-    "movies": ("movie", "moment"), "shows": ("series", "episode", "moment"), "anime": ("movie", "series", "episode", "moment"),
+    "movies": ("movie", "moment"), "shows": ("series", "episode", "moment"), "anime": ("movie", "series", "episode", "moment"), "music": ("album", "artist"),
 }
 
 
@@ -3643,7 +3645,7 @@ def search_library(
     blocked = set(streaming_gate.blocked_kinds(db, current_user))  # a blocked kind's followed sources are left out, not an error
     found = tuple(match for match in discovery.matches
                   if not (match.automation and streaming_gate.url_kind(match.automation.source_url) in blocked))
-    if scope is not None:  # a match belongs to the wall when its title (a moment's movie or episode) is in the wall's category
+    if scope is not None and scope != "music":  # a match belongs to the wall when its title (a moment's movie or episode) is in the wall's category
         found = tuple(match for match in found if getattr(summaries.get(match_title_id(match) or ""), "category", None) == scope)
     matches = [
         LocalSearchMatchResponse(

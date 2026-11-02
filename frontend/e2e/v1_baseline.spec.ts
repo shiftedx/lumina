@@ -144,6 +144,6 @@ test('browser boots: local login, one synthetic playback, review surfaces render
     await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
   }
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('button', { name: 'My Settings' }).click();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 });

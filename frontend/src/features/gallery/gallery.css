@@ -20,15 +20,15 @@
 .gallery .g-art-logo { background: none !important; }
 .gallery .g-art-logo .g-art-image { object-fit: contain; }
 .gallery .g-card { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 16%; }
-.gallery .g-card-name { display: -webkit-box; overflow: hidden; font: italic 700 18px / 1.15 var(--g-serif); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.gallery .g-card-name { display: -webkit-box; overflow: hidden; font: 400 18px / 1.25 var(--g-serif); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
 .gallery .g-art-still .g-card-name { font-size: 16px; }
-.gallery .g-card-year { margin-top: 6px; font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); font-variant-numeric: tabular-nums; }
+.gallery .g-card-year { margin-top: 6px; font: var(--g-type-label); text-transform: none; letter-spacing: var(--g-track-label); font-variant-numeric: tabular-nums; }
 .gallery .g-poster, .gallery .g-still { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius-sheet); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
 .gallery .g-poster:focus-visible, .gallery .g-feature:focus-visible, .gallery .g-still:focus-visible { outline-offset: 4px; }
 .gallery .g-poster-frame { position: relative; display: block; container-type: inline-size; }
 .gallery .g-caption { display: flex; height: var(--g-caption-height); flex-direction: column; justify-content: center; overflow: hidden; }
 .gallery .g-caption-title { overflow: hidden; font: var(--g-type-caption); white-space: nowrap; text-overflow: ellipsis; text-underline-offset: 3px; transition: color var(--g-hover); }
-.gallery .g-caption-year { font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); color: var(--g-ink-3); font-variant-numeric: tabular-nums; }
+.gallery .g-caption-year { font: var(--g-type-label); text-transform: none; letter-spacing: var(--g-track-label); color: var(--g-ink-3); font-variant-numeric: tabular-nums; }
 .gallery .g-poster:focus-visible .g-caption-title, .gallery .g-still:focus-visible .g-still-title { text-decoration: underline; }
 /* Hover only where there is a pointer: a tap on a touch screen leaves :hover stuck. */
 @media (hover: hover) { .gallery .g-poster:hover .g-caption-title, .gallery .g-still:hover .g-still-title { text-decoration: underline; } }
@@ -40,7 +40,6 @@
 .gallery .g-marker-progress > span { display: block; height: 100%; background: var(--g-gold); }
 @media (max-width: 599px) {
   .gallery .g-art-poster .g-card-name { font-size: 13px; }
-  .gallery .g-caption { display: none; }
   .gallery .g-marker-count { top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; line-height: 18px; }
 }
 
@@ -54,7 +53,7 @@
 /* A poster standing in for a missing backdrop crops from near the top, where faces usually sit. */
 .gallery .g-feature .g-art-poster .g-art-image, .gallery .g-feature .g-art-poster .g-art-preview { object-position: 50% 20%; }
 .gallery .g-feature-copy { position: absolute; right: 0; bottom: 0; left: 0; display: grid; gap: 6px; padding: 72px 24px 20px; background: var(--g-scrim); }
-.gallery .g-feature-name { font: italic 700 32px / 1.05 var(--g-serif); }
+.gallery .g-feature-name { font: var(--g-type-media-title); }
 .gallery .g-feature .g-label { color: var(--g-on-art); }
 
 /* -- filter drawer and phone sheet -- */
@@ -76,7 +75,7 @@
 @media (pointer: fine) and (min-width: 600px) { .gallery :is(.g-chips:first-child, .g-category-chips) { margin-inline-start: -12px; } }
 .gallery .g-search { position: relative; display: flex; flex: 1 1 240px; align-items: center; gap: 8px; max-width: 420px; }
 .gallery .g-search > svg { position: absolute; left: 0; width: 16px; height: 16px; color: var(--g-ink-3); pointer-events: none; }
-.gallery .g-search input { width: 100%; padding-left: 24px; font-family: var(--g-serif); font-style: italic; }
+.gallery .g-search input { width: 100%; padding-left: 24px; font-family: var(--g-sans); font-style: normal; }
 .gallery .g-filters { margin-left: auto; }
 .gallery .g-filters.g-icon-button { position: relative; }
 .gallery .g-filters-count { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--g-gold); color: var(--g-badge-ink); font: 700 11px / 18px var(--g-sans); font-variant-numeric: tabular-nums; text-align: center; }
@@ -95,7 +94,7 @@
 .gallery .empty-shelf strong, .gallery .empty-shelf p { font-family: var(--g-serif); }
 /* Desktop and tablet: Sort reads as a button label beside the chips. */
 @media (min-width: 600px) {
-  .gallery .g-sort .g-select-trigger { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
+  .gallery .g-sort .g-select-trigger { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: none; }
 }
 @media (max-width: 599px) {
   .gallery.g-wall { padding-top: 20px; }
@@ -126,7 +125,7 @@
 /* One row of links above every Library masthead; the height is reserved before the tabs arrive. */
 .gallery .g-tabs { min-height: 45px; align-items: center; margin-bottom: 24px; }
 .gallery .g-tab, .gallery .g-tabs-deleted { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; text-decoration: none; text-underline-offset: 6px; }
-.gallery .g-tab, .gallery .g-tabs-deleted, .gallery .t-tabs [role='tab'] { flex: none; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
+.gallery .g-tab, .gallery .g-tabs-deleted, .gallery .t-tabs [role='tab'] { flex: none; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: none; }
 .gallery .g-tab { color: var(--g-ink-2); }
 .gallery .g-tab[aria-current='page'] { color: var(--g-ink); font-weight: 700; text-decoration: underline 2px var(--g-gold); }
 .gallery .g-tabs-deleted { margin-left: auto; color: var(--g-ink-3); }
@@ -147,7 +146,7 @@
 .gallery .g-still-card { position: relative; min-width: 0; }
 .gallery .g-still-frame { position: relative; display: block; }
 .gallery .g-still-caption { display: grid; gap: 4px; padding: 10px 0 0; }
-.gallery .g-still-title { display: -webkit-box; overflow: hidden; font: 500 15px / 1.3 var(--g-serif); overflow-wrap: anywhere; text-underline-offset: 3px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.gallery .g-still-title { display: -webkit-box; overflow: hidden; font: 500 15px / 1.4 var(--g-sans); overflow-wrap: anywhere; text-underline-offset: 3px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 /* -- still wall -- */
 .gallery .g-still-grid { display: grid; align-items: start; gap: var(--g-grid-gap); }
@@ -297,3 +296,84 @@
 @media (max-width: 599px) { .gallery .g-select-bar { bottom: calc(72px + env(safe-area-inset-bottom)); padding-bottom: 12px; } }
 .gallery .g-rail-more { min-height: 44px; display: flex; align-items: center; justify-content: center; margin-top: 16px; }
 .gallery .g-live-total { margin-right: 12px; }
+
+/* Direction A: the catalog opens on artwork, with browsing context over the stage. */
+.gallery.g-wall.has-browse-hero { position: relative; padding-top: 0; }
+.gallery .g-browse-context { position: relative; margin-bottom: 24px; }
+.gallery.has-browse-hero .g-browse-context { position: absolute; margin-bottom: 0; top: calc(var(--g-topbar) + 16px); inset-inline: var(--g-gutter); z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; color: var(--g-on-art); }
+.gallery .g-browse-context .g-library-toolbar { margin: 0; min-width: 0; }
+.gallery .g-browse-context .g-tabs { border: 0; }
+.gallery.has-browse-hero .g-browse-context :is(.g-tab, .g-tabs-deleted, .g-button) { color: var(--g-on-art); }
+.gallery .g-browse-hero { position: relative; min-height: 540px; height: min(600px, 70vh); margin: 0 calc(-1 * var(--g-gutter)); isolation: isolate; display: flex; align-items: end; background: var(--g-overlay-bg); }
+.gallery.has-rail .g-browse-hero { margin-right: calc(-1 * (var(--g-gutter) + 28px)); }
+.gallery .g-browse-hero-art { position: absolute; inset: 0; z-index: -2; }
+.gallery .g-browse-hero::after { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--g-stage-shade); }
+.gallery .g-browse-hero-copy { width: min(650px, 100%); padding: 230px var(--g-gutter) 56px; color: var(--g-on-art); }
+.gallery .g-browse-hero-copy .g-browse-hero-context { margin: 0 0 12px; font: var(--g-type-ui-strong); color: var(--g-overlay-ink-2); }
+.gallery .g-browse-hero-copy h2 { margin: 0 0 18px; font: var(--g-type-media-title); text-wrap: balance; overflow-wrap: anywhere; }
+.gallery .g-browse-hero-copy p { max-width: 48ch; margin: 0 0 24px; font: var(--g-type-ui); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gallery .g-browse-hero-copy .g-button { padding-inline: 22px; background: var(--g-art-paper); color: var(--g-badge-ink); }
+.gallery.has-browse-hero > .g-masthead { margin-top: 8px; border: 0; padding-bottom: 0; }
+.gallery.has-browse-hero > .g-masthead .g-kicker { font: var(--g-type-small); text-transform: none; }
+.gallery .g-toolbar { border-bottom: 0; }
+@media (max-width: 680px) {
+  .gallery .g-browse-context { gap: 0; }
+  .gallery .g-browse-context .g-library-toolbar { flex-wrap: nowrap; }
+  .gallery .g-browse-context .g-library-toolbar > .g-button { width: 44px; min-width: 44px; padding: 0; font-size: 0; gap: 0; }
+  .gallery .g-browse-context .g-library-toolbar > .g-tab-scroller { flex-basis: auto; }
+  .gallery .g-browse-hero { height: min(640px, 78svh); min-height: 540px; }
+  .gallery .g-browse-hero-copy { padding-top: 240px; padding-bottom: 40px; }
+}
+@media (forced-colors: active) { .gallery .g-browse-context, .gallery .g-browse-hero-copy { background: Canvas; color: CanvasText; } }
+
+/* The All video landing uses A's single opening stage; complete catalogs follow. */
+.gallery.g-all.is-stage-led { padding-top: 0; }
+.gallery.g-all.is-stage-led .g-all-stage { position: relative; min-height: 600px; height: min(720px, 82svh); margin-inline: calc(-1 * var(--g-gutter)); isolation: isolate; color: var(--g-on-art); }
+.gallery.g-all .g-all-context > .g-library-toolbar { min-width: 0; margin-bottom: 0; }
+.gallery.g-all .g-all-context { display: grid; gap: 12px; margin-bottom: 24px; }
+.gallery.g-all.is-stage-led .g-all-context { position: absolute; z-index: 3; inset: calc(var(--g-topbar) + env(safe-area-inset-top) + 16px) var(--g-gutter) auto; margin: 0; }
+.gallery.g-all.is-stage-led .g-all-context > .g-masthead { border: 0; padding: 0; }
+.gallery.g-all.is-stage-led .g-all-context .g-kicker { margin: 0; font: var(--g-type-small); text-transform: none; }
+.gallery.g-all.is-stage-led .g-all-stage :is(.g-tab, .g-tabs-deleted, .g-tab-scroller-controls button, .g-button, .g-label, .g-kicker) { color: var(--g-on-art); }
+.gallery.g-all.is-stage-led .g-all-stage .g-tabs { border: 0; }
+.gallery.g-all.is-stage-led .g-spotlight-band, .gallery.g-all.is-stage-led .g-spotlight { position: absolute; inset: 0; margin: 0; padding: 0; display: block; }
+.gallery.g-all.is-stage-led .g-spotlight-title, .gallery.g-all.is-stage-led .g-spotlight .is-side { display: none; }
+.gallery.g-all.is-stage-led .g-spotlight > .is-lead { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; border-radius: 0; aspect-ratio: auto; }
+.gallery.g-all.is-stage-led .g-spotlight .g-marker-count { top: auto; right: var(--g-gutter); bottom: 64px; }
+.gallery.g-all.is-stage-led .g-spotlight .g-feature-copy { inset: 0; display: flex; flex-direction: column; justify-content: end; padding: 220px var(--g-gutter) 64px; gap: 14px; background: var(--g-art-shade), var(--g-stage-shade); }
+.gallery.g-all.is-stage-led .g-spotlight .is-lead .g-feature-name { max-width: 550px; font: var(--g-type-media-title); }
+.gallery.g-all.is-stage-led .g-chapter.is-first { margin-top: 0; padding-top: 40px; border-top: 0; }
+@media (max-width: 680px) {
+  .gallery.g-all.is-stage-led .g-all-stage { min-height: 560px; height: 78svh; }
+  .gallery.g-all.is-stage-led .g-spotlight .g-feature-copy { padding-bottom: 40px; }
+  .gallery.g-all.is-stage-led .g-spotlight .g-marker-count { bottom: 40px; }
+}
+
+
+@media (max-width: 680px) {
+  .gallery .g-browse-context .g-tab-scroller-controls { display: none; }
+  .gallery .g-browse-context .g-tabs { gap: 14px; scroll-snap-type: x proximity; scrollbar-width: none; }
+  .gallery .g-browse-context .g-tabs > a { scroll-snap-align: start; }
+}
+
+@media (max-width: 380px) { .gallery .g-browse-context .g-tabs { gap: 8px; } }
+
+@media (max-width: 599px) {
+  .gallery.is-video-browse .g-toolbar { flex-wrap: wrap; }
+  .gallery.is-video-browse .g-toolbar > .g-chips { flex-basis: 100%; flex-wrap: nowrap; }
+  .gallery.is-video-browse .g-toolbar > .g-sort { flex: 1 1 140px; }
+}
+
+/* Category discovery uses artwork only from matching, loaded titles in that library. */
+.gallery section.g-category-browse { margin-top: 20px; padding-top: 16px; }
+.gallery .g-category-browse .g-rail-head { margin-bottom: 12px; }
+.gallery .g-genre-strip { display: flex; gap: 12px; overflow-x: auto; margin-inline: -4px; padding: 6px 4px 12px; scroll-snap-type: x proximity; }
+.gallery .g-genre-tile { position: relative; flex: 0 0 180px; height: 104px; padding: 0; overflow: hidden; border: 0; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); color: var(--g-on-art); text-align: left; cursor: pointer; scroll-snap-align: start; }
+.gallery .g-genre-tile .g-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.gallery .g-genre-tile::after { position: absolute; inset: 0; background: linear-gradient(transparent, var(--g-overlay-halo)); content: ''; }
+.gallery .g-genre-copy { position: absolute; z-index: 1; inset: auto 12px 12px; }
+.gallery .g-genre-copy strong, .gallery .g-genre-copy small { display: block; }
+.gallery .g-genre-copy strong { font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
+.gallery .g-genre-copy small { font: var(--g-type-small); }
+.gallery .g-genre-tile[aria-pressed='true'] { box-shadow: inset 0 -3px var(--g-gold); }
+.gallery .g-genre-tile[aria-pressed='true'] .g-genre-copy { border-bottom: 2px solid var(--g-gold); padding-bottom: 4px; }

@@ -1593,6 +1593,8 @@ class MediaRequest(Base):
     poster_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     seasons: Mapped[Any] = mapped_column(JSON, nullable=True)  # list[int] | "all"; NULL for movies
     language: Mapped[str | None] = mapped_column(String(8), nullable=True)  # dub | sub (anime series only)
+    audio_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    subtitle_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # pending | approved | processing | partially_available | available | declined | failed
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     requested_by: Mapped[str] = mapped_column(String(36), nullable=False)

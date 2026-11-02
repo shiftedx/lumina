@@ -28,7 +28,7 @@ async function openHome(page: Page, uiPrefs: Record<string, unknown> = {}, viewp
   });
   await page.goto('/');
   await signIn(page);
-  await expect(page.locator('.h-masthead h1')).toBeVisible();
+  await expect(page.locator('.h-body:not([inert])')).toBeVisible();
   return { saved, requests };
 }
 const handle = (page: Page, name: string) => page.getByRole('button', { name: `Reorder ${name}` });
@@ -190,20 +190,11 @@ test('another browser signed in to a member without a saved layout sees the defa
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const width of [1440, 390]) {
-    test(`compact greeting and right date: ${scheme} ${width}`, async ({ page }) => {
+    test(`artwork opening without greeting/date: ${scheme} ${width}`, async ({ page }) => {
       await openHome(page, {}, { width, height: width === 390 ? 844 : 900 });
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
-      const header = page.locator('.h-masthead');
-      await expect(header.locator(':scope > *')).toHaveCount(2);
-      await expect(header.locator('button')).toHaveCount(0);
-      const heading = header.locator('h1');
-      const date = header.locator('.h-date');
-      expect(await heading.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(32);
-      expect(await date.evaluate((element) => getComputedStyle(element).fontSize)).toBe(width === 390 ? '10px' : '11px');
-      const greetingBox = (await heading.boundingBox())!;
-      const dateBox = (await date.boundingBox())!;
-      expect(dateBox.x).toBeGreaterThan(greetingBox.x);
-      expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(width);
+      await expect(page.locator('.h-masthead, .h-date')).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toHaveClass('sr-only');
       const hero = page.locator('.h-hero');
       const heroBox = (await hero.boundingBox())!;
       expect(heroBox.x).toBe(0);

@@ -4,9 +4,11 @@ import { getAdminSettings, listUsers, updateAdminSettings } from '../../api';
 import { routePath } from '../../app/routes';
 import { Avatar, Button, Dialog, Field, fieldProps, Input, StatusText, Switch } from '../../ui';
 import { errorMessage as errorText, formatDateTime as date } from '../../utils';
+import { type FormStatus } from '../settings/SectionForm';
 import { InviteDialog } from './InviteDialog';
 import { getLocalAddress, getPublicAddress, type Invite, type IssuedInvite, limitsSummary, librariesSummary, listInvites, listSections, type MemberRow, putLocalAddress, putPublicAddress, resendInvite, revokeInvite, screenTimeLabel, withDefaults } from './memberAccess';
 import { useAdminResource } from './useAdminResource';
+import { useUnsavedChanges } from '../settings/unsavedChanges';
 
 export const nameOf = (member: { display_name: string; username: string }) => member.display_name || member.username;
 export const roleLabel = (role: 'admin' | 'viewer') => (role === 'admin' ? 'Vault owner' : 'Household member');
@@ -144,35 +146,43 @@ function AddressSetting<T>({ label, placeholder, load, store, read, note }: Addr
   const { data, setData, error } = useAdminResource(load, `Unable to load the ${label.toLowerCase()}.`);
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const value = draft ?? (data ? read(data) : null) ?? '';
+  const [status, setStatus] = useState<FormStatus>(null);
+  const savedValue = data ? read(data) ?? '' : '';
+  const value = draft ?? savedValue;
   const blocked = data && note ? note(data) : null;
+  const dirty = Boolean(data && draft !== null && draft.trim() !== savedValue);
+  const showSaveBar = dirty || saving || status;
+  useUnsavedChanges(dirty, label);
   async function save() {
     setSaving(true);
-    setProblem(null);
-    setSaved(false);
+    setStatus(null);
     try {
       setData(await store(value.trim() || null));
       setDraft(null);
-      setSaved(true);
+      setStatus({ tone: 'ok', text: 'Saved' });
     } catch (failure) {
-      setProblem(errorText(failure, `Enter an address like ${placeholder}.`));
+      setStatus({ tone: 'error', text: errorText(failure, `Enter an address like ${placeholder}.`) });
     } finally {
       setSaving(false);
     }
   }
   return (
-    <div className="g-control-stack">
-      <Field error={problem ?? error} hideLabel label={label}>
-        {(ids) => <Input {...fieldProps(ids)} autoComplete="off" disabled={Boolean(blocked)} inputMode="url" onChange={(event) => { setDraft(event.target.value); setSaved(false); }} placeholder={placeholder} type="url" value={value} />}
-      </Field>
-      {blocked ? <p className="g-setting-note">{blocked}</p> : null}
-      <div className="g-actions">
-        {saved ? <span role="status"><StatusText tone="ok">Saved</StatusText></span> : null}
-        <Button busy={saving} disabled={draft === null || !data} onClick={() => { void save(); }}>Save address</Button>
+    <form aria-label={label} className="g-setting-form" noValidate onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      {!showSaveBar ? <p className="g-save-mode">Manual save</p> : null}
+      <div className="g-control-stack">
+        <Field error={error} hideLabel label={label}>
+          {(ids) => <Input {...fieldProps(ids)} autoComplete="off" disabled={Boolean(blocked) || !data} inputMode="url" onChange={(event) => { setDraft(event.target.value); setStatus(null); }} placeholder={placeholder} type="url" value={value} />}
+        </Field>
+        {blocked ? <p className="g-setting-note">{blocked}</p> : null}
       </div>
-    </div>
+      {showSaveBar ? <div className={`g-save-bar${dirty || saving ? ' is-pending' : ''}`}>
+        <p aria-live="polite" className="g-save-status" role={status?.tone === 'error' ? 'alert' : 'status'}>{saving ? 'Saving…' : status ? <StatusText tone={status.tone === 'error' ? 'danger' : 'ok'}>{status.text}</StatusText> : <><span className="g-save-mode">Manual save</span> · Unsaved changes</>}</p>
+        {dirty || saving ? <div className="g-save-actions">
+          {dirty && !saving ? <Button onClick={() => { setDraft(null); setStatus(null); }} variant="quiet">Discard</Button> : null}
+          <Button busy={saving} disabled={!dirty && !saving} type="submit" variant="primary">Save address</Button>
+        </div> : null}
+      </div> : null}
+    </form>
   );
 }
 

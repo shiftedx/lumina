@@ -255,6 +255,7 @@ final class NativeTVWelcomeShowcaseAndConnectionHelpTests: NativeProofJourney {
 }
 @MainActor
 final class NativeTVNavigationArtworkAndVideoCategoriesTests: NativeProofJourney {
+    func testHeaderEntersHeroBeforeShelves() throws { try journeyTVHeaderHeroFocus() }
     func testTVNavigationArtworkAndVideoCategories() async throws { try await journeyTVNavigationArtworkAndVideoCategories() }
 }
 @MainActor
@@ -316,6 +317,7 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
+    func testHomeKeepsCategoriesInLibrary() throws { try journeyMobileHomeLibraryNavigation() }
     func testIPadHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
     func testCompleteCatalogSupportsFastPosterScrolling() throws {
         try journeyCompleteCatalogSupportsFastPosterScrolling()
@@ -415,6 +417,18 @@ final class NativeHomeLayoutReordersHidesAndPersistsTests: NativeProofJourney { 
 #endif
 @MainActor
 final class NativeRequestsDiscoverSelectAndSubmitThroughTheServerTests: NativeProofJourney { func testNativeRequestsDiscoverSelectAndSubmitThroughTheServer() async throws { try await journeyNativeRequestsDiscoverSelectAndSubmitThroughTheServer() } }
+@MainActor
+final class NativeServerNavigationTests: NativeProofJourney {
+    func testServerFeaturesAndRemovedLibraryUpdateNavigation() async throws {
+        try await journeyServerNavigation()
+    }
+}
+@MainActor
+final class NativeServerMediaLanguageTests: NativeProofJourney {
+    func testExistingJapaneseAudioCanRequestEnglish() async throws {
+        try await journeyServerMediaLanguage()
+    }
+}
 @MainActor
 final class NativeRequestsVaultViewTests: NativeProofJourney {
     func testAvailableTitlesOpenTheirVaultDestinationsAndReturnToRequests() async throws {
@@ -2198,7 +2212,7 @@ class NativeProofJourney: XCTestCase {
             // Use the standard-phone Library selector, which taps the visible
             // tab frame before choosing Movies without returning through the
             // stale Home Browse tour entry.
-            try selectLibraryCategory("movies", screen: "libraryScreen")
+            try selectTourVideoCategory("movies")
         } else {
             try selectDestination("Video", screen: "libraryScreen")
         }
@@ -2814,7 +2828,7 @@ class NativeProofJourney: XCTestCase {
         destinationControl("Account").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("accountScreen"), timeout: 20, named: "Account appearance settings")
         try chooseAppearance("Light")
-        try selectLibraryCategory("tv", screen: "libraryScreen")
+        try selectTourVideoCategory("tv")
         let show = try revealLibraryItem(id: fixture.showID, named: "show to download")
         show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let collection = element("videoCollectionScreen")
@@ -2841,7 +2855,7 @@ class NativeProofJourney: XCTestCase {
         destinationControl("Account").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("accountScreen"), timeout: 20, named: "Account appearance settings")
         try chooseAppearance("Dark")
-        try selectLibraryCategory("tv", screen: "libraryScreen")
+        try selectTourVideoCategory("tv")
         let darkShow = try revealLibraryItem(id: fixture.showID, named: "show in Dark appearance")
         darkShow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(collection, timeout: 20, named: "show in Dark appearance")
@@ -4098,7 +4112,7 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(accessibilityText(element("homeBrowse-movies")).contains("Selected"),
                       "Movies must open the matching Library category.")
 
-        try activate(element("homeMasthead"))
+        try activate(element("homeNavigationButton"))
         XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(self.element("homeScreen")) },
                       "The Lumina logo must route directly from Movies back to Home.")
         XCTAssertFalse(accessibilityText(element("homeBrowse-movies")).contains("Selected"),
@@ -4112,7 +4126,7 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"),
                       "Watchlist must become selected after routing directly from Movies.")
 
-        try activate(element("homeMasthead"))
+        try activate(element("homeNavigationButton"))
         try activate(element("homeBrowse-movies"))
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Movies library before Back")
         XCUIRemote.shared.press(.menu)
@@ -4162,6 +4176,44 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"),
                       "Closing Home search must retain the local Home selection.")
         completed = true
+    }
+
+    func journeyTVHeaderHeroFocus() throws {
+        #if os(tvOS)
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let play = element("featuredPlayButton")
+        let category = element("homeBrowse-movies")
+        try waitForExistence(play, timeout: 30, named: "Home hero action")
+        for id in ["movies", "tv", "music", "watchlist"] {
+            let category = element("homeBrowse-\(id)")
+            XCTAssertTrue(focus(category, timeout: 20), "The category row must be reachable from Home.")
+            XCUIRemote.shared.press(.down)
+            XCTAssertTrue(waitUntil(timeout: 5) { play.hasFocus }, "Down from \(id) must enter the hero before the shelves.")
+            if id == "movies" { try attachFrame(named: "Category Down enters the Home hero") }
+            XCUIRemote.shared.press(.up)
+            XCTAssertTrue(waitUntil(timeout: 5) { category.hasFocus }, "Up from the hero must restore the \(id) category.")
+        }
+        XCTAssertFalse(application!.buttons["homeMasthead"].exists, "The sunrise mark is decorative, not a remote focus stop.")
+        XCTAssertFalse(application!.staticTexts["LUMINA"].exists, "The TV header uses the sunrise mark without a wordmark.")
+        try activate(category)
+        try waitForExistence(element("libraryScreen"), timeout: 25, named: "Movies Library")
+        try activate(element("homeNavigationButton"))
+        try waitForExistence(play, timeout: 25, named: "Home via its explicit navigation action")
+        let music = element("homeBrowse-music")
+        try activate(music)
+        let album = element("audioFeaturedAlbum")
+        try waitForExistence(album, timeout: 25, named: "Music Library hero")
+        XCTAssertTrue(focus(music, timeout: 15))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitUntil(timeout: 5) { album.hasFocus }, "Music category Down must enter its album hero.")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitUntil(timeout: 5) { music.hasFocus })
+        completed = true
+        #endif
     }
 
     func journeyTVNavigationArtworkAndVideoCategories() async throws {
@@ -5034,7 +5086,7 @@ class NativeProofJourney: XCTestCase {
             throw XCTSkip("iPad uses its unified category navigation instead of the native Library tab.")
         }
 
-        try selectLibraryCategory("movies", screen: "libraryScreen")
+        try selectTourVideoCategory("movies")
         let moviesRoot = element("libraryScreen")
         let movieCards = application!.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
@@ -5094,7 +5146,7 @@ class NativeProofJourney: XCTestCase {
         // Re-enter the same category through the visible Library chooser (or
         // Home's category row on wider phones). The retained Movies root and
         // its visible item must remain usable.
-        try selectLibraryCategory("movies", screen: "libraryScreen")
+        try selectTourVideoCategory("movies")
         let reenteredMovie = element(movieIdentifier)
         try waitForExistence(reenteredMovie, timeout: 15, named: "re-entered deeply scrolled Movies fixture")
         XCTAssertEqual(reenteredMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
@@ -5102,7 +5154,7 @@ class NativeProofJourney: XCTestCase {
         try waitForPreparedLibraryArtwork()
         try attachFrame(named: "Movies Library retained through category selection")
 
-        try selectLibraryCategory("tv", screen: "libraryScreen")
+        try selectTourVideoCategory("tv")
         let videoOptions = element("videoOptionsMenu")
         try waitForExistence(videoOptions, timeout: 15, named: "TV library options")
         XCTAssertTrue(waitUntil(timeout: 10) {
@@ -5202,10 +5254,7 @@ class NativeProofJourney: XCTestCase {
             }
             choice.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         } else {
-            try selectDestination("Home", screen: "homeScreen")
-            let categoryRow = element("homeBrowse-\(category)")
-            try waitForHittable(categoryRow, timeout: 20, named: "Home \(category) category")
-            try activate(categoryRow)
+            try selectTourLibraryCategory(category, screen: screen)
         }
         try waitForExistence(element(screen), timeout: 20, named: "\(category) Library root")
     }
@@ -5367,8 +5416,7 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(menu, timeout: 15, named: "Compact Browse menu")
         XCTAssertGreaterThanOrEqual(menu.frame.minX, element("homeMasthead").frame.maxX + 8)
         try attachFrame(named: "Standard iPhone Home with bottom navigation")
-        try activate(menu)
-        try activate(element("compactCategory-music"))
+        try selectTourAudioRoot()
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Music from Browse")
         #if os(iOS)
         // Keep a real current track while navigating to a different pushed
@@ -5393,8 +5441,7 @@ class NativeProofJourney: XCTestCase {
 
         // Home category choices must reset the retained Library navigation
         // stack, even when the user returns to the same category.
-        try activate(menu)
-        try activate(element("compactCategory-tv"))
+        try selectTourVideoCategory("tv")
         let show = element("libraryItem-\(fixture.showID)")
         try waitForHittable(show, timeout: 20, named: "TV show from Home Browse")
         try activate(show)
@@ -5405,8 +5452,7 @@ class NativeProofJourney: XCTestCase {
         #endif
 
         try selectDestination("Home", screen: "homeScreen")
-        try activate(menu)
-        try activate(element("compactCategory-tv"))
+        try selectTourVideoCategory("tv")
         try waitForExistence(element("libraryScreen"), timeout: 20, named: "TV library root after Home selection")
         try waitForHittable(show, timeout: 20, named: "TV show at its library root")
         XCTAssertFalse(element("videoCollectionScreen").exists,
@@ -5415,8 +5461,7 @@ class NativeProofJourney: XCTestCase {
                        "Choosing TV from Home must not retain a previous media detail.")
 
         try selectDestination("Home", screen: "homeScreen")
-        try activate(menu)
-        try activate(element("compactCategory-movies"))
+        try selectTourVideoCategory("movies")
         try waitForExistence(element("libraryScreen"), timeout: 20, named: "Movies library root after Home selection")
         let movieOptions = element("videoOptionsMenu")
         var openedMoviesOverflow = false
@@ -5536,106 +5581,41 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
-        let viewport = application!.windows.firstMatch.frame
+        let viewport = try applicationViewport()
         guard viewport.width >= 450, viewport.width < 500, viewport.height > viewport.width else {
             throw XCTSkip("This layout contract targets the closed Duo portrait display.")
         }
-        let row = element("homeBrowsingRow")
-        let masthead = element("homeMasthead")
-        let movies = element("homeBrowse-movies")
-        // This fixture has no Anime library; Music is its third, equally wide label.
-        let third = element("homeBrowse-music")
-        let watchlist = element("homeBrowse-watchlist")
-        try waitForHittable(third, timeout: 20, named: "Third category")
-        XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
-                                    "Categories must clear the Lumina logo.")
-        XCTAssertGreaterThanOrEqual(movies.frame.minX, row.frame.minX)
-        XCTAssertLessThanOrEqual(third.frame.maxX, row.frame.maxX - 8,
-                                 "The third category must fit completely before the scroll edge.")
-        XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6)
-
-        let heroArtwork = application!.descendants(matching: .any)
-            .matching(identifier: "homeHeroArtworkBounds").firstMatch
+        XCTAssertFalse(element("homeBrowsingRow").exists)
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), element("compactBrowseMenu")])
+        let heroArtwork = application!.descendants(matching: .any).matching(identifier: "homeHeroArtworkBounds").firstMatch
         try waitForExistence(heroArtwork, timeout: 15, named: "Closed Duo hero artwork bounds")
-        XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(heroArtwork) },
-                      "Closed Duo Home must expose a visible hero artwork bounds marker.")
-        XCTAssertLessThanOrEqual(heroArtwork.frame.minY, viewport.minY + 2,
-                                 "Closed Duo hero artwork must reach the top edge of Home.")
-        XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5,
-                                    "Closed Duo hero artwork must reach the bottom edge without a black band.")
-        try attachFrame(named: "Closed Duo three complete categories")
-        let homeCategoryWidth = row.frame.width
-        try assertClosedNavigationClearsCamera([masthead, row])
-        let moreCategories = element("categoryScrollForward")
-        try waitForHittable(moreCategories, timeout: 10, named: "More categories affordance")
-        XCTAssertLessThanOrEqual(third.frame.maxX, moreCategories.frame.minX - 4,
-                                 "Three complete categories must remain clear of the overflow control.")
-        try activate(moreCategories)
-        try waitForHittable(watchlist, timeout: 10, named: "Watchlist revealed by More categories")
-        try activate(element("categoryScrollBack"))
-        try waitForHittable(movies, timeout: 10, named: "Movies revealed by Previous categories")
-
-        let initialRefreshes = try homeRefreshCount()
-        try revealHomeMenuControl(watchlist)
-        try waitForHittable(watchlist, timeout: 10, named: "Horizontally revealed Watchlist category")
-        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
-                       "Horizontally scrolling Home categories must not begin Home refresh.")
-
-        let toolbarDragStart = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        toolbarDragStart.press(forDuration: 0.1,
-                               thenDragTo: toolbarDragStart.withOffset(CGVector(dx: 0, dy: 260)),
-                               withVelocity: .slow,
-                               thenHoldForDuration: 0.5)
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
-                       "A downward gesture beginning in the horizontal category toolbar must not refresh Home.")
-        XCTAssertLessThanOrEqual(try categoryVerticalPull(), 2,
-                                 "The horizontal category toolbar must not vertically rubber-band.")
-
-        let contentDragStart = element("homeScreen").coordinate(
-            withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)
-        )
-        contentDragStart.press(forDuration: 0.1,
-                               thenDragTo: contentDragStart.withOffset(CGVector(dx: 0, dy: 250)),
-                               withVelocity: .slow,
-                               thenHoldForDuration: 0.5)
-        XCTAssertTrue(waitUntil(timeout: 10) {
-            (try? self.homeRefreshCount()).map { $0 > initialRefreshes } ?? false
-        }, "A downward gesture in Home content must retain pull-to-refresh.")
-
-        try revealHomeMenuControl(third)
-        try activate(third)
-        try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
-        try attachFrame(named: "Closed Library categories after selection from Home")
-
+        XCTAssertLessThanOrEqual(heroArtwork.frame.minY, viewport.minY + 2)
+        XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5)
+        try attachFrame(named: "Closed Duo Home without category tabs")
         try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        let row = element("libraryCategories")
+        let third = element("libraryCategory-music")
+        try waitForHittable(third, timeout: 15, named: "third Library category without swiping")
         try assertClosedDuoLibraryHeader()
-        try attachFrame(named: "Closed Duo Library header keeps logo categories and actions separate")
-        let libraryCategories = element("libraryCategories")
-        let libraryThird = element("libraryCategory-music")
-        try waitForHittable(libraryThird, timeout: 10, named: "third Library category without swiping")
-        XCTAssertGreaterThanOrEqual(libraryCategories.frame.width, homeCategoryWidth - 4,
-                                    "Closed Library must use the same available category width as Home.")
-        try assertClosedNavigationClearsCamera([element("homeMasthead"), libraryCategories])
-        try activate(libraryThird)
-        try waitForExistence(element("audioScreen"), timeout: 20, named: "Music selected from the wide closed Library row")
+        let libraryWidth = row.frame.width
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), row])
+        try activate(third)
+        try waitForExistence(element("audioScreen"), timeout: 20, named: "Music from Library categories")
         try activate(revealMusicAlbum(fixture, named: "closed navigation album"))
         try startMusicCollectionPlayback()
         try activate(element("audioPlayPauseButton"))
         try closePlayer()
         try selectDestination("Home", screen: "homeScreen")
-        let activeRow = element("homeBrowsingRow")
-        try waitForHittable(element("homeBrowse-music"), timeout: 15, named: "third category with Now Playing")
-        XCTAssertEqual(activeRow.frame.width, homeCategoryWidth, accuracy: 1,
-                       "Now Playing must not shrink the closed category row when actions stack vertically.")
-        try assertClosedNavigationClearsCamera([element("homeMasthead"), activeRow,
+        XCTAssertFalse(element("homeBrowsingRow").exists)
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), element("compactBrowseMenu"),
                                                element("nowPlayingBar"), element("nowPlayingPauseButton")])
-        try attachFrame(named: "Closed Home categories retain their width with Now Playing")
+        try attachFrame(named: "Closed Home keeps Now Playing without category tabs")
         try selectTourLibraryCategory("movies", screen: "libraryScreen")
         try assertClosedDuoLibraryHeader()
+        XCTAssertEqual(element("libraryCategories").frame.width, libraryWidth, accuracy: 1)
         try assertClosedNavigationClearsCamera([element("homeMasthead"), element("libraryCategories"),
                                                element("nowPlayingBar"), element("nowPlayingPauseButton")])
-        try attachFrame(named: "Closed Library categories retain their width with Now Playing")
+        try attachFrame(named: "Closed Library categories retain width with Now Playing")
         try activate(element("nowPlayingBar"))
         try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "player from closed navigation")
         try stopAudioPlayer()
@@ -5686,24 +5666,26 @@ class NativeProofJourney: XCTestCase {
         }
         try signIn(using: fixture)
         try waitForExistence(element("featuredTitleButton"), timeout: 20, named: "loaded Home hero")
-        try tapVisibleControl(element("homeBrowse-watchlist"))
+        try openMobileHomeBrowseMenu()
+        try tapVisibleControl(element("homeMenu-watchlist"))
         let title = application!.staticTexts["No matches on Home"]
         let message = application!.staticTexts["Choose Home or add something to your watchlist."]
         try waitForExistence(title, timeout: 20, named: "empty Watchlist title")
         try waitForExistence(message, timeout: 10, named: "empty Watchlist guidance")
-        let categories = element("homeBrowsingRow").frame
+        let categories = element("homeMasthead").frame
         let group = title.frame.union(message.frame)
         XCTAssertGreaterThan(group.minY, categories.maxY + 80,
-                             "The empty Watchlist must clear the category row.")
+                             "The empty Watchlist must clear Home navigation.")
         XCTAssertEqual(group.midY, viewport.midY, accuracy: viewport.height * 0.15,
                        "Empty Watchlist guidance belongs in the middle of the page.")
-        try attachFrame(named: "Open Duo portrait empty Watchlist centered below categories")
+        try attachFrame(named: "Open Duo portrait empty Watchlist centered below navigation")
 
         try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: true)
         application!.terminate()
         application!.launch()
         try waitForExistence(element("homeScreen"), timeout: 25, named: "Home after saved Watchlist relaunch")
-        try tapVisibleControl(element("homeBrowse-watchlist"))
+        try openMobileHomeBrowseMenu()
+        try tapVisibleControl(element("homeMenu-watchlist"))
         let populated = element("featuredTitleButton")
         try waitForExistence(populated, timeout: 25, named: "populated Watchlist hero after relaunch")
         XCTAssertEqual(populated.label, fixture.directItemTitle)
@@ -5871,17 +5853,18 @@ class NativeProofJourney: XCTestCase {
         let viewport = try applicationViewport()
         let mark = element("homeMasthead")
         let categories = element(categoryID)
-        let first = element(firstCategory)
+        let first = categoryID == "homeBrowsingRow" ? mark : element(firstCategory)
         let search = element(searchID)
         let artwork = element("nowPlayingBar")
         let toggle = element("nowPlayingPauseButton")
-        try waitForExistence(categories, timeout: 15, named: "portrait category row")
+        if categoryID != "homeBrowsingRow" { try waitForExistence(categories, timeout: 15, named: "portrait category row") }
+        else { XCTAssertFalse(categories.exists) }
         for (control, name) in [(mark, "logo"), (first, "first category"), (search, "Search"),
                                 (artwork, "Now Playing artwork"), (toggle, "play/pause")] {
             try waitForHittable(control, timeout: 15, named: "portrait navigation \(name)")
         }
         guard mark.frame.width <= 60, mark.frame.minY <= 32, abs(first.frame.midY - mark.frame.midY) <= 6,
-              categories.frame.maxX <= search.frame.minX - 8 else {
+              (categoryID == "homeBrowsingRow" || categories.frame.maxX <= search.frame.minX - 8) else {
             throw ProofFailure.ui("Portrait navigation must align mark-only branding and categories in one row clear of the utility rail: mark=\(mark.frame), categories=\(categories.frame).")
         }
         guard search.frame.minX >= viewport.maxX - 80, search.frame.minY >= 72, search.frame.maxY <= 144,
@@ -6059,31 +6042,18 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func assertDuoHomeCategoryRail(named posture: String) throws {
-        let masthead = element("homeMasthead")
-        let movies = element("homeBrowse-movies")
-        let tv = element("homeBrowse-tv")
-        let music = element("homeBrowse-music")
-        let books = element("homeBrowse-books")
-        let watchlist = element("homeBrowse-watchlist")
-        try waitForHittable(masthead, timeout: 15, named: "Lumina masthead in \(posture)")
-        try waitForHittable(movies, timeout: 15, named: "Home Movies category in \(posture)")
-        [tv, music, books, watchlist].forEach {
-            XCTAssertTrue(hasVisibleFrame($0), "Home category controls must remain visible in \(posture).")
-        }
-
+        let mark = element("homeMasthead")
+        let menu = element("homeBrowseMenu")
+        try waitForExistence(mark, timeout: 15, named: "Home mark in \(posture)")
+        try waitForExistence(menu, timeout: 15, named: "Home Browse menu in \(posture)")
+        XCTAssertFalse(element("homeBrowsingRow").exists, "Home categories belong in Library in \(posture).")
+        XCTAssertFalse(element("homeBrowse-movies").exists)
         let viewport = try applicationViewport()
-        XCTAssertGreaterThan(viewport.height, viewport.width,
-                             "The Home category rail contract applies to open Duo portrait only.")
-        let controls = [movies, tv, music, books, watchlist]
-
-        let railMinX = controls.map(\.frame.minX).min() ?? 0
-        let railMaxX = controls.map(\.frame.maxX).max() ?? 0
-        XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6,
-                       "Portrait Home categories must share the mark's baseline in \(posture).")
-        XCTAssertGreaterThanOrEqual(railMinX, viewport.minX + 20,
-                                    "The open Duo portrait Home category rail must stay inside the leading window edge in \(posture).")
-        XCTAssertLessThanOrEqual(railMaxX, viewport.maxX - 20,
-                                 "The open Duo portrait Home category rail must stay inside the trailing window edge in \(posture).")
+        XCTAssertTrue(hasVisibleFrame(mark))
+        XCTAssertTrue(hasVisibleFrame(menu))
+        XCTAssertLessThanOrEqual(mark.frame.width, 60)
+        XCTAssertGreaterThanOrEqual(menu.frame.minY, 72, "Browse stays below the system status corner.")
+        XCTAssertLessThanOrEqual(menu.frame.maxX, viewport.maxX - 12)
     }
 
     private func assertClosedDuoLibraryHeader() throws {
@@ -6321,11 +6291,9 @@ class NativeProofJourney: XCTestCase {
         let title = element("featuredTitleButton")
         let play = element("featuredPlayButton")
         try waitForHittable(play, timeout: 20, named: "Home hero controls")
-        let categories = element("homeBrowse-movies")
-        if application!.windows.firstMatch.frame.width < 700 {
-            XCTAssertGreaterThan(element("homeBrowsingRow").frame.width, 180,
-                                 "The closed display must use the available width for multiple categories.")
-        }
+        let categories = element("homeMasthead")
+        XCTAssertFalse(element("homeBrowsingRow").exists)
+        XCTAssertFalse(element("homeBrowse-movies").exists)
         XCTAssertGreaterThan(title.frame.minY, categories.frame.maxY + 20,
                              "Hero title must clear the category menu.")
         XCTAssertLessThan(title.frame.maxY, play.frame.minY,
@@ -6373,8 +6341,8 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Home initial browse and hero")
 
         XCTAssertFalse(element("homeBrowse-all").exists, "Home must not appear as a category.")
-        XCTAssertFalse(accessibilityText(element("homeBrowse-movies")).contains("Selected"))
-        XCTAssertFalse(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"))
+        XCTAssertFalse(element("homeBrowse-movies").exists)
+        XCTAssertFalse(element("homeBrowse-watchlist").exists)
         XCTAssertFalse(element("homeGenresMenu").exists, "Home must leave genre refinement to Library.")
 
         let episodeResume = element("resumeItem-\(fixture.episodeID)")
@@ -6388,23 +6356,11 @@ class NativeProofJourney: XCTestCase {
                       "A resumed episode must report its remaining progress.")
         try attachFrame(named: "Home compact header and series-first resume shelf")
 
-        // Duo's closed display scrolls its top chrome away with the hero.
-        for _ in 0..<4 where !element("homeBrowse-movies").exists {
-            try scrollLibrary(home, up: false)
-        }
-        for (homeID, libraryID) in [("movies", "movies"), ("tv", "tv"), ("anime", "anime"), ("music", "music"), ("books", "books")] {
-            let category = element("homeBrowse-\(homeID)")
-            if homeID == "anime" {
-                XCTAssertFalse(category.exists, "This server has no Anime library.")
-                continue
-            }
-            revealHomeMenuControl(category)
-            try activate(category)
-            let selected = element("libraryCategory-\(libraryID)")
-            try waitForHittable(selected, timeout: 15, named: "Home category opens full Library")
-            XCTAssertTrue(accessibilityText(selected).contains("Selected"),
-                          "Home \(homeID) must open the same category as Library.")
+        for (id, screen) in [("movies", "libraryScreen"), ("tv", "libraryScreen"), ("music", "audioScreen"), ("books", "booksScreen")] {
+            try selectTourLibraryCategory(id, screen: screen)
+            try waitForExistence(element(screen), timeout: 20, named: "Library \(id) destination")
             try selectDestination("Home", screen: "homeScreen")
+            XCTAssertFalse(element("homeBrowsingRow").exists)
         }
 
         let choice = element("featuredChoice-\(fixture.directItemID)")
@@ -6755,6 +6711,114 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(history.staticTexts[freshAnimeTitle].exists || history.label.contains(freshAnimeTitle),
                       "My Requests did not show the submitted catalog title.")
         try attachFrame(named: "Native Requests browse, request controls, and submitted history")
+        completed = true
+    }
+
+    func journeyServerNavigation() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        try await api.setNavigationFixture("off")
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try waitForExistence(element("homeScreen"), timeout: 25, named: "Home")
+        #if os(iOS)
+        XCTAssertFalse(application!.tabBars.buttons["Requests"].exists)
+        #else
+        XCTAssertFalse(element("requestsButton").exists)
+        #endif
+        XCTAssertEqual(application!.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "homeExternal-")).count, 0)
+        try await api.setNavigationFixture("on")
+        #if os(iOS)
+        try backgroundApplication()
+        #else
+        XCUIRemote.shared.press(.home)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.application!.state == .runningBackground || self.application!.state == .runningBackgroundSuspended
+        }, "Home must background the app before returning.")
+        #endif
+        application!.activate()
+        #if os(iOS)
+        try waitForExistence(application!.tabBars.buttons["Requests"], timeout: 30, named: "enabled Requests")
+        #else
+        try waitForExistence(element("requestsButton"), timeout: 30, named: "enabled Requests")
+        #endif
+        try selectDestination("Audio", screen: "audioScreen")
+        try await api.setNavigationFixture("remove-music")
+        #if os(iOS)
+        try backgroundApplication()
+        #else
+        XCUIRemote.shared.press(.home)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.application!.state == .runningBackground || self.application!.state == .runningBackgroundSuspended
+        }, "Home must background the app before returning.")
+        #endif
+        application!.activate()
+        #if os(tvOS)
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after music removal")
+        XCTAssertFalse(element("homeBrowse-music").exists)
+        #else
+        XCTAssertTrue(waitUntil(timeout: 30) { !self.element("audioScreen").exists }, "A removed selected category must leave its old library.")
+        #endif
+        try attachFrame(named: "Server-driven navigation after category removal")
+        completed = true
+    }
+
+    func journeyServerMediaLanguage() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let animeKey = try XCTUnwrap(fixture.requestAnimeKey)
+        let animeTitle = try XCTUnwrap(fixture.requestAnimeTitle)
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let before = Set(try await api.requestRecords(identity: identity).map(\.id))
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Requests", screen: "requestsScreen")
+        #if os(tvOS)
+        let search = element("requestsSearchField")
+        try enter(animeTitle, into: search)
+        #else
+        try activate(element("requestsSearchButton"))
+        let search = application!.searchFields.firstMatch
+        try waitForHittable(search, timeout: 10, named: "Requests search")
+        try activate(search)
+        search.typeText(animeTitle)
+        #endif
+        let anime = try revealRequestPoster(animeKey, named: "available anime")
+        try activate(anime)
+        try waitForExistence(element("requestDetailScreen"), timeout: 20, named: "anime detail")
+        let evidence = element("requestLanguageAvailability")
+        #if os(iOS)
+        try revealDetailElement(evidence, in: element("requestDetailScreen"), named: "track availability", requiresHittable: false)
+        #else
+        try waitForExistence(evidence, timeout: 15, named: "track availability")
+        #endif
+        XCTAssertTrue(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@", "Japanese", "English")).firstMatch.exists,
+                      "One file must show its Japanese audio and English subtitles together.")
+        XCTAssertTrue(element("requestViewVaultButton").exists)
+        #if os(tvOS)
+        let dub = element("requestLanguagePicker").buttons.matching(NSPredicate(format: "label == %@", "English dub")).firstMatch
+        try activate(dub)
+        #else
+        try revealDetailElement(element("requestLanguagePicker"), in: element("requestDetailScreen"), named: "anime preset", requiresHittable: true)
+        try activate(element("requestLanguagePicker"))
+        try activate(menuAction("English dub"))
+        try revealDetailElement(element("requestConfirmButton"), in: element("requestDetailScreen"), named: "request confirmation", requiresHittable: true)
+        #endif
+        try activate(element("requestConfirmButton"))
+        let submitted = try await waitForNativeRequest(api, identity: identity, key: animeKey, excluding: before)
+        XCTAssertEqual(submitted.language, "dub")
+        XCTAssertEqual(submitted.audioLanguage, "en")
+        try attachFrame(named: "Anime language evidence and English request")
         completed = true
     }
 
@@ -9478,10 +9542,10 @@ class NativeProofJourney: XCTestCase {
         throw ProofFailure.timeout("The Account setting did not persist through the native Settings API.")
     }
 
-    private func waitForNativeRequest(_ api: ProofAPI, identity: APIIdentity, key: String) async throws -> APIRequestRecord {
+    private func waitForNativeRequest(_ api: ProofAPI, identity: APIIdentity, key: String, excluding: Set<String> = []) async throws -> APIRequestRecord {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
-            if let record = try await api.requestRecords(identity: identity).first(where: { $0.key == key }) {
+            if let record = try await api.requestRecords(identity: identity).first(where: { $0.key == key && !excluding.contains($0.id) }) {
                 return record
             }
             try await Task.sleep(for: .milliseconds(250))
@@ -9826,7 +9890,7 @@ class NativeProofJourney: XCTestCase {
     private func destinationControl(_ requestedTitle: String) -> XCUIElement {
         #if os(tvOS)
         let identifier = switch requestedTitle {
-        case "Home": "homeMasthead"
+        case "Home": "homeNavigationButton"
         case "Library", "Video": "homeBrowse-movies"
         case "Audio": "homeBrowse-music"
         case "Requests": "requestsButton"
@@ -9887,7 +9951,7 @@ class NativeProofJourney: XCTestCase {
         switch title {
         case "Home":
             if hasVisibleFrame(element(screen)) { return }
-            try activate(element("homeMasthead"))
+            try activate(element("homeNavigationButton"))
             guard waitUntil(timeout: 25, condition: { self.hasVisibleFrame(self.element(screen)) }) else {
                 throw ProofFailure.timeout("Timed out waiting for the visible Home destination.")
             }
@@ -9913,17 +9977,27 @@ class NativeProofJourney: XCTestCase {
         #endif
         if hasVisibleFrame(element(screen)) { return }
         #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad, hasVisibleFrame(element("homeBrowseMenu")), title == "Library" || title == "Account" {
+            try openMobileHomeBrowseMenu()
+            try activate(element("homeMenu-\(title.lowercased())"))
+            try waitForExistence(element(screen), timeout: 25, named: "\(title) from Home Browse")
+            return
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad, hasVisibleFrame(element("iPadUnifiedCategories")), title == "Home" || title == "Account" {
+            let control = element(title == "Home" ? "iPadCategory-all" : "iPadCategory-account")
+            revealMenuControl(control, in: element("iPadUnifiedCategories"))
+            guard hasVisibleFrame(control) else { throw ProofFailure.ui("The iPad destination must be visible before selection.") }
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            try waitForExistence(element(screen), timeout: 25, named: "\(title) from Library navigation")
+            return
+        }
         // iPhone groups media kinds under Library rather than giving Audio and
         // Video independent tabs. Keep legacy proof journeys on the real
         // category rail instead of searching for a nonexistent tab.
         switch title {
         case "Requests":
-            if element("iPadUnifiedCategories").exists {
-                let account = element("iPadCategory-account")
-                try waitForExistence(account, timeout: 15, named: "iPad Account before Requests")
-                revealMenuControl(account, in: element("iPadUnifiedCategories"))
-                try activate(account)
-                try waitForExistence(element("accountScreen"), timeout: 15, named: "iPad Account before Requests")
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                try selectDestination("Account", screen: "accountScreen")
                 let requests = element("accountRequestsButton")
                 try waitForExistence(requests, timeout: 15, named: "iPad Requests action")
                 try revealInLibraryViewport([requests], in: element("accountScreen"))
@@ -9946,7 +10020,19 @@ class NativeProofJourney: XCTestCase {
             break
         }
         #endif
+        #if os(iOS)
+        let viewport = try applicationViewport()
+        if UIDevice.current.userInterfaceIdiom == .phone, viewport.width >= 450 {
+            let control = destinationControl(title)
+            try waitForExistence(control, timeout: 15, named: "\(title) navigation")
+            guard hasVisibleFrame(control), control.isEnabled else { throw ProofFailure.ui("The destination must be visibly available.") }
+            let window = try applicationWindow()
+            window.coordinate(withNormalizedOffset: CGVector(dx: (control.frame.midX - viewport.minX) / viewport.width,
+                                                             dy: (control.frame.midY - viewport.minY) / viewport.height)).tap()
+        } else { try activate(destinationControl(title)) }
+        #else
         try activate(destinationControl(title))
+        #endif
         guard waitUntil(timeout: 25, condition: { self.hasVisibleFrame(self.element(screen)) }) else {
             throw ProofFailure.timeout("Timed out waiting for the visible \(title) destination.")
         }
@@ -9993,6 +10079,9 @@ class NativeProofJourney: XCTestCase {
         if usesStandardPhonePushedChrome {
             try selectLibraryCategory(category, screen: screen)
             return
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad, hasVisibleFrame(element("homeBrowseMenu")) {
+            try selectDestination("Library", screen: "libraryScreen")
         }
         if try selectUnifiedIPadLibraryCategoryIfVisible(category, screen: screen) { return }
         try unwindTourLibraryNavigationStack()
@@ -10343,6 +10432,55 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
+    #if os(iOS)
+    private func openMobileHomeBrowseMenu() throws {
+        let menu = element("homeBrowseMenu").exists ? element("homeBrowseMenu") : element("compactBrowseMenu")
+        try waitForExistence(menu, timeout: 15, named: "Home Browse menu")
+        guard hasVisibleFrame(menu), menu.isEnabled else { throw ProofFailure.ui("Home Browse must be visibly available.") }
+        // Floating SwiftUI header controls can report unhittable despite a visible, tappable frame.
+        let center = menu.frame
+        let window = try applicationWindow()
+        let viewport = window.frame
+        window.coordinate(withNormalizedOffset: CGVector(dx: (center.midX - viewport.minX) / viewport.width,
+                                                         dy: (center.midY - viewport.minY) / viewport.height)).tap()
+        guard waitUntil(timeout: 10, condition: {
+            self.element("homeMenu-watchlist").exists || self.element("compactCategory-watchlist").exists
+        }) else { throw ProofFailure.ui("Browse must actually reveal Watchlist before continuing.") }
+    }
+    #endif
+
+    func journeyMobileHomeLibraryNavigation() throws {
+        #if os(iOS)
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-animations"])
+        try signIn(using: fixture, waitsForAccount: false)
+        try waitForExistence(element("featuredPlayButton"), timeout: 30, named: "Home hero")
+        for id in ["homeBrowsingRow", "iPadUnifiedCategories", "homeBrowse-movies", "homeBrowse-tv", "homeBrowse-music", "homeBrowse-books"] {
+            XCTAssertFalse(element(id).exists, "Home must leave categories in Library: \(id)")
+        }
+        try attachFrame(named: "Home hero without category tabs")
+        try openMobileHomeBrowseMenu()
+        let watchlist = element("homeMenu-watchlist").exists ? element("homeMenu-watchlist") : element("compactCategory-watchlist")
+        try activate(watchlist)
+        try waitForExistence(element("homeScreen"), timeout: 20, named: "Watchlist remains reachable")
+        try selectDestination("Library", screen: "libraryScreen")
+        let categories = element("iPadUnifiedCategories").exists ? element("iPadUnifiedCategories") : element("libraryCategories")
+        try waitForExistence(categories, timeout: 20, named: "dynamic Library categories")
+        let movies = element("iPadCategory-movies").exists ? element("iPadCategory-movies") : element("libraryCategory-movies")
+        try waitForExistence(movies, timeout: 15, named: "Movies in Library")
+        XCTAssertTrue(hasVisibleFrame(movies))
+        try attachFrame(named: "Library dynamic category navigation")
+        try selectTourLibraryCategory("music", screen: "audioScreen")
+        try selectTourLibraryCategory("books", screen: "booksScreen")
+        try selectDestination("Home", screen: "homeScreen")
+        XCTAssertFalse(element("homeBrowsingRow").exists)
+        XCTAssertFalse(element("iPadUnifiedCategories").exists)
+        completed = true
+        #endif
+    }
+
     func journeyHomeHeaderScrolling() throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -10356,13 +10494,14 @@ class NativeProofJourney: XCTestCase {
         let home = element("homeScreen")
         try waitForExistence(home, timeout: 30, named: "Home before scrolling")
         #if os(tvOS)
-        let movies = element("homeBrowse-movies")
+        let homeHeader = element("homeBrowse-movies")
         #else
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("This workflow targets iPad navigation.") }
-        let movies = element("iPadCategory-movies")
+        let homeMark = element("homeMasthead")
+        let homeHeader = homeMark
         #endif
-        try waitForExistence(movies, timeout: 20, named: "Home categories at the top")
-        XCTAssertTrue(hasVisibleFrame(movies))
+        try waitForExistence(homeHeader, timeout: 20, named: "Home navigation at the top")
+        XCTAssertTrue(hasVisibleFrame(homeHeader))
         try attachFrame(named: "Home categories over bright hero artwork")
         #if os(tvOS)
         let resume = element("resumeItem-\(fixture.directItemID)")
@@ -10372,19 +10511,24 @@ class NativeProofJourney: XCTestCase {
         home.swipeUp()
         home.swipeUp()
         #endif
-        XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(movies) },
+        XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(homeHeader) },
                       "Home categories must scroll away rather than cover the shelves.")
         XCTAssertFalse(hasVisibleFrame(element("homeMasthead")))
         try attachFrame(named: "Home shelves without an overlapping navigation header")
         #if os(tvOS)
-        for _ in 0..<12 where !hasVisibleFrame(movies) { XCUIRemote.shared.press(.up) }
-        try activate(movies)
+        for _ in 0..<12 where !hasVisibleFrame(homeHeader) { XCUIRemote.shared.press(.up) }
+        try activate(homeHeader)
         #else
-        for _ in 0..<8 where !hasVisibleFrame(movies) { home.swipeDown() }
-        movies.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        for _ in 0..<8 where !hasVisibleFrame(homeHeader) { home.swipeDown() }
+        try selectDestination("Library", screen: "libraryScreen")
         #endif
         let library = element("libraryScreen")
         try waitForExistence(library, timeout: 25, named: "Movies Library")
+        #if os(iOS)
+        let movies = element("iPadCategory-movies")
+        #else
+        let movies = homeHeader
+        #endif
         try waitForExistence(movies, timeout: 10, named: "pinned Library categories")
         let headerY = movies.frame.minY
         let first = application!.descendants(matching: .any).matching(
@@ -11231,7 +11375,13 @@ private struct APIRequestRecord: Decodable {
     let id: String
     let key: String
     let language: String?
+    let audioLanguage: String?
     let seasons: APIRequestSeasons?
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, language, seasons
+        case audioLanguage = "audio_language"
+    }
 
     var seasonNumbers: [Int] {
         guard let seasons, case let .selected(values) = seasons else { return [] }
@@ -11328,6 +11478,12 @@ private struct ProofAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["included": included])
         let saved = try JSONDecoder().decode(APIWatchlistState.self, from: await send(request))
         guard saved.included == included else { throw ProofAPIError.malformedResponse }
+    }
+
+    func setNavigationFixture(_ mode: String) async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/navigation/\(mode)"))
+        request.httpMethod = "POST"
+        _ = try await send(request)
     }
 
     func requestRecords(identity: APIIdentity) async throws -> [APIRequestRecord] {

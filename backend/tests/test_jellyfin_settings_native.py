@@ -61,13 +61,13 @@ def test_navigation_tracks_available_libraries_and_member_visibility(native: Tes
     initial = call(native, "GET", "/navigation")
     assert initial.status_code == 200
     assert initial.headers["cache-control"] == "no-store"
-    assert initial.json() == {"categories": ["movies", "tv"]}
+    assert initial.json() == {"categories": ["movies", "tv", "youtube"], "features": {"streaming": False, "requests": False}}
     with db_module.SessionLocal.begin() as db:
         seed_gallery(db, tmp_path / "media")
         db.add(BookItem(id="native-nav-book", storage_key="native-nav-book.epub", format="epub", kind="ebook",
                         title="Synthetic book", owner_user_id=ALICE, visibility="private"))
-    assert call(native, "GET", "/navigation").json()["categories"] == ["movies", "tv", "anime", "music", "books"]
-    assert call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] == ["movies", "tv", "anime", "music"]
+    assert [x for x in call(native, "GET", "/navigation").json()["categories"] if x != "youtube"] == ["movies", "tv", "anime", "music", "books"]
+    assert [x for x in call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] if x != "youtube"] == ["movies", "tv", "anime", "music"]
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=BOB, sections=["shows"]))
         db.get(BookItem, "native-nav-book").available = False
@@ -75,8 +75,8 @@ def test_navigation_tracks_available_libraries_and_member_visibility(native: Tes
         album_ids = select(MediaTitle.id).where(MediaTitle.type == "album")
         for track in db.scalars(select(LibraryItem).where(LibraryItem.title_id.in_(album_ids))):
             track.status = "missing"
-    assert call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] == ["tv"]
-    assert call(native, "GET", "/navigation").json()["categories"] == ["movies", "tv", "anime"]
+    assert [x for x in call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] if x != "youtube"] == ["tv"]
+    assert [x for x in call(native, "GET", "/navigation").json()["categories"] if x != "youtube"] == ["movies", "tv", "anime"]
     with db_module.SessionLocal.begin() as db:
         add_file(db, tmp_path / "media", "Music/Standalone.flac", item_id=uid(990), title_id=None,
                  owner=ALICE, title="Standalone track", kind="audio")
@@ -106,8 +106,13 @@ def set_native_streaming_enabled(enabled: bool) -> None:
         record.native_streaming_enabled = enabled
 
 
+def streaming_capabilities(response):  # noqa: ANN001, ANN201
+    body = response.json()
+    return {key: body[key] for key in ("streaming_enabled", "youtube_session_enabled")}
+
+
 def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_access(native: TestClient) -> None:
-    assert call(native, "GET", "/capabilities").json() == {"streaming_enabled": False, "youtube_session_enabled": False}
+    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
     assert call(native, "PUT", json={"native_streaming_enabled": True}).status_code == 400
     assert call(native, "PUT", json={"ui_prefs": {"native_streaming_enabled": True}}).status_code == 200
     assert call(native, "GET", "/capabilities").json()["streaming_enabled"] is False
@@ -118,11 +123,11 @@ def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_a
     set_native_streaming_enabled(True)
     enabled = call(native, "GET", "/capabilities")
     assert enabled.headers["cache-control"] == "no-store"
-    assert enabled.json() == {"streaming_enabled": True, "youtube_session_enabled": True}
+    assert streaming_capabilities(enabled) == {"streaming_enabled": True, "youtube_session_enabled": True}
 
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=ALICE, streaming={"youtube": False, "twitch": False, "kick": False}))
-    assert call(native, "GET", "/capabilities").json() == {"streaming_enabled": False, "youtube_session_enabled": False}
+    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
     blocked = call(native, "GET", "/youtube-session")
     assert blocked.status_code == 403
 
@@ -130,16 +135,16 @@ def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_a
         user = db.get(User, ALICE)
         assert user is not None
         user.role = "admin"
-    assert call(native, "GET", "/capabilities").json() == {"streaming_enabled": True, "youtube_session_enabled": True}
+    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": True, "youtube_session_enabled": True}
     set_native_streaming_enabled(False)
-    assert call(native, "GET", "/capabilities").json() == {"streaming_enabled": False, "youtube_session_enabled": False}
+    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
 
 
 def test_native_streaming_can_remain_available_when_youtube_is_member_blocked(native: TestClient) -> None:
     set_native_streaming_enabled(True)
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=ALICE, streaming={"youtube": False, "twitch": True, "kick": False}))
-    assert call(native, "GET", "/capabilities").json() == {"streaming_enabled": True, "youtube_session_enabled": False}
+    assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": True, "youtube_session_enabled": False}
 
 
 def test_sensitive_writes_reject_bearer_only_expired_wrong_token_and_replayed_proofs(native: TestClient) -> None:

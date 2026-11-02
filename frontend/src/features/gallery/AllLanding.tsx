@@ -291,21 +291,25 @@ export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, 
   // collapses (nothing new) or grows would shift painted chapters (CLS), so there is no band skeleton.
   const settled = spotlight !== null || spotlightFailed;
   const empty = sections !== null && !visibleChapters(sections).length && sections.saved_audio === 0 && spotlight !== null && !spotlight.length;
+  const stageLed = Boolean(spotlight?.length);
   return (
-    <div className="surface gallery g-all" onKeyDown={keys} ref={root}>
-      {lenses}
-      <header className="g-masthead">
-        <h1>{title}</h1>
-        <p className="g-label g-kicker">{kicker || '\u00a0'}</p>
-      </header>
-      {sectionsFailed && !sections ? (
-        <div className="g-inline-error" data-focus-row role="alert">
-          <p>Lumina could not load your library.</p>
-          <button className="g-button g-button-text" onClick={onRetrySections} type="button">Try again</button>
+    <div className={`surface gallery g-all${stageLed ? ' is-stage-led' : ''}`} onKeyDown={keys} ref={root}>
+      <div className="g-all-stage">
+        <div className="g-all-context">
+          {lenses}
+          <header className="g-masthead">
+            <h1 className={stageLed ? 'sr-only' : undefined}>{title}</h1>
+            <p className="g-label g-kicker">{kicker || '\u00a0'}</p>
+          </header>
         </div>
-      ) : null}
-      {empty ? <EmptyShelf body="Import a media folder in Settings › Library & storage, or save videos from Explore." icon={Library} title="Your library is empty" /> : null}
-      <div ref={measure} style={{ display: 'flow-root' }}>
+        {sectionsFailed && !sections ? (
+          <div className="g-inline-error" data-focus-row role="alert">
+            <p>Lumina could not load your library.</p>
+            <button className="g-button g-button-text" onClick={onRetrySections} type="button">Try again</button>
+          </div>
+        ) : null}
+        {empty ? <EmptyShelf body="Import a media folder in Settings › Library & storage, or save videos from Explore." icon={Library} title="Your library is empty" /> : null}
+        <div ref={measure} style={{ display: 'flow-root' }}>
         {!spotlight?.length && !spotlightFailed ? null : (
           <section aria-labelledby="g-spotlight-title" className="g-spotlight-band">
             <h2 className="g-label g-spotlight-title" id="g-spotlight-title">New in your library</h2>
@@ -335,12 +339,14 @@ export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, 
             ) : null}
           </section>
         )}
-        {sections && !settled ? (['movies', 'shows'] as const).map((id, index) => (
+        </div>
+      </div>
+      {sections && !settled ? (['movies', 'shows'] as const).map((id, index) => (
           <section aria-hidden="true" className={`g-chapter is-skeleton${index === 0 ? ' is-first' : ''}`} key={id}>
             <ChapterFrames caption={!phone} columns={columnsOf('poster')} shape="poster" />
           </section>
         )) : null}
-        {(settled ? chapters : []).map((chapter, index) => {
+      {(settled ? chapters : []).map((chapter, index) => {
           const word = CHAPTER_WORD[chapter.id];
           return (
             <section aria-labelledby={`g-chapter-${chapter.id}-title`} className={`g-chapter${index === 0 ? ' is-first' : ''}`} id={`g-chapter-${chapter.id}`} key={chapter.id} ref={watch(chapter.id)}>
@@ -358,14 +364,13 @@ export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, 
               {chapterBody(chapter, index, columnsOf(chapter.shape))}
             </section>
           );
-        })}
-        {collections && settled && (sections || sectionsFailed) ? (
+      })}
+      {collections && settled && (sections || sectionsFailed) ? (
           <section aria-labelledby="g-chapter-collections-title" className={`g-chapter g-collections${chapters.length ? '' : ' is-first'}`} data-focus-row id="g-chapter-collections" ref={watch('collections')}>
             <div className="g-chapter-head"><h2 id="g-chapter-collections-title">Collections</h2></div>
             {near.has('collections') ? collections : <span className="g-collections-frame" />}
           </section>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }

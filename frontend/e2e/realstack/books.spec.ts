@@ -42,7 +42,7 @@ function sampleCbz(): Buffer {
       "2.png": PAGE_PNG,
       "1.png": PAGE_PNG,
       "ComicInfo.xml": epubText(
-        "<ComicInfo><Title>Lantern Manga</Title><Writer>Test Cartographer</Writer><Series>Lantern Manga</Series><Number>1</Number><Summary>A right-to-left harbor story.</Summary><Genre>Adventure</Genre><Manga>YesAndRightToLeft</Manga></ComicInfo>",
+        "<ComicInfo><Title>Lantern Manga</Title><Writer>Test Cartographer</Writer><Series>Lantern Manga</Series><Number>1</Number><Summary>A right-to-left harbor story.</Summary><Genre>Adventure</Genre><Manga>YesAndRightToLeft</Manga><Pages><Page Image='1' Bookmark='Across the water'/></Pages></ComicInfo>",
       ),
     }),
   );
@@ -223,7 +223,7 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
     );
   });
 
-  await test.step("the manga series reads naturally ordered pages and restores its position", async () => {
+  await test.step("the manga chapter chooser opens a real marked page and restores its position", async () => {
     await page.goto("/books/manga");
     await page
       .getByRole("button", { name: /Open Lantern Manga, 1 volumes?/ })
@@ -232,11 +232,19 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
       page.getByRole("heading", { level: 1, name: "Lantern Manga" }),
     ).toBeVisible();
     await expect(page.getByText("Right to left")).toBeVisible();
-    await page.getByRole("button", { name: "Read volume 1" }).click();
-    await expect(page).toHaveURL(new RegExp(`/books/read/${mangaId}$`));
-    await expectDecodedImage(page.getByAltText("Page 1 of 3"));
-    await page.getByRole("button", { name: "Next" }).click();
+    // Open the volume card to exercise its detail-level chapter chooser; the
+    // series CTA intentionally starts reading immediately.
+    await page.getByRole("button", { name: "Open Lantern Manga", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Chapters" })).toBeVisible();
+    const beforeChoosing = await (await page.request.get(`/api/books/${mangaId}`)).json() as { progress: { updated_at: string | null } };
+    expect(beforeChoosing.progress.updated_at).toBeNull();
+    await page.getByRole("button", { name: /Page 2.*Across the water/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/books/read/${mangaId}\\?page=1$`));
     await expectDecodedImage(page.getByAltText("Page 2 of 3"));
+    await page.reload();
+    await expectDecodedImage(page.getByAltText("Page 2 of 3"));
+    await page.getByRole("button", { name: "Next" }).click();
+    await expectDecodedImage(page.getByAltText("Page 3 of 3"));
     await expect
       .poll(
         async () =>
@@ -246,9 +254,13 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
             ).json()) as { progress: { unit_index: number } }
           ).progress.unit_index,
       )
-      .toBe(1);
-    await page.reload();
-    await expectDecodedImage(page.getByAltText("Page 2 of 3"));
+      .toBe(2);
+    await page.getByRole("button", { name: "Back to Books" }).click();
+    const mangaContinue = page.getByRole("region", { name: "Continue reading", exact: true }).filter({ has: page.getByRole("heading", { name: "Lantern Manga", exact: true }) }).getByRole("button", { name: "Continue reading" });
+    await expect(mangaContinue).toBeVisible();
+    await mangaContinue.click();
+    await expect(page).toHaveURL(new RegExp(`/books/read/${mangaId}$`));
+    await expectDecodedImage(page.getByAltText("Page 3 of 3"));
   });
 
   await test.step("Books remains an isolated, responsive surface on a phone viewport", async () => {

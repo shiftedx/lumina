@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, BookOpen, Check, Ellipsis, Heart, Library, Plus, Search, SlidersHorizontal } from '../../luminaIcons';
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { UserProfile } from '../../types';
@@ -9,7 +10,7 @@ import { BookCard, BookCover, readingPosition, SeriesCard, ShelfTile } from './B
 import { BookDetail } from './BookDetail';
 import { BookReader } from './BookReader';
 import { booksRoutePath, type BooksRoute } from './routes';
-import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
+import { deleteBook, deleteBookShelf, getBook, getBookReader, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
 import type { Book, BookPage, BookSeries, BookShelf, BookSort, BookStateUpdate } from './types';
 import './books.css';
 
@@ -70,13 +71,18 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   const listView = route.view !== 'read' && route.view !== 'title' && route.view !== 'series';
   const filters = listView ? route : null;
   const isShelfList = route.view === 'shelves' && (Boolean(route.shelfId) || Boolean(route.status));
-  const listActive = route.view === 'ebooks' || route.view === 'discover' || isShelfList;
+  const overviewSearch = route.view === 'overview' && Boolean(route.q);
+  const listActive = overviewSearch || route.view === 'ebooks' || route.view === 'discover' || isShelfList;
   const query: BooksQuery = filters ? { q: filters.q, sort: filters.sort ?? (route.view === 'shelves' && route.shelfId ? 'custom' : undefined), status: route.view === 'discover' ? filters.status ?? 'unread' : filters.status, ...(route.view === 'ebooks' ? { kind: 'ebook' } : {}), ...(route.view === 'shelves' ? { shelf_id: route.shelfId, ...(shelfFormat === 'all' ? {} : { kind: shelfFormat }) } : {}), limit: 48 } : {};
-  const overviewActive = route.view === 'overview' || route.view === 'shelves' || shelfIds !== null;
+  const overviewActive = (route.view === 'overview' && !overviewSearch) || route.view === 'shelves' || shelfIds !== null;
   const overview = useFetched(overviewActive ? `${user.id}:books-overview` : null, getBooksOverview, revision);
   const books = useFetched(listActive ? `${user.id}:${routeKey}:${shelfFormat}` : null, () => listBooks(query), revision);
   const series = useFetched(route.view === 'manga' ? `${user.id}:${routeKey}:series` : null, () => listBookSeries({ q: filters?.q, sort: filters?.sort, status: filters?.status, limit: 48 }), revision);
   const detail = useFetched(route.view === 'title' ? `${user.id}:book:${route.bookId}` : null, () => getBook(route.view === 'title' ? route.bookId : ''), revision);
+  // The logical title can bundle files. Ask the same selected file the Read action opens,
+  // so an illustrated chapter marker never jumps into a different format.
+  const detailReaderFile = detail.data?.reading_file_id ?? detail.data?.id;
+  const detailReader = useFetched(route.view === 'title' && detail.data?.kind === 'manga' && detailReaderFile ? `${user.id}:book-reader:${detailReaderFile}` : null, () => getBookReader(detailReaderFile ?? ''), revision);
   const seriesDetail = useFetched(route.view === 'series' ? `${user.id}:series:${route.seriesId}` : null, () => getBookSeries(route.view === 'series' ? route.seriesId : ''), revision);
   const related = useFetched(route.view === 'title' && detail.data?.author ? `${user.id}:related:${detail.data.author}` : null, () => listBooks({ q: detail.data?.author, kind: detail.data?.kind, sort: 'title', limit: 12 }), revision);
   const shelves = overview.data?.shelves ?? [];
@@ -101,9 +107,9 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
 
   function open(next: BooksRoute, replace = false) { setNotice(null); setMutationError(null); onRoute(next, replace); }
   function openBook(book: Book) { open(titleRoute(book)); }
-  function read(book: Book) {
+  function read(book: Book, page?: number) {
     const fileId = book.reading_file_id || book.files?.find((file) => file.format === 'epub')?.id || book.id;
-    const begin = () => { lastReaderRoute.current = route; open({ surface: 'books', view: 'read', bookId: fileId }); };
+    const begin = () => { lastReaderRoute.current = route; open({ surface: 'books', view: 'read', bookId: fileId, ...(page === undefined ? {} : { page }) }); };
     if (book.progress.completed) void mutate(() => updateBookState(fileId, { completed: false, unit_index: 0, offset: 0 }), '').then((saved) => { if (saved) begin(); });
     else begin();
   }
@@ -147,15 +153,23 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   function updateFilter(change: { q?: string; sort?: BookSort; status?: BooksQuery['status'] }) {
     if (filters) open({ ...filters, ...change }, true);
   }
+  function submitSearch() {
+    const q = search.trim();
+    if (route.view === 'ebooks' || route.view === 'manga' || route.view === 'discover' || isShelfList) {
+      updateFilter({ q: q || undefined });
+      return;
+    }
+    open({ surface: 'books', view: 'overview', ...(q ? { q } : {}) });
+  }
+  const bookSearch = <ContextualSearch label="Search books, authors, and series"><form className="books-search" onSubmit={(event) => { event.preventDefault(); submitSearch(); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form></ContextualSearch>;
   const toolbar = <div className="books-toolbar">
-    <form className="books-search" onSubmit={(event) => { event.preventDefault(); updateFilter({ q: search.trim() || undefined }); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form>
     <div className="books-sort"><span>Sort</span><Select aria-label="Sort" onChange={(event) => updateFilter({ sort: event.target.value as BookSort })} value={filters?.sort ?? (activeShelf ? 'custom' : 'added')}>{activeShelf ? <option value="custom">Custom order</option> : null}<option value="added">Recently added</option><option value="title">Title</option><option value="author">Author</option></Select></div>
     <div className="books-status"><SlidersHorizontal aria-hidden="true" /><span className="sr-only">Reading status</span><Select aria-label="Reading status" onChange={(event) => updateFilter({ status: event.target.value as BooksQuery['status'] })} value={filters?.status ?? (route.view === 'discover' ? 'unread' : 'all')}><option value="all">All stories</option><option value="unread">Unread</option><option value="reading">Reading</option><option value="read">Read</option><option value="favorites">Favorites</option><option value="reading_list">Reading list</option></Select></div>
     {route.view !== 'manga' ? <Button onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }} pressed={selecting} variant="quiet">{selecting ? 'Done selecting' : 'Select'}</Button> : null}
   </div>;
   const dataState = <T,>(resource: { data: BookPage<T> | null; loading: boolean; error: unknown }, children: ReactNode) => resource.error ? <ErrorState body={ERROR(resource.error)} onRetry={refreshed} title="Your collection could not be loaded" /> : !resource.data ? <Skeleton count={6} label="Loading your books…" shape="poster" /> : resource.data.total === 0 ? <EmptyState action={canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import books</Button> : undefined} body={filters?.q || (filters?.status && filters.status !== 'all') ? 'Try a different search or reading status.' : canImport ? 'Import an EPUB or CBZ to begin your collection.' : 'Book imports are not available on this account.'} size="page" title={filters?.q ? 'No matching stories' : 'This shelf is waiting for its first story'} /> : children;
 
-  if (route.view === 'read') return <BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
+  if (route.view === 'read') return <BookReader bookId={route.bookId} initialPage={route.page} key={`${user.id}:${route.bookId}:${route.page ?? ''}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
 
   let body: ReactNode;
   let heading = 'Books';
@@ -163,9 +177,14 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   let meta: string | undefined;
   let actions: ReactNode = <><Button onClick={() => setTrashOpen(true)} variant="quiet">Trash</Button>{canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import</Button> : null}</>;
 
-  if (route.view === 'overview') {
+  if (overviewSearch) {
+    heading = `Results for “${route.q}”`;
+    meta = books.data ? count(books.data.total, 'book') : undefined;
+    body = dataState(books, <div className="books-cover-grid">{allBooks.map((book) => card(book))}</div>);
+  } else if (route.view === 'overview') {
     const data = overview.data;
     const continuing = data?.continue_reading.slice(0, 3) ?? [];
+    const heroBook = continuing[0] ?? readingCovers(data?.recently_added ?? [])[0];
     const readingIds = new Set(continuing.map((book) => book.id));
     const recent = readingCovers(data?.recently_added ?? []).filter((book) => !readingIds.has(book.id)).slice(0, 8);
     const storyKey = (book: Book) => book.kind === 'manga' && book.series_id ? book.series_id : book.id;
@@ -174,7 +193,8 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
     const sparse = recent.length > 0 && recent.length <= 3 && discoveries.length <= 3 && (data?.shelves.length ?? 0) <= 3;
     meta = data ? `${count(data.totals.ebooks, 'ebook')} · ${count(data.totals.manga_series, 'manga series', 'manga series')}` : undefined;
     body = overview.error ? <ErrorState body={ERROR(overview.error)} onRetry={refreshed} title="Books could not be loaded" /> : !data ? <Skeleton count={6} label="Loading Books…" shape="poster" /> : !data.totals.ebooks && !data.totals.volumes ? <EmptyState action={canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="primary">Import your first books</Button> : undefined} body={canImport ? "Bring your EPUB and PDF ebooks and CBZ and CBR manga into a library made for reading. Keep favorites, arrange personal shelves, and continue your stories on any device." : "Shared household books will appear here. Book imports are not available on this account."} size="page" title="A home for every story" /> : <div className={`books-overview${sparse ? ' is-sparse' : ''}${continuing.length ? ' has-reading' : ''}`}>
-      {continuing.length ? <section className="books-section books-overview-reading"><header><h2>Continue reading</h2><Button iconEnd={<ArrowRight />} onClick={() => open({ surface: 'books', view: 'shelves', status: 'reading' })} variant="quiet">View all</Button></header><div className="books-continue-grid">{continuing.map((book) => <article className="books-continue" key={book.id}><button aria-label={`Open ${book.title}`} className="books-cover-button" onClick={() => openBook(book)} type="button"><BookCover title={book.title} url={book.cover_url} /></button><div><h3>{book.kind === 'manga' ? book.series_name || book.title : book.title}</h3><p>{book.author}</p><span>{book.kind === 'manga' && book.volume_number !== null ? `Volume ${book.volume_number} · ` : ''}{readingPosition(book)}</span><progress aria-label={`${book.title} reading progress`} max={100} value={book.progress.percent} /><Button disabled={!book.available} icon={<BookOpen />} onClick={() => read(book)} variant="primary">Continue reading</Button></div></article>)}</div></section> : null}
+      {heroBook ? <section aria-label={continuing.length ? 'Continue reading' : 'Recently added'} className="books-overview-hero books-reading-hero">{heroBook.cover_url ? <img alt="" className="books-overview-hero-art" src={heroBook.cover_url} /> : null}<div aria-hidden="true" className="books-overview-hero-shade" /><div className="books-overview-hero-copy"><p className="g-kicker">{continuing.length ? 'Continue reading' : 'Recently added'}</p><h2>{heroBook.kind === 'manga' ? heroBook.series_name || heroBook.title : heroBook.title}</h2><p>{heroBook.author || 'Unknown author'}{heroBook.kind === 'manga' && heroBook.volume_number !== null ? ` · Volume ${heroBook.volume_number}` : ''}</p><div className="books-overview-hero-progress"><progress aria-label={`${heroBook.title} reading progress`} max={100} value={heroBook.progress.percent} /><small>{readingPosition(heroBook)}</small></div><div className="books-title-actions">{continuing.length ? <Button disabled={!heroBook.available} icon={<BookOpen />} onClick={() => read(heroBook)} variant="primary">Continue reading</Button> : null}<Button disabled={!heroBook.available} icon={<BookOpen />} onClick={() => openBook(heroBook)} variant={continuing.length ? 'quiet' : 'primary'}>Open details</Button></div></div><button aria-label={`Open ${heroBook.title}`} className="books-overview-hero-cover books-cover-button" onClick={() => openBook(heroBook)} type="button"><BookCover author={heroBook.author} title={heroBook.title} url={heroBook.cover_url} /></button></section> : null}
+      {continuing.length > 1 ? <section className="books-section books-overview-reading"><header><h2>Keep reading</h2><Button iconEnd={<ArrowRight />} onClick={() => open({ surface: 'books', view: 'shelves', status: 'reading' })} variant="quiet">View all</Button></header><div className="books-continue-grid">{continuing.slice(1).map((book) => <article className="books-continue" key={book.id}><button aria-label={`Open ${book.title}`} className="books-cover-button" onClick={() => openBook(book)} type="button"><BookCover title={book.title} url={book.cover_url} /></button><div><h3>{book.kind === 'manga' ? book.series_name || book.title : book.title}</h3><p>{book.author}</p><span>{book.kind === 'manga' && book.volume_number !== null ? `Volume ${book.volume_number} · ` : ''}{readingPosition(book)}</span><progress aria-label={`${book.title} reading progress`} max={100} value={book.progress.percent} /><Button disabled={!book.available} icon={<BookOpen />} onClick={() => read(book)} variant="primary">Continue reading</Button></div></article>)}</div></section> : null}
       {section('Recently added', recent, { surface: 'books', view: 'shelves', status: 'all', sort: 'added' }, 'books-overview-additions')}
       {data.shelves.length ? <section className="books-section books-overview-shelves"><header><h2>Your shelves</h2><Button iconEnd={<ArrowRight />} onClick={() => open({ surface: 'books', view: 'shelves' })} variant="quiet">Manage shelves</Button></header><div className="books-shelves-grid">{data.shelves.slice(0, 4).map((shelf) => <ShelfTile key={shelf.id} onOpen={shelfOpen} shelf={shelf} />)}</div></section> : <section className="books-first-shelf"><div><h2>Make room for your favorites</h2><p>A shelf can hold both ebooks and manga.</p></div><Button icon={<Plus />} onClick={() => setShelfEditor('new')} variant="quiet">Create a shelf</Button></section>}
       {section('Rediscover your collection', discoveries, { surface: 'books', view: 'discover' }, 'books-overview-discover')}
@@ -182,12 +202,12 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   } else if (route.view === 'title') {
     const book = detail.data;
     heading = book?.title ?? 'Book'; actions = undefined;
-    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} onRead={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onSeparate={setFileToSeparate} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
+    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} chapters={detailReader.data?.chapters} onRead={read} onReadChapter={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onSeparate={setFileToSeparate} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
   } else if (route.view === 'series') {
     const data = seriesDetail.data;
     heading = data?.series.title ?? 'Manga series'; actions = undefined;
     const next = data?.books.find((book) => book.id === data.series.next_book_id);
-    body = seriesDetail.error ? <ErrorState body={ERROR(seriesDetail.error)} onRetry={refreshed} title="This series is unavailable" /> : !data ? <Skeleton count={5} label="Loading manga series…" shape="poster" /> : <><div className="books-detail"><BookCover author={data.series.author} title={data.series.title} url={data.series.cover_url} /><div className="books-detail-copy"><p className="books-detail-author">{data.series.author || 'Unknown author'}</p><p className="books-detail-facts">{count(data.series.volume_count, 'volume')} in your collection · {data.series.read_volume_count} read</p>{data.series.description ? <p className="books-description">{data.series.description}</p> : null}<div className="books-detail-actions">{next ? <Button disabled={!next.available} icon={<BookOpen />} onClick={() => read(next)} variant="primary">{next.progress.updated_at ? 'Continue' : 'Read'}{next.volume_number !== null ? ` volume ${next.volume_number}` : ' next volume'}</Button> : data.books[0] ? <Button icon={<BookOpen />} onClick={() => read(data.books[0])} variant="primary">Read again</Button> : null}<Button icon={<Plus />} onClick={() => setShelfIds(data.books.map((book) => book.id))} variant="quiet">Add series to shelf</Button></div>{next ? <p className="books-detail-position">{readingPosition(next)} · {next.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p> : null}</div></div><section className="books-section"><header><h2>Volumes</h2><span>In your collection · Volume order</span></header><div className="books-cover-grid">{data.books.map((book) => <div className="books-volume" key={book.id}>{card(book, book.can_edit ? [{ kind: 'item', label: 'Edit volume details', onSelect: () => setMetadataBook(book) }] : [], (volume) => open({ surface: 'books', view: 'title', bookId: volume.id }))}<span className="books-volume-status">{book.progress.completed ? <Check aria-hidden="true" /> : null}{readingPosition(book)}</span></div>)}</div></section></>;
+    body = seriesDetail.error ? <ErrorState body={ERROR(seriesDetail.error)} onRetry={refreshed} title="This series is unavailable" /> : !data ? <Skeleton count={5} label="Loading manga series…" shape="poster" /> : <><section className="books-series-hero">{data.series.cover_url ? <img alt="" className="books-series-hero-art" src={data.series.cover_url} /> : null}<div aria-hidden="true" className="books-series-hero-shade" /><div className="books-series-hero-copy"><p className="g-kicker">Manga series</p><h1>{data.series.title}</h1><p className="books-detail-author">{data.series.author || 'Unknown author'}</p><p className="books-detail-facts">{count(data.series.volume_count, 'volume')} in your collection · {data.series.read_volume_count} read</p>{data.series.description ? <p className="books-description">{data.series.description}</p> : null}<div className="books-detail-actions">{next ? <Button disabled={!next.available} icon={<BookOpen />} onClick={() => read(next)} variant="primary">{next.progress.updated_at ? 'Continue' : 'Read'}{next.volume_number !== null ? ` volume ${next.volume_number}` : ' next volume'}</Button> : data.books[0] ? <Button icon={<BookOpen />} onClick={() => read(data.books[0])} variant="primary">Read again</Button> : null}<Button icon={<Plus />} onClick={() => setShelfIds(data.books.map((book) => book.id))} variant="quiet">Add series to shelf</Button></div>{next ? <p className="books-detail-position">{readingPosition(next)} · {next.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p> : null}</div><div aria-hidden="true" className="books-series-hero-cover"><BookCover author={data.series.author} title={data.series.title} url={data.series.cover_url} /></div></section><section className="books-section books-series-volumes"><header><h2>Volumes</h2><span>In your collection · Volume order</span></header><div className="books-cover-grid">{data.books.map((book) => <div className="books-volume" key={book.id}>{card(book, book.can_edit ? [{ kind: 'item', label: 'Edit volume details', onSelect: () => setMetadataBook(book) }] : [], (volume) => open({ surface: 'books', view: 'title', bookId: volume.id }))}<span className="books-volume-status">{book.progress.completed ? <Check aria-hidden="true" /> : null}{readingPosition(book)}</span></div>)}</div></section></>;
   } else if (route.view === 'manga') {
     heading = 'Manga'; meta = series.data ? count(series.data.total, 'series', 'series') : undefined;
     body = <>{toolbar}{dataState(series, <div className="books-cover-grid">{allSeries.map((item) => <SeriesCard key={item.id} onOpen={(series) => open({ surface: 'books', view: 'series', seriesId: series.id })} onRead={readId} series={item} />)}</div>)}</>;
@@ -225,8 +245,9 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   return <div className="surface books-surface">
     <input accept=".epub,.pdf,.cbz,.cbr" aria-label="Choose EPUB, PDF, CBZ, and CBR files" className="sr-only" disabled={!canImport} multiple onChange={(event) => { const files = Array.from(event.target.files ?? []).slice(0, 100); if (canImport && files.length) setImportFiles(files); event.target.value = ''; }} ref={input} tabIndex={-1} type="file" />
     {route.view === 'title' || route.view === 'series' ? <Button className="books-back" icon={<ArrowLeft />} onClick={() => open(lastListRoute.current)} variant="quiet">Back to Books</Button> : null}
-    {route.view !== 'title' ? <Masthead actions={actions} lede={description} meta={meta} title={heading} /> : null}
+    {route.view !== 'title' && route.view !== 'series' ? <Masthead actions={actions} lede={description} meta={meta} title={heading} /> : null}
     {listView ? <TabScroller activeKey={route.view} ariaLabel="Books" as="nav" rowClassName="g-tabs books-tabs">{TABS.map(([view, label]) => <a aria-current={route.view === view ? 'page' : undefined} href={booksRoutePath({ surface: 'books', view })} key={view} onClick={(event) => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); open({ surface: 'books', view }); } }}>{label}</a>)}</TabScroller> : null}
+    {bookSearch}
     {notice ? <p className="books-notice" role="status">{notice}</p> : null}
     {mutationError ? <p className="books-form-error" role="alert">{mutationError}</p> : null}
     {body}

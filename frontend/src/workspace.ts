@@ -96,6 +96,7 @@ export type WorkspacePreferences = {
   homeShelves: HomeShelfPref[] | null;
   /** Show advanced settings in Settings (`ui_prefs.settings_advanced`, default off). */
   settingsAdvanced: boolean;
+  musicBrowseView: 'albums' | 'artists';
 };
 
 export const PLAYBACK_MAX_HEIGHTS = [1440, 1080, 720, 480] as const;
@@ -109,6 +110,11 @@ function playerVolumeFromUiPrefs(uiPrefs: Record<string, unknown> | undefined): 
 function playbackMaxHeightFromUiPrefs(uiPrefs: Record<string, unknown> | undefined): PlaybackMaxHeight {
   const value = uiPrefs?.playback_max_height;
   return PLAYBACK_MAX_HEIGHTS.find((height) => height === value) ?? null;
+}
+
+export function musicBrowseViewFromUiPrefs(prefs: Record<string, unknown> | undefined): 'albums' | 'artists' {
+  const stored = prefs?.music_browse;
+  return stored && typeof stored === 'object' && 'view' in stored && stored.view === 'artists' ? 'artists' : 'albums';
 }
 
 export type PlaybackPrefs = Pick<WorkspacePreferences, 'normalizeLoudness' | 'autoSkip' | 'profanity'>;
@@ -224,6 +230,7 @@ export function workspaceSettingsUpdate(
       profanity: preferences.profanity,
       home_shelves: preferences.homeShelves,
       settings_advanced: preferences.settingsAdvanced,
+      music_browse: { ...((state.userSettings?.ui_prefs?.music_browse && typeof state.userSettings.ui_prefs.music_browse === 'object' && !Array.isArray(state.userSettings.ui_prefs.music_browse)) ? state.userSettings.ui_prefs.music_browse : {}), view: preferences.musicBrowseView },
     },
   };
 }
@@ -352,6 +359,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       profanity: DEFAULT_PROFANITY,
       homeShelves: null,
       settingsAdvanced: false,
+      musicBrowseView: 'albums',
     },
   };
 }
@@ -693,6 +701,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           profanity: settings ? profanityFromUiPrefs(settings.ui_prefs) : state.preferences.profanity,
           // Home layout: the member's own, or nothing; never the previous member's on this browser.
           homeShelves: settings ? homeShelvesFromUiPrefs(settings.ui_prefs) : sameUser ? state.preferences.homeShelves : null,
+          musicBrowseView: settings ? musicBrowseViewFromUiPrefs(settings.ui_prefs) : sameUser ? state.preferences.musicBrowseView : 'albums',
           settingsAdvanced: settings ? uiPref(settings.ui_prefs, 'settings_advanced', false) : sameUser && state.preferences.settingsAdvanced,
         },
       };

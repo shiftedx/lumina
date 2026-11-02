@@ -21,18 +21,20 @@ export function SectionForm({ label, dirty, saving, status, saveLabel, onSave, o
   const host = useContext(SettingsHostContext);
   const hidden = readOnly || (advanced && host?.showAdvanced === false) || Boolean(saveSettings && host?.visibleSettingIds && !saveSettings.some((id) => host.visibleSettingIds?.includes(id)));
   const error = status?.tone === 'error';
+  const showBar = dirty || saving || status;
   return (
     <form aria-label={label} className="g-setting-form" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+      {!hidden ? <p className="g-save-mode">Manual save</p> : null}
       {children}
-      {hidden && !dirty && !status ? null : <div className={`g-save-bar${dirty || saving ? ' is-pending' : ''}`}>
+      {showBar ? <div className={`g-save-bar${dirty || saving ? ' is-pending' : ''}`}>
         <p aria-live="polite" className="g-save-status" role={error ? 'alert' : 'status'}>
-          {saving ? 'Saving…' : status ? <StatusText tone={error ? 'danger' : 'ok'}>{status.text}</StatusText> : dirty ? <span className="g-label">Unsaved changes</span> : ''}
+          {saving ? 'Saving…' : status ? <StatusText tone={error ? 'danger' : 'ok'}>{status.text}</StatusText> : dirty ? <><span className="g-save-mode">Manual save</span> · Unsaved changes</> : ''}
         </p>
-        <div className="g-save-actions">
+        {dirty || saving ? <div className="g-save-actions">
           {dirty && !saving ? <Button onClick={onDiscard} variant="quiet">Discard</Button> : null}
           <Button busy={saving} disabled={!dirty && !saving} type="submit" variant="primary">{saveLabel}</Button>
-        </div>
-      </div>}
+        </div> : null}
+      </div> : null}
     </form>
   );
 }

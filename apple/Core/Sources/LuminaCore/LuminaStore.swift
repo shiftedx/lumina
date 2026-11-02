@@ -13,6 +13,9 @@ let tickScale = 10_000_000.0
                 readyArtworkFramings.removeAll()
                 readyArtworkFramingOrder.removeAll()
                 availableLibraryCategories = []
+                requestsAvailable = false
+                streamingAvailable = false
+                navigationGeneration += 1
                 librarySnapshots.removeAll()
                 loadedLibraryQuery = nil
                 if oldValue != nil {
@@ -70,6 +73,9 @@ let tickScale = 10_000_000.0
     public private(set) var isCatalogLoading = false
     public private(set) var libraryAlphabet = [LibraryAlphabetAnchor]()
     public private(set) var availableLibraryCategories = Set<String>()
+    public private(set) var requestsAvailable = false
+    public private(set) var streamingAvailable = false
+    private var navigationGeneration = 0
 
     /// Alphabet seeking is available only where a server index can describe the
     /// current complete video wall. Search, recency/year ordering, episodes and
@@ -850,12 +856,19 @@ let tickScale = 10_000_000.0
     }
 
     private func loadNavigationCategories(_ active: LuminaSession, generation: Int) async {
+        navigationGeneration += 1
+        let requestGeneration = navigationGeneration
         do {
-            let categories = try await client.navigationCategories(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
-            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
-            availableLibraryCategories = categories
+            let navigation = try await client.navigationCategories(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard !Task.isCancelled, generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            availableLibraryCategories = Set(navigation.categories)
+            requestsAvailable = navigation.features?.requests ?? false
+            streamingAvailable = navigation.features?.streaming ?? false
         } catch {
-            // Retain this server's last successful menu through a transient failure.
+            guard !Task.isCancelled, generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            availableLibraryCategories = []
+            requestsAvailable = false
+            streamingAvailable = false
         }
     }
 

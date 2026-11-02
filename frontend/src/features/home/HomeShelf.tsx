@@ -23,6 +23,8 @@ import { RecoCard, useRecoFilter } from '../reco/recoFeedback';
 import { titleTarget } from '../reco/recoModel';
 import { RecoImpressionScope, useRecoImpressions } from '../reco/useRecoImpressions';
 import { cachedShelf, rememberShelf } from './homeCache';
+import { homeItemVisible, homeTitleVisible } from './homeModel';
+import type { ServerNavigation } from '../../types';
 import { captionLabel, titleCaption } from './homeModel';
 import { HOME_CATALOGUE, SHELF_SIZES, type ShelfShape, type ShelfStatus } from './homeShelves';
 import { type FetchedShelfId, type HomeVisit, loadShelf, type ShelfRow } from './shelfSources';
@@ -181,6 +183,7 @@ export type ShelfActions = {
 };
 
 export type FetchedShelfProps = {
+  navigation?: ServerNavigation | null;
   id: FetchedShelfId;
   userId: string;
   visit: HomeVisit;
@@ -197,7 +200,7 @@ const loadedThisVisit = new WeakMap<object, Set<string>>();
  * A fetched shelf: a placeholder until near, then one load; cached rows paint at once and are replaced when
  * the refetch lands. A failed first load shows the inline error; a failed refresh keeps the rows.
  */
-export function FetchedShelf({ id, userId, visit, actions, hidden, onStatus }: FetchedShelfProps) {
+export function FetchedShelf({ id, userId, visit, actions, hidden, onStatus, navigation }: FetchedShelfProps) {
   const [ref, near] = useNear<HTMLDivElement>();
   const [rows, setRows] = useState<ShelfRow[] | null>(() => cachedShelf<ShelfRow[]>(userId, id) ?? null);
   const [failed, setFailed] = useState(false);
@@ -215,12 +218,13 @@ export function FetchedShelf({ id, userId, visit, actions, hidden, onStatus }: F
     }, () => { if (current) setFailed(true); });
     return () => { current = false; };
   }, [near, attempt, id, visit, userId]); // eslint-disable-line react-hooks/exhaustive-deps -- `rows` only seeds the skip check
-  const shown = rows
+  const availableRows = rows?.map((row) => ({ ...row, titles: row.titles?.filter((title) => homeTitleVisible(title, navigation)), items: row.items?.filter((item) => homeItemVisible(item, navigation)) }));
+  const shown = availableRows
     ?.map((row) => (row.titles && hidden?.size ? { ...row, titles: row.titles.filter((title) => !hidden.has(title.id)) } : row))
     .filter((row) => (row.titles ?? row.items ?? []).length) ?? null;
   // Status reflects the server's rows, not the locally hidden view: dismissing the shelf's only item must not report
   // it empty (which would retire the shelf for good, since a dismissed FetchedShelf unmounts under a "fresh" page).
-  const hasRows = rows?.some((row) => (row.titles ?? row.items ?? []).length) ?? false;
+  const hasRows = availableRows?.some((row) => (row.titles ?? row.items ?? []).length) ?? false;
   const status: ShelfStatus = hasRows ? 'items' : failed ? 'failed' : rows ? 'empty' : 'loading';
   useEffect(() => { onStatus(id, status); }, [id, status]); // eslint-disable-line react-hooks/exhaustive-deps -- report changes only
   const { name, shape } = HOME_CATALOGUE[id];

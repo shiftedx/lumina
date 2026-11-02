@@ -160,6 +160,7 @@ struct MobileRootView: View {
             guard ownsForegroundRefresh(id, owner: owner) else { return }
             if !store.isOffline {
                 await store.metadata.reloadPermissions()
+                await store.refreshNavigationCategories()
                 guard ownsForegroundRefresh(id, owner: owner) else { return }
             }
             await audioSession.refreshSharedQueue()
@@ -888,17 +889,11 @@ private struct LibraryShellView: View {
                                  usesPortraitRail: stacksCategoryHeader) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
-                                        category: $homeCategory, categoryBarWidth: categoryBarWidth,
-                                        protectedHeaderCategoryWidth: protectedHeaderCategoryWidth,
-                                        stacksCategoryHeader: stacksCategoryHeader,
-                                        usesClosedCategoryRow: usesClosedCategoryRow,
-                                        showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
+                                        category: $homeCategory, stacksCategoryHeader: stacksCategoryHeader,
                                         uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue,
                                         scrollsHeader: usesIPadHeaderNavigation,
                                         header: { if usesIPadHeaderNavigation { iPadHomeHeader } }
-                        ) { selected in
-                            openLibrary(selected, fromHome: true)
-                        }
+                        )
                     } else {
                         ProgressView("Loading Home…")
                     }
@@ -908,6 +903,7 @@ private struct LibraryShellView: View {
                 .onAppear { recordHomeNavigationDiagnostic("root") }
                 #endif
             }
+            if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
                                  usesPortraitRail: stacksCategoryHeader, path: $libraryPath) {
@@ -959,6 +955,8 @@ private struct LibraryShellView: View {
                         }
                 }
             }
+            }
+            if store.requestsAvailable {
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
                 destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
                                  usesPortraitRail: stacksCategoryHeader) {
@@ -969,9 +967,10 @@ private struct LibraryShellView: View {
                     }
                 }
             }
+            }
             Tab("Account", image: LuminaGlyph.userSettings.assetName(for: destination == .account ? .solid : .outline), value: .account) {
                 destinationStack(owner: .account, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
-                    NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation ? {
+                    NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation && store.requestsAvailable ? {
                         destination = .requests
                     } : nil)
                 }
@@ -984,11 +983,18 @@ private struct LibraryShellView: View {
         })
         .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
             guard !isLibraryCategoryAvailable(category) else { return }
-            if let first = LibraryCategory.allCases.first(where: { available.contains($0.rawValue) }) {
+            libraryPath.removeAll()
+            if let first = LibraryCategory.allCases.first(where: isLibraryCategoryAvailable) {
                 category = first
             } else if destination == .library {
                 destination = .home
             }
+        }
+        .onChange(of: destination) { previous, next in
+            if previous == .account && next != .account { Task { await store.refreshNavigationCategories() } }
+        }
+        .onChange(of: store.requestsAvailable) { _, available in
+            if !available && destination == .requests { destination = .home }
         }
         .tint(LuminaTheme.ink)
     }
@@ -1051,7 +1057,30 @@ private struct LibraryShellView: View {
     private var iPadHomeHeader: some View {
         HStack(spacing: 12) {
             HomeHeroChrome().fixedSize()
-            unifiedCategories.frame(maxWidth: .infinity)
+            Spacer(minLength: 0)
+            Menu {
+                Button("Home") { homeCategory = .all }
+                    .accessibilityIdentifier("homeMenu-home")
+                Button("Watchlist") { homeCategory = .watchlist }
+                    .accessibilityIdentifier("homeMenu-watchlist")
+                if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
+                Button("Library") {
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        libraryPath.removeAll()
+                        destination = .library
+                    }
+                }
+                    .accessibilityIdentifier("homeMenu-library")
+                }
+                Button("Account") { destination = .account }
+                    .accessibilityIdentifier("homeMenu-account")
+            } label: {
+                Label("Browse", glyph: .moreHorizontal).labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44).contentShape(.rect)
+            }
+            .accessibilityIdentifier("homeBrowseMenu")
             HStack(spacing: 12) {
                 if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                     NavigationLink {
@@ -1154,14 +1183,18 @@ private struct LibraryShellView: View {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
                     }
-                    if !showsCategoryHeader, owner == destination, (owner == .home || owner == .library) {
+                    if owner == destination, (owner == .home && !usesPortraitRail && !usesIPadHeaderNavigation || owner == .library && !showsCategoryHeader) {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
-                                ForEach(LibraryCategory.allCases.filter(isLibraryCategoryAvailable), id: \.self) { value in
-                                    Button(value.title) {
-                                        openLibrary(value, fromHome: destination == .home)
+                                if owner == .library {
+                                    ForEach(LibraryCategory.allCases.filter(isLibraryCategoryAvailable), id: \.self) { value in
+                                        Button(value.title) {
+                                            openLibrary(value, fromHome: false)
+                                        }
+                                        .accessibilityIdentifier("compactCategory-\(value.rawValue)")
                                     }
-                                    .accessibilityIdentifier("compactCategory-\(value.rawValue)")
+                                } else {
+                                    Button("Home") { homeCategory = .all }
                                 }
                                 Button("Watchlist") {
                                     homeCategory = .watchlist
@@ -1169,7 +1202,7 @@ private struct LibraryShellView: View {
                                     destination = .home
                                 }
                                 .accessibilityIdentifier("compactCategory-watchlist")
-                                if destination == .home, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                                if destination == .home, !showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                     NavigationLink {
                                         NativeOfflineLibraryView(store: store)
                                     } label: { Label("Downloads", glyph: .download) }
@@ -1322,15 +1355,10 @@ private struct HomeLibraryView<Header: View>: View {
     let homeLayout: LuminaHomeLayout
     let feed: LuminaHomeFeed
     @Binding var category: HomeBrowseCategory
-    let categoryBarWidth: CGFloat
-    let protectedHeaderCategoryWidth: CGFloat
     let stacksCategoryHeader: Bool
-    let usesClosedCategoryRow: Bool
-    let showsBrowsingRow: Bool
     let uiTestingNavigationDiagnostics: String?
     let scrollsHeader: Bool
     @ViewBuilder let header: Header
-    let onOpenLibrary: (LibraryCategory) -> Void
     @State private var initialHomeLoadOwner: MobileHomeSessionScope?
     @State private var homeRowsRefreshTask: Task<Void, Never>?
     @State private var homeRowsRefreshID: UUID?
@@ -1341,7 +1369,6 @@ private struct HomeLibraryView<Header: View>: View {
     #endif
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(NativeAudioSession.self) private var audioSession
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var hiddenRecommendationID: String?
     @State private var showRecommendationUndo = false
@@ -1431,39 +1458,17 @@ private struct HomeLibraryView<Header: View>: View {
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
             if !stacksCategoryHeader && !scrollsHeader {
-                if showsBrowsingRow, usesClosedCategoryRow {
-                    let header = HStack(spacing: 12) {
-                        HomeHeroChrome().fixedSize()
-                        browsingRow.frame(width: browsingHeaderWidth).clipped()
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarLeading) { header }
-                            .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarLeading) { header }
-                    }
-                } else {
-                    if showsBrowsingRow, !stacksCategoryHeader {
-                        ToolbarItem(placement: .principal) {
-                            browsingRow.frame(width: browsingHeaderWidth).clipped()
-                        }
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarLeading) {
-                            HomeHeroChrome().fixedSize()
-                        }
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) { HomeHeroChrome().fixedSize() }
                         .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarLeading) {
-                            HomeHeroChrome().fixedSize()
-                        }
-                    }
+                } else {
+                    ToolbarItem(placement: .topBarLeading) { HomeHeroChrome().fixedSize() }
                 }
             }
         }
         .overlay(alignment: .topLeading) {
-            if showsBrowsingRow, stacksCategoryHeader {
-                PortraitNavigationHeader { browsingRow }
+            if stacksCategoryHeader {
+                PortraitNavigationHeader { EmptyView() }
                     .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
             }
         }
@@ -1474,6 +1479,13 @@ private struct HomeLibraryView<Header: View>: View {
                     .toolbar { NativeNowPlayingToolbar(store: store) }
             } label: { Label("Search", glyph: .search) }
             .accessibilityIdentifier("homeSearchButton")
+            Menu {
+                Button("Home") { category = .all }
+                    .accessibilityIdentifier("homeMenu-home")
+                Button("Watchlist") { category = .watchlist }
+                    .accessibilityIdentifier("homeMenu-watchlist")
+            } label: { Label("Browse", glyph: .moreHorizontal) }
+            .accessibilityIdentifier("homeBrowseMenu")
             if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                 NavigationLink {
                     NativeOfflineLibraryView(store: store)
@@ -1522,47 +1534,6 @@ private struct HomeLibraryView<Header: View>: View {
         .onDisappear { cancelHomeRowsRefresh() }
     }
 
-    private var browsingRow: some View {
-        HomeBrowsingRow(category: category, centersContent: !stacksCategoryHeader && !usesClosedCategoryRow,
-                        destinations: HomeBrowsingDestination.allCases.filter {
-            $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
-        }, onSelect: selectCategory)
-    }
-
-    private var browsingHeaderWidth: CGFloat {
-        guard usesClosedCategoryRow else {
-            // The shared Library cap reserves three actions. Home can add both
-            // now-playing controls alongside Search and Downloads.
-            let extraControls = max(0, homeTrailingControlSlots - 3)
-            return max(100, protectedHeaderCategoryWidth - 2 * 44 * extraControls)
-        }
-        // Closed Duo places its actions in the system's vertical trailing rail.
-        return categoryBarWidth
-    }
-
-    private var homeTrailingControlSlots: CGFloat {
-        var slots = 1.0 // Search
-        if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty { slots += 1 }
-        if let playback = audioSession.playback,
-           !playback.hasFinished,
-           (playback.isPlaying || !playback.initiallyPaused) {
-            slots += 2
-        }
-        return slots
-    }
-
-    private func selectCategory(_ selected: HomeBrowsingDestination) {
-        switch selected {
-        case .movies: onOpenLibrary(.movies)
-        case .tv: onOpenLibrary(.tv)
-        case .anime: onOpenLibrary(.anime)
-        case .music: onOpenLibrary(.music)
-        case .books: onOpenLibrary(.books)
-        case .all: category = .all
-        case .watchlist: category = .watchlist
-        }
-    }
-
     private func refreshHomeRowsAfterInitialLoad() {
         guard scenePhase == .active, homeRowsRefreshTask == nil,
               needsHomeRowsRefresh, let scope = MobileHomeSessionScope(store.session),
@@ -1604,7 +1575,7 @@ private struct HomeLibraryView<Header: View>: View {
                               wide: row.shape == .still && id != .continueWatching && id != .nextUp,
                               feed: feed, onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                     }
-                    if !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
+                    if store.streamingAvailable && !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
                 }
             } else {
             switch id.rawValue {

@@ -15,10 +15,15 @@ type Media = {
   seek(request: { currentTime: number }, done: () => void, failed: () => void): void;
 };
 type CastSession = { loadMedia(request: object): Promise<void>; getMediaSession(): Media | null };
-type Context = { setOptions(options: object): void; requestSession(): Promise<void>; getCurrentSession(): CastSession | null };
+type Context = {
+  setOptions(options: object): void; requestSession(): Promise<void>; getCurrentSession(): CastSession | null;
+  getCastState(): string;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+};
 type SdkWindow = Window & {
   __onGCastApiAvailable?: (available: boolean) => void;
-  cast?: { framework: { CastContext: { getInstance(): Context } } };
+  cast?: { framework: { CastContext: { getInstance(): Context }; CastContextEventType: { CAST_STATE_CHANGED: string } } };
   chrome?: { cast?: { AutoJoinPolicy: { ORIGIN_SCOPED: string }; media: {
     DEFAULT_MEDIA_RECEIVER_APP_ID: string; MediaInfo: new(id: string, type: string) => Info;
     LoadRequest: new(info: Info) => { currentTime?: number; autoplay?: boolean; activeTrackIds?: number[] };
@@ -34,6 +39,23 @@ export function chromecastUnavailable(): string | null {
   return null;
 }
 export const chromecastReady = (): boolean => Boolean(sdkWindow().cast?.framework && sdkWindow().chrome?.cast);
+
+/** Discover quietly; the browser owns receiver selection and any network permission prompt. */
+export function watchChromecastAvailability(onAvailable: (available: boolean) => void): () => void {
+  let active = true;
+  let unsubscribe = () => {};
+  void prepareChromecast().then(() => {
+    if (!active) return;
+    const framework = sdkWindow().cast!.framework;
+    const context = framework.CastContext.getInstance();
+    const update = () => onAvailable(['NOT_CONNECTED', 'CONNECTING', 'CONNECTED'].includes(context.getCastState()));
+    const event = framework.CastContextEventType.CAST_STATE_CHANGED;
+    context.addEventListener(event, update);
+    unsubscribe = () => context.removeEventListener(event, update);
+    update();
+  }).catch(() => { if (active) onAvailable(false); });
+  return () => { active = false; unsubscribe(); };
+}
 
 export function prepareChromecast(): Promise<void> {
   if (chromecastReady()) return Promise.resolve();

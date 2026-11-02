@@ -76,3 +76,58 @@ test('a reco menu opens above the mini player', async ({ page }) => {
   const topmost = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('.g-menu') !== null, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
   expect(topmost).toBe(true);
 });
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
+  test(`casting stays inside the player and follows receiver availability at ${viewport.width}px`, async ({ page }) => {
+    await page.addInitScript(() => {
+      let state = 'NO_DEVICES_AVAILABLE';
+      const listeners = new Set<() => void>();
+      const context = {
+        getCastState: () => state,
+        requestSession: async () => { throw new Error('Receiver selection was canceled or network access was denied.'); },
+        addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+      };
+      Object.defineProperty(window, 'cast', { value: { framework: { CastContext: { getInstance: () => context }, CastContextEventType: { CAST_STATE_CHANGED: 'caststatechanged' } } } });
+      const chrome = (window as Window & { chrome?: { cast?: object } }).chrome;
+      if (chrome) chrome.cast = {};
+      else Object.defineProperty(window, 'chrome', { value: { cast: {} } });
+      window.addEventListener('test-cast-availability', (event) => {
+        state = (event as CustomEvent<string>).detail;
+        listeners.forEach((listener) => listener());
+      });
+      Object.defineProperty(HTMLMediaElement.prototype, 'webkitShowPlaybackTargetPicker', { value: () => {} });
+    });
+    await openWatch(page);
+    await page.setViewportSize(viewport);
+    const player = page.locator('.lumina-player');
+    await player.hover();
+    await expect(page.getByText('Chromecast preview')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enable Chromecast' })).toHaveCount(0);
+    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toHaveCount(0);
+    await expect(player.getByRole('button', { name: 'AirPlay', exact: true })).toHaveCount(0);
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('test-cast-availability', { detail: 'NOT_CONNECTED' }));
+      document.querySelector('video')!.dispatchEvent(Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: 'available' }));
+    });
+    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toBeVisible();
+    await expect(player.getByRole('button', { name: 'AirPlay', exact: true })).toBeVisible();
+    const timestamp = (await player.getByLabel('Playback time').boundingBox())!;
+    for (const name of ['Cast to Chromecast', 'AirPlay']) {
+      const control = (await player.getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(control.y >= timestamp.y + timestamp.height || control.x >= timestamp.x + timestamp.width).toBeTruthy();
+    }
+    await page.screenshot({ path: `../output/playwright/casting-${viewport.width}.png` });
+    await player.getByRole('button', { name: 'Cast to Chromecast' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Receiver selection was canceled or network access was denied.');
+    await expect(page.getByRole('button', { name: 'Try casting again' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toBeFocused();
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('test-cast-availability', { detail: 'NO_DEVICES_AVAILABLE' }));
+      document.querySelector('video')!.dispatchEvent(Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: 'not-available' }));
+    });
+    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toHaveCount(0);
+    await expect(player.getByRole('button', { name: 'AirPlay', exact: true })).toHaveCount(0);
+  });
+}

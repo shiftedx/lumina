@@ -17,6 +17,7 @@ import { Captions, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw
 import { type AudioGraph, audioGraphFor } from './features/watch/audioGraph';
 import type { MuteRange } from './types';
 import { captionStyle, DEFAULT_CAPTIONS, type CaptionPrefs } from './features/watch/captionPrefs';
+import { AirPlayControl } from './features/watch/AirPlayControl';
 import { pauseMediaForUser, playMediaForUser, registerMediaPlayIntent } from './playIntent';
 import { Select } from './ui';
 import './features/watch/player.css';
@@ -72,6 +73,7 @@ export type LuminaPlayerExtensions = {
   quality?: ReactNode;
   chapters?: ReactNode;
   theater?: ReactNode;
+  casting?: ReactNode;
   /** Above the controls; stays visible when the controls hide (skip, up next). */
   overlay?: ReactNode;
   /** End of the control row; when supplied it owns subtitles, so the Captions toggle and `c` step aside. */
@@ -778,6 +780,8 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
                 {!isLive ? <span aria-label="Playback time" className="player-timecode">{formatPlayerTime(currentTime)} / {formatPlayerTime(duration)}</span> : null}
               </div>
               <div className="player-control-cluster player-control-cluster--end">
+                {kind === 'video' ? <AirPlayControl getMedia={() => nativeRef.current} key={`${activeSourceKey}:${mediaEpoch}`} /> : null}
+                {extensions?.casting}
                 {extensions?.quality ? <div data-player-extension="quality">{extensions.quality}</div> : null}
                 {!isLive ? (
                   <span className="player-rate-control">

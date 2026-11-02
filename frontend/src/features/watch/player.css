@@ -18,6 +18,12 @@
 .player-control-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 .player-control-cluster { display: flex; min-width: 0; align-items: center; gap: 1px; }
 .player-control-cluster--end { justify-content: flex-end; }
+.player-cast-panel { display: grid; gap: 12px; }
+@media (max-width: 520px) {
+  .player-control-row:has([data-player-casting]) { flex-wrap: wrap; gap: 0; }
+  .player-control-row:has([data-player-casting]) .player-control-cluster { flex-shrink: 0; }
+  .player-control-row:has([data-player-casting]) .player-control-cluster--end { max-width: 100%; margin-inline-start: auto; flex-wrap: wrap; }
+}
 .player-controls button:not(.player-panel *) { display: grid; width: var(--player-control-size); min-width: var(--player-control-size); height: var(--player-control-size); place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--g-overlay-ink); cursor: pointer; }
 @media (hover: hover) { .player-controls button:not(.player-panel *, :disabled):hover { background: var(--g-overlay-hover); } }
 .player-controls button:not(.player-panel *):focus-visible { background: var(--g-overlay-hover); }

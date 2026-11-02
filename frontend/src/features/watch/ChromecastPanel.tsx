@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { del, getSessionUserId, post } from '../../api';
 import { pauseMediaForUser, playMediaForUser } from '../../playIntent';
-import { Button, Field, fieldProps, Input } from '../../ui';
+import { Button, Field, fieldProps, Input, Popover } from '../../ui';
+import { LuminaSpriteIcon } from '../../luminaIcons';
 import { formatDuration } from '../../utils';
-import { chromecastReady, chromecastUnavailable, prepareChromecast, startChromecast, type ChromecastController, type ChromecastStatus, type ChromecastTicket } from './chromecast';
+import { watchChromecastAvailability, startChromecast, type ChromecastController, type ChromecastStatus, type ChromecastTicket } from './chromecast';
 
 export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProgress }: {
   itemId: string; audioIndex: number | null; subtitle: string | null; getMedia: () => HTMLMediaElement | null;
   onProgress?: (position: number, duration: number | null) => void;
 }) {
-  const [ready, setReady] = useState(chromecastReady);
+  const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<ChromecastStatus | null>(null);
@@ -20,6 +21,7 @@ export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProg
   const returning = useRef(false);
   const current = useRef({ getMedia, onProgress });
   current.current = { getMedia, onProgress };
+  useEffect(() => watchChromecastAvailability(setAvailable), []);
   useEffect(() => {
     const media = current.current.getMedia();
     const preventDuplicate = () => { if (controller.current && !returning.current && media) pauseMediaForUser(media); };
@@ -60,12 +62,6 @@ export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProg
     }, 60_000);
     return () => { active = false; window.clearInterval(timer); window.clearInterval(renew); };
   }, [Boolean(status)]);
-  async function enable() {
-    setBusy(true); setError(null);
-    try { await prepareChromecast(); setReady(true); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Chromecast could not load.'); }
-    finally { setBusy(false); }
-  }
   async function cast() {
     const currentGeneration = ++generation.current;
     const owner = getSessionUserId();
@@ -134,15 +130,15 @@ export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProg
     } catch { pauseMediaForUser(media); if (valid()) setError('Playback could not return here. The Cast controller is still available; retry when the connection recovers.'); }
     finally { returning.current = false; if (valid()) setBusy(false); }
   }
-  const reason = ready ? null : chromecastUnavailable();
-  return <details className="g-subrows chromecast-panel" aria-label="Chromecast output"><summary>Chromecast preview</summary>
-    <p className="g-setting-note">Cast compatible MP4 video with its selected text subtitles. Files needing conversion stay available in this browser. Keep this page open to renew receiver access.</p>
-    {reason ? <p className="g-setting-note">{reason}</p> : null}
+  if (!available && !status && !busy) return null;
+  return <Popover align="end" label="Chromecast" trigger={(props) => <button data-player-casting {...props} aria-label={status ? 'Chromecast controls' : 'Cast to Chromecast'} aria-pressed={Boolean(status)} disabled={busy} onClick={() => { props.onClick(); if (!status) void cast(); }} title={status ? 'Chromecast controls' : 'Cast to Chromecast'} type="button"><LuminaSpriteIcon name="cast" /></button>}>
+    <div className="player-panel player-cast-panel">
     {error ? <p className="g-warning" role="alert">{error}</p> : null}
-    {!status ? <Button disabled={busy || Boolean(reason)} onClick={() => { if (ready) void cast(); else void enable(); }} variant="secondary">{busy ? 'Connecting…' : ready ? 'Cast to Chromecast' : 'Enable Chromecast'}</Button> : <>
+    {!status ? busy ? <p role="status">Connecting…</p> : <Button disabled={!available} onClick={() => { void cast(); }} variant="secondary">Try casting again</Button> : <>
       <p className="g-setting-note" role="status">{status.playing ? 'Playing' : 'Paused'} on Chromecast · {formatDuration(status.position)}{status.duration ? ` / ${formatDuration(status.duration)}` : ''}</p>
       <div className="g-actions"><Button disabled={busy} onClick={() => { void control((target) => status.playing ? target.pause() : target.play()); }} variant="secondary">{status.playing ? 'Pause Chromecast' : 'Resume Chromecast'}</Button><Button disabled={busy} onClick={() => { void returnHere(); }} variant="secondary">Return playback here</Button></div>
       <Field label="Chromecast position in seconds">{(ids) => <Input {...fieldProps(ids)} defaultValue={Math.floor(status.position)} disabled={busy} max={status.duration || undefined} min={0} onBlur={(event) => { const position = Number(event.currentTarget.value); if (Number.isFinite(position) && position >= 0 && position <= (status.duration || 604800)) void control((target) => target.seek(position)); }} type="number" />}</Field>
     </>}
-  </details>;
+    </div>
+  </Popover>;
 }

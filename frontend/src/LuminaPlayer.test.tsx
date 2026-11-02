@@ -5,6 +5,32 @@ import { describe, expect, it, vi } from 'vitest';
 import { LuminaPlayer, PlayerPreferencesContext, type PlayerPreferences } from './LuminaPlayer';
 
 describe('LuminaPlayer', () => {
+  it('offers AirPlay only for discovered receivers and opens the native picker from a click', () => {
+    const picker = vi.fn();
+    Object.defineProperty(HTMLMediaElement.prototype, 'webkitShowPlaybackTargetPicker', { configurable: true, value: picker });
+    try {
+      const mediaRef = createRef<HTMLMediaElement>();
+      const view = render(<LuminaPlayer mediaRef={mediaRef} source={{ kind: 'video', src: '/api/library/forest/media' }} title="Forest walk" />);
+      const media = mediaRef.current!;
+      const availability = (value: string) => fireEvent(media, Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: value }));
+      expect(screen.queryByRole('button', { name: 'AirPlay' })).toBeNull();
+      availability('available');
+      expect(picker).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'AirPlay' }));
+      expect(picker).toHaveBeenCalledOnce();
+      Object.defineProperty(media, 'webkitCurrentPlaybackTargetIsWireless', { configurable: true, value: true });
+      fireEvent(media, new Event('webkitcurrentplaybacktargetiswirelesschanged'));
+      availability('not-available');
+      expect(screen.getByRole('button', { name: 'AirPlay' }).getAttribute('aria-pressed')).toBe('true');
+      Object.defineProperty(media, 'webkitCurrentPlaybackTargetIsWireless', { value: false });
+      fireEvent(media, new Event('webkitcurrentplaybacktargetiswirelesschanged'));
+      expect(screen.queryByRole('button', { name: 'AirPlay' })).toBeNull();
+      view.unmount();
+      availability('available');
+      expect(screen.queryByRole('button', { name: 'AirPlay' })).toBeNull();
+    } finally { Reflect.deleteProperty(HTMLMediaElement.prototype, 'webkitShowPlaybackTargetPicker'); }
+  });
+
   it('renders a saved video with an accessible play control and its native media ref', () => {
     const mediaRef = createRef<HTMLMediaElement>();
     const onTimeUpdate = vi.fn();

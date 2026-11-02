@@ -104,7 +104,7 @@ export function titleBasedLibrary(items: LibraryItem[]): LibraryItem[] {
  * One fetch per `key` in the usePagedLibrary style: a response for an older key never lands.
  * A `revision` bump reloads the same key but keeps showing the current data until the new data arrives.
  */
-export function useFetched<T>(key: string | null, load: () => Promise<T>, revision = 0) {
+export function useFetched<T>(key: string | null, load: (signal: AbortSignal) => Promise<T>, revision = 0) {
   const [state, setState] = useState<{ key: string | null; data: T | null; error: unknown }>({ key: null, data: null, error: null });
   const [pending, setPending] = useState<string | null>(null);
   const latest = useRef(load);
@@ -112,12 +112,13 @@ export function useFetched<T>(key: string | null, load: () => Promise<T>, revisi
   useEffect(() => {
     if (key === null) return undefined;
     let current = true;
+    const controller = new AbortController();
     setPending(`${key}#${revision}`);
-    latest.current().then(
+    latest.current(controller.signal).then(
       (data) => { if (current) { setState({ key, data, error: null }); setPending(null); } },
       (error: unknown) => { if (current) { setState({ key, data: null, error: error ?? new Error('Request failed') }); setPending(null); } },
     );
-    return () => { current = false; };
+    return () => { current = false; controller.abort(); };
   }, [key, revision]);
   const patch = useCallback((update: (current: T) => T) => setState((current) => (current.data === null ? current : { ...current, data: update(current.data) })), []);
   const settled = state.key === key;

@@ -2609,14 +2609,19 @@ def up_next_recommendations(
     snapshot = popular_discovery.get_snapshot()
     if not reco.enabled(db):
         legacy = _legacy_up_next(payload, current_user, db, snapshot)
-        return legacy.model_copy(update={"items": _reco_policy(db).eligible_legacy_up_next(payload, legacy.items)})
+        return legacy.model_copy(update={"items": _reco_policy(db).eligible_legacy_up_next(payload, legacy.items), "refreshing": False})
     # No provider I/O; the channel being watched is read through peek_tab only.
     policy = _reco_policy(db)
     source = uncut(snapshot, popular_discovery.candidates())
     served = policy.up_next(current_user, source, payload)
     items = policy.remote_entries(served, source, channel_id=payload.channel_id)
+    pending, error = reco_refresher.warm_up_next(current_user.id, payload) if len(items) < min(4, payload.limit) else (False, None)
     response = MemberRecommendationSnapshotResponse.model_validate(uncut(snapshot, ()))
-    return response.model_copy(update={"items": _with_remote_artwork(items)})
+    return response.model_copy(update={
+        "items": _with_remote_artwork(items), "refreshing": pending, "stale": False,
+        "state": "ready" if items else "loading" if pending else "failed" if error else "empty",
+        "error": error if not items else None,
+    })
 
 
 def _channel_key_of(source: str | None, channel_id: str | None, channel_url: str | None, uploader: str | None) -> str | None:

@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AppSession, LibraryItem, MediaTitle, PlaybackProgress, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, User, utcnow
 from app.persistence import write_transaction
-from app.schemas import YouTubeSearchResult
+from app.schemas import UpNextRequest, YouTubeSearchResult
 from app.services.library import EXTERNAL_LIBRARY_ORIGIN, LibraryService
 from app.services.member_follows import CHANNEL_SOURCE_TYPE
 from app.services.member_recommendations import _UNPLAYABLE_AVAILABILITY, TITLE_POOL_TYPES, MemberRecommendationPolicy
@@ -562,6 +562,7 @@ class RecoRefresher:
         self._expanded: dict[str, datetime] = {}  # progress row id -> when its seed was last expanded (in memory: a restart re-expands)
         self._interest_turn: dict[str, int] = {}
         self._warming: set[str] = set()
+        self._up_next: dict[tuple[str, str, str], tuple[datetime | None, str | None]] = {}
         self._last_sweep: datetime | None = None
 
     # ---- scheduling ----
@@ -685,6 +686,56 @@ class RecoRefresher:
         finally:
             with self._lock:
                 self._warming.discard(channel_id)
+
+    def warm_up_next(self, member_id: str, request: UpNextRequest) -> tuple[bool, str | None]:
+        """Expand the watched subject on the existing budgeted worker; never search on the request thread."""
+        from app.services.reco.policy import remote_key
+
+        identity = remote_key(request.source, request.source_id, request.source_url)
+        words = sorted(token for token in reco_profile.remote_tokens(request.title, None, ()) if _is_word(token))
+        if request.source != "youtube" or not identity or not words:
+            return False, None
+        query = " ".join(words[:8])
+        key, now = (member_id, identity, query), self._clock()
+        with self._lock:
+            previous = self._up_next.get(key)
+            if previous is not None:
+                completed, error = previous
+                if completed is None:
+                    return True, None
+                if now - completed < (timedelta(minutes=1) if error else timedelta(minutes=15)):
+                    return False, error
+            self._up_next = {k: value for k, value in self._up_next.items()
+                             if value[0] is None or now - value[0] < timedelta(minutes=15)}
+            if len(self._up_next) >= 128 and key not in self._up_next:
+                return False, "Suggestions are busy. Retry shortly."
+            self._up_next[key] = (None, None)
+        if not self._submit(self._warm_up_next, key, query):
+            with self._lock:
+                self._up_next.pop(key, None)
+            return False, "Suggestions are temporarily unavailable. Retry shortly."
+        return True, None
+
+    def _warm_up_next(self, key: tuple[str, str, str], query: str) -> None:
+        error = None
+        try:
+            with self._session_factory() as db:
+                if not enabled(db) or db.get(User, key[0]) is None:
+                    return
+            found = self._gate.call(lambda: self._search(query, SEARCH_LIMIT))
+            nominations = [Nomination(media, SOURCE_SEED, key[1]) for entry in found
+                           if (media := media_from_result(entry))]
+            with self._session_factory() as db, write_transaction(db, name="reco_up_next"):
+                if not enabled(db) or db.get(User, key[0]) is None:
+                    return
+                nominate(db, key[0], nominations, now=self._clock())
+            reco_events.served_lists.drop(key[0], "up_next")
+        except Exception as exc:  # noqa: BLE001 - background failure must not interrupt playback
+            error = "Suggestions are temporarily unavailable. Retry shortly."
+            logger.warning("Up Next candidate refresh failed: %s", type(exc).__name__)
+        finally:
+            with self._lock:
+                self._up_next[key] = (self._clock(), error)
 
     def counters(self) -> dict[str, int]:
         return self._gate.counters()

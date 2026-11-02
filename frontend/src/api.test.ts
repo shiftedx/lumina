@@ -693,3 +693,26 @@ describe('2.1.0 metadata editor and artwork calls', () => {
     expect(error.body).toEqual({ detail });
   });
 });
+
+it('waits for pending Up next candidates and stops polling when the watch changes', async () => {
+  vi.useFakeTimers();
+  try {
+    const pending = { items: [], categories: [], state: 'loading', refreshing: true, stale: false };
+    const ready = { ...pending, items: [{ id: 'next', title: 'Related topic' }], state: 'ready', refreshing: false };
+    const fetch = stubFetch(pending);
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify(pending))).mockResolvedValueOnce(new Response(JSON.stringify(ready)));
+    const result = getUpNext({ source_url: 'https://www.youtube.com/watch?v=current' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect((await result).items).toEqual(ready.items);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    fetch.mockClear();
+    const controller = new AbortController();
+    const cancelled = getUpNext({ source_url: 'https://www.youtube.com/watch?v=old' }, { signal: controller.signal });
+    const rejected = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await rejected;
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally { vi.useRealTimers(); }
+});

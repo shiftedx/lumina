@@ -169,7 +169,7 @@ describe('media acquisition interface', () => {
     vi.mocked(previewUrl).mockResolvedValue({ ...preview, raw: { channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}`, categories: ['Music', 'Unrecognized provider category'] } });
     const { result } = renderHook(() => useMediaAcquisition({ workspace: acquisitionWorkspace(), onMessage: vi.fn() }));
     await act(async () => { await result.current.open(remote); });
-    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}`, category_keys: ['music'] }));
+    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}`, category_keys: ['music'] }), { signal: expect.any(AbortSignal) });
   });
 
   it('sends no channel when the video names none, and never a too-long address or a non-UC id', async () => {
@@ -241,7 +241,7 @@ describe('media acquisition interface', () => {
 
     await act(async () => { await result.current.open(remote); });
     await vi.waitFor(() => expect(result.current.state.relatedError?.message).toBe('Unavailable'));
-    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ excluded_sources: ['youtube:prior', 'youtube:current'] }));
+    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ excluded_sources: ['youtube:prior', 'youtube:current'] }), { signal: expect.any(AbortSignal) });
     await act(async () => { await result.current.retryRelated(); });
     expect(result.current.state.related.map((item) => item.id)).toEqual([remote.id]);
     expect(result.current.state.relatedError).toBeNull();

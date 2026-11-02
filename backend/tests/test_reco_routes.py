@@ -163,6 +163,9 @@ class _Refresher:
     def warm_channel(self, channel_id: str) -> None:
         self.warmed.append(channel_id)
 
+    def warm_up_next(self, member_id, request):  # noqa: ANN001, ANN201
+        return False, None
+
     def trigger(self, member_id: str) -> None:
         self.triggered.append(member_id)
 
@@ -547,3 +550,15 @@ def test_an_aware_popular_publish_time_does_not_break_home_explore_or_up_next(ho
     up_next = main.up_next_recommendations(payload, object(), member, db)
 
     assert home is not None and explore is not None and up_next is not None
+
+
+def test_up_next_reports_its_own_pending_candidates_and_failures(household, monkeypatch) -> None:  # noqa: ANN001
+    member = _member()
+    db = _session_with(member)
+    payload = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Tidal pools guide", channel_id=UC)
+    monkeypatch.setattr(household, "warm_up_next", lambda *_: (True, None))
+    pending = main.up_next_recommendations(payload, object(), member, db)
+    assert pending.items == [] and pending.refreshing and pending.state == "loading"
+    monkeypatch.setattr(household, "warm_up_next", lambda *_: (False, "Suggestions are temporarily unavailable."))
+    failed = main.up_next_recommendations(payload, object(), member, db)
+    assert not failed.refreshing and failed.state == "failed" and failed.error

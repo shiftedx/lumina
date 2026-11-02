@@ -1019,3 +1019,30 @@ def test_query_plans_seek_the_pool_indexes(db) -> None:
             assert_no_scan(plan, table)
     assert "ix_remote_media_nominated" in documents
     assert "ix_reco_pool_user_nominated" in candidates or "reco_pool USING" in candidates
+
+
+def test_up_next_expands_the_current_subject_once_off_request_thread(factory, monkeypatch) -> None:  # noqa: ANN001
+    from app.schemas import UpNextRequest
+
+    seed_member(factory, follow=False, satisfied=False)
+    clock = Clock()
+    search = Search(clock)
+    refresher = make_refresher(factory, clock, search, None)
+    tasks = []
+    monkeypatch.setattr(refresher, "_submit", lambda function, *args: (tasks.append((function, args)), True)[1])
+    request = UpNextRequest(source_url="https://www.youtube.com/watch?v=watch-topic", title="Tidal pools explained")
+
+    assert refresher.warm_up_next("a", request) == (True, None)
+    assert refresher.warm_up_next("a", request) == (True, None)
+    assert search.calls == [] and len(tasks) == 1
+    function, args = tasks.pop()
+    function(*args)
+    assert refresher.warm_up_next("a", request) == (False, None)
+    assert len(search.calls) == 1
+    with factory() as db:
+        rows = db.scalars(select(RecoPool).where(RecoPool.user_id == "a")).all()
+        assert len(rows) == 3 and all(row.sources & SOURCE_SEED for row in rows)
+        assert all(row.seed_ref != request.title for row in rows)
+        assert db.scalar(select(func.count()).select_from(RecoPool).where(RecoPool.user_id == "b")) == 0
+    assert refresher.warm_up_next("b", request) == (True, None)  # Another member never reuses this member's pending job.
+    assert refresher.warm_up_next("a", request.model_copy(update={"title": "Harbor architecture"})) == (True, None)

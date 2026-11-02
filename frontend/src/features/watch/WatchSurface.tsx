@@ -266,7 +266,7 @@ export function WatchSurface({
     ? `remote-up-next:${JSON.stringify({ item: local.id, url: savedRemoteSourceUrl, source: savedRemoteId, provider: savedProvider, title: sourceTitle, uploader, channel: savedRemoteChannelId, channelUrl: savedRemoteChannelUrl, subjects: savedRemoteSubjects, excluded: upNextExclusions })}`
     : null;
   const [savedRemoteUpNextRevision, setSavedYoutubeUpNextRevision] = useState(0);
-  const savedRemoteUpNext = useFetched(savedRemoteUpNextKey, () => {
+  const savedRemoteUpNext = useFetched(savedRemoteUpNextKey, (signal) => {
     return getUpNext({
       source_url: savedRemoteSourceUrl as string,
       source_id: savedRemoteId,
@@ -277,7 +277,7 @@ export function WatchSurface({
       excluded_sources: upNextExclusions,
       ...(savedRemoteChannelId ? { channel_id: savedRemoteChannelId } : {}),
       ...(savedRemoteChannelUrl && savedRemoteChannelUrl.length <= 2_048 ? { channel_url: savedRemoteChannelUrl } : {}),
-    });
+    }, { signal });
   }, savedRemoteUpNextRevision);
   // `useFetched` suppresses late responses for an old key. Do not show stale
   // acquisition results while this saved item's recommendation request loads.

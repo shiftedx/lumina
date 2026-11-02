@@ -301,10 +301,9 @@
 .gallery.g-wall.has-browse-hero { position: relative; padding-top: 0; }
 .gallery .g-browse-context { position: relative; margin-bottom: 24px; }
 .gallery.has-browse-hero .g-browse-context { position: absolute; margin-bottom: 0; top: calc(var(--g-topbar) + 16px); inset-inline: var(--g-gutter); z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; color: var(--g-on-art); }
-.gallery .g-browse-context .g-library-toolbar { margin: 0; }
+.gallery .g-browse-context .g-library-toolbar { margin: 0; min-width: 0; }
 .gallery .g-browse-context .g-tabs { border: 0; }
-.gallery .g-browse-context :is(.g-tab, .g-tabs-deleted, .g-button) { color: var(--g-on-art); }
-.gallery .g-browse-context .g-library-toolbar { min-width: 0; }
+.gallery.has-browse-hero .g-browse-context :is(.g-tab, .g-tabs-deleted, .g-button) { color: var(--g-on-art); }
 .gallery .g-browse-hero { position: relative; min-height: 540px; height: min(600px, 70vh); margin: 0 calc(-1 * var(--g-gutter)); isolation: isolate; display: flex; align-items: end; background: var(--g-overlay-bg); }
 .gallery.has-rail .g-browse-hero { margin-right: calc(-1 * (var(--g-gutter) + 28px)); }
 .gallery .g-browse-hero-art { position: absolute; inset: 0; z-index: -2; }
@@ -350,9 +349,6 @@
   .gallery.g-all.is-stage-led .g-spotlight .g-marker-count { bottom: 40px; }
 }
 
-.gallery.is-video-browse:not(.has-browse-hero) .g-browse-context :is(.g-tab, .g-tabs-deleted, .g-button, .g-search input) { color: var(--g-ink); }
-.gallery.is-video-browse:not(.has-browse-hero) .g-browse-context { top: auto; inset-inline: auto; }
-.gallery.is-video-browse:not(.has-browse-hero) .g-browse-context .g-search input::placeholder { color: var(--g-ink-3); }
 
 @media (max-width: 680px) {
   .gallery .g-browse-context .g-tab-scroller-controls { display: none; }
@@ -361,3 +357,9 @@
 }
 
 @media (max-width: 380px) { .gallery .g-browse-context .g-tabs { gap: 8px; } }
+
+@media (max-width: 599px) {
+  .gallery.is-video-browse .g-toolbar { flex-wrap: wrap; }
+  .gallery.is-video-browse .g-toolbar > .g-chips { flex-basis: 100%; flex-wrap: nowrap; }
+  .gallery.is-video-browse .g-toolbar > .g-sort { flex: 1 1 140px; }
+}

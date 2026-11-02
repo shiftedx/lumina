@@ -55,7 +55,7 @@ export type GalleryWallProps = {
 export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen, onPlayAt, canEdit = false }: GalleryWallProps) {
   const def = WALLS[wall];
   const searchLabel = `Search ${def.heading.toLowerCase()}`;
-  const videoBrowse = !header && (wall === 'movies' || wall === 'shows');
+  const videoBrowse = !header && ['movies', 'shows', 'anime'].includes(wall);
   const query = wallQueryFor(wall, state);
   const key = wallKey(wall, query);
   const store = useWallStore(key, wallListQuery(wall, query));
@@ -221,7 +221,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   } else {
     body = (
       <>
-        <WallGrid featured={wall === 'movies' || wall === 'shows' ? false : def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
+        <WallGrid featured={videoBrowse ? false : def.featured} handle={grid} key={key} label={def.heading} metricLabel={wall} onExitUp={toolbarEnd} onLetter={query.sort === 'name' ? (letter) => jump(letter) : undefined} onOpen={onOpen} query={query} select={selecting ? { on: true, selected, pick } : undefined} shape={def.shape} stickyOffset={stickyOffset} store={store} />
         {store.failed ? (
           <div className="g-inline-error" role="alert">
             <p>Lumina could not load these titles.</p>
@@ -232,7 +232,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     );
   }
 
-  const featured = !header && !query.q && !selecting && !wallFiltered(query) && (wall === 'movies' || wall === 'shows') ? store.itemAt(0) : undefined;
+  const featured = videoBrowse && !query.q && !selecting && !wallFiltered(query) ? store.itemAt(0) : undefined;
   const hero = featured;
   return (
     <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>

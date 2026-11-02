@@ -11,6 +11,7 @@ import { Select } from '../../ui';
 import { channelPagePath, followAppLink, rememberChannel } from '../channels/channelMention';
 import { ChannelAvatar } from '../gallery/ChannelAvatar';
 import { GalleryArt } from '../gallery/GalleryArt';
+import { HeroFrame } from '../gallery/HeroFrame';
 import { fallbackColour } from '../gallery/galleryModel';
 import { ArtMarker } from '../gallery/PosterCard';
 import { relativeAge, remoteArt } from '../gallery/remoteModel';
@@ -28,10 +29,10 @@ export function LibraryViewSwitch({ current, onWallChange }: { current: 'videos'
   );
 }
 
-const tileHref = (channel: LibraryChannelResponse) => (channel.channel_id ? channelPagePath(channel.channel_id, 'library') : `/video/youtube?${new URLSearchParams({ channel: channel.uploader })}`);
+const tileHref = (channel: LibraryChannelResponse, streamingEnabled: boolean) => (streamingEnabled && channel.channel_id ? channelPagePath(channel.channel_id, 'library') : `/video/youtube?${new URLSearchParams({ channel: channel.uploader })}`);
 const plural = (count: number) => `${count} video${count === 1 ? '' : 's'}`;
 
-export function ChannelsView({ state, onWallChange, lenses, viewSwitch }: { state?: string; onWallChange: (state: string) => void; lenses?: ReactNode; viewSwitch: ReactNode }) {
+export function ChannelsView({ state, onWallChange, lenses, viewSwitch, streamingEnabled = false }: { streamingEnabled?: boolean; state?: string; onWallChange: (state: string) => void; lenses?: ReactNode; viewSwitch: ReactNode }) {
   const sort = new URLSearchParams(state ?? '').get('sort') === 'name' ? 'name' : 'recent';
   const [channels, setChannels] = useState<LibraryChannelResponse[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -51,7 +52,7 @@ export function ChannelsView({ state, onWallChange, lenses, viewSwitch }: { stat
       {channels.map((channel, index) => {
         const age = relativeAge(channel.newest_at);
         return (
-          <a aria-label={[channel.name, plural(channel.count), channel.unwatched_count ? `${channel.unwatched_count} unwatched` : null].filter(Boolean).join(', ')} className="g-channel-card" data-focus-item href={tileHref(channel)} key={channel.key} onClick={(event) => { if (channel.channel_id) rememberChannel({ id: channel.channel_id, name: channel.name, avatarUrl: channel.avatar_url }); followAppLink(event); }}>
+          <a aria-label={[channel.name, plural(channel.count), channel.unwatched_count ? `${channel.unwatched_count} unwatched` : null].filter(Boolean).join(', ')} className="g-channel-card" data-focus-item href={tileHref(channel, streamingEnabled)} key={channel.key} onClick={(event) => { if (streamingEnabled && channel.channel_id) rememberChannel({ id: channel.channel_id, name: channel.name, avatarUrl: channel.avatar_url }); followAppLink(event); }}>
             <span className="g-still-frame g-channel-card-frame">
               <GalleryArt alt="" art={remoteArt(`/api/library/${encodeURIComponent(channel.newest_item_id)}/artwork`)} card={{ name: channel.name }} colour={{ colour: fallbackColour(channel.key), fromPalette: true }} kind="still" position={index} priority={index < 8 ? 1 : 2} sizes={SIZES} />
               {channel.unwatched_count ? <ArtMarker marker={{ kind: 'count', count: channel.unwatched_count }} /> : null}
@@ -63,10 +64,16 @@ export function ChannelsView({ state, onWallChange, lenses, viewSwitch }: { stat
       })}
     </div>
   );
+  const hero = !failed ? channels?.[0] : undefined;
+  const heroArt = hero ? `/api/library/${encodeURIComponent(hero.newest_item_id)}/artwork` : null;
   return (
-    <div className="surface gallery g-wall g-library-channels" onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
-      {lenses}
-      <header className="g-masthead"><h1>YouTube</h1>{channels ? <p className="g-label g-kicker">{`${channels.length} channel${channels.length === 1 ? '' : 's'}`}</p> : null}</header>
+    <div className={`surface gallery g-wall g-library-channels is-video-browse${hero ? ' has-browse-hero' : ''}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
+      <div className="g-browse-context">{lenses}</div>
+      {hero && heroArt ? <section aria-label={hero.name} className="g-browse-hero">
+        <HeroFrame className="g-browse-hero-art" placement="home" src={heroArt}><GalleryArt alt="" art={remoteArt(heroArt)} card={null} colour={{ colour: fallbackColour(hero.key), fromPalette: true }} kind="still" priority={1} sizes="100vw" /></HeroFrame>
+        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">Saved channel · {plural(hero.count)}</p><h2>{hero.name}</h2><a className="g-button is-secondary" href={tileHref(hero, streamingEnabled)} onClick={(event) => { if (streamingEnabled && hero.channel_id) rememberChannel({ id: hero.channel_id, name: hero.name, avatarUrl: hero.avatar_url }); followAppLink(event); }}>Browse</a></div>
+      </section> : null}
+      <header className="g-masthead"><h1 className={hero ? 'sr-only' : undefined}>YouTube</h1>{channels ? <p className="g-label g-kicker">{`${channels.length} channel${channels.length === 1 ? '' : 's'}`}</p> : null}</header>
       <div className="g-toolbar">
         {viewSwitch}
         <label className="g-sort"><span className="g-label">Sort</span><Select aria-label="Sort" onChange={(event) => onWallChange(event.target.value === 'name' ? 'view=channels&sort=name' : 'view=channels')} value={sort}><option value="recent">Recently updated</option><option value="name">Name A–Z</option></Select></label>

@@ -83,7 +83,7 @@ function LibraryContents({ navigation, view, wall, currentUser, collections, col
   if (view === 'music') return <MusicTab canDelete={canDelete} lenses={tabs} onItemChanged={onItemChanged} onOpen={onOpenTitle} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={wall} />;
   if (view === 'collections') return collectionsPage?.(tabs) ?? <div className="surface gallery">{tabs}<Skeleton count={4} label="Loading collections…" shape="still" /></div>;
   if (view === 'youtube' && new URLSearchParams(wall ?? '').get('view') === 'channels') {
-    return <ChannelsView lenses={tabs} onWallChange={onWallChange} state={wall} viewSwitch={<LibraryViewSwitch current="channels" onWallChange={onWallChange} />} />;
+    return <ChannelsView streamingEnabled={Boolean(navigation?.features.streaming)} lenses={tabs} onWallChange={onWallChange} state={wall} viewSwitch={<LibraryViewSwitch current="channels" onWallChange={onWallChange} />} />;
   }
   if (view === 'youtube' || view === 'recordings') {
     return <StillWall canDelete={canDelete} count={sections ? sections[view] : null} key={view} kind={view === 'youtube' ? 'video' : 'recording'} lenses={tabs} onItemChanged={onItemChanged} onPlay={onPlay} onWallChange={onWallChange} shape="still" viewSwitch={view === 'youtube' ? <LibraryViewSwitch current="videos" onWallChange={onWallChange} /> : undefined} wall={wall} />;

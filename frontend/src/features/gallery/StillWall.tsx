@@ -8,13 +8,17 @@ import { Disc3, MonitorPlay, Radio } from '../../luminaIcons';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { deleteLibraryFile, type LibraryPageQuery, listLibrary, restoreLibraryFile } from '../../api';
+import { libraryThumbnail } from '../../luminaModel';
 import { recordMetric, sinceNavigation } from '../../perfMetrics';
 import type { LibraryItem } from '../../types';
 import { moveFocus } from '../media/focusNav';
 import { EmptyShelf } from '../media/MediaCards';
-import { Select, useToast } from '../../ui';
+import { Button, Select, useToast } from '../../ui';
 import { queueMedia } from '../watch/WatchQueue';
 import { chapterColumns, countLabel, gridGap, useElementWidth } from './allStore';
+import { GalleryArt } from './GalleryArt';
+import { fallbackColour } from './galleryModel';
+import { HeroFrame } from './HeroFrame';
 import { StillCard, type StillKind } from './StillCard';
 import { useMediaQuery } from './WallGrid';
 
@@ -187,12 +191,18 @@ export function StillWall({ kind, shape, wall, onWallChange, lenses, header, vie
     );
   }
 
+  const hero = kind === 'video' && !paged.error ? visible[0] : undefined;
+  const heroArt = hero ? libraryThumbnail(hero) : null;
   return (
-    <div className={`surface gallery g-still-wall is-${shape}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(button, [role="combobox"]):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
-      {lenses}
+    <div className={`surface gallery g-still-wall is-${shape}${kind === 'video' ? ' g-wall is-video-browse' : ''}${hero ? ' has-browse-hero' : ''}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(button, [role="combobox"]):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
+      {kind === 'video' ? <div className="g-browse-context">{lenses}</div> : lenses}
+      {hero ? <section aria-label={hero.title} className="g-browse-hero">
+        <HeroFrame className="g-browse-hero-art" placement="home" src={heroArt}><GalleryArt alt="" art={heroArt ? { url: heroArt, widths: [] } : null} card={null} colour={{ colour: fallbackColour(hero.id), fromPalette: true }} kind="still" priority={1} sizes="100vw" /></HeroFrame>
+        <div className="g-browse-hero-copy"><p className="g-browse-hero-context">{[query.channel !== undefined ? query.channel || 'No channel' : 'Saved video', hero.uploader].filter(Boolean).join(' · ')}</p><h2>{hero.title}</h2>{typeof hero.metadata_json?.description === 'string' ? <p>{hero.metadata_json.description}</p> : null}<Button onClick={() => onPlay(hero)}>Play</Button></div>
+      </section> : null}
       {header ?? (query.channel !== undefined ? (
-        <header className="g-masthead"><h1>{query.channel || 'No channel'}</h1><button className="g-text-button" onClick={() => change({ ...query, channel: undefined })} type="button">Clear</button></header>
-      ) : <header className="g-masthead"><h1>{HEADINGS[kind]}</h1><p className="g-label g-kicker">{kicker}</p></header>)}
+        <header className="g-masthead"><h1 className={hero ? 'sr-only' : undefined}>{query.channel || 'No channel'}</h1><button className="g-text-button" onClick={() => change({ ...query, channel: undefined })} type="button">Clear</button></header>
+      ) : <header className="g-masthead"><h1 className={hero ? 'sr-only' : undefined}>{HEADINGS[kind]}</h1><p className="g-label g-kicker">{kicker}</p></header>)}
       <div className="g-toolbar">
         {viewSwitch}
         <label className="g-sort">

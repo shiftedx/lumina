@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,6 +34,19 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('StillWall', () => {
+  it('features a fetched saved video and plays that exact item while retaining the wall controls', async () => {
+    const saved = stillItem('chosen', { title: 'Canal film', kind: 'video', artwork_url: '/api/library/chosen/artwork' });
+    vi.spyOn(api, 'listLibrary').mockResolvedValue(page([saved]));
+    const { props, container } = wall({ viewSwitch: <button type="button">Channels</button> });
+    const hero = await screen.findByRole('region', { name: 'Canal film' });
+    expect(hero.querySelector('img')?.getAttribute('src')).toBe('/api/library/chosen/artwork');
+    await userEvent.click(within(hero).getByRole('button', { name: 'Play' }));
+    expect(props.onPlay).toHaveBeenCalledWith(saved);
+    expect(screen.getByRole('button', { name: 'Channels' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Source' })).toBeTruthy();
+    expect(container.querySelector('.has-browse-hero.is-video-browse')).toBeTruthy();
+  });
+
   it('lists the newest 60 under the masthead and its count', async () => {
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem('v1'), stillItem('v2', { title: 'Canal at noon' })]));
     wall();
@@ -120,6 +133,7 @@ describe('StillWall', () => {
     vi.spyOn(api, 'listLibrary').mockResolvedValue(page([]));
     const videos = wall();
     expect(await screen.findByText('No saved videos yet')).toBeTruthy();
+    expect(document.querySelector('.g-browse-hero')).toBeNull();
     videos.unmount();
     const recordings = wall({ kind: 'recording', count: 0 });
     expect(await screen.findByText('Recordings of live streams you record appear here.')).toBeTruthy();

@@ -87,3 +87,13 @@ Final rollout evidence:
 - All 25 retained rollback pins stopped. Owned disposable migration database copies removed; actual backups and rollback images retained. Existing canary/review containers, media mounts and native release packages were untouched.
 
 Ignored proof files live under `output/production-rollout/`: `verification.json`, `public-verification.json`, `browser-verification.json`, `navigation-production-timing.json`, `production-all-video.png` and `production-libraries-restored.png`. These screenshots contain owner library content and are not committed. Local synthetic badge captures are under `output/badge-containment/`.
+
+## Anime and saved YouTube visual parity
+
+Anime now uses the same opening artwork stage as Movies/Shows, preserving mixed film/series results, markers, filters, sort, selection and detail navigation. Its grid no longer repeats the older featured-tile layout below the hero. Saved YouTube videos and Channels open with actual fetched artwork: Play uses the exact featured saved item, and Browse uses the existing channel route when Streaming is on or the local saved-channel filter when it is off. Empty/error states retain their existing recovery controls without a fabricated hero. Recordings/audio retain their existing layouts.
+
+Phone Videos/Channels controls remain together, with sort/source controls in a separate row. The shared header search, permission checks, paging, queue/delete controls and dynamic feature availability remain intact.
+
+Focused checks: 58 unit tests across GalleryWall, StillWall, ChannelsView and retained library UI; six existing Channels browser/axe checks; two final desktop/phone cross-view browser workflows, including Anime filters and saved-channel browsing with Streaming disabled. Typecheck passed. Final Vite production output, license generation and CSS gate passed within the existing 82 KB budget. No backend/schema changes.
+
+Six inspected image captures are in `output/video-browse-overhaul/`: Anime, YouTube Videos and YouTube Channels at desktop and phone sizes. Tests use existing licensed open-film art; production uses member-visible stored library artwork. Production review rollout is recorded in ignored `output/video-browse-overhaul/deployment/` evidence.

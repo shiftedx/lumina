@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -313,11 +313,15 @@ describe('GalleryWall', () => {
     const mixed = [movieSummary('anime-movie', { name: 'Film', category: 'anime' }), seriesSummary('anime-series', { name: 'Show A', category: 'anime' })];
     const list = vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage(mixed, { total: 2 }));
     const metric = vi.spyOn(perfMetrics, 'recordMetric');
-    const { container } = render(<GalleryWall onOpen={vi.fn()} onPlayAt={vi.fn()} onWallChange={vi.fn()} wall="anime" />);
+    const onOpen = vi.fn();
+    const { container } = render(<GalleryWall onOpen={onOpen} onPlayAt={vi.fn()} onWallChange={vi.fn()} wall="anime" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Anime' })).toBeTruthy();
     expect(await screen.findByText('2 titles · Sorted by recently added')).toBeTruthy();
     expect(list.mock.calls[0][0]).toMatchObject({ category: 'anime', sort: 'created' });
     expect(list.mock.calls[0][0]).not.toHaveProperty('type');
+    const hero = screen.getByRole('region', { name: 'Film' });
+    await userEvent.click(within(hero).getByRole('button', { name: 'Details' }));
+    expect(onOpen).toHaveBeenCalledWith(mixed[0]);
     expect(screen.getByRole('button', { name: 'Film, 2019, unwatched' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Show A, 4 unwatched episodes' })).toBeTruthy();
     expect(container.querySelector('.g-marker-triangle')).not.toBeNull();

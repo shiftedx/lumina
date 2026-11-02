@@ -52,7 +52,7 @@ export const liveSnapshot = (patch: Partial<LiveSnapshot> = {}): LiveSnapshot =>
 /** Every path Home itself requests; exported so a spec with its own catch-all route can fall back
  * into mockHome for Home's endpoints instead of duplicating them (register mockHome first). */
 export const HOME_PATH = (path: string) => path === '/api/playback/continue' || path === '/api/titles' || path.startsWith('/api/titles/')
-  || path === '/api/home/title-rows' || path === '/api/collections' || path.startsWith('/api/collections/') || path === '/api/discovery/live'
+  || path.startsWith('/api/home/') || path === '/api/collections' || path.startsWith('/api/collections/') || path === '/api/discovery/live'
   || path === '/api/me/watch-queue' || path.startsWith('/api/art/') || path.startsWith('/api/artwork/remote/') || /^\/api\/library\/[^/]+\/playback-options$/.test(path);
 
 /** Answers every Home source; returns Home's requests as "GET /path?query" (artwork excluded), in order. */
@@ -76,6 +76,7 @@ export async function mockHome(page: Page, options: HomeMock = {}): Promise<stri
     requests.push(`${request.method()} ${path}${url.search}`);
     if (options.fail?.includes(path)) return json({ detail: 'mock failure' }, 500);
     if (path === '/api/playback/continue') return json(options.continueWatching ?? []);
+    if (path === '/api/home/new-in-library') return json(options.newest ?? []);
     if (path === '/api/titles') {
       const list = url.searchParams.get('category') === 'anime' ? options.anime : url.searchParams.get('type') === 'album' ? options.albums : options.newest;
       return json({ items: list ?? [], next_cursor: null });

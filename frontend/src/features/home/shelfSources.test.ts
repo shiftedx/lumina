@@ -4,7 +4,7 @@ import { episodeSummary, movieSummary, stillItem } from '../../test/galleryFixtu
 import type { HouseholdCollection } from '../../types';
 import { createVisit, loadShelf } from './shelfSources';
 
-const api = vi.hoisted(() => ({ listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn() }));
+const api = vi.hoisted(() => ({ getHomeArrivals: vi.fn(), listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
 
 const collection = (id: string, patch: Partial<HouseholdCollection> = {}): HouseholdCollection => ({
@@ -18,6 +18,7 @@ describe('shelf loaders', () => {
   it('loads Next up and the three title walls at Home\'s page size, with their See all routes', async () => {
     api.listNextUp.mockResolvedValue([episodeSummary(2, 5)]);
     api.listTitles.mockImplementation(async () => ({ items: [movieSummary('m')] }));
+    api.getHomeArrivals.mockResolvedValue([movieSummary('m')]);
     const visit = createVisit();
     expect(await loadShelf('next_up', visit, 'member-1')).toEqual([{ key: 'next_up', heading: 'Next up', shape: 'still', titles: [episodeSummary(2, 5)], seeAll: null }]);
     expect(api.listNextUp).toHaveBeenCalledWith(20);
@@ -26,11 +27,12 @@ describe('shelf loaders', () => {
     expect((await loadShelf('recent_music', visit, 'member-1'))[0]).toMatchObject({ heading: 'Recently added music', shape: 'square', seeAll: { surface: 'library', view: 'music' } });
     expect(api.listTitles).toHaveBeenLastCalledWith({ type: 'album', sort: 'created', limit: 20 });
     expect((await loadShelf('new_in_library', visit, 'member-1'))[0]).toMatchObject({ heading: 'New in your library', seeAll: { surface: 'library' } });
-    expect(api.listTitles).toHaveBeenLastCalledWith({ sort: 'created', limit: 20 });
+    expect(api.getHomeArrivals).toHaveBeenCalledTimes(1);
   });
 
   it('returns no rows for an empty source, and throws when its request fails', async () => {
     api.listNextUp.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('503'));
+    api.getHomeArrivals.mockResolvedValue([movieSummary('m')]);
     const visit = createVisit();
     expect(await loadShelf('next_up', visit, 'member-1')).toEqual([]);
     await expect(loadShelf('next_up', visit, 'member-1')).rejects.toThrow('503');
@@ -53,12 +55,12 @@ describe('shelf loaders', () => {
   });
 
   it('shares the newest titles between the hero and New in your library, and retries after a failure', async () => {
-    api.listTitles.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ items: [movieSummary('n')] });
+    api.getHomeArrivals.mockRejectedValueOnce(new Error('offline')).mockResolvedValue([movieSummary('n')]);
     const visit = createVisit();
     await expect(visit.newest()).rejects.toThrow('offline');
     expect(await visit.newest()).toEqual([movieSummary('n')]);
     await loadShelf('new_in_library', visit, 'member-1');
-    expect(api.listTitles).toHaveBeenCalledTimes(2);
+    expect(api.getHomeArrivals).toHaveBeenCalledTimes(2);
   });
 
   it('lists only the member\'s own smart collections, the first four, one row each; channel videos are stills', async () => {

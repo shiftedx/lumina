@@ -260,3 +260,26 @@ def test_title_summaries_and_preferred_versions_for_other_tracks(library) -> Non
         assert [s.id for s in summaries] == [SERIES, MOVIE]  # invisible dropped, input order, deduplicated
         assert {k: v.id for k, v in preferred_versions(session, alice, [MOVIE, S1E1, SECRET_EPISODE]).items()} == {
             MOVIE: MOVIE_1080, S1E1: FILE[S1E1]}
+
+
+def test_home_arrivals_keep_movies_visible_among_newer_series(library, api_client) -> None:  # noqa: ANN001
+    from discovery_support import add_movie, add_series
+
+    factory, _root = library
+    with factory.begin() as db:
+        for index in range(24):
+            add_series(db, f"recent-show-{index}", f"Recent Show {index}", seasons={1: 1}, owner=ALICE, days=100 + index)
+        add_movie(db, "recent-film", "Recent Film", owner=ALICE, days=80)
+        add_movie(db, "private-film", "Private Film", owner=BOB, visibility="private", days=200)
+    client = member(api_client, factory, ALICE)
+    # The general library remains strictly chronological; Home must not bury every film behind the shows.
+    wall = client.get('/api/titles?sort=created&limit=20').json()['items']
+    assert all(item['type'] == 'series' for item in wall)
+    response = client.get('/api/home/new-in-library')
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 20
+    assert [item['type'] for item in rows[:4]] == ['series', 'movie', 'series', 'movie']
+    assert [item['id'] for item in rows if item['type'] == 'movie'] == ['recent-film', MOVIE]
+    assert 'private-film' not in {item['id'] for item in rows}
+    assert [item['id'] for item in rows if item['type'] == 'series'] == [f'recent-show-{i}' for i in range(23, 5, -1)]

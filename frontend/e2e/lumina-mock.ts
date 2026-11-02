@@ -152,6 +152,7 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>, navi
     if (path.startsWith('/api/discovery/')) return json({ items: [], categories: [] });
     // Media-vault endpoints answer empty unless a spec adds title fixtures, so every other spec keeps today's pages.
     if (path === '/api/titles/next-up' || path === '/api/connected-apps') return json([]);
+    if (path === '/api/home/new-in-library') return json([]);
     if (path === '/api/home/title-rows') return json({ rows: [] });
     return json({ detail: `mock: unhandled ${request.method()} ${path}` }, 404);
   });
@@ -372,7 +373,7 @@ function titlePoster(id: string): string {
 /** Title, identify and title-backed Library endpoints (register after mockApi so these routes win). */
 export async function mockTitles(page: Page) {
   const calls: string[] = [];
-  await page.route((url) => url.pathname.startsWith('/api/titles') || url.pathname === '/api/home/title-rows' || url.pathname.startsWith('/api/me/favorites/')
+  await page.route((url) => url.pathname.startsWith('/api/titles') || url.pathname.startsWith('/api/home/') || url.pathname.startsWith('/api/me/favorites/')
     || url.pathname.startsWith('/api/admin/titles/') || url.pathname === '/api/admin/metadata/unmatched' || /^\/api\/library\/item-/.test(url.pathname), async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -386,6 +387,7 @@ export async function mockTitles(page: Page) {
       const type = category === 'movies' ? 'movie' : category === 'shows' ? 'series' : url.searchParams.get('type');
       return json({ items: type === 'movie' ? [movieTitle] : type === 'series' ? [seriesTitle] : type === 'episode' ? [titleEpisodes[2][1]] : [], next_cursor: null });
     }
+    if (path === '/api/home/new-in-library') return json([movieTitle, seriesTitle]);
     if (path === '/api/titles/next-up') return json([titleEpisodes[2][1]]);
     if (path === '/api/home/title-rows') return json({ rows: [{ id: 'byw-series-1', kind: 'because_you_watched', title: 'Because you watched Harbor Lights', anchor_title_id: 'series-1', items: [movieTitle] }] });
     if (path === '/api/titles/series-1/episodes') return json(titleEpisodes[Number(url.searchParams.get('season'))] ?? []);

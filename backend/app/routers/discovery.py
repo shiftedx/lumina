@@ -33,6 +33,7 @@ from app.services.playback import PlaybackProgressService
 from app.services.reco.policy import RecommendationPolicy, annotated_titles
 from app.services.summaries import SummaryBusyError
 from app.services.title_summaries import title_summaries
+from app.services.titles import TitleService
 from app.services.yt_dlp_service import YtDlpService
 
 HOME_ROW_LIMIT = 20
@@ -58,6 +59,14 @@ def list_similar_titles(
         return annotated_titles(db, current_user, served)
     ranked = MemberRecommendationPolicy(db, limit=limit).titles(current_user, anchor=title.id, types=similar_types(title.type))
     return title_summaries(db, current_user, [candidate.id for candidate in ranked])
+
+
+def get_home_arrivals(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"),
+) -> list[TitleSummary]:
+    service = TitleService(db)
+    return service.summaries(current_user, service.home_arrivals(current_user, HOME_ROW_LIMIT))
 
 
 def get_home_title_rows(
@@ -187,6 +196,7 @@ def draft_smart_collection_rules(
 
 def register(app: FastAPI) -> None:
     app.get("/api/titles/{title_id}/similar", response_model=list[TitleSummary])(list_similar_titles)
+    app.get("/api/home/new-in-library", response_model=list[TitleSummary])(get_home_arrivals)
     app.get("/api/home/title-rows", response_model=TitleRowsResponse)(get_home_title_rows)
     app.post("/api/library/{item_id}/playback/dismiss", status_code=204)(dismiss_continue_watching)
     app.delete("/api/library/{item_id}/playback/dismiss", status_code=204)(undo_dismiss_continue_watching)

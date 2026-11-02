@@ -4,7 +4,7 @@
  * between Because you watched and Recommended, and one newest-titles request between the hero and New in your
  * library.
  */
-import { getHomeTitleRows, getHouseholdCollection, listHouseholdCollections, listNextUp, listTitles } from '../../api';
+import { getHomeArrivals, getHomeTitleRows, getHouseholdCollection, listHouseholdCollections, listNextUp, listTitles } from '../../api';
 import type { AppRoute } from '../../app/routes';
 import type { LibraryItem, TitleRowsResponse, TitleSummary } from '../../types';
 import type { HomeShelfId, ShelfShape } from './homeShelves';
@@ -39,8 +39,8 @@ function shared<T>(load: () => Promise<T>): () => Promise<T> {
 
 export function createVisit(): HomeVisit {
   return {
-    // Movies and series by Recently added, the wall's default sort.
-    newest: shared(() => listTitles({ sort: 'created', limit: SHELF_LIMIT }).then((page) => page.items)),
+    // Balance recent movies and series; episode arrivals must not crowd every film out.
+    newest: shared(() => getHomeArrivals()),
     titleRows: shared(() => getHomeTitleRows()),
   };
 }

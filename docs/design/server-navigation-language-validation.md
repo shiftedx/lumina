@@ -123,3 +123,5 @@ Home density is deployed at `1b5159be1f3e92a9721393b6b9875919c68592be`. Authenti
 ## Hero-to-first-shelf spacing
 
 The first shelf immediately following the Home hero now uses a 16px gap across desktop and phone. Later shelf spacing and the hero artwork, actions and controls retain their existing layout. The existing Home density workflow checks both a minimum breathing room and the 16px maximum on wide and phone viewports, alongside retained row navigation, readable captions and touch targets. Focused browser workflow and production build passed. Review rollout evidence is retained in ignored `output/home-hero-spacing/deployment/`.
+
+Deployed review source `5922e66400072a6ce1db774e4f7afb9ac0990d4b`: healthy, 398 application hashes verified, public routes and nine entry assets passed. Authenticated production geometry measured exactly 16px from hero bottom to first shelf heading at 2048px and 390px, with no body overflow; both captures were inspected. Backend/schema and runtime configuration remained unchanged, all 30 rollback pins stayed stopped, and the temporary verification session was removed.

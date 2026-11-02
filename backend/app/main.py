@@ -262,7 +262,7 @@ from app.services.m2ts_irap_index import m2ts_irap_indexes
 from app.services.renditions import renditions, use_host_format  # artwork renditions pass
 from app.services.hero_framing import hero_framing
 from app.routers import art  # /api/art and /api/admin/artwork
-from app.routers import visible_item_or_404
+from app.routers import playback_item_or_404, visible_item_or_404
 from app.services.library import (
     LIBRARY_PAGE_DEFAULT_LIMIT,
     LIBRARY_PAGE_MAX_LIMIT,
@@ -3924,7 +3924,7 @@ def stream_library_item(
     current_user = resolve_request_user_snapshot(request, credentials=credentials)
     with SessionLocal() as db:
         service = LibraryService(db)
-        item = visible_item_or_404(db, item_id, current_user)
+        item = playback_item_or_404(db, item_id, current_user)
         try:
             path = service.resolve_media_path(item)
         except ValueError as exc:

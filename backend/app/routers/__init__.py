@@ -13,3 +13,12 @@ def visible_item_or_404(db: Session, item_id: str, user: User) -> LibraryItem:
     if item is None:
         raise HTTPException(status_code=404, detail="Library item not found")
     return item
+
+
+def playback_item_or_404(db: Session, item_id: str, user: User) -> LibraryItem:
+    """A live playback source, including recovery of an already-open stale version."""
+    item = visible_item_or_404(db, item_id, user)
+    try:
+        return LibraryService(db).playback_item(item, user)
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="Media file is not available.") from exc

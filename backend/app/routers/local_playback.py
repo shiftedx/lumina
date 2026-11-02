@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.media_schemas import AudioTrack, PlaybackSessionRequest, SubtitleTrack
 from app.models import AppSettings, LibraryItem, Transcript, User
-from app.routers import visible_item_or_404
+from app.routers import playback_item_or_404, visible_item_or_404
 from app.security import get_current_user
 from app.services import activity, profanity, screen_time, subtitle_tracks
 from app.services.hwaccel import hwaccel
@@ -158,7 +158,7 @@ def _playback_device(db: Session, request: Request) -> str:
 
 
 def get_local_playback(item_id: str, request: Request, profiles: str | None = Query(None, max_length=2048), bandwidth_bps: int | None = Query(None, ge=100_000, le=1_000_000_000), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LocalPlaybackResponse:
-    item = visible_item_or_404(db, item_id, current_user)
+    item = playback_item_or_404(db, item_id, current_user)
     screen_time.enforce(db, current_user, fresh=True)  # the web player asks this before every start, direct play too
     try:
         facts = MediaProbeService(db).facts(item)
@@ -200,6 +200,10 @@ def open_session(
     copy whose keyframes are not known in time keeps the growing playlist, from 0."""
     request = request or PlaybackSessionRequest()
     item = _version(db, user, item, request.version_id)
+    try:
+        item = LibraryService(db).playback_item(item, user)
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
     activity.guard(user.id, item.id, device)  # the owner stopped this: no new conversion for 120 s
     screen_time.enforce(db, user, fresh=True)  # viewing hours and the daily limit (web and Jellyfin master.m3u8)
     try:
@@ -318,7 +322,7 @@ def stop_playback_session(session_id: str, current_user: User = Depends(get_curr
 
 
 def list_subtitle_tracks(item_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> list[SubtitleTrack]:
-    item = visible_item_or_404(db, item_id, current_user)
+    item = playback_item_or_404(db, item_id, current_user)
     try:
         facts = MediaProbeService(db).facts(item)
     except FileNotFoundError as exc:
@@ -327,7 +331,7 @@ def list_subtitle_tracks(item_id: str, current_user: User = Depends(get_current_
 
 
 def get_subtitle_vtt(item_id: str, track_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> Response:
-    item = visible_item_or_404(db, item_id, current_user)
+    item = playback_item_or_404(db, item_id, current_user)
     word_filter = profanity.member_filter(db, current_user)  # read before db.close(); driven by the pref, never the URL
     if track_id.startswith("t:"):
         transcript = db.get(Transcript, track_id[2:])

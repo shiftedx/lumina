@@ -19,6 +19,10 @@ Add `media_titles` as a derived layer. The scanner builds it from folder structu
 - A show split across two storage roots becomes two series. A folder renamed and re-encoded at once gets new titles (ceiling noted in the scanner; add provider-id matching when it bites).
 - Future root access and rating limits go inside the one predicate.
 
+## Playback recovery after replacement — 2026-11-01
+
+Web playback revalidates the selected registered file. If its path is confirmed absent on an online root, options, media delivery, subtitles and conversion startup can use another visible, available version of the same movie or episode. Recovery does not change file lifecycle or history, and conversion retains the requested resume offset. Extras, private or restricted versions, quarantine, unsafe paths and offline roots do not qualify as replacement evidence. Destructive actions and downloads retain their exact-file semantics.
+
 ## Alternatives considered
 
 - Turning `LibraryItem` into Movie/Episode and adding a `media_sources` table: rejected. It re-points every dependent table for no gain.

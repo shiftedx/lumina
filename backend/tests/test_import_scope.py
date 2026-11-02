@@ -294,8 +294,8 @@ def test_shallow_scope_replaces_an_episode_with_a_new_file(lib, monkeypatch: pyt
     with client_for("admin") as admin:
         detail = admin.get(f"/api/titles/{episode_id}")
         assert detail.status_code == 200 and detail.json()["play_item_id"] == new_id
-        assert admin.get(f"/api/library/{old_id}/playback-options").status_code == 404
-        assert admin.get(f"/api/library/{old_id}/subtitle-tracks").status_code == 404
+        assert admin.get(f"/api/library/{old_id}/playback-options").status_code == 200
+        assert admin.get(f"/api/library/{old_id}/subtitle-tracks").status_code == 200
         options = admin.get(f"/api/library/{new_id}/playback-options")
         tracks = admin.get(f"/api/library/{new_id}/subtitle-tracks")
         assert options.status_code == 200 and options.json()["mode"] == "direct"
@@ -569,8 +569,8 @@ def test_concurrent_starts_for_one_root_create_one_run(lib, monkeypatch: pytest.
     _, root_id = lib
     real = LibraryImportService._require_idle
 
-    def slow_check(self, rid):  # noqa: ANN001, ANN202
-        real(self, rid)
+    def slow_check(self, rid, **kwargs):  # noqa: ANN001, ANN202
+        real(self, rid, **kwargs)
         time.sleep(0.3)                                    # widen the window between the check and the insert
 
     monkeypatch.setattr(LibraryImportService, "_require_idle", slow_check)
@@ -646,3 +646,122 @@ def test_confirm_on_a_hung_root_answers_busy_instead_of_waiting(hung_root, monke
     with db_module.session_scope() as db, pytest.raises(ImportRunError, match="busy"):
         LibraryImportService(db).confirm(db.get(ImportRun, held_id))
     assert time.monotonic() - started < 3
+
+
+@pytest.mark.parametrize("offline", [False, True])
+def test_manager_reconciles_replacement_while_full_scan_is_running(lib, monkeypatch, offline):  # noqa: ANN001
+    from app.models import StorageRoot
+    from app.services.storage_roots import StorageRootService
+
+    root, root_id = lib
+    folder = root / "A Show" / "Season 1"
+    old = folder / "Show S01E01 old.mkv"
+    new = folder / "Show S01E01 replacement.mp4"
+    write(old, b"old-version")
+    write(root / "Z Film" / "film.mkv", b"unrelated")
+    run_import(root_id)
+    monkeypatch.setattr(library_import_module, "BATCH_SIZE", 1)
+    with db_module.session_scope() as db:
+        full_id = LibraryImportService(db).start(root_id, "admin").id
+    with db_module.session_scope() as db:
+        assert not LibraryImportService(db).step(full_id)  # this folder has already been visited
+    old.unlink()
+    write(new, b"new-and-different-version")
+    with db_module.session_scope() as db:
+        scoped_id = LibraryImportService(db).start(root_id, "admin", trigger="manager", scope=[e("A Show/Season 1", True)]).id
+        with pytest.raises(ImportRunError):  # still only one folder reconciliation at a time
+            LibraryImportService(db).start(root_id, "admin", trigger="manager", scope=[e("Z Film", True)])
+    if offline:
+        real = StorageRootService._observe
+        monkeypatch.setattr(StorageRootService, "_observe", lambda self, r, verify: {"state": "offline"} if r.id == root_id else real(self, r, verify=verify))
+    for _ in range(5):
+        with db_module.session_scope() as db:
+            assert not LibraryImportService(db).step(full_id)
+            if db.get(ImportRun, scoped_id).state != "running":
+                break
+    with db_module.SessionLocal() as db:
+        assert db.get(ImportRun, full_id).state == "running"
+        assert db.get(ImportRun, scoped_id).state == ("failed" if offline else "succeeded")
+    assert lifecycles()["A Show/Season 1/Show S01E01 old.mkv"] == ("available" if offline else "missing")
+    if offline:
+        with db_module.SessionLocal() as db:
+            assert db.get(StorageRoot, root_id).observation["state"] == "offline"
+        return
+    assert lifecycles()["A Show/Season 1/Show S01E01 replacement.mp4"] == "available"
+    with db_module.session_scope() as db:
+        service = LibraryImportService(db)
+        full = db.get(ImportRun, full_id)
+        cursor = full.cursor
+        service.cancel(full)
+    with db_module.session_scope() as db:
+        assert LibraryImportService(db).step(full_id)
+    with db_module.session_scope() as db:
+        full = LibraryImportService(db).resume(db.get(ImportRun, full_id))
+        assert full.cursor == cursor  # a newer manager scan does not invalidate resumable full coverage
+    drive(full_id)
+    with db_module.SessionLocal() as db:
+        assert db.get(ImportRun, full_id).state == "succeeded"
+    assert lifecycles()["A Show/Season 1/Show S01E01 replacement.mp4"] == "available"  # older scan cannot undo newer observations
+
+
+@pytest.mark.parametrize("blocked", [None, "offline", "private", "extra", "quarantined", "symlink"])
+def test_stale_web_playback_recovers_only_a_visible_live_version(lib, monkeypatch, blocked):  # noqa: ANN001
+    from types import SimpleNamespace
+
+    from app.models import PlaybackProgress, StorageRoot
+    from app.services.storage_roots import StorageRootService
+    from app.routers import local_playback
+
+    root, root_id = lib
+    folder = root / "TV" / "Show" / "Season 1"
+    old_path = folder / "Show S01E01 old.mkv"
+    new_path = folder / "Show S01E01 replacement.mkv"
+    write(old_path, b"old-version")
+    write(new_path, b"replacement-video")
+    run_import(root_id)
+    with db_module.session_scope() as db:
+        old_art = db.scalars(select(MediaArtifact).where(MediaArtifact.relative_path.endswith(" old.mkv"))).one()
+        new_art = db.scalars(select(MediaArtifact).where(MediaArtifact.relative_path.endswith(" replacement.mkv"))).one()
+        old = db.get(LibraryItem, db.scalar(select(LibraryItemArtifact.library_item_id).where(LibraryItemArtifact.artifact_id == old_art.id)))
+        new = db.get(LibraryItem, db.scalar(select(LibraryItemArtifact.library_item_id).where(LibraryItemArtifact.artifact_id == new_art.id)))
+        old_id, new_id = old.id, new.id
+        assert old.title_id == new.title_id
+        db.add(PlaybackProgress(id="saved", item_id=old_id, user_id="admin", position_seconds=42, duration_seconds=600))
+        if blocked == "private":
+            new.visibility, new.user_id = "private", "another-member"
+        elif blocked == "extra":
+            new.extra_type = "trailer"
+        elif blocked == "quarantined":
+            old_art.lifecycle = "quarantined"
+    old_path.unlink()
+    if blocked == "symlink":
+        old_path.symlink_to(new_path)
+    if blocked == "offline":
+        monkeypatch.setattr(StorageRootService, "is_online", lambda self, root: False)
+    facts = {"container": "matroska,webm", "video_codec": "h264", "audio_codec": "aac", "width": 1920, "height": 1080,
+             "duration": 600, "bit_rate": 1000000, "audio_tracks": 1, "subtitles": [],
+             "streams": [{"index": 0, "type": "video", "codec": "h264", "width": 1920, "height": 1080},
+                         {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "default": True}]}
+    monkeypatch.setattr(MediaProbeService, "_probe", lambda self, path: facts)
+    started = []
+    def start(**kwargs):
+        started.append(kwargs)
+        return SimpleNamespace(id="recovered", mode="remux", media_start=kwargs["start"], kind="remux", info={})
+    monkeypatch.setattr(local_playback.sessions, "start", start)
+    monkeypatch.setattr(local_playback, "media_tool", lambda db, name: name)
+    admin = client_for("admin")
+    options = admin.get(f"/api/library/{old_id}/playback-options")
+    media = admin.get(f"/api/library/{old_id}/media")
+    conversion = admin.post(f"/api/library/{old_id}/playback-sessions", params={"start": 42})
+    if blocked:
+        assert (options.status_code, media.status_code, conversion.status_code) == (404, 404, 404)
+        assert not started
+    else:
+        assert options.status_code == 200 and options.json()["mode"] == "remux"
+        assert media.status_code == 200 and media.content == b"replacement-video"
+        assert conversion.status_code == 201 and conversion.json()["start"] == 42
+        assert len(started) == 1 and started[0]["source"] == new_path and started[0]["item_id"] == new_id
+    with db_module.SessionLocal() as db:
+        assert db.get(LibraryItem, old_id).status == "available"  # playback never converts offline/unknown state to deletion
+        assert db.get(PlaybackProgress, "saved").position_seconds == 42
+        assert db.get(StorageRoot, root_id).enabled

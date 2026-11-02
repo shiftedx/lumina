@@ -27,6 +27,10 @@ A large TV root can hold 38,725 files, so a full import on every change is too s
 - A hung NFS `stat` can stall the poller thread, though never the event loop or playback. Root probes run in their own threads with a timeout. A per-root poller is the upgrade path if this bites.
 - Import runs gain `trigger` and `scope`. Rolling back to 2.0.1 deletes scoped runs before re-stamping, because 2.0.1 would treat them as full runs.
 
+## Manager replacement reconciliation — 2026-11-01
+
+One manager-triggered scoped import may run alongside an active full import on the same root. The existing root lock serializes batches, and the full driver services the manager scope first without advancing its own cursor. Other overlapping imports remain refused. The older full import excludes artifacts positively observed by newer imports from its missing-file pass, and can resume after a newer manager scope. Scoped deletion still requires complete coverage, an online root after filesystem checks, and the existing mass-missing guard. No schema change is required.
+
 ## Discovery I/O reductions — 2026-10-18
 
 - Import drivers index while walking, without a count-only first pass. A live sorted traversal is retained between bounded batches; the committed cursor remains the restart/resume authority. Directory entries are freshly statted before indexing. Totals may remain unknown while files are checked.

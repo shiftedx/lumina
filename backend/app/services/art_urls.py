@@ -210,7 +210,13 @@ def enqueue(pairs: Iterable[tuple[str, str]]) -> None:
             if pair not in _pending and len(_pending) < MAX_PENDING:
                 _pending[pair] = None
                 added = True
-    if added and on_enqueue is not None:
+    if added:
+        wake()
+
+
+def wake() -> None:
+    """Recheck preparation work after a request or a newly cached source image."""
+    if on_enqueue is not None:
         on_enqueue()
 
 

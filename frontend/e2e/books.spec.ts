@@ -292,3 +292,13 @@ test('book overview and details keep one contextual search that opens real catal
   await expect(page.getByRole('button', { name: 'Open Northbound', exact: true })).toBeVisible();
   await expect(page.getByRole('searchbox')).toHaveCount(1);
 });
+
+test('opening a book from a scrolled overview starts at the detail hero', async ({ page }) => {
+  await openBooks(page, '/books', { width: 390, height: 600 });
+  const card = page.getByRole('button', { name: 'Open Skybound, Volume 1', exact: true });
+  await card.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+  await card.click();
+  await expect(page.getByRole('heading', { level: 1, name: /Skybound/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});

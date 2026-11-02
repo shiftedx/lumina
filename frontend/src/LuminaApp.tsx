@@ -3,7 +3,7 @@ import { WatchFullscreenHost } from './fullscreenHost';
 import { AccessProvider, allStreamingBlocked, BlockedSurface, providerBlocked, TimeLeftNotice, useMyAccess, watchGate, WatchStopState } from './features/access/access';
 import { StreamingProvidersProvider, type OptionalProvider } from './features/streaming/providers';
 import { SurfaceBoundary } from './app/SurfaceBoundary';
-import { type ComponentType, type ReactNode, lazy, Suspense, useCallback, useEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentType, type ReactNode, lazy, Suspense, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiRequestError, keepaliveWritesSettled, updateDisplayName, clearSearchHistory, deleteSearchHistoryEntry, getSearchHistory, recordSearchHistory, redeemInvitation, redeemPasswordReset, cancelJob, clearCompletedJobs, clearPlaybackProgress, completeOnboarding, createAutomation, createInitialAdmin, createLibraryTag, deleteAutomation, deleteLibraryTag, getChannelSuggestions, getHomeRecommendations, getLibraryItem, getLiveDiscovery, getMemberInterests, getPlaybackProgress, getPopularDiscovery, getSuppressions, hideContinueWatching, listAutomations, listLibraryTags, loginSession, logoutSession, pauseAutomation, restoreSuppression, resumeAutomation, retryAcquisitionEntry, retryJob, runAutomation, searchChannels, searchLibrary, setAutomationAutoDownload, sourceSearch, skipOnboarding, suppressRecommendation, unhideContinueWatching, updateLibraryItemVisibility, updateMemberInterests, updateMySettings, updatePlaybackProgress } from './api';
 import { type SearchHistoryEntry, type CategoryChannelSuggestions, type ChannelCandidate, type DownloadJob, type FollowChannelRequest, type LibraryItem, type LiveSnapshot, type SearchSourceError, type WatchQueueEntry, type MemberInterests, type MemberOnboardingState, type MemberRecommendationSnapshot, type OnboardingStatus, type PlaybackProgress, type PopularSnapshot, type RemotePlaybackCachePreferences, type SourceAutomation, type SuppressRecommendationInput, type SuppressionList, type TitleCategory, type TitleSummary, type TitleType, type UserProfile, type UserTag, type YouTubeSearchResult } from './types';
@@ -23,7 +23,7 @@ import { appendAutoplaySources, remoteSourceIdentity } from './playbackModel';
 import { buildAcquisitionFormatSelection, useMediaAcquisition } from './mediaAcquisition';
 import { useSubscriptionAcquisitionFeed } from './subscriptionFeed';
 import { applyTheme } from './theme';
-import { type AppRoute, type RequestsRoute, type StreamingProvider, type StreamingView, type ChannelPageTab, type EditorTab, canonicalRoute, libraryBackRoute, parseRoute, routeFocusKey, routePath, type SettingsSectionId, type Surface } from './app/routes';
+import { type AppRoute, type RequestsRoute, type StreamingProvider, type StreamingView, type ChannelPageTab, type EditorTab, canonicalRoute, isDetailRoute, libraryBackRoute, parseRoute, routeFocusKey, routePath, type SettingsSectionId, type Surface } from './app/routes';
 import { type BooksRoute } from './features/books/routes';
 import { AppShell } from './app/AppShell';
 import { isNavigationSurfaceAvailable, useServerNavigation } from './app/useServerNavigation';
@@ -372,11 +372,11 @@ export default function LuminaApp() {
         const heading = main.querySelector<HTMLElement>('#settings-section-title') ?? main.querySelector<HTMLElement>('.surface h1, .g-settings h1');
         if (!heading) return false;
         heading.tabIndex = -1;
-        heading.focus();
+        heading.focus({ preventScroll: true });
         return true;
       };
       if (focusHeading()) return;
-      main.focus();
+      main.focus({ preventScroll: true });
       // Lazy settings pages can briefly replace the masthead with the route skeleton.
       // Finish the focus transfer when it resolves, unless the user has moved elsewhere.
       if (!main.querySelector('.g-route-loading')) return;
@@ -900,7 +900,7 @@ export default function LuminaApp() {
   const leaveSettingsOk = () => confirmLeaveSettings();
   function resetWatch(preserveEpisodeAutoplayRun = false) { choiceRequestRef.current += 1; setResumeChoice(null); playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; if (!preserveEpisodeAutoplayRun) episodeAutoplayRunRef.current = { itemId: null, count: 0, pendingAutomaticId: null, stillWatchingDeadline: null, stillWatchingTimeoutSeconds: null }; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
-  function navigate(next: Surface, confirmed = false) { choiceRequestRef.current += 1; setResumeChoice(null); navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
+  function navigate(next: Surface, confirmed = false, resetScroll = true) { choiceRequestRef.current += 1; setResumeChoice(null); navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else if (resetScroll) window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
   function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
@@ -927,7 +927,7 @@ export default function LuminaApp() {
     // Switching tabs inside the open editor keeps the draft: no unsaved-changes prompt.
     if ((route.surface === 'library' || route.surface === 'video' || route.surface === 'audio') && 'edit' in route && route.edit && (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.edit && libraryLocation.titleId === route.titleId) { setLibraryLocation(libraryLocationOf(route)); return; }
     if (route.surface !== 'watch') {
-      if (!navigate(route.surface, confirmed)) return;
+      if (!navigate(route.surface, confirmed, !isDetailRoute(route))) return;
       if (route.surface === 'settings') { setSettingsSpace(route.space); setSettingsPage('page' in route ? route.page ?? null : null); setSettingsSection(route.section ?? null); setSettingsMember('memberId' in route ? route.memberId : null); }
       if ('channelId' in route) setChannelId(route.channelId);
       if ('youtubeChannelId' in route) setChannelPage({ id: route.youtubeChannelId, tab: route.tab ?? 'videos' });
@@ -1069,7 +1069,6 @@ export default function LuminaApp() {
     rememberSummary(title); // the title page paints it at once
     openRoute(route);
     navigationMarked.current = routePath(route);
-    window.scrollTo({ top: 0 });
   });
   const correctTitleSurfaceStable = useStableCallback((title: TitleSummary) => {
     const destination = title.type === 'artist' || title.type === 'album' ? 'audio' : 'video';
@@ -1217,11 +1216,15 @@ export default function LuminaApp() {
   // Focus follows the page, not the surface: a tile opening a channel page keeps the surface but changes the key.
   const focusKey = routeFocusKey(currentRoute);
   const focusKeyRef = useRef(focusKey);
-  useEffect(() => {
-    // The first real route (a page load, an empty key before it) keeps the skip link as the first tab stop.
-    if (focusKeyRef.current && focusKeyRef.current !== focusKey) focusSurfaceHeading();
+  const detailPage = isDetailRoute(currentRoute);
+  useLayoutEffect(() => {
+    // New details start at their hero after rendering; browser history keeps its own restoration.
+    if (focusKeyRef.current && focusKeyRef.current !== focusKey) {
+      if (detailPage && !poppedRef.current) window.scrollTo({ top: 0, behavior: 'instant' });
+      focusSurfaceHeading();
+    }
     focusKeyRef.current = focusKey;
-  }, [focusKey, focusSurfaceHeading]);
+  }, [focusKey, detailPage, focusSurfaceHeading]);
   useEffect(() => {
     if (!currentPath) return;
     // Wall and title-page metrics measure from here; the first sync keeps the page load's own start.

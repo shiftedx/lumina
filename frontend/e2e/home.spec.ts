@@ -257,3 +257,29 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   }
 }
+
+for (const width of [2048, 390]) {
+  test(`opening a detail starts at its hero and Back restores Home at ${width}`, async ({ page }) => {
+    const newest = homeMovie(1, { name: 'Hero Destination' });
+    await openHome(page, { artwork: true, continueWatching: [continueEntry(newest)], newest: [newest, homeMovie(2)] }, { width, height: 600 });
+    await expect(page.locator('.h-body:not([inert])')).toBeVisible();
+    const card = page.locator('[data-shelf-section="new_in_library"] .h-card [data-focus-item]').first();
+    await expect(card).toBeAttached();
+    await card.scrollIntoViewIfNeeded();
+    const browseY = await page.evaluate(() => window.scrollY);
+    expect(browseY).toBeGreaterThan(100);
+    await card.click();
+    await expect(page).toHaveURL(/\/video\/title\/home-movie-1$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Hero Destination' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBe(0);
+    await page.evaluate(() => window.scrollTo({ top: 400, behavior: 'instant' }));
+    const detailY = await page.evaluate(() => window.scrollY);
+    expect(detailY).toBeGreaterThan(100);
+    await page.goBack();
+    await expect(page.locator('.h-body:not([inert])')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBeCloseTo(browseY, 0);
+    await page.goForward();
+    await expect(page.locator('.t-page')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBeCloseTo(detailY, 0);
+  });
+}

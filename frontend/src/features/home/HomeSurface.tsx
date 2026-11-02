@@ -209,14 +209,19 @@ function HomeSurfaceView({
     return () => cancelAnimationFrame(frame);
   }, [bodyReady, firstScreen]);
 
-  // A return visit comes back to where the member left it; cached shelves render in the same commit.
+  // Restore after the hero and shelves have height, so the browser cannot clamp the saved offset to zero.
   useLayoutEffect(() => {
+    if (!bodyReady) return;
     const top = cachedShelf<number>(user.id, 'scroll');
-    if (top) window.scrollTo({ top });
+    if (top) window.scrollTo({ top, behavior: 'instant' });
+    const frame = top ? requestAnimationFrame(() => window.scrollTo({ top, behavior: 'instant' })) : null;
     const save = () => rememberShelf(user.id, 'scroll', window.scrollY);
     window.addEventListener('scroll', save, { passive: true });
-    return () => window.removeEventListener('scroll', save);
-  }, [user.id]);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', save);
+    };
+  }, [user.id, bodyReady]);
 
   // A library retry started here hands focus back to the page or the recovery button when it settles (as today).
   useEffect(() => {

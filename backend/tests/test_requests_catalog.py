@@ -335,3 +335,42 @@ def test_detail_tolerates_malformed_sidecar_metadata(client, fake, db_factory) -
     availability = response.json()["status"]["language_availability"]
     assert availability["state"] == "unknown"
     assert availability["files"][0]["subtitles_known"] is False
+
+
+def test_detail_can_skip_language_scan_and_load_it_separately(client, fake, db_factory, monkeypatch) -> None:  # noqa: ANN001
+    from arr_fake import library_title
+    from app.services.requests import languages
+
+    with db_factory() as db:
+        library_title(db, "movie", Tmdb="603")
+        db.commit()
+    calls = []
+    original = languages.availability
+
+    def record(*args):  # noqa: ANN002, ANN202
+        calls.append(args[-1])
+        return original(*args)
+
+    monkeypatch.setattr(languages, "availability", record)
+    response = client.get(f"{BASE}/title/movie/603?include_languages=false")
+    assert response.status_code == 200 and calls == []
+    status = response.json()["status"]
+    assert status["language_requests_supported"] is False and "language_availability" not in status
+    result = client.get(f"{BASE}/languages/{status['library_title_id']}")
+    assert result.status_code == 200 and len(calls) == 1
+    assert result.json() == {"audio": "unknown", "subtitles": "unknown"}
+    assert client.get(f"{BASE}/languages/not-visible").json() == {"audio": "unknown", "subtitles": "unknown"}
+
+
+@pytest.mark.parametrize(("files", "truncated", "expected"), [
+    ([{"audio_languages": ["ja"], "subtitle_languages": ["en"], "audio_known": True, "subtitles_known": True}], False, {"audio": "missing", "subtitles": "available"}),
+    ([{"audio_languages": ["ja", "en"], "subtitle_languages": [], "audio_known": True, "subtitles_known": True}], False, {"audio": "available", "subtitles": "missing"}),
+    ([{"audio_languages": ["en"], "subtitle_languages": ["en"], "audio_known": True, "subtitles_known": True}, {"audio_languages": ["ja"], "subtitle_languages": [], "audio_known": True, "subtitles_known": False}], False, {"audio": "partial", "subtitles": "partial"}),
+    ([{"audio_languages": ["ja"], "subtitle_languages": [], "audio_known": False, "subtitles_known": False}], False, {"audio": "unknown", "subtitles": "unknown"}),
+    ([{"audio_languages": ["ja"], "subtitle_languages": ["en"], "audio_known": True, "subtitles_known": True}], True, {"audio": "unknown", "subtitles": "partial"}),
+])
+def test_english_language_summary_never_claims_missing_or_complete_from_incomplete_facts(client, fake, monkeypatch, files, truncated, expected) -> None:  # noqa: ANN001
+    from app.services.requests import languages
+
+    monkeypatch.setattr(languages, "availability", lambda *args: {"files": files, "truncated": truncated})
+    assert client.get(f"{BASE}/languages/title-1").json() == expected

@@ -21,7 +21,7 @@ Kind = Literal["movie", "show", "anime"]
 Page = Annotated[int, Query(ge=1, le=500)]
 
 
-def _serve(db: Session, user: User, build: Callable[[tmdb.TmdbClient | None], dict[str, Any]]) -> dict[str, Any]:
+def _serve(db: Session, user: User, build: Callable[[tmdb.TmdbClient | None], dict[str, Any]], *, include_languages: bool = True) -> dict[str, Any]:
     """Run a catalog call with the household's TMDB client (None when no key) and annotate request status."""
     try:
         response = build(tmdb.client_for(YtDlpService(db).get_app_settings()))
@@ -29,7 +29,7 @@ def _serve(db: Session, user: User, build: Callable[[tmdb.TmdbClient | None], di
         raise HTTPException(status_code=exc.status, detail=exc.code) from None
     except (tmdb.TmdbError, anilist.AniListError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    annotated = catalog.annotate(response, db, user)
+    annotated = catalog.annotate(response, db, user, include_languages=include_languages)
     hero_framing.hero_framing.warm_catalog(hero_framing.catalog_sources.register(annotated))
     return annotated
 
@@ -73,6 +73,14 @@ def register(app: FastAPI) -> None:
 
     @app.get(f"{base}/title/{{kind}}/{{item_id}}")
     def title(
-        kind: Kind, item_id: Annotated[int, Path(ge=1)], user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"),
+        kind: Kind, item_id: Annotated[int, Path(ge=1)], include_languages: bool = True, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"),
     ) -> dict:
-        return _serve(db, user, lambda client: catalog.detail(client, kind, item_id))
+        return _serve(db, user, lambda client: catalog.detail(client, kind, item_id), include_languages=include_languages)
+
+    @app.get(f"{base}/languages/{{title_id}}")
+    def title_languages(
+        title_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"),
+    ) -> dict:
+        from app.services.requests.languages import english_coverage
+
+        return english_coverage(db, user, title_id)

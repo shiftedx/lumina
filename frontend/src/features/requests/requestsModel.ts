@@ -21,7 +21,7 @@ const downloadingLabel = (percent: number) => (percent >= 100 ? 'Downloaded — 
 export const stateLabel = (state: RequestState) => STATE_LABEL[state];
 
 /** A new request is possible from nothing, after a decline, or for more seasons of a partly-available series. */
-export const canAskFor = (item: Pick<CatalogItem, 'status' | 'requestable'>) => item.requestable !== false && (['none', 'declined', 'partially_available'].includes(item.status.state) || item.status.state === 'available' && Boolean(item.status.language_availability));
+export const canAskFor = (item: Pick<CatalogItem, 'status' | 'requestable'>) => item.requestable !== false && (['none', 'declined', 'partially_available'].includes(item.status.state) || item.status.state === 'available' && Boolean(item.status.language_availability || item.status.language_requests_supported));
 export const isSeries = (item: Pick<CatalogItem, 'media_type'>) => item.media_type === 'tv';
 /** Anime series ask English dub or Japanese + subtitles; anime films and everything else do not. */
 export const needsLanguage = (item: Pick<CatalogItem, 'kind' | 'media_type'>) => item.kind === 'anime' && item.media_type === 'tv';

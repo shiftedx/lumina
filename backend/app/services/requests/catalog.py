@@ -521,14 +521,16 @@ def _walk(value: Any) -> Iterable[dict]:
             yield from _walk(child)
 
 
-def annotate(response: dict, session: Session, user: User) -> dict:
+def annotate(response: dict, session: Session, user: User, *, include_languages: bool = True) -> dict:
     """Set ``status`` on every CatalogItem in ``response`` with one ``catalog_statuses`` call."""
     items = list(_walk(response))
     sources = {item["key"]: item for item in items}
     statuses = catalog_statuses(session, user, sorted(sources), sources) if items else {}
     for item in items:
         item["status"] = statuses.get(item["key"], NONE_STATUS)
-    if "seasons" in response and "status" in response:
+    if "seasons" in response and "status" in response and not include_languages:
+        response["status"]["language_requests_supported"] = response.get("kind") == "anime"
+    if "seasons" in response and "status" in response and include_languages:
         from app.services.requests.languages import availability
 
         response["status"]["language_availability"] = availability(session, user, response["status"].get("library_title_id"))

@@ -102,3 +102,23 @@ def availability(db, user, title_id):  # noqa: ANN001, ANN201
 def matches(file, req):  # noqa: ANN001, ANN201
     audio, subtitles = preference(req)
     return (not audio or audio in file["audio_languages"]) and (not subtitles or subtitles in file["subtitle_languages"])
+
+
+def english_coverage(db, user, title_id):  # noqa: ANN001, ANN201
+    facts = availability(db, user, title_id)
+
+    def coverage(kind, known):  # noqa: ANN001, ANN202
+        files = facts["files"]
+        if not files:
+            return "unknown"
+        present = sum("en" in file[kind] for file in files)
+        if present == len(files) and not facts["truncated"]:
+            return "available"
+        if present:
+            return "partial"
+        if facts["truncated"] or any(not file[known] for file in files):
+            return "unknown"
+        return "missing"
+
+    return {"audio": coverage("audio_languages", "audio_known"),
+            "subtitles": coverage("subtitle_languages", "subtitles_known")}

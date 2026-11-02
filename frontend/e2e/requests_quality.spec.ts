@@ -340,32 +340,21 @@ for (const viewport of VIEWPORTS) {
     await page.route('**/api/requests/catalog/home', (route) => route.fulfill({ json: {
       hero: [], rails: [{ key: 'anime', title: 'Anime', items: [{ ...ANIME, status }] }],
     } }));
-    await page.route('**/api/requests/catalog/title/anime/16498', (route) => route.fulfill({ json: {
-      ...ANIME_DETAIL, status: { ...status, language_availability: {
-        state: 'partial', total_files: 170, truncated: false,
-        files: Array.from({ length: 170 }, (_, index) => ({ season: 1, episode: 170 - index, audio_languages: index % 3 ? ['ja'] : ['en', 'ja'], subtitle_languages: ['en'], audio_known: true, subtitles_known: index > 0 })),
-      } },
+    await page.route('**/api/requests/catalog/title/anime/16498*', (route) => route.fulfill({ json: {
+      ...ANIME_DETAIL, status: { ...status, language_requests_supported: true },
     } }));
+    let release: () => void = () => undefined;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/requests/catalog/languages/title-anime', async (route) => {
+      await hold;
+      await route.fulfill({ json: { audio: 'partial', subtitles: 'missing' } });
+    });
     await page.goto('/requests');
     await signIn(page);
     await page.getByRole('button', { name: /^Attack on Titan, 2013/ }).click();
     await expect(page).toHaveURL(/\/requests\/title\/anime\/16498/);
-    const evidence = page.getByRole('region', { name: 'Languages in your library' });
-    await expect(evidence.getByText('57 / 170 files')).toBeVisible();
-    await expect(evidence.getByText('File details · 170 files')).toBeVisible();
-    expect((await evidence.boundingBox())!.height).toBeLessThan(500);
-    await expect(evidence.locator('details table')).toBeHidden();
-    await evidence.scrollIntoViewIfNeeded();
-    mkdirSync(OUT, { recursive: true });
-    await page.screenshot({ path: join(OUT, `language-summary-${viewport.name}.png`) });
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.screenshot({ path: join(OUT, `language-summary-dark-${viewport.name}.png`) });
-    await evidence.locator('summary').click();
-    await expect(evidence.getByRole('region', { name: 'File language details' }).getByRole('row').nth(1)).toContainText('S1 · E1');
-    const fileList = evidence.getByRole('region', { name: 'File language details' });
-    expect((await fileList.boundingBox())!.height).toBeLessThanOrEqual(320);
-    await evidence.locator('summary').click();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.getByText('Checking English availability…')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open in Library' })).toBeVisible();
     await page.getByRole('button', { name: 'Request another language' }).click();
     const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
     await dialog.getByRole('radio', { name: /English audio/ }).click();
@@ -373,8 +362,34 @@ for (const viewport of VIEWPORTS) {
     await dialog.getByRole('button', { name: 'Request', exact: true }).click();
     expect((await submission).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', audio_language: 'en', seasons: 'all' });
     await expect(dialog).toBeHidden();
+    release();
+    const evidence = page.getByRole('status', { name: 'Anime English availability' });
+    await expect(evidence).toHaveText('English dub: Some episodes · English subtitles: Missing');
+    expect((await evidence.boundingBox())!.height).toBeLessThan(80);
+    await expect(page.locator('.rq-language-evidence table')).toHaveCount(0);
+    mkdirSync(OUT, { recursive: true });
+    await evidence.scrollIntoViewIfNeeded();
+    await page.locator('.g-toast').waitFor({ state: 'hidden' });
+    await page.screenshot({ path: join(OUT, `anime-english-${viewport.name}.png`) });
     await expect(page.getByRole('button', { name: 'Open in Library' })).toBeVisible();
     await page.getByRole('button', { name: 'Open in Library' }).click();
     await expect(page).toHaveURL(/title-anime/);
+  });
+}
+
+for (const kind of ['movie', 'show'] as const) {
+  test(`Requests ${kind} details do not perform language checks`, async ({ page }) => {
+    await mockApi(page, {});
+    await mockRequests(page, { discoverFailure: false, mineEmpty: false });
+    const detail = kind === 'movie' ? MOVIE_DETAIL : SHOW_DETAIL;
+    let checks = 0;
+    await page.route('**/api/requests/catalog/languages/**', (route) => { checks++; return route.fulfill({ json: { audio: 'missing', subtitles: 'missing' } }); });
+    await page.route(`**/api/requests/catalog/title/${kind}/*`, (route) => route.fulfill({ json: { ...detail, status: { state: 'available', library_title_id: 'library-title', language_requests_supported: false } } }));
+    await page.goto(`/requests/title/${kind}/${kind === 'movie' ? 603 : 1399}`);
+    await signIn(page);
+    await expect(page.getByRole('button', { name: 'Open in Library' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Request another language' })).toHaveCount(0);
+    await expect(page.locator('.rq-language-evidence')).toHaveCount(0);
+    expect(checks).toBe(0);
   });
 }

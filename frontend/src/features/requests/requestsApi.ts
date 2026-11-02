@@ -4,8 +4,9 @@ import type { RequestKind } from '../../app/routes';
 
 export type Kind = RequestKind;
 export type RequestState = 'none' | 'pending' | 'approved' | 'processing' | 'partially_available' | 'available' | 'declined' | 'failed';
+export type EnglishCoverage = 'available' | 'partial' | 'missing' | 'unknown';
 export type LanguageAvailability = { state: 'known' | 'partial' | 'unknown'; files: Array<{ audio_languages: string[]; subtitle_languages: string[]; audio_known: boolean; subtitles_known: boolean; season: number | null; episode: number | null }>; truncated: boolean; total_files: number };
-export type CatalogStatus = { language_availability?: LanguageAvailability; state: RequestState; request_id?: string; progress?: number; library_title_id?: string };
+export type CatalogStatus = { language_requests_supported?: boolean; language_availability?: LanguageAvailability; state: RequestState; request_id?: string; progress?: number; library_title_id?: string };
 export type AnimeSeason = 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
 export type AnimeInfo = {
   season?: AnimeSeason; season_year?: number; format?: string; episodes?: number; next_episode?: { number: number; airing_at: string };
@@ -56,7 +57,9 @@ export const getAnimeSeason = (params: { season?: AnimeSeason; year?: number; so
 export const getAnimeSchedule = (signal?: AbortSignal) => requestJson<{ days: ScheduleDay[] }>(`${CATALOG}/anime/schedule`, undefined, { signal });
 export const searchCatalog = (q: string, page = 1, signal?: AbortSignal) => requestJson<CatalogPage>(`${CATALOG}/search${query({ q, page })}`, undefined, { signal });
 export const getGenres = (kind: Kind, signal?: AbortSignal) => requestJson<{ genres: { id: string; name: string }[] }>(`${CATALOG}/genres/${kind}`, undefined, { signal });
-export const getCatalogTitle = (kind: Kind, id: number, signal?: AbortSignal) => requestJson<CatalogDetail>(`${CATALOG}/title/${kind}/${id}`, undefined, { signal });
+export const getCatalogTitle = (kind: Kind, id: number, signal?: AbortSignal) => requestJson<CatalogDetail>(`${CATALOG}/title/${kind}/${id}?include_languages=false`, undefined, { signal });
+
+export const getLibraryLanguages = (titleId: string, signal?: AbortSignal) => requestJson<{ audio: EnglishCoverage; subtitles: EnglishCoverage }>(`${CATALOG}/languages/${encodeURIComponent(titleId)}`, undefined, { signal });
 
 export const createRequest = (body: NewRequest) => post<MediaRequest>('/api/requests', body);
 export const listRequests = (params: { scope: 'mine' | 'all'; status?: RequestState; page?: number }, signal?: AbortSignal) =>

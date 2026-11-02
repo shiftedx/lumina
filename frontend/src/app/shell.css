@@ -73,8 +73,8 @@
 /* ---- shell states ---- */
 .g-route-loading { max-width: var(--g-reading-width); padding: 32px var(--g-gutter); }
 .g-route-loading-masthead { height: 72px; margin-bottom: 24px; border-bottom: var(--g-rule); }
-.g-skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; display: inline-flex; min-height: var(--g-control); align-items: center; padding: 0 16px; border-radius: var(--g-radius); background: var(--g-ink); color: var(--g-paper); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; transform: translateY(-200%); }
-.g-skip-link:focus { transform: none; }
+.g-skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; display: inline-flex; min-height: var(--g-control); align-items: center; padding: 0 16px; border-radius: var(--g-radius); background: var(--g-ink); color: var(--g-paper); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; clip-path: inset(50%); transform: translateY(-200%); }
+.g-skip-link:focus { clip-path: none; transform: none; }
 
 .g-topbar-start { min-width: 0; }
 .g-topbar-context { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--g-type-ui-strong); color: var(--g-ink-2); }
@@ -115,3 +115,24 @@
 
 .g-topbar .g-kbd { color: inherit; border-color: currentColor; }
 .app-background:has(.has-browse-hero, .home .h-hero, .rq-hero, .books-overview-hero, .books-title-hero, .books-series-hero, .t-hero, .rq-title-hero) .g-topbar .g-activity-ring { background: conic-gradient(var(--g-brand) var(--progress, 0deg), var(--g-overlay-track) 0); }
+
+/* Settings keeps forms clear of media navigation while retaining the global menu. */
+@media (max-width: 680px) {
+  .lumina-app[data-surface='settings'] .lumina-main { padding-bottom: env(safe-area-inset-bottom); }
+  .lumina-app[data-surface='settings'] .g-navigation-popover { height: 100dvh; max-height: 100dvh; }
+  .lumina-app[data-surface='settings'] .lumina-main :is(button, a, input, summary, [tabindex]) { scroll-margin-bottom: 16px; }
+}
+
+.lumina-app[data-surface='settings']:has(.music-dock) .lumina-main { padding-bottom: var(--music-dock-height, 120px); }
+.lumina-app[data-surface='settings']:has(.music-dock) .g-save-bar.is-pending { bottom: var(--music-dock-height, 120px); }
+@media (max-width: 680px) {
+  .lumina-app[data-surface='settings'] .music-dock { bottom: 0; padding-bottom: max(var(--g-space-2), env(safe-area-inset-bottom)); }
+  .lumina-app[data-surface='settings'] .music-mini { bottom: max(var(--g-space-3), env(safe-area-inset-bottom)); }
+}
+.lumina-app[data-surface='settings']:has(.watch-mini) .lumina-main { padding-bottom: calc(284px + env(safe-area-inset-bottom)); }
+.lumina-app[data-surface='settings']:has(.watch-mini) .g-save-bar.is-pending { bottom: calc(284px + env(safe-area-inset-bottom)); }
+@media (max-width: 679px) {
+  .lumina-app[data-surface='settings'] .watch-mini { bottom: env(safe-area-inset-bottom); }
+  .lumina-app[data-surface='settings']:has(.watch-mini) .lumina-main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .lumina-app[data-surface='settings']:has(.watch-mini) .g-save-bar.is-pending { bottom: calc(64px + env(safe-area-inset-bottom)); }
+}

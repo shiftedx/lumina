@@ -4,7 +4,6 @@ import { expect, test, type Page } from '@playwright/test';
 import { mockGalleryWall, wallTitles } from './gallery-mock';
 import { mockApi, navigateApp, signIn } from './lumina-mock';
 import { musicTracks, mockMusic } from './music-mock';
-import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 import { albumSummary, titleDetail } from '../src/test/galleryFixtures';
 
 /** The media-first shell keeps audio playback independent of the page under it. */
@@ -45,7 +44,6 @@ async function mockFirstClassMusic(page: Page) {
         edited: false,
       })));
     }
-    if (/^\/api\/music\/tracks\/track-\d+\/audio$/.test(path)) return route.fulfill({ status: 200, contentType: SYNTHETIC_MEDIA_TYPE, body: Buffer.from(SYNTHETIC_MEDIA_BASE64, 'base64') });
     if (/^\/api\/music\/tracks\/track-\d+\/lyrics$/.test(path)) return json({ plain: null, cues: [], source: null, instrumental: true });
     return route.fallback();
   });
@@ -89,6 +87,24 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Recently added', exact: true })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/audio-browse-desktop.png`, fullPage: true });
+
+  // Settings hides media tabs while playback continues; its dirty controls clear the actual dock.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await navigateApp(page, 'My Settings');
+  await expect(player).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Mobile primary navigation' })).toHaveCount(0);
+  const displayName = page.getByRole('textbox', { name: 'Display name', exact: true });
+  await displayName.fill('Settings playback check');
+  const save = page.getByRole('button', { name: 'Save profile', exact: true });
+  await save.focus();
+  await expect.poll(async () => {
+    const [saveBox, playerBox] = await Promise.all([save.boundingBox(), player.boundingBox()]);
+    return Boolean(saveBox && playerBox && saveBox.y + saveBox.height <= playerBox.y + 1);
+  }).toBe(true);
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await navigateApp(page, 'Audio');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(player).toBeVisible();
 
   const soundstage = page.getByRole('region', { name: 'A room full of records' });
   await page.getByText('From your collection', { exact: true }).click();

@@ -7,6 +7,7 @@ import { CaptionStyleRows } from '../../watch/CaptionStyleRows';
 import { TrackPreferenceRows } from '../../watch/TrackPreferenceRows';
 import { Avatar, Button, ButtonLink, Field, fieldProps, SegmentedControl, Select } from '../../../ui';
 import { SettingSwitch } from '../SettingRow';
+import { PlaybackPreview } from '../PlaybackPreview';
 import { RequestNotifications } from './requestsNotifications';
 import { ConnectedApps } from '../ConnectedApps';
 import { TwoFactorSettings } from '../TwoFactorSettings';
@@ -99,7 +100,8 @@ function CaptionsControl() {
   if (!captions || !onCaptionsChange) return null; // wired in LuminaApp
   return (
     <div className="g-subrows">
-      <CaptionStyleRows onChange={onCaptionsChange} value={captions} />
+      <PlaybackPreview />
+      <CaptionStyleRows onChange={onCaptionsChange} preview={false} value={captions} />
       <TrackPreferenceRows onChange={onCaptionsChange} value={captions} />
       <p className="g-setting-note">On iPhone and iPad, full-screen captions follow the system's caption style.</p>
     </div>

@@ -25,14 +25,14 @@ function wasDismissed(owner: string): boolean {
   catch { return false; }
 }
 
-export interface MusicPlayerProps { owner: string; hidden?: boolean; onWatchVideo: (url: string, itemId?: string) => void; onOpenAlbum?: (id: string) => void; onOpenPlaylists?: () => void }
+export interface MusicPlayerProps { owner: string; hidden?: boolean; navigationVisible?: boolean; onWatchVideo: (url: string, itemId?: string) => void; onOpenAlbum?: (id: string) => void; onOpenPlaylists?: () => void }
 
 /** The room's choices use Lumina's keyboard-accessible, top-layer menu. */
 function MusicChoice({ label, value, displayValue, options, disabled, onChange }: { label: string; value: string; displayValue?: string; options: readonly { value: string; label: string }[]; disabled?: boolean; onChange: (value: string) => void }) {
   return <div className="music-choice"><span>{label}</span><Menu label={label} items={options.map((option) => ({ kind: 'radio', label: option.label, checked: option.value === value, onSelect: () => onChange(option.value) }))} trigger={(props) => <button {...props} aria-label={label} className="g-button music-choice-trigger" disabled={disabled} type="button">{displayValue ?? options.find((option) => option.value === value)?.label ?? value}<ChevronDown aria-hidden="true" /></button>} /></div>;
 }
 
-export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, onOpenPlaylists }: MusicPlayerProps) {
+export function MusicPlayer({ owner, hidden = false, navigationVisible = true, onWatchVideo, onOpenAlbum, onOpenPlaylists }: MusicPlayerProps) {
   const session = useMusicSession();
   const cast = useMusicCast();
   const { queue, playback } = session;
@@ -106,7 +106,7 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
     measure(); const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(element); window.addEventListener('resize', measure);
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); root.style.removeProperty('--music-dock-height'); };
-  }, [dockVisible, phone, track?.id]);
+  }, [dockVisible, phone, track?.id, navigationVisible]);
 
   useEffect(() => {
     setMessage(null); setLyrics(null);

@@ -1,4 +1,4 @@
-import { forwardRef, type ReactNode, type RefObject, useRef } from 'react';
+import { forwardRef, type FocusEventHandler, type ReactNode, type RefObject, useRef } from 'react';
 import type { ThemePreference } from '../theme';
 import type { UserProfile } from '../types';
 import type { CollectionLoadState } from '../workspace';
@@ -12,8 +12,8 @@ export function SkipLink({ unavailable = false }: { unavailable?: boolean }) {
   return <a aria-hidden={unavailable ? true : undefined} className="g-skip-link" href="#main-content" onClick={() => document.getElementById('main-content')?.focus()} tabIndex={unavailable ? -1 : undefined}>Skip to main content</a>;
 }
 
-export const MainLandmark = forwardRef<HTMLElement, { children: ReactNode }>(function MainLandmark({ children }, ref) {
-  return <main aria-label="Main content" className="lumina-main" id="main-content" ref={ref} tabIndex={-1}>{children}</main>;
+export const MainLandmark = forwardRef<HTMLElement, { children: ReactNode; onFocusCapture?: FocusEventHandler<HTMLElement> }>(function MainLandmark({ children, onFocusCapture }, ref) {
+  return <main aria-label="Main content" className="lumina-main" id="main-content" onFocusCapture={onFocusCapture} ref={ref} tabIndex={-1}>{children}</main>;
 });
 
 export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems, videoView, onVideoView, contextualSearch = false }: {
@@ -57,15 +57,27 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   const current = (activity.state === 'ready' || activity.state === 'empty') && !activity.retrying;
   const trustedActive = current ? activity.active : 0;
   return (
-    <div className="lumina-app">
+    <div className="lumina-app" data-surface={surface}>
       <SkipLink />
       {extraSkipLinks}
       {focused ? null : <NavigationPopover videoView={videoView} onVideoView={onVideoView} anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
       <div className="app-background">
         {announcer}
-        {focused ? null : <TopBar contextLabel={surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? videoView === 'shows' ? 'Shows' : videoView === 'movies' ? 'Movies' : 'Video' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
-        <MainLandmark ref={mainRef}>{children}</MainLandmark>
-        {focused ? null : <MobileTabs videoView={videoView} onVideoView={onVideoView} activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}
+        {focused ? null : <TopBar contextLabel={surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? videoView === 'shows' ? 'Shows' : videoView === 'movies' ? 'Movies' : 'Video' : surface === 'settings' ? managingServer ? 'Manage server' : 'My settings' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch || surface === 'settings'} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
+        <MainLandmark onFocusCapture={surface === 'settings' ? (event) => {
+          const target = event.target;
+          if (target.closest('.music-dock, .music-mini, .watch-mini, dialog')) return;
+          requestAnimationFrame(() => {
+            if (!target.isConnected || !mainRef.current) return;
+            const bounds = target.getBoundingClientRect();
+            const top = [...mainRef.current.querySelectorAll<HTMLElement>('.music-dock, .music-mini, .watch-mini')].reduce((edge, player) => {
+              const box = player.getBoundingClientRect();
+              return box.height && bounds.right > box.left && bounds.left < box.right ? Math.min(edge, box.top) : edge;
+            }, window.innerHeight);
+            if (bounds.bottom > top - 16) window.scrollBy({ top: bounds.bottom - top + 16, behavior: 'instant' });
+          });
+        } : undefined} ref={mainRef}>{children}</MainLandmark>
+        {focused || surface === 'settings' ? null : <MobileTabs videoView={videoView} onVideoView={onVideoView} activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}
       </div>
     </div>
   );

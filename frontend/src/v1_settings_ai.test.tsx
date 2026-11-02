@@ -56,6 +56,7 @@ function renderAi(host: Record<string, unknown> = {}) {
 }
 const rowOf = (id: string) => document.querySelector(`[data-setting-id="${id}"]`) as HTMLElement;
 const saveButton = () => screen.getByRole('button', { name: 'Save AI settings' }) as HTMLButtonElement;
+const noSaveButton = () => expect(screen.queryByRole('button', { name: 'Save AI settings' })).toBeNull();
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -90,7 +91,7 @@ describe('AI & models form', () => {
     expect(within(rowOf('ai.translate')).getByText('Assistant server')).toBeTruthy();
     expect(within(rowOf('ai.sync')).getByText('Built in')).toBeTruthy();
     expect(within(rowOf('ai.status')).getByText('Transcripts come only from source captions')).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
+    noSaveButton();
   });
 
   it('switches and fields are sent together by Save AI settings, never on click', async () => {
@@ -107,7 +108,7 @@ describe('AI & models form', () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(api.updateAiConfig).toHaveBeenCalledWith({ model: 'qwen3', ai_features_disabled: ['sync'] }));
     expect(await screen.findByText(/^Saved\./)).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
+    noSaveButton();
   });
 
   it('lists Personalised recommendations as a switch that needs nothing extra, and saves it in the off-list', async () => {
@@ -182,7 +183,7 @@ describe('on-device model rows', () => {
     expect(await within(list).findByRole('progressbar', { name: 'Granite Embedding 97M multilingual download' })).toBeTruthy();
     expect(within(list).getByText('46 MB of 115 MB')).toBeTruthy();
     expect(api.updateAiConfig).not.toHaveBeenCalled();
-    expect(saveButton().disabled).toBe(true);
+    noSaveButton();
   });
 
   it('cancels a download, and choosing the active model reloads the list and readiness', async () => {
@@ -222,7 +223,7 @@ describe('on-device model rows', () => {
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(onMessage).toHaveBeenCalledWith('Deleted Granite Embedding 97M multilingual. Turned off: Semantic search.'));
     await waitFor(() => expect((screen.getByRole('switch', { name: 'Semantic search' }) as HTMLInputElement).checked).toBe(false));
-    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    await waitFor(noSaveButton);
   });
 
   it("a delete that fails keeps the model and shows the server's reason", async () => {
@@ -275,7 +276,7 @@ describe('on-device model rows', () => {
     await screen.findByRole('switch', { name: 'Semantic search' });
     await waitFor(() => expect(api.getAiConfig).toHaveBeenCalledTimes(2), { timeout: 4000 });
     await waitFor(() => expect((screen.getByRole('switch', { name: 'Semantic search' }) as HTMLInputElement).checked).toBe(false));
-    expect(saveButton().disabled).toBe(true);
+    noSaveButton();
   });
 
   it('shows why a download failed and offers Retry (success criterion 5)', async () => {
@@ -361,7 +362,7 @@ describe('enabling a feature that needs something missing', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Download and turn on' }));
     expect((await within(dialog).findByRole('alert')).textContent).toBe('Not enough free space: needs 127 MB, 40 MB free');
     expect((screen.getByRole('switch', { name: 'Semantic search' }) as HTMLInputElement).checked).toBe(false);
-    expect(saveButton().disabled).toBe(true);
+    noSaveButton();
   });
 
   it('Esc and the TV Back key act as Cancel', async () => {

@@ -1,6 +1,5 @@
 import { createContext, type ReactNode, type Ref, useContext, useId } from 'react';
 
-import { PlaybackPreview } from './PlaybackPreview';
 import { InfoButton } from './InfoButton';
 import type { SettingsPage } from './navigation';
 import type { SettingEntry, SettingsSectionDef } from './settingsTypes';
@@ -56,19 +55,28 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
 }
 
 /** A section's rows (all, or a search's subset) inside the section Provider when it has one. */
-export function SectionRows({ section, entries = section.entries, pages }: { pages?: readonly SettingsPage[]; section: SettingsSectionDef; entries?: readonly SettingEntry[] }) {
+export function SectionRows({ section, entries = section.entries, pages, advancedOpen = true, forceAdvancedOpenFor, onAdvancedOpenChange }: { pages?: readonly SettingsPage[]; section: SettingsSectionDef; entries?: readonly SettingEntry[]; advancedOpen?: boolean; forceAdvancedOpenFor?: string; onAdvancedOpenChange?: (open: boolean) => void }) {
   const renderRows = (list: readonly SettingEntry[]) => list.map(({ id, label, info, description, advanced, layout, Control, Detail }) => (
     <SettingRow advanced={!pages && advanced} description={description} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
   ));
-  const rows = pages ? pages.map((page) => <section aria-label={page.label} className="g-settings-group" data-layout={page.layout} id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
-    {pages.length > 1 && page.rows.length > 1 ? <h3 className="g-settings-group-title">{page.label}</h3> : null}
-    {page.id === 'watching' ? <PlaybackPreview /> : null}
-    <div className={`g-settings-rows${page.groups ? ' g-settings-feature-groups' : ''}`}>
-      {page.groups ? page.groups.map((group) => <section aria-label={group.label} className="g-settings-feature-group" key={group.label}>
-        <p>{group.label}</p>
-        {renderRows(entries.filter((entry) => group.rows.includes(entry.id)))}
-      </section>) : renderRows(entries.filter((entry) => page.rows.includes(entry.id)))}
-    </div>
-  </section>) : renderRows(entries);
+  const groupedRows = (page: SettingsPage, list: readonly SettingEntry[]) => page.groups
+    ? page.groups.map((group) => <section aria-label={group.label} className="g-settings-feature-group" key={group.label}>
+      <p>{group.label}</p>
+      {renderRows(list.filter((entry) => group.rows.includes(entry.id)))}
+    </section>)
+    : renderRows(list);
+  const rows = pages ? pages.map((page) => {
+    const pageEntries = entries.filter((entry) => page.rows.includes(entry.id));
+    const standard = pageEntries.filter((entry) => !entry.advanced);
+    const advanced = pageEntries.filter((entry) => entry.advanced);
+    return <section aria-label={page.label} className="g-settings-group" data-layout={page.layout} id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
+      {pages.length > 1 && page.rows.length > 1 ? <h3 className="g-settings-group-title">{page.label}</h3> : null}
+      {standard.length ? <div className={`g-settings-rows${page.groups ? ' g-settings-feature-groups' : ''}`}>{groupedRows(page, standard)}</div> : null}
+      {advanced.length ? <details className="g-settings-advanced" onToggle={(event) => onAdvancedOpenChange?.((event.currentTarget as HTMLDetailsElement).open)} open={advancedOpen || page.id === forceAdvancedOpenFor}>
+        <summary>Advanced settings</summary>
+        <div className="g-settings-rows">{groupedRows(page, advanced)}</div>
+      </details> : null}
+    </section>;
+  }) : renderRows(entries);
   return section.Provider ? <section.Provider>{rows}</section.Provider> : <>{rows}</>;
 }

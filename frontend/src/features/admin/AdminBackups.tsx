@@ -3,6 +3,7 @@ import { DatabaseBackup } from '../../luminaIcons';
 
 import { type BackupManifest, type BackupSchedule, createBackup, deleteBackup, downloadBackup, listBackups, updateBackupSchedule, verifyBackup } from '../../api';
 import { Button, ConfirmDialog, Field, fieldProps, Input, PasswordInput, StatusText } from '../../ui';
+import { type FormStatus, SectionForm } from '../settings/SectionForm';
 import { SettingSwitch } from '../settings/SettingRow';
 import { errorMessage as errorText, formatBytes, formatDateTime as time } from '../../utils';
 import { useAdminResource } from './useAdminResource';
@@ -159,15 +160,20 @@ function DownloadConfirm({ name, onClose }: { name: string; onClose: () => void 
 function ScheduleForm({ initial }: { initial: BackupSchedule }) {
   const [daily, setDaily] = useState(initial.daily);
   const [keep, setKeep] = useState(String(initial.keep));
-  const [status, setStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [saved, setSaved] = useState(initial);
+  const [status, setStatus] = useState<FormStatus>(null);
   const [saving, setSaving] = useState(false);
+  useEffect(() => { setDaily(initial.daily); setKeep(String(initial.keep)); setSaved(initial); setStatus(null); }, [initial.daily, initial.keep]);
+  const dirty = daily !== saved.daily || keep !== String(saved.keep);
 
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function save() {
     setSaving(true);
     setStatus(null);
     try {
-      await updateBackupSchedule({ daily, keep: Number(keep) });
+      const next = await updateBackupSchedule({ daily, keep: Number(keep) });
+      setDaily(next.daily);
+      setKeep(String(next.keep));
+      setSaved(next);
       setStatus({ tone: 'ok', text: 'Saved.' });
     } catch (saveError) {
       setStatus({ tone: 'error', text: errorText(saveError, 'Unable to save the schedule.') });
@@ -177,16 +183,14 @@ function ScheduleForm({ initial }: { initial: BackupSchedule }) {
   }
 
   return (
-    <form aria-label="Automatic backups" className="g-subrows" onSubmit={(event) => { void save(event); }}>
-      <SettingSwitch checked={daily} label="Back up the database every day" onChange={setDaily} />
-      <Field hint="Older automatic backups are removed. Manual backups are kept until you delete them." label="Automatic backups to keep">
-        {(ids) => <Input {...fieldProps(ids)} inputMode="numeric" max={90} min={1} onChange={(event) => setKeep(event.target.value)} required type="number" value={keep} />}
-      </Field>
-      <div className="g-actions">
-        {status ? <div role={status.tone === 'error' ? 'alert' : 'status'}><StatusText tone={status.tone === 'error' ? 'danger' : 'ok'}>{status.text}</StatusText></div> : null}
-        <Button busy={saving} type="submit" variant="primary">{saving ? 'Saving…' : 'Save schedule'}</Button>
+    <SectionForm dirty={dirty} label="Automatic backups" onDiscard={() => { setDaily(saved.daily); setKeep(String(saved.keep)); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save schedule" saving={saving} status={status}>
+      <div className="g-subrows">
+        <SettingSwitch checked={daily} label="Back up the database every day" onChange={setDaily} />
+        <Field hint="Older automatic backups are removed. Manual backups are kept until you delete them." label="Automatic backups to keep">
+          {(ids) => <Input {...fieldProps(ids)} inputMode="numeric" max={90} min={1} onChange={(event) => setKeep(event.target.value)} required type="number" value={keep} />}
+        </Field>
       </div>
-    </form>
+    </SectionForm>
   );
 }
 

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Download, RotateCcw } from '../../luminaIcons';
 import { type AutoSkipPref, type MemberInterests, type ProfanityPref, type RemotePlaybackCachePreferences, type SearchHistoryEntry, type Suppression, type SuppressionList, type UserProfile } from '../../types';
 import { type AcquisitionFormat } from '../../mediaAcquisition';
@@ -8,6 +8,7 @@ import { clearRecoHistory, exportMyData } from '../../api';
 import { resetRecoEvents } from '../reco/recoEvents';
 import { Button, Checkbox, ConfirmDialog, Field, fieldProps, Input, SegmentedControl, Select, StatusText, Textarea } from '../../ui';
 import { SettingSwitch } from './SettingRow';
+import { type FormStatus, SectionForm } from './SectionForm';
 
 export const DEFAULT_REMOTE_PLAYBACK_CACHE: RemotePlaybackCachePreferences = {
   enabled: true,
@@ -86,23 +87,36 @@ export function RemotePlaybackCacheSettings({ onChange, value }: { value: Remote
 
 export function InterestSettingsCard({ interests, onSave }: { interests: MemberInterests; onSave: (keys: string[]) => Promise<void> }) {
   const [selected, setSelected] = useState<string[]>(interests.selected_keys);
+  const [saved, setSaved] = useState<string[]>(interests.selected_keys);
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(false);
-  useEffect(() => { if (!saving) setSelected(interests.selected_keys); }, [interests.selected_keys, saving]);
+  const [status, setStatus] = useState<FormStatus>(null);
+  const incoming = interests.selected_keys.join('\u0000');
+  const seenIncoming = useRef(incoming);
+  useEffect(() => {
+    if (saving || incoming === seenIncoming.current) return;
+    seenIncoming.current = incoming;
+    setSelected(interests.selected_keys);
+    setSaved(interests.selected_keys);
+  }, [incoming, interests.selected_keys, saving]);
   const toggle = (key: string) => setSelected((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
   const save = async () => {
     setSaving(true);
-    setSaveError(false);
-    try { await onSave(selected); } catch { setSaveError(true); } finally { setSaving(false); }
+    setStatus(null);
+    try {
+      await onSave(selected);
+      setSaved(selected);
+      setStatus({ tone: 'ok', text: 'Interests saved.' });
+    } catch {
+      setStatus({ tone: 'error', text: 'Could not save interests. Try again.' });
+    } finally { setSaving(false); }
   };
+  const dirty = [...selected].sort().join('\u0000') !== [...saved].sort().join('\u0000');
   return (
-    <div className="interest-settings-card">
+    <SectionForm dirty={dirty} label="Your interests" onDiscard={() => { setSelected(saved); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save interests" saving={saving} status={status}>
+      <div className="interest-settings-card">
       <fieldset className="g-fieldset"><legend>Choose interests</legend><div className="g-setting-options">{interests.categories.map((category) => <Checkbox checked={selected.includes(category.key)} key={category.key} label={category.label} onChange={() => toggle(category.key)} />)}</div></fieldset>
-      <div className="g-actions">
-        <Button busy={saving} onClick={() => void save()} variant="secondary">{saving ? 'Saving interests…' : 'Save interests'}</Button>
-        <span aria-live="polite">{saveError ? <StatusText tone="danger">Could not save interests. Try again.</StatusText> : ''}</span>
       </div>
-    </div>
+    </SectionForm>
   );
 }
 
@@ -204,35 +218,40 @@ export function SearchHistorySettingsCard({ history, onClear }: { history: Searc
 }
 
 export function ProfileNameSettings({ user, onSave }: { user: UserProfile; onSave: (displayName: string) => Promise<void> }) {
-  const [draft, setDraft] = useState(user.display_name || user.username);
+  const incoming = user.display_name || user.username;
+  const [draft, setDraft] = useState(incoming);
+  const [saved, setSaved] = useState(incoming);
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
-  useEffect(() => { if (!saving) setDraft(user.display_name || user.username); }, [user.display_name, user.username, saving]);
+  const [status, setStatus] = useState<FormStatus>(null);
+  const seenIncoming = useRef(incoming);
+  useEffect(() => {
+    if (saving || incoming === seenIncoming.current) return;
+    seenIncoming.current = incoming;
+    setDraft(incoming);
+    setSaved(incoming);
+  }, [incoming, saving]);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function save() {
     const trimmed = draft.trim();
     if (!trimmed) return;
     setSaving(true);
-    setResult(null);
+    setStatus(null);
     try {
       await onSave(trimmed);
-      setResult({ ok: true, message: 'Display name updated.' });
+      setDraft(trimmed);
+      setSaved(trimmed);
+      setStatus({ tone: 'ok', text: 'Display name updated.' });
     } catch (updateError) {
-      setResult({ ok: false, message: updateError instanceof Error ? updateError.message : 'Unable to update your display name.' });
+      setStatus({ tone: 'error', text: updateError instanceof Error ? updateError.message : 'Unable to update your display name.' });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <form className="g-subrows" onSubmit={(event) => { void submit(event); }}>
-      <Field label="Display name">{(ids) => <Input {...fieldProps(ids)} maxLength={120} onChange={(event) => setDraft(event.target.value)} required value={draft} />}</Field>
-      <div className="g-actions">
-        {result ? <p className={result.ok ? 'g-setting-note' : 'auth-error'} role={result.ok ? 'status' : 'alert'}>{result.message}</p> : null}
-        <Button disabled={saving || draft.trim() === (user.display_name || user.username)} type="submit" variant="secondary">{saving ? 'Saving…' : 'Save name'}</Button>
-      </div>
-    </form>
+    <SectionForm dirty={draft.trim() !== saved} label="Profile" onDiscard={() => { setDraft(saved); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save profile" saving={saving} status={status}>
+      <div className="g-subrows"><Field label="Display name">{(ids) => <Input {...fieldProps(ids)} maxLength={120} onChange={(event) => setDraft(event.target.value)} required value={draft} />}</Field></div>
+    </SectionForm>
   );
 }
 
@@ -292,21 +311,36 @@ export function cleanWordList(text: string): { words: string[]; problem: string 
 
 /** The extra words row; the on/off is its own row (playback.mute), so the switch never repeats the row label. */
 export function MuteWords({ value, onChange }: { value: ProfanityPref; onChange: (value: ProfanityPref) => void }) {
-  const [draft, setDraft] = useState(value.words.join('\n'));
+  const incoming = value.words.join('\n');
+  const [draft, setDraft] = useState(incoming);
+  const [saved, setSaved] = useState(incoming);
   const [problem, setProblem] = useState<string | null>(null);
-  useEffect(() => setDraft(value.words.join('\n')), [value.words]);
+  const [status, setStatus] = useState<FormStatus>(null);
+  const seenIncoming = useRef(incoming);
+  useEffect(() => {
+    if (incoming === seenIncoming.current) return;
+    seenIncoming.current = incoming;
+    setDraft(incoming);
+    setSaved(incoming);
+  }, [incoming]);
   function save() {
     const cleaned = cleanWordList(draft);
     setProblem(cleaned.problem);
-    if (!cleaned.problem) onChange({ ...value, words: cleaned.words });
+    if (cleaned.problem) return;
+    const next = cleaned.words.join('\n');
+    onChange({ ...value, words: cleaned.words });
+    setDraft(next);
+    setSaved(next);
+    setStatus({ tone: 'ok', text: 'Muted words saved.' });
   }
   return (
+    <SectionForm dirty={draft !== saved} label="Mute words" onDiscard={() => { setDraft(saved); setProblem(null); setStatus(null); }} onSave={save} saveLabel="Save words" saving={false} status={status}>
     <div className="g-subrows">
       <Field label="Your extra words">{(ids) => <Textarea {...fieldProps(ids)} aria-describedby="mute-words-hint mute-words-problem" disabled={!value.enabled} onChange={(event) => setDraft(event.currentTarget.value)} rows={5} spellCheck={false} value={draft} />}</Field>
       <small className="g-setting-note is-control" id="mute-words-hint">Lumina already mutes common strong language. Add one word or name per line; end a word with * to match its endings.</small>
       <p aria-live="polite" className="g-setting-note is-control" id="mute-words-problem">{problem ?? ''}</p>
-      <div className="g-actions"><Button disabled={!value.enabled} onClick={save} variant="secondary">Save words</Button></div>
     </div>
+    </SectionForm>
   );
 }
 

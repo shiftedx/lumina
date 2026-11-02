@@ -14,6 +14,7 @@ const { MemberPage, MEMBER_TABS, todayLine } = await import('./features/admin/Me
 const { inviteAccess } = await import('./features/admin/InviteDialog');
 const { applyPreset, limitsSummary, librariesSummary, NO_LIMITS, PRESETS, scheduleError, copyMondayToWeekdays, withDefaults } = await import('./features/admin/memberAccess');
 const { SettingsHostContext } = await import('./features/settings/settingsHost');
+const { confirmLeaveSettings } = await import('./features/settings/unsavedChanges');
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function showModal() { this.setAttribute('open', ''); };
@@ -223,15 +224,27 @@ describe('Invitations', () => {
   it('saves the public address and shows the server’s refusal', async () => {
     routes();
     render(<PublicAddress />);
-    const field = await screen.findByRole('textbox', { name: 'Public address' });
+    const form = await screen.findByRole('form', { name: 'Public address' });
+    const field = within(form).getByRole('textbox', { name: 'Public address' });
+    expect(within(form).getByText('Manual save')).not.toBeNull();
+    expect(within(form).queryByRole('button', { name: 'Save address' })).toBeNull();
+    await userEvent.type(field, 'lumina.example.com');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expect(confirmLeaveSettings()).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Public address. Leave without saving?');
+    confirm.mockRestore();
+    await userEvent.click(within(form).getByRole('button', { name: 'Discard' }));
+    expect(api.put).not.toHaveBeenCalled();
+    expect((field as HTMLInputElement).value).toBe('');
     await userEvent.type(field, 'lumina.example.com');
     api.put.mockRejectedValueOnce(new Error('Enter a bare http(s)://host origin.'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save address' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Save address' }));
     expect(await screen.findByText('Enter a bare http(s)://host origin.')).not.toBeNull();
+    expect((field as HTMLInputElement).value).toBe('lumina.example.com');
     api.put.mockResolvedValueOnce({ public_address: 'https://lumina.example.com' });
     await userEvent.clear(field);
     await userEvent.type(field, 'https://lumina.example.com');
-    await userEvent.click(screen.getByRole('button', { name: 'Save address' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Save address' }));
     expect(api.put).toHaveBeenLastCalledWith('/api/admin/public-address', { public_address: 'https://lumina.example.com' });
     expect(await screen.findByText('Saved')).not.toBeNull();
   });
@@ -288,7 +301,7 @@ describe('Member page', () => {
     });
     expect(api.updateUser).not.toHaveBeenCalled();
     expect(await screen.findByText('Saved.')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('All libraries sends null; turning it off starts from every library', async () => {

@@ -22,7 +22,7 @@ test('every rendered Settings control belongs to a registry row with ⓘ text', 
     await page.waitForTimeout(250);
     const report = await page.locator('.g-settings-pane').evaluate((pane) => ({
       orphans: [...pane.querySelectorAll<HTMLElement>('input, select, textarea, button, a[href], summary, [role="switch"], [role="radio"]')]
-        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar') && !element.matches('.g-settings-back, .g-settings-page-link, .g-settings-local-advanced > summary') && !element.closest('.g-settings-page-select'))
+        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar') && !element.matches('.g-settings-back, .g-settings-page-link, .g-settings-advanced > summary') && !element.closest('.g-settings-page-select'))
         .map((element) => element.getAttribute('aria-label') || element.textContent?.trim().slice(0, 40) || element.tagName),
       rows: [...pane.querySelectorAll<HTMLElement>('[data-setting-id]')].map((row) => {
         const info = row.querySelector<HTMLElement>(':scope > .g-setting-head .g-info-button');

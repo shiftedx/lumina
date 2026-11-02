@@ -1,4 +1,5 @@
 import { expect, type Page, type Route } from '@playwright/test';
+import { SETTINGS_CATEGORIES } from '../src/features/settings/navigation';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_LENGTH, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 
 /** Shared mocked Lumina API (synthetic media) for shell/theme/watch browser specs. */
@@ -68,6 +69,10 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     if (path === '/api/public/showcase') return json({ slides: [] }); // the calm sign-in page unless a spec mocks releases
     if (path === '/api/session/switch') return json({ detail: 'not_in_ring' }, 404);
     if (path === '/api/session/forget') return route.fulfill({ status: 204, body: '' });
+    if (path === '/api/me/two-factor') return json({ enabled: false, required: false, recovery_codes_left: 0 });
+    if (path === '/api/requests/notifications') return json({ enabled: false, email: null });
+    if (path === '/api/me/plex-import') return json({ server: null });
+    if (path === '/api/me/youtube-session') return json({ status: 'not_connected', updated_at: null });
     if (path === '/api/me/jellyfin-import') return json({ server: null });
     if (path === '/api/me/export') {
       return json({
@@ -176,6 +181,7 @@ export async function mockAdminFixtures(page: Page) {
   const at = '2026-09-24T09:40:00Z';
   const root = { id: 'fast', label: 'Family NAS — movies and home videos archive', path: '/media/nas', mode: 'managed', enabled: true, minimum_free_bytes: 0, artifact_count: 1284, observation: { state: 'available', checked_at: at, free_bytes: 812e9, total_bytes: 2e12 } };
   const ADMIN: Record<string, unknown> = {
+    updates: { current_version: '0.5.1', latest_release: null, status: 'not_checked', checked_at: null, error: null, checking: false, automatic_checks: true, email_notifications: false, email_configured: true },
     overview: {
       generated_at: at, jobs_by_status: { completed: 184, running: 2, failed: 6 }, failure_window_days: 7, concurrency: 2, max_active_jobs_per_user: 25, min_free_disk_mb: 2048,
       recent_failures: [{ reason: 'ERROR: [youtube] Sign in to confirm your age. This video may be inappropriate for some users.', count: 4, last_at: at }],
@@ -228,6 +234,8 @@ export async function mockAdminFixtures(page: Page) {
     'members/m2/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', source: 'library', user: { id: 'm2', name: 'Eleanor' }, title: 'Bluey', subtitle: 'Season 1 · Episode 3', item_id: null, client: { name: 'Lumina web', device: 'Living-room TV' }, method: 'direct', hardware: null, video: null, started_at: at, ended_at: at, watched_seconds: 420, stopped_by_admin: false }] },
     'members/m2/resources': ELEANOR_RESOURCES,
     'requests/servers': [],
+    connectors: { items: [] },
+    'music/requests': { items: [], page: 1, page_size: 25, total: 0, total_pages: 1 },
     'arr/observations': { servers: [], items: [], page: 1, page_size: 50, total: 0, total_pages: 1 },
     'requests/settings': { requests_enabled: true, smtp: { host: null, port: null, security: 'starttls', username: null, from: null, password_set: false } },
     'requests/policies': {
@@ -243,7 +251,7 @@ export async function mockAdminFixtures(page: Page) {
     },
   };
   await page.route('**/api/admin/ai/models', (route) => route.fulfill({ json: { models: ['local-model', 'alternate-model'], error: null } }));
-  await page.route(/\/api\/admin\/(overview|activity(?:\/history)?|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|resources|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|members\/m2\/resources|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
+  await page.route(/\/api\/admin\/(overview|updates|connectors|music\/requests|arr\/observations|activity(?:\/history)?|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|resources|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|members\/m2\/resources|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
     const key = new URL(route.request().url()).pathname.replace('/api/admin/', '');
     return route.request().method() === 'GET' ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(ADMIN[key]) }) : route.fallback();
   });
@@ -466,7 +474,15 @@ export async function navigateApp(page: Page, destination: string) {
   await expect(dialog).toHaveCount(0);
 }
 
-/** The persistent area navigation opens the same flat workspaces at every viewport. */
+/** Each settings space keeps its own rail/picker; the global menu connects the two spaces. */
 export async function openSettingsArea(page: Page, name: string) {
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name, exact: true }).click();
+  const category = SETTINGS_CATEGORIES.find((entry) => entry.label === name);
+  if (!category) throw new Error(`Unknown settings category: ${name}`);
+  if (await page.locator('.g-settings').getAttribute('data-space') !== category.space) {
+    await navigateApp(page, category.space === 'server' ? 'Manage Server' : 'My Settings');
+    if (await page.locator('.g-settings').getAttribute('data-space') !== category.space) return; // A dirty form may decline the space change.
+  }
+  const picker = page.getByRole('combobox', { name: 'Choose settings section' });
+  if (await picker.isVisible()) await picker.selectOption(category.id);
+  else await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name, exact: true }).click();
 }

@@ -352,6 +352,8 @@ export default function LuminaApp() {
     setNavigationOpen(false);
   }, []);
 
+  const pendingContextSearchRef = useRef<MutationObserver | null>(null);
+  useEffect(() => () => pendingContextSearchRef.current?.disconnect(), [surface]);
   const pendingHeadingFocusRef = useRef<MutationObserver | null>(null);
   useEffect(() => () => pendingHeadingFocusRef.current?.disconnect(), []);
   const focusSurfaceHeading = useCallback(() => {
@@ -359,10 +361,11 @@ export default function LuminaApp() {
     requestAnimationFrame(() => {
       const main = appMainRef.current;
       if (!main) return;
+      if (main.querySelector('.g-settings') && main.contains(document.activeElement) && document.activeElement?.matches('input, textarea, select, [contenteditable=true]')) return;
       const focusHeading = () => {
         const origin = main.querySelector<HTMLElement>('[data-route-focus-origin="true"]');
         if (origin) { origin.focus({ preventScroll: true }); return true; }
-        const heading = main.querySelector<HTMLElement>('.surface h1, .g-settings h1');
+        const heading = main.querySelector<HTMLElement>('#settings-section-title') ?? main.querySelector<HTMLElement>('.surface h1, .g-settings h1');
         if (!heading) return false;
         heading.tabIndex = -1;
         heading.focus();
@@ -415,7 +418,7 @@ export default function LuminaApp() {
     captureSessionToken: workspace.captureSessionToken,
     isSessionTokenCurrent: workspace.isSessionTokenCurrent,
     onFailure: (failure) => setError(failure instanceof Error ? failure.message : 'Unable to update followed channels.'),
-    onSessionExpired: () => { subscriptionRetryFocusRequestedRef.current = false; void handleLogout(); },
+    onSessionExpired: () => { subscriptionRetryFocusRequestedRef.current = false; void handleLogout(true); },
     onSettled: (outcomes) => {
       if (!subscriptionRetryFocusRequestedRef.current) return;
       subscriptionRetryFocusRequestedRef.current = false;
@@ -436,10 +439,21 @@ export default function LuminaApp() {
       const main = document.getElementById('main-content');
       const field = main?.querySelector<HTMLInputElement>('input[type="search"]');
       if (field) { field.focus(); field.scrollIntoView({ block: 'nearest' }); return; }
+      if (surface === 'settings' && main) {
+        pendingContextSearchRef.current?.disconnect();
+        // Settings is lazy: keep its shortcut scoped while its registry search mounts.
+        const observer = new MutationObserver(() => {
+          const search = main.querySelector<HTMLInputElement>('input[type="search"]');
+          if (search) { search.focus(); search.scrollIntoView({ block: 'nearest' }); observer.disconnect(); }
+        });
+        pendingContextSearchRef.current = observer;
+        observer.observe(main, { childList: true, subtree: true });
+        return;
+      }
       const trigger = main?.querySelector<HTMLButtonElement>('button.g-search-open');
       if (trigger) { trigger.click(); requestAnimationFrame(() => main?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()); return; }
     }
-    return mode === 'link' && openSearchBlocked ? undefined : setPalette((value) => ({ open: true, mode, key: value.open ? value.key : value.key + 1 })); }, [openSearchBlocked]);
+    return mode === 'link' && openSearchBlocked ? undefined : setPalette((value) => ({ open: true, mode, key: value.open ? value.key : value.key + 1 })); }, [openSearchBlocked, surface]);
   const closePalette = useCallback(() => setPalette((value) => (value.open ? { ...value, open: false } : value)), []);
   useEffect(() => onCommand<PaletteRequest | undefined>(PALETTE_EVENT, (request) => openPaletteMode(request?.mode ?? 'search')), [openPaletteMode]);
   // Prefetch the palette chunk once the member is in.
@@ -775,14 +789,14 @@ export default function LuminaApp() {
   }
 
   async function handleAccountLink(username: string, displayName: string, password: string) {
-    if (!accountLink) return;
+    if (!accountLink || (state.currentUser && !leaveSettingsOk())) return;
     setAuthBusy(true); setError(null);
     try {
       if (accountLink.kind === 'reset') await redeemPasswordReset(accountLink.token, password);
       else await redeemInvitation({ token: accountLink.token, username: username.trim(), display_name: displayName.trim() || username.trim(), password });
     } catch (redeemError) { setError(redeemError instanceof Error ? redeemError.message : 'Unable to use this link'); setAuthBusy(false); return; }
     setAccountLink(null);
-    if (state.currentUser) await handleLogout();
+    if (state.currentUser) await handleLogout(true);
     if (accountLink.kind === 'reset') setAuthBusy(false);
     else await handleLogin(username, password);
   }
@@ -820,7 +834,8 @@ export default function LuminaApp() {
     activeLibraryItemIdRef.current = null; setSurface('home'); setLibraryLocation({}); setBooksRoute({ surface: 'books', view: 'overview' }); setPhotosRoute({ surface: 'photos', view: 'timeline' }); setLibraryWatchItem(null); setActivePlayback(null); closePalette();
   }
 
-  async function handleLogout() {
+  async function handleLogout(confirmed = false) {
+    if (!confirmed && !leaveSettingsOk()) return;
     pauseMusic();
     await Promise.allSettled([checkpointMusic(), stopMusicCast(state.currentUser?.id)]);
     if (state.currentUser) {
@@ -1708,7 +1723,7 @@ export default function LuminaApp() {
           : surface === 'audio' ? <AudioSurface key={state.currentUser.id} musicBrowseView={state.preferences.musicBrowseView} onMusicBrowseViewChange={(musicBrowseView) => workspace.dispatch({ type: 'preferences/patch', patch: { musicBrowseView } })} user={state.currentUser} wall={libraryLocation.wall} onWallChange={(wall) => setLibraryLocation({ view: 'music', ...(wall ? { wall } : {}) })} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onItemChanged={libraryItemChangedStable} /> : <LibraryBrowser videoOnly collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all'} wall={libraryLocation.wall} />)
             : surface === 'photos' ? <PhotosSurface key={state.currentUser.id} user={state.currentUser} route={photosRoute} onRoute={setPhotosRoute} /> : surface === 'books' ? <BooksSurface onRoute={booksRouteStable} route={booksRoute} user={state.currentUser} /> : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
               : surface === 'requests' ? <RequestsSurface key={state.currentUser.id} onOpenRoute={openRouteStable} onQueueChanged={requestsQueueChangedStable} onRoute={requestsRouteStable} route={requestsRoute} session={workspace} user={state.currentUser} />
-              : surface === 'settings' ? <SettingsSurface acquisitionDefaults={acquisitionDefaultsSettings} advanced={state.preferences.settingsAdvanced} onAdvancedChange={(settingsAdvanced) => workspace.dispatch({ type: 'preferences/patch', patch: { settingsAdvanced } })} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} autoplayUpNext={state.preferences.autoplayUpNext} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} playbackMaxHeight={state.preferences.playbackMaxHeight} onPlaybackMaxHeightChange={(playbackMaxHeight) => workspace.dispatch({ type: 'preferences/patch', patch: { playbackMaxHeight } })} onClearSearchHistory={clearSearchHistoryStable} onUpdateDisplayName={updateDisplayNameStable} searchHistory={searchHistory} onThemeChange={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })} theme={state.preferences.theme} formatPreset={acquisition.state.format} interests={memberInterests} onFormatChange={acquisition.chooseFormat} onLogout={handleLogout} playbackPrefs={playbackPrefs} onPlaybackPrefsChange={patchPlaybackPrefsStable} onRemotePlaybackCacheChange={handleRemotePlaybackCacheChange} onRestoreSuppression={restoreSuppressionStable} onSaveInterests={saveMemberInterests} remotePlaybackCache={state.userSettings?.remote_playback_cache || undefined} key={state.currentUser.id} onMessage={reportMessage} onLocation={(location) => { setSettingsSection(location.section); setSettingsPage(location.page); setSettingsSpace(location.space); }} space={settingsSpace} page={settingsPage} onSection={setSettingsSection} section={settingsSection} member={settingsMember} onMember={setSettingsMember} suppressions={suppressions} user={state.currentUser} />
+              : surface === 'settings' ? <SettingsSurface acquisitionDefaults={acquisitionDefaultsSettings} advanced={state.preferences.settingsAdvanced} onAdvancedChange={(settingsAdvanced) => workspace.dispatch({ type: 'preferences/patch', patch: { settingsAdvanced } })} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} autoplayUpNext={state.preferences.autoplayUpNext} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} playbackMaxHeight={state.preferences.playbackMaxHeight} onPlaybackMaxHeightChange={(playbackMaxHeight) => workspace.dispatch({ type: 'preferences/patch', patch: { playbackMaxHeight } })} onClearSearchHistory={clearSearchHistoryStable} onUpdateDisplayName={updateDisplayNameStable} searchHistory={searchHistory} onThemeChange={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })} theme={state.preferences.theme} formatPreset={acquisition.state.format} interests={memberInterests} onFormatChange={acquisition.chooseFormat} onLogout={() => handleLogout()} playbackPrefs={playbackPrefs} onPlaybackPrefsChange={patchPlaybackPrefsStable} onRemotePlaybackCacheChange={handleRemotePlaybackCacheChange} onRestoreSuppression={restoreSuppressionStable} onSaveInterests={saveMemberInterests} remotePlaybackCache={state.userSettings?.remote_playback_cache || undefined} key={state.currentUser.id} onMessage={reportMessage} onLocation={(location) => { setSettingsSection(location.section); setSettingsPage(location.page); setSettingsSpace(location.space); }} space={settingsSpace} page={settingsPage} onSection={setSettingsSection} section={settingsSection} member={settingsMember} onMember={setSettingsMember} suppressions={suppressions} user={state.currentUser} />
                 : watchSelection ? null : surfaceLoading;
   // The one player owner: Watch and the mini-player are the same mounted
   // surface in a stable slot, so the media element never remounts on navigation.
@@ -1747,7 +1762,7 @@ export default function LuminaApp() {
       onSearch={() => openPaletteMode('search')}
       onSettings={() => openRoute({ surface: 'settings' })}
       onManageServer={state.currentUser.role === 'admin' ? () => openRoute({ surface: 'settings', space: 'server' }) : undefined}
-      managingServer={surface === 'settings' && (settingsSpace === 'server' || Boolean(settingsSection && !['account', 'playback', 'appearance', 'discovery', 'streaming', 'downloads', 'apps', 'privacy', 'about'].includes(settingsSection)))}
+      managingServer={surface === 'settings' && (settingsSection ? !['account', 'playback', 'appearance', 'discovery', 'streaming', 'downloads', 'apps', 'privacy', 'about'].includes(settingsSection) : settingsSpace === 'server')}
       onSignOut={() => void handleLogout()}
       onTheme={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })}
       surface={surface}
@@ -1756,7 +1771,7 @@ export default function LuminaApp() {
     >
       <RecoFeedbackProvider onError={setError} onExpired={recoExpired} resetKey={`${state.currentUser.id}:${recoEpoch}`} restore={recoRestore} suppress={recoSuppress}>
         <ArtActionsProvider value={artActions}>
-          <Suspense fallback={null}><MusicPlayer owner={state.currentUser.id} hidden={Boolean(watchSelection)} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onOpenAlbum={(id) => openRoute({ surface: 'audio', titleId: id })} onOpenPlaylists={() => openRoute({ surface: 'audio', view: 'music', wall: 'pane=playlists' })} /></Suspense>
+          <Suspense fallback={null}><MusicPlayer navigationVisible={surface !== 'settings'} owner={state.currentUser.id} hidden={Boolean(watchSelection)} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onOpenAlbum={(id) => openRoute({ surface: 'audio', titleId: id })} onOpenPlaylists={() => openRoute({ surface: 'audio', view: 'music', wall: 'pane=playlists' })} /></Suspense>
           <SurfaceBoundary key={surface}><Suspense fallback={surfaceLoading}>{content}</Suspense></SurfaceBoundary>
           <WatchFullscreenHost active={!gate && (Boolean(watchSelection) || surface === 'watch')}>{watchPlayer}</WatchFullscreenHost>
           {watchSelection && !gate ? <TimeLeftNotice minutes={access?.remaining_minutes ?? null} /> : null}

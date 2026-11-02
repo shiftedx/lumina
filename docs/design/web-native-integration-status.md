@@ -2,6 +2,8 @@
 
 Implementation branch: `codex/web-native-integration`, application base `e5573ea1` (current origin/main at kickoff, November 1, 2026). Worktree: `/Users/kmcdowell/.codex/worktrees/web-native-integration/lumina`. Original main checkout clean; all other worktrees and design branch preserved. Approved reference: `codex/web-native-mockups`, pinned prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`. Reference source is not merged into production.
 
+Completed extension: approved My settings and Manage server integration, from `eb7e402`. Settings approval `5d4881a`; prototype `f5486e4482d81de13b549eb3bc0e5415d1f8295c`. [Settings ownership/validation](#approved-settings-extension--active-integration) supersedes the earlier settings exclusion. This extension remains undeployed.
+
 ## Ownership
 
 Orchestrator: global shell, routes, typography, shared gallery, API client/types, authenticated preference plumbing, integration and browser evidence. Video/Home worker: home/library, AllLanding, GalleryTitlePage/titlePage.css. Music worker: music, album/artist/MusicTab and music.css, music router/service/API tests. Books worker: books frontend, books router/service/archive readers and focused tests; ADR 0036. Shared models/schema/migrations/docker rollback stay orchestrator owned. Wave two reuses workers for Requests, Streaming/watch, and read-only review. Workers share the implementation worktree and preserve each other's changes.
@@ -24,6 +26,9 @@ Orchestrator: global shell, routes, typography, shared gallery, API client/types
 | `/books`, `/books/manga`, `/books/series/:id`, `/books/title/:id`, `/books/read/:id` | EPUB/page readers, RTL, format checkpoints, volume browse, sharing/import/download/delete, filters/Back | BooksSurface/BookDetail/BookReader; books/books-browsers/realstack | Implemented; focused workflows verified |
 | `/requests` and subroutes | Discover/catalog/anime/search, title availability, request/quota, mine/cancel/retry, admin approval/fulfillment | RequestsSurface, requestsModel, requests_quality | Implemented; focused workflows verified |
 | `/streaming` and provider routes, channels/watch | YouTube search, provider-qualified browse/live/followed, recording/read-only chat capability gates, queue/theater | WatchSurface/WatchChatSeam/LiveChatPanel, chat/recording/queue specs | Implemented; focused workflows verified |
+
+| My settings `/settings` and section/page deep links | All personal registry providers, preferences, profile/security, imports/apps, autosave/manual forms, secret/error/dirty contracts | Settings registry/navigation/you/search/D-pad; focused browser and realstack settings | Implemented; registry, browser and realstack verified |
+| Manage server `/manage`, member and legacy admin deep links | Owner-only health/activity, household/resources, storage/optimization, connections, AI and maintenance; all real providers | Settings server/requests/household/AI/import contracts; focused browser/realstack settings | Implemented; registry, browser and realstack verified |
 
 ## Verification policy
 
@@ -154,3 +159,54 @@ Final checks against that committed application bundle:
 The gallery at `output/web-native-final/index.html` contains 35 captures and seven approved-A comparisons, each with integrated desktop and phone views. Its `captures.json` supplies provenance and hashes. The test-only gallery caption assertion and this deployment record were committed after the application revision; no shipping application code changed after the verified build.
 
 Production verification is signed-out HTTP and artifact/runtime verification. Authenticated playback and reading were exercised against the real test backend with synthetic media; household provider credentials and physical casting/CBR/PDF qualification remain untested. Full `make check` remains unrun under the owner's focused-testing instruction. No merge, push, marketing change or native release occurred.
+
+## Approved settings extension — active integration
+
+The owner extended scope after the direct-A production review. Continue from implementation `eb7e402` (shipping app `e57290a2`), retaining all media work. Settings approval/team-plan reference is `5d4881a` on `codex/web-native-mockups`; settings prototype reference is `f5486e4482d81de13b549eb3bc0e5415d1f8295c`. The approved handoff, implementation plan and `web-settings-design-proposal.md` in the preserved prototype worktree govern this extension. Do not merge that branch. Deployment is outside this extension's scope; production remains at the separately reviewed revision above.
+
+| Owner | Exclusive files / responsibility | Status |
+| --- | --- | --- |
+| Orchestrator | Shared shell/routes/tokens/UI/search, workspace/API contracts; E2E settings workflows/captures except the assigned realstack file; integration record/final review | Complete: shared contracts, focused verification and integration |
+| Settings worker (reused Music slot) | `frontend/src/features/settings/**` and applicable root `v1_settings_*.test.ts[x]` | Complete: approved spaces, registry map and real forms/providers |
+| Video/Home worker | `frontend/e2e/realstack/settings.spec.ts`; AdminOverview and metrics tests; bounded AdminBackups schedule, AdminMembers addresses, RecordingRetention and AdminStorage rules with existing tests | Complete: health-first layout, owner draft guards and focused realstack journeys |
+| Books worker | Media packet preserved; read-only Settings source/capture review | Complete: feedback reworked and final representative captures accepted, no concrete P0/P1 |
+
+Acceptance extends to both distinct spaces: member-scoped My settings and owner-only Manage server; compact typography and real caption preview; persistent desktop rail/phone picker; full registry search and focused deep links; explicit scope and autosave/manual-save semantics; dirty-only Save/Discard; real connection tests and write-only secrets; progressive advanced tuning. Preserve every registry row, provider, URL and permission boundary.
+
+Verification uses existing focused settings registry/navigation/unsaved/requests/household and personal/server/search/D-pad contracts, plus affected secret/import/AI tests. Browser checks cover all row destinations, personal and owner URL gates, search/shortcut/focused target, real autosave/manual-save payload behavior, validation failure retention, separate connection testing, secret replacement/removal, category/search/member/global navigation and browser-history dirty guards. Capture personal Playback/Profile and owner Overview/Connections/Library plus dirty/error states at desktop/390px, with 320px/tablet/200% text/forced-colors/reduced-motion checks. Run frontend typecheck/build and shared shell/route checks; do not run the full repository/native suite. Record exact results, coverage map, design findings/fixes and limits before closing this extension.
+
+### Settings extension completed
+
+Both approved spaces are integrated through the production registry/providers. My settings defaults to Profile and includes all personal preferences and account/app workflows. Manage server defaults to health/activity, with actionable snapshot issues before neutral metrics. The rail and phone picker contain only the current space; the global menu/Account connects the two spaces, and owner search still covers the full registry. Existing public/legacy section, page and member URLs retain their controls and permissions.
+
+The [complete settings coverage map](web-settings-capability-matrix.md) records all **105 registry rows across 52 subpages**, with destination and save/action behavior. The pre-existing Still-watching policy row was missing from navigation; it is now reachable through Connections → Media apps. All 27 member-detail rows remain covered by the browser registry walk. Playback/conversion and download limits are grouped under Library & storage while their stable URLs/providers remain unchanged.
+
+Manual forms identify their save mode before editing and display Save/Discard only while dirty or saving. Profile, interests, custom mute words, backup schedule, public/local addresses and recording-retention drafts now share the existing unsaved authority; storage rules retain their guarded conflict/validation behavior with dirty-only actions. Existing manual provider forms, immediate/autosaved controls and staged authentication/test/import/export/token/destructive workflows retain their real semantics. No global prototype draft or new API is introduced. Sign out and account-link redemption preflight the guard before teardown; actual session expiration still clears invalidated state. Category, full-registry search, member details, Account/global media routes, browser Back and unload retain their guards.
+
+Search shortcuts remain scoped even while Settings loads lazily. Row deep links wait for a provider's real field to become enabled, retain an accessible row heading while loading, and respect subsequent user focus. The app's generic heading focus no longer steals an already-focused field. Continuing music/video players retain their DOM/session and settings controls clear their actual overlays; the hidden settings media tab bar does not leave a phone inset. The caption row has one artwork-backed preview using the real caption preference model; the player keeps its existing preview.
+
+#### Exact final validation
+
+Counts are per run, overlap with earlier runs, and are not added together. The exact selected files, invocation and output are retained in each named local artifact. All toolchain commands use `mise exec --`.
+
+| Final run | Scope / command | Result |
+| --- | --- | --- |
+| `output/settings-unit-verified.log` | `npm --prefix frontend test --` with 30 affected Settings/provider/import/registry/owner-form/shared-shell/router/music/caption files, enumerated in the log | **30 files, 301 passed** |
+| `output/settings-shared-verified.log` | AppShell, TopBar, routes, LuminaApp and MusicPlayer | **5 files, 104 passed**; overlaps the affected Settings run |
+| `output/settings-browser-verified.log` | Seven focused browser specs: settings shell/visual views/registry/polish/alignment, music navigation and watch start; exact executable invocation in `output/settings-extension/validation-commands.txt` | **45 passed in 1.6 minutes**. All twelve categories at 320/390/768/1440; full registry and member rows; light 320/1440 alignment; owner/member guards; scoped search/shortcut and asynchronous field focus; manual/autosave writes, failure retention and dirty history/category/search/global/logout paths; write-only replacement and separate connection testing; modal keyboard return; 200% text/forced colors/reduced motion; continuing music/video controls |
+| `output/settings-shared-history.log` | Settings shell plus existing web-native media integration workflows after scoping field-focus protection to Settings | **25 passed in 59 seconds**; contextual search/navigation at all four widths, member Music preference/deep links and exact movie hero Back/focus restoration, plus Settings guards/focus. Overlaps the 45-check run. |
+| `output/settings-realstack-final-bundle.log` | `scripts/with-lock.sh /tmp/lumina-perf.lock 1800 sh -c 'cd frontend && npx playwright test e2e/realstack/settings.spec.ts --config=playwright.web-native.config.ts --project=journeys --workers=1 --output=../output/playwright/settings-realstack-final-bundle'` against the completed production bundle and fresh test root | **6 passed in 1.0 minute**: owner setup, server-persisted theme across cleared local hints/reload, real profile draft/discard/save/reload/restore, real owner-limit draft/discard/save/reload/restore, member JSON export with secret exclusion, real backup create/verify/password-proved download |
+| `output/settings-typecheck-verified.log` | `npm --prefix frontend run typecheck` | Application and E2E passed |
+| `output/settings-build-verified.log` | `npm --prefix frontend run build` | TypeScript/Vite/licenses/style/bundle gates passed; aggregate CSS **81.7 KB gzip / 82 KB**, shared core **7.3 / 7.4 KB**; lazy JS ceilings retained |
+| `output/settings-design-detector-verified.json` | Impeccable detector over Settings and changed shell/health/activity presentation | `[]`; complements independent source/capture review, not a conformance claim |
+| Final working tree | `git diff --check` | Passed |
+
+The earlier browser attempts exposed displaced desktop navigation, mixed-space rails, narrow phone columns, duplicate caption previews, missing durable-draft guards, player occlusion, lazy shortcut scope and provider-focus races. The final source fixes address those causes. The music fixture now reuses its existing 30-second WAV rather than overriding it with a 1.5-second clip that ended during the longer settings journey. Useful authorization, persistence, history and exact playback assertions remain in place.
+
+#### Review package and limits
+
+`output/web-native-final/settings/index.html` contains all twelve approved/current category comparisons, desktop/phone and 320/tablet links, light captures, and dirty/rejected-save states. Its SHA-256/provenance manifest records **81 browser captures plus 12 approved reference images**. The full web gallery at `output/web-native-final/index.html` retains the earlier media evidence and now includes the two settings spaces and their key sections. Captures use synthetic fixtures, not household secrets or private media. The reference proposal, handoff and plan are synchronized from approval `5d4881a`; the prototype branch is preserved and was not merged.
+
+No backend/schema, dependency, marketing-site or native-release change was needed. Real external provider credentials, live household account mutations and physical casting/CBR/PDF qualification were not exercised. Connection tests/secret/error paths use controlled browser/provider fixtures; real persistence/export/backup checks use the isolated production backend. These checks are not a physical-device accessibility or provider-compatibility certification. Full `make check`/repository/Core/native suites remain unrun under the owner's focused-testing instruction.
+
+**This extension is not deployed, merged or pushed.** The existing production media review build remains unchanged.

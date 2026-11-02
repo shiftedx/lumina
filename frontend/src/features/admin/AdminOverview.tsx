@@ -21,6 +21,11 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
   const db = overview ? Object.values(overview.persistence) : [];
   const updateRelease = overview?.updates?.status === 'update_available' ? overview.updates.latest_release : null;
   const updateUrl = trustedReleaseUrl(updateRelease?.url);
+  const missingItems = overview?.library_items_by_status.missing ?? 0;
+  const unhealthyRoots = overview?.roots.filter((root) => root.enabled && root.state && root.state !== 'available') ?? [];
+  const databaseErrors = db.reduce((total, metric) => total + metric.errors, 0);
+  const databaseBusyTimeouts = db.reduce((total, metric) => total + metric.busy_timeouts, 0);
+  const hasAttention = Boolean(missingItems || unhealthyRoots.length || databaseErrors || databaseBusyTimeouts || overview?.recent_failures.length);
 
   return (
     <div aria-busy={loading} className="admin-overview">
@@ -32,6 +37,21 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
 
       {overview ? (
         <>
+          <section aria-labelledby="admin-health-title" className="g-panel">
+            <h3 className="g-panel-title" id="admin-health-title">Server health</h3>
+            {hasAttention ? (
+              <>
+                <h4 className="g-label">Needs attention</h4>
+                <ul className="admin-failures">
+                  {missingItems ? <li><StatusText tone="attention">{missingItems} library item{missingItems === 1 ? '' : 's'} missing on disk.</StatusText></li> : null}
+                  {unhealthyRoots.map((root) => <li key={root.id}><StatusText tone={root.state === 'low_space' ? 'attention' : 'danger'}>{root.label}: {STATES[root.state!]?.label ?? root.state}</StatusText></li>)}
+                  {databaseErrors ? <li><StatusText tone="danger">{databaseErrors} database write error{databaseErrors === 1 ? '' : 's'} since the server started.</StatusText></li> : null}
+                  {databaseBusyTimeouts ? <li><StatusText tone="attention">{databaseBusyTimeouts} database busy timeout{databaseBusyTimeouts === 1 ? '' : 's'} since the server started.</StatusText></li> : null}
+                  {overview.recent_failures.map((failure) => <li key={failure.reason}><p>{failure.reason}</p><small>{failure.count}× · last {time(failure.last_at)}</small></li>)}
+                </ul>
+              </>
+            ) : <p className="g-setting-note"><StatusText tone="ok">No issues reported by this snapshot.</StatusText></p>}
+          </section>
           {updateRelease ? <div className="admin-update-notice" role="status">
             <div><StatusText tone="attention">Lumina {updateRelease.version} is available.</StatusText><p>Review the release notes and upgrade steps when you are ready.</p></div>
             {onOpenUpdates ? <Button onClick={onOpenUpdates} variant="quiet">Review update</Button> : updateUrl ? <ButtonLink href={updateUrl} rel="noreferrer noopener" target="_blank" variant="quiet">Read release notes</ButtonLink> : null}
@@ -70,10 +90,6 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
               {Object.keys(overview.jobs_by_status).length ? (
                 <ul className="overview-download-chart">{Object.entries(overview.jobs_by_status).map(([status, count]) => <li key={status}><span>{status[0].toUpperCase() + status.slice(1)}</span><div aria-hidden="true"><span style={{ width: `${100 * count / Math.max(1, ...Object.values(overview.jobs_by_status))}%` }} /></div><strong>{count}</strong></li>)}</ul>
               ) : <p className="g-setting-note">No downloads yet.</p>}
-              <h4 className="g-label">Recent failures</h4>
-              {overview.recent_failures.length ? (
-                <ul className="admin-failures">{overview.recent_failures.map((failure) => <li key={failure.reason}><p>{failure.reason}</p><small>{failure.count}× · last {time(failure.last_at)}</small></li>)}</ul>
-              ) : <p className="g-setting-note">No failed downloads in the last {overview.failure_window_days} days.</p>}
             </section>
             <section aria-labelledby="admin-db-title" className="g-panel">
               <h3 className="g-panel-title" id="admin-db-title">Database writes</h3>

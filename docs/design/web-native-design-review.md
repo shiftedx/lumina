@@ -2,6 +2,8 @@
 
 The initial review deployment (`44a00edb`) shipped the production data contracts and incremental presentation changes, but retained too much of the previous composition. It did not satisfy the approved A mockup. This correction implements the mockup through the production components, retaining real routes, permissions, actions and server state. Reference: prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`.
 
+Current scope now also includes the approved settings extension documented below. Its integration and captures are local review evidence; deployment is outside that extension’s scope.
+
 ## Scope and ownership
 
 All non-settings primary destinations and their browse/detail/player workflows were reviewed: Home; All video/Movies/Shows/Anime and title/season/episode; Music albums/artists/Saved, album/artist details, playlists, management and offline player; Books overview/ebooks/manga/shelves/discover, title/series/chapters/readers; Requests Discover/catalogs/search/title/history/manage/dialogs; Streaming Browse/Live/channels/search/watch/theater; Photos timeline/albums/people/trash/viewer/import; Downloads and collections. Settings layouts, marketing, native releases and public route contracts were not redesigned.
@@ -42,3 +44,37 @@ The actual runtime/backend remains the integrated production contract: authentic
 The final build is approximately 81 KB aggregate CSS gzip versus 76.6 KB in the first integration. The bounded aggregate allowance is 82 KB; the shared core is approximately 7.3 KB with a 7.4 KB allowance for canonical controls and artwork scrims. Lazy JavaScript ceilings and dependencies are unchanged. Artwork fixtures are absent from the shipping bundle.
 
 Full repository/Core/native UI gates remain unrun under the owner's focused-testing instruction. External provider credentials/network playback, physical casting and physical CBR/PDF qualification are not claimed. Production deployment verification covers the running revision/assets/health/configuration; fixture and real-stack journeys provide authenticated behavior evidence without capturing private household media.
+
+## Approved settings extension
+
+The owner subsequently approved My settings and Manage server (approval `5d4881a`, prototype `f5486e4482d81de13b549eb3bc0e5415d1f8295c`). Settings is now included in the same Impeccable product-register pass. Existing media work remains intact; this extension is not authorized for deployment.
+
+Independent source baseline found these concrete differences from the accepted SettingsFrame and personal/admin compositions:
+
+| Finding | Required correction | Verification |
+| --- | --- | --- |
+| Owner rail and phone picker mix personal and household destinations | Keep six categories in the current space; global menu/Account connects spaces; preserve full owner registry search | Desktop/phone navigation, both public route roots, member-only permission check |
+| Category-wide save wording hides mixed manual and automatic controls | Identify the actual form's save behavior before editing and show Save/Discard only while dirty; retain clean status/error announcements | Existing provider tests and browser save/error/discard/persistence workflows |
+| Caption preview is separated from caption controls | Place the preview with the actual caption model and its controls | Playback captures and caption preference regression |
+| Profile manual form resets its draft on failed saving and lacks shared dirty tracking | Reuse the real form/save and unsaved-change authority; retain draft on validation/server failure | Profile failure + category/search/global navigation workflow |
+| Account Sign out bypasses dirty confirmation | Guard before any session/playback/storage teardown; preflight account-link redemption; session expiration still clears invalidated state | Declined Account logout retains draft/no logout request; accepted logout submits once |
+
+The baseline detector returned no static Settings warnings. This is defect evidence only; the final review requires actual desktop/phone captures and public workflow checks, with findings reworked before completion.
+
+### Settings feedback rework and final review
+
+The independent reviewer rechecked refreshed Profile desktop, Playback phone, server Overview desktop and Connections phone against the approved references. Final result: no remaining concrete P0/P1 findings in those representative captures. The broader twelve-category/four-width registry and interaction sweep passes separately; static imagery does not establish live credentials or all interactive states.
+
+| Review finding | Final correction / evidence |
+| --- | --- |
+| Mixed personal/server rail and displaced navigation | One current-space rail, native phone picker, structural Search+navigation wrapper. Desktop content aligns to approved x≈328 using 224px rail/56px gap; phone explicitly has one full-width column. Four-width category capture/registry checks pass. |
+| Manual semantics unclear; clean disabled Save controls everywhere | Per-form Manual save before fields; dirty-only Save/Discard, retained result/error announcements. Durable owner drafts outside the Settings folder also use the existing guard. 301 affected unit checks and actual profile/owner-limit persistence journeys pass. |
+| Caption preview separated, then duplicated | One artwork-backed preview lives within the actual caption row, reading the existing caption preference model. The shared player retains its original preview by default. |
+| Metrics precede health / serif admin subheadings | Overview now leads with real sampled health and Needs attention (missing items, unhealthy enabled roots, database errors and acquisition failures), with bounded clear-state wording. Failure details are moved, not repeated. Settings headings and metric data use the quiet sans hierarchy. |
+| Mobile history silently truncates columns | Visible horizontal-scroll and keyboard guidance; labelled focusable table remains scrollable. Light/dark phone keyboard tests pass. |
+| Full-page captures contain hidden skip-link artifact | Resting captures reset scroll and focus; the skip link is clipped until focused, remains first-tab reachable and targets the main landmark. Keyboard/200%/forced-color workflow passes. |
+| Player can cover settings actions | Hidden media tabs remove their clearance; continuing music/video retain their sessions, and focused settings controls scroll clear of the actual player. Phone/desktop continuation tests pass. |
+| Lazy shortcut / provider-focus races | Settings shortcut waits for its local search; focused registry targets wait for provider fields to enable. Generic heading focus respects actual field focus. The invitation→public-address deep link and 200% shortcut workflows pass. |
+| Mock success views show unrelated unhandled GET failures | Fixture shapes now match existing Plex, YouTube, updates, connector, acquisition and music-request read contracts. Refreshed successful empty states are legible; explicit dirty/rejected-save captures are separate. |
+
+The final detector over Settings and changed shell/health/activity presentation returns `[]`. It is supporting evidence, not a design or accessibility certification. [Settings registry coverage](web-settings-capability-matrix.md), [exact validation and limits](web-native-integration-status.md#settings-extension-completed), and the ignored review gallery at `output/web-native-final/settings/index.html` accompany the implementation. This extension remains undeployed.

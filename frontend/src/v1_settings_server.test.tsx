@@ -10,6 +10,7 @@ vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof im
 const { SETTINGS_SECTIONS, sectionById } = await import('./features/settings/registry');
 const { SectionRows } = await import('./features/settings/SettingRow');
 const { SettingsHostContext } = await import('./features/settings/settingsHost');
+const { confirmLeaveSettings } = await import('./features/settings/unsavedChanges');
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function showModal() { this.setAttribute('open', ''); };
@@ -61,15 +62,29 @@ describe('Server sections', () => {
     await waitFor(() => expect(api.deleteBackup).toHaveBeenCalledWith('b1'));
   });
 
-  it('shows recording cleanup once and saves its age and size limits', async () => {
+  it('shows recording cleanup once and saves its age and size limits only after confirmation', async () => {
     libraryApis();
     api.updateRecordingRetention.mockResolvedValue({ keep_days: 14, max_gb: 500 });
     renderSection('library');
     const form = await screen.findByRole('form', { name: 'Live recording cleanup' });
     expect(screen.getAllByRole('form', { name: 'Live recording cleanup' })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'About Imports' })).toBeTruthy();
+    expect(within(form).getByText('Manual save')).not.toBeNull();
+    expect(within(form).queryByRole('button', { name: 'Save cleanup policy' })).toBeNull();
     const days = within(form).getByRole('spinbutton', { name: 'Keep recordings for (days)' });
     const size = within(form).getByRole('spinbutton', { name: 'Total size for recordings (GB)' });
+    await userEvent.clear(days);
+    await userEvent.type(days, '14');
+    await userEvent.clear(size);
+    await userEvent.type(size, '500');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expect(confirmLeaveSettings()).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('You have unsaved changes in Live recording cleanup. Leave without saving?');
+    confirm.mockRestore();
+    await userEvent.click(within(form).getByRole('button', { name: 'Discard' }));
+    expect(api.updateRecordingRetention).not.toHaveBeenCalled();
+    expect((days as HTMLInputElement).value).toBe('30');
+    expect((size as HTMLInputElement).value).toBe('0');
     await userEvent.clear(days);
     await userEvent.type(days, '14');
     await userEvent.clear(size);

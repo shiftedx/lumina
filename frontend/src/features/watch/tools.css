@@ -86,7 +86,10 @@
 .moments-panel { display: grid; gap: 12px; }
 .moments-panel .chapter-navigation__item { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .moments-panel .chapter-navigation__seek { flex: 1; min-width: 0; }
-.moments-panel .chapter-navigation__title small { display: block; margin-top: 3px; color: var(--g-ink-3); font-size: 11px; font-weight: 400; }
+.moments-panel .chapter-navigation__header > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.moments-panel .chapter-navigation__count { margin: 0; }
+.moments-panel .chapter-navigation__list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-content: start; max-block-size: 288px; column-gap: 16px; }
+.moments-panel .chapter-navigation__seek { min-height: 44px; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 8px; padding: 6px 8px; }
 .moment-origin { padding: 2px 8px; border-radius: 999px; color: var(--g-ink-2); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .moment-origin[data-origin='suggested'] { color: var(--g-ink); }
 .moments-bookmark { display: flex; flex-wrap: wrap; gap: 8px; }

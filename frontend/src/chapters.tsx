@@ -1,6 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useId } from 'react';
-
-import { formatDuration } from './utils';
+import { type ReactNode } from 'react';
 
 export type TimelineChapter = {
   start_time: number;
@@ -100,34 +98,4 @@ function currentChapter(chapters: readonly TimelineChapter[], currentTime: numbe
   return chapters.reduce<TimelineChapter | undefined>((current, chapter) => (
     chapter.start_time <= time ? chapter : current
   ), undefined);
-}
-
-/** Chapters as a list under the description: timecode and name, the active one marked. */
-export function ChapterList({ chapters, currentTime, onSeek }: { chapters: readonly TimelineChapter[]; currentTime: number; onSeek: (seconds: number) => void }) {
-  const headingId = useId();
-  if (chapters.length < 2) return null;
-  const active = chapters.reduce((found, chapter, index) => (chapter.start_time <= currentTime ? index : found), 0);
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
-    if (!step) return;
-    const rows = [...(event.currentTarget.closest('ol')?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
-    const next = rows[rows.indexOf(event.currentTarget) + step];
-    if (!next) return;
-    event.preventDefault();
-    next.focus();
-  };
-  return (
-    <section aria-labelledby={headingId} className="g-chapters">
-      <h2 id={headingId}>Chapters</h2>
-      <ol>
-        {chapters.map((chapter, index) => (
-          <li key={`${index}-${chapter.start_time}`}>
-            <button aria-current={index === active ? 'true' : undefined} className={index === active ? 'is-active' : undefined} data-focus-item onClick={() => onSeek(chapter.start_time)} onKeyDown={onKeyDown} type="button">
-              <span className="g-label">{formatDuration(chapter.start_time)}</span><span className="g-chapter-name">{chapter.title}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
 }

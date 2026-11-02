@@ -1,12 +1,12 @@
 /**
  * The editorial column under a web video's player: kicker, serif headline, meta,
- * byline with Follow, actions, the full description (6-line clamp, every timestamp a seek, URLs as text), chapters and
+ * byline with Follow, actions, the full description (6-line clamp, every timestamp a seek, URLs as text) and
  * the remaining tools. WatchSurface computes every value; this only lays them out.
  */
 import { Check, Plus } from '../../luminaIcons';
 import { type ReactNode, useId, useState } from 'react';
 
-import { ChapterList, type DescriptionTimestamp, DescriptionWithTimestamps, type TimelineChapter } from '../../chapters';
+import { type DescriptionTimestamp, DescriptionWithTimestamps } from '../../chapters';
 import { formatCompactNumber } from '../../utils';
 import { channelPagePath, followAppLink, rememberChannel } from '../channels/channelMention';
 import { ChannelAvatar } from '../gallery/ChannelAvatar';
@@ -32,13 +32,11 @@ export type WatchInfoColumnProps = {
   feedback?: ReactNode;
   description: string | null;
   timestamps: readonly DescriptionTimestamp[];
-  chapters: readonly TimelineChapter[];
-  currentTime: number;
   onSeek: (seconds: number) => void;
   tools?: ReactNode;
 };
 
-export function WatchInfoColumn({ provider, badge, startsAt, saved, title, meta, channel, actions, recording, feedback, description, timestamps, chapters, currentTime, onSeek, tools }: WatchInfoColumnProps) {
+export function WatchInfoColumn({ provider, badge, startsAt, saved, title, meta, channel, actions, recording, feedback, description, timestamps, onSeek, tools }: WatchInfoColumnProps) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const cut = description && description.length > DESCRIPTION_MAX ? DESCRIPTION_MAX - (/[\uD800-\uDBFF]/.test(description[DESCRIPTION_MAX - 1]) ? 1 : 0) : 0;
@@ -74,7 +72,6 @@ export function WatchInfoColumn({ provider, badge, startsAt, saved, title, meta,
           {text.length > CLAMP_CHARS || text.split('\n').length > CLAMP_LINES ? <button className="g-text-button" data-focus-item onClick={() => setOpen((value) => !value)} type="button">{open ? 'Less' : 'More'}</button> : null}
         </div>
       ) : null}
-      <ChapterList chapters={chapters} currentTime={currentTime} onSeek={onSeek} />
       {tools}
     </section>
   );

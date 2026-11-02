@@ -53,18 +53,20 @@ describe('Moments', () => {
     expect(api.createLibraryNote).toHaveBeenCalledWith('film', { body: 'Great line', visibility: 'private', timestamp_ms: 12_300 });
     expect(onBookmarksChanged).toHaveBeenCalled();
 
-    const list = screen.getByRole('list', { name: 'Moments' });
+    const list = screen.getByRole('list', { name: 'Chapters & moments' });
     const current = within(list).getByRole('button', { name: /^Seek to 0:12: Mine/ });
     expect(current.getAttribute('aria-current')).toBe('true');
     await browser.click(current);
     expect(onSeek).toHaveBeenCalledWith(12.3);
+    await browser.keyboard('{ArrowUp}');
+    expect(document.activeElement).toBe(within(list).getByRole('button', { name: /^Seek to 0:10: Source chapter/ }));
     await browser.click(screen.getByRole('button', { name: 'Remove bookmark Mine' }));
     expect(api.deleteLibraryNote).toHaveBeenCalledWith('mine');
 
     await browser.click(screen.getByRole('switch', { name: 'Show AI suggestions' }));
     expect(onShowSuggested).toHaveBeenCalledWith(false);
     rerender(<MomentsPanel currentTime={0} getTime={() => 0} moments={moments} onBookmarksChanged={onBookmarksChanged} onSeek={onSeek} onShowSuggested={onShowSuggested} showSuggested={false} />);
-    expect(within(screen.getByRole('list', { name: 'Moments' })).getAllByRole('button').map((b) => b.textContent?.slice(0, 4))).toEqual(['0:10', '0:12', 'Remo']);
+    expect(within(screen.getByRole('list', { name: 'Chapters & moments' })).getAllByRole('button').map((b) => b.textContent?.slice(0, 4))).toEqual(['0:10', '0:12', 'Remo']);
     expect(screen.queryByRole('textbox')).toBeNull(); // streamed media has no owned record to bookmark
   });
 });

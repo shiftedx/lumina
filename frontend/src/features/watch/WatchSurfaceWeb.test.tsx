@@ -51,7 +51,10 @@ describe('the web-video watch page', () => {
     expect(container.querySelector('.g-watch-kicker')?.textContent).toBe('YouTube');
     expect(within(column).getByRole('link', { name: 'Chan' }).getAttribute('href')).toBe(`/channel/youtube/${CHANNEL_ID}`);
     expect(within(column).getByRole('button', { name: 'Save to library' })).toBeTruthy();
-    expect(within(column).getByRole('heading', { level: 2, name: 'Chapters' })).toBeTruthy();
+    expect(within(column).getByRole('heading', { level: 2, name: 'Chapters & moments' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Chapters' })).toBeNull();
+    expect(within(column).getAllByRole('button', { name: /^Seek to 1:00: Harbor/ })).toHaveLength(1);
+    expect(within(column).queryByText('Chapter from the source')).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Overview' })).toBeNull();
     expect(container.querySelector('aside.watch-rail')).toBeNull();
     expect(container.querySelector('.g-watch-side .g-up-next')).not.toBeNull();

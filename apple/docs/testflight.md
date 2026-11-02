@@ -588,3 +588,43 @@ resolution and HDR; HLS transport alone does not imply a video quality downgrade
 If it still downgrades, record diagnostics before closing/reopening the title,
 play about ten seconds, then finish/share the JSONL. Physical output confirmation
 remains pending this beta.
+
+### Internal dogfood package 44, 2026-11-01
+
+Version **0.1.0 (44)** is distribution-signed and staged for **iOS and tvOS**
+from clean main `e252213343f9dc4ec54552589a20d35454dee17f`, including
+[PR #260](https://github.com/shiftedx/lumina/pull/260) and the tvOS native AVKit
+transport from [PR #259](https://github.com/shiftedx/lumina/pull/259). It includes
+bounded reader/prefetch memory, the EPUB output limit, Requests genre caching
+and visible-hero detail admission, owned iOS/tvOS Home refreshes and cancelled
+load protection, prompt iOS Cast request cancellation, and owned/debounced
+metadata refreshes with Lumina-themed editing sheets. Earlier music persistence,
+observer, artwork reclamation and display-scale fixes are included. PrismCore
+remains pinned to `db42eb269ee629fe8ea81614b187fe290d2ec2d0`.
+
+Both Release device archives, automatic cloud-signing exports, signed IPAs and
+matching-symbol Organizer archives passed local validation. The staged copies
+also passed strict signatures, executable/dSYM UUID, device-family,
+artwork/privacy, source-input and fixture/test-hook exclusion checks. Both
+focused packaging safeguards passed. Focused native iOS/tvOS, Core, HTTP-counter
+and real Cast SDK request regressions passed; Edit metadata/Fix match captures
+were inspected in light, dark and increased contrast. No full suite or new
+physical Chromecast/HDR/HDMI/audio/energy qualification ran.
+
+Xcode Organizer visibly contains **Lumina iOS 0.1.0 (44) — Signed for Upload**
+and **Lumina tvOS 0.1.0 (44) — Signed for Upload**, each with version 44, its
+signing team and Distribute App available. tvOS 44 is left selected.
+**The owner uploads; this operation uploaded neither platform and deployed no
+server changes.** Exports remain TestFlight Internal Only with automatic build
+number changes disabled. Local staging does not establish Apple upload
+validation, processing or tester availability. Xcode showed iOS 43 already
+Uploaded to Apple; that upload was observed, not performed here. The browser
+App Store Connect session required sign-in, so build 44 was selected from local
+and Organizer inventory rather than a verified remote build list.
+
+Preserve ignored `apple/Distribution/0.1.0-44/`: unsigned source archives, signed
+IPAs, matching-symbol Organizer references, source snapshot/input hashes,
+release manifest, checksums, validation/export/distribution logs, staging
+observation and What to Test notes. Source provenance records the clean native
+build revision above; this later release-record update changes documentation
+only. Prior release packages and symbols remain preserved.

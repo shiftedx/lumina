@@ -815,7 +815,7 @@ private struct LibraryShellView: View {
     @State private var homeNavigationGeneration = 0
     @State private var uiTestingHomeNavigationDiagnostics = "route=root generation=0"
     #endif
-    @State private var libraryPath = [MediaItem]()
+    @State private var libraryPath = NavigationPath()
     @State private var homeCategory: HomeBrowseCategory = .all
     @State private var category: LibraryCategory = .movies
     @State private var homeLayout = LuminaHomeLayout()
@@ -878,7 +878,7 @@ private struct LibraryShellView: View {
             } else if selected == .library, !libraryPath.isEmpty {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { libraryPath.removeAll() }
+                withTransaction(transaction) { libraryPath = NavigationPath() }
             }
             destination = selected
         })) {
@@ -981,7 +981,7 @@ private struct LibraryShellView: View {
         })
         .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
             guard !isLibraryCategoryAvailable(category) else { return }
-            libraryPath.removeAll()
+            libraryPath = NavigationPath()
             if let first = LibraryCategory.allCases.first(where: isLibraryCategoryAvailable) {
                 category = first
             } else if destination == .library {
@@ -1064,7 +1064,7 @@ private struct LibraryShellView: View {
                     var transaction = Transaction(animation: nil)
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
-                        libraryPath.removeAll()
+                        libraryPath = NavigationPath()
                         destination = .library
                     }
                 }
@@ -1153,7 +1153,7 @@ private struct LibraryShellView: View {
     @ViewBuilder
     private func destinationStack<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
                                                   usesPortraitRail: Bool = false,
-                                                  path: Binding<[MediaItem]>? = nil,
+                                                  path: Binding<NavigationPath>? = nil,
                                                   @ViewBuilder content: () -> Content) -> some View {
         if let path {
             NavigationStack(path: path) {
@@ -1257,6 +1257,10 @@ private struct LibraryShellView: View {
                     }
                     #endif
                 }
+                .navigationDestination(for: MediaPerson.self) { person in
+                    ActorLibraryView(person: person, store: store)
+                        .toolbar { NativeNowPlayingToolbar(store: store) }
+                }
             .toolbarVisibility(usesIPadHeaderNavigation ? .hidden : .automatic, for: .tabBar)
             .tint(LuminaTheme.ink)
     }
@@ -1292,7 +1296,7 @@ private struct LibraryShellView: View {
         if fromHome {
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
-            withTransaction(transaction) { libraryPath.removeAll() }
+            withTransaction(transaction) { libraryPath = NavigationPath() }
         }
         category = selected
         destination = .library
@@ -4615,6 +4619,57 @@ private struct ArtworkView: View {
 }
 
 @MainActor
+private struct ActorLibraryView: View {
+    let person: MediaPerson
+    let store: LuminaStore
+    @State private var items: [MediaItem] = []
+    @State private var loading = true
+    @State private var message: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text(person.name).font(.largeTitle.bold())
+                Text("In your library").font(.subheadline).foregroundStyle(LuminaTheme.muted)
+                if loading {
+                    LibraryLoadingView()
+                } else if let message {
+                    InlineErrorView(message: message) { Task { await load() } }
+                } else if items.isEmpty {
+                    ContentUnavailableView("No titles found", systemImage: "person",
+                        description: Text("No movies or shows featuring this person are available in your library."))
+                } else {
+                    VideoPosterWall(items: items, store: store)
+                }
+            }
+            .padding(.horizontal, LuminaTheme.contentGutter)
+            .padding(.vertical, 24)
+        }
+        .background(LuminaTheme.paper)
+        .navigationTitle(person.name)
+        .standardPhonePushedChrome(store: store)
+        .accessibilityIdentifier("actorLibraryScreen")
+        .task(id: person) { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        loading = items.isEmpty
+        message = nil
+        defer { loading = false }
+        do {
+            let loaded = try await store.titles(featuring: person)
+            try Task.checkCancellation()
+            items = loaded
+        } catch is CancellationError {
+            return
+        } catch {
+            message = "These titles could not load. Check your connection and try again."
+        }
+    }
+}
+
+@MainActor
 private struct NativeTitleSupplement: View {
     let item: MediaItem
     let store: LuminaStore
@@ -4632,23 +4687,28 @@ private struct NativeTitleSupplement: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 16) {
                             ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    CachedArtworkImage(url: store.personImageURL(for: person)) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: {
-                                        LuminaTheme.ink.opacity(0.06)
-                                            .overlay { LuminaIcon(glyph: .profile, variant: .solid, size: 40).foregroundStyle(LuminaTheme.muted) }
+                                NavigationLink(value: person) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        CachedArtworkImage(url: store.personImageURL(for: person)) { image in
+                                            image.resizable().scaledToFill()
+                                        } placeholder: {
+                                            LuminaTheme.ink.opacity(0.06)
+                                                .overlay { LuminaIcon(glyph: .profile, variant: .solid, size: 40).foregroundStyle(LuminaTheme.muted) }
+                                        }
+                                        .frame(width: 112, height: 148)
+                                        .clipShape(.rect(cornerRadius: 8))
+                                        .accessibilityHidden(true)
+                                        Text(person.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                                        if let role = person.role, !role.isEmpty {
+                                            Text(role).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(2)
+                                        }
                                     }
-                                    .frame(width: 112, height: 148)
-                                    .clipShape(.rect(cornerRadius: 8))
-                                    .accessibilityHidden(true)
-                                    Text(person.name).font(.subheadline.weight(.medium)).lineLimit(2)
-                                    if let role = person.role, !role.isEmpty {
-                                        Text(role).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(2)
-                                    }
+                                    .frame(width: 112, alignment: .topLeading)
                                 }
-                                .frame(width: 112, alignment: .topLeading)
-                                .accessibilityElement(children: .combine)
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Find titles with \(person.name)")
+                                .accessibilityHint("Shows movies and shows in your library")
+                                .accessibilityIdentifier("detailActor-\(person.name)")
                             }
                         }
                     }

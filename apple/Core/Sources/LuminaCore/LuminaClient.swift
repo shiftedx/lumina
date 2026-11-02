@@ -134,9 +134,13 @@ final class LuminaClient: @unchecked Sendable {
         ))
     }
 
-    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init(), catalog: Bool = false, limit: Int = 50) async throws -> ItemPage {
-        let query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
+    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init(), catalog: Bool = false, limit: Int = 50, person: MediaPerson? = nil) async throws -> ItemPage {
+        var query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
                                  sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters, limit: limit)
+        if let person {
+            let id = person.id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            query.append(URLQueryItem(name: id.isEmpty ? "Persons" : "PersonIds", value: id.isEmpty ? person.name : id))
+        }
         let projected = catalog ? query.filter { $0.name != "Fields" } + [
             URLQueryItem(name: "Fields", value: "LuminaCatalog"),
         ] : query

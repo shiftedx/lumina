@@ -425,6 +425,47 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 5)
     }
 
+    func testActorTitlesUseThePersonFilterAndReadEveryPageWithoutReplacingLibrary() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { @Sendable request in
+            requests.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let value = { (name: String) in query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume", "/UserViews": return response(request, json: page(items: []))
+            case "/Items":
+                if value("PersonIds") == "actor-1" || value("Persons") == "Synthetic Performer" {
+                    XCTAssertEqual(value("IncludeItemTypes"), "Movie,Series")
+                    XCTAssertEqual(value("Recursive"), "true")
+                    XCTAssertNil(value("SearchTerm"), "A title-name search does not filter cast credits.")
+                    XCTAssertNil(value("ParentId"))
+                    let offset = Int(value("StartIndex") ?? "0") ?? 0
+                    let row = offset == 0 ? ["Id": "actor-movie", "Name": "A film", "Type": "Movie"] : ["Id": "actor-series", "Name": "B show", "Type": "Series"]
+                    return response(request, json: ["Items": [row], "TotalRecordCount": 2, "StartIndex": offset])
+                }
+                return response(request, json: page(items: [["Id": "library-film", "Name": "Retained library", "Type": "Movie"]]))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        await store.loadLibrary(kind: .movies)
+        let retained = store.items
+        let person = try JSONDecoder().decode(MediaPerson.self, from: json(["Id": "actor-1", "Name": "Synthetic Performer", "Type": "Actor"]))
+        let titles = try await store.titles(featuring: person)
+        XCTAssertEqual(titles.map(\.id), ["actor-movie", "actor-series"])
+        XCTAssertEqual(store.items, retained)
+        let nameOnly = try JSONDecoder().decode(MediaPerson.self, from: json(["Name": "Synthetic Performer", "Type": "Actor"]))
+        let fallback = try await store.titles(featuring: nameOnly)
+        XCTAssertEqual(fallback.map(\.id), titles.map(\.id))
+        XCTAssertEqual(requests.all.filter { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "PersonIds" || $0.name == "Persons" }
+        }.count, 4)
+    }
+
     func testCollectionsKeepMovieFranchisesPagedAndHouseholdListsOrdered() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))

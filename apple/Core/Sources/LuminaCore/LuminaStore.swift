@@ -484,8 +484,29 @@ let tickScale = 10_000_000.0
         }
     }
 
-    /// Searches the authenticated catalog without replacing the current Library
-    /// wall, its filters, pagination cursor, or alphabet anchors.
+    /// Actor-scoped catalog reads keep the current Library wall and its navigation state intact.
+    public func titles(featuring person: MediaPerson) async throws -> [MediaItem] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        var result: [MediaItem] = []
+        var start = 0
+        do {
+            while true {
+                try Task.checkCancellation()
+                let page = try await client.items(origin: active.serverURL, token: active.accessToken,
+                    deviceID: active.deviceID, search: "", start: start, types: "Movie,Series", person: person)
+                guard isCurrent(active) else { throw LuminaError.notSignedIn }
+                result.append(contentsOf: page.items)
+                start += page.items.count
+                if page.items.isEmpty || start >= page.total { return result }
+            }
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) { clearSession() }
+            throw error
+        }
+    }
+
+    /// Searches without replacing the current Library wall, filters, or alphabet anchors.
     public func searchHome(query: String) async throws -> [MediaItem] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }

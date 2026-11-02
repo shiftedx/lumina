@@ -25,6 +25,15 @@ final class NativeSearchPresentationTests: NativeProofJourney {
 }
 #endif
 
+#if os(iOS)
+@MainActor
+final class NativeActorLibraryTests: NativeProofJourney {
+    func testCastOpensActorTitlesAndBackReturnsToTheTitle() throws {
+        try journeyActorLibrary()
+    }
+}
+#endif
+
 @MainActor
 final class NativeCollectionsTests: NativeProofJourney {
     #if os(iOS)
@@ -553,6 +562,45 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
+    func journeyActorLibrary() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        // The simulator may report visible poster links as non-hittable; verify their
+        // bounds and exercise the same on-screen tap rather than bypassing navigation.
+        func tapVisible(_ control: XCUIElement) throws {
+            try waitForExistence(control, timeout: 20, named: "visible navigation control")
+            let visible = control.frame.intersection(try applicationViewport())
+            guard visible.width >= 44, visible.height >= 44 else { throw ProofFailure.ui("Navigation target is outside the viewport") }
+            application!.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: visible.midX, dy: visible.midY)).tap()
+        }
+        try selectTourVideoCategory("movies")
+        let original = try revealLibraryItem(id: fixture.directItemID, named: "original movie")
+        try tapVisible(original)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "original title detail")
+        let actor = element("detailActor-Synthetic Performer")
+        try revealDetailElement(actor, in: element("detailScreen"), named: "actor link", requiresHittable: false)
+        try tapVisible(actor)
+        try waitForExistence(element("actorLibraryScreen"), timeout: 20, named: "actor library")
+        let film = element("libraryItem-\(fixture.directItemID)")
+        try waitForExistence(film, timeout: 25, named: "actor's movie")
+        let attachment = XCTAttachment(screenshot: application!.screenshot())
+        attachment.name = "actor-library-grid"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try tapVisible(film)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "filtered title detail")
+        if usesStandardPhonePushedChrome { try musicBack() }
+        else { try tapVisible(application!.buttons.matching(identifier: "BackButton").firstMatch) }
+        try waitForExistence(element("actorLibraryScreen"), timeout: 20, named: "retained actor results")
+        if usesStandardPhonePushedChrome { try musicBack() }
+        else { try tapVisible(application!.buttons.matching(identifier: "BackButton").firstMatch) }
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "original title detail")
+        completed = true
+    }
+
     func journeyCollectionFilter() throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }

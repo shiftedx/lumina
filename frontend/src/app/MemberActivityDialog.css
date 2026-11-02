@@ -15,9 +15,9 @@
 .member-activity-stats { display: flex; gap: var(--g-space-6); margin: var(--g-space-4) 0 0; }
 .member-activity-stats dt { color: var(--g-ink-3); font: var(--g-type-label); }
 .member-activity-stats dd { margin: 2px 0 0; font: var(--g-type-h3); }
-.member-activity-chart { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); align-items: end; gap: 6px; height: 104px; margin: var(--g-space-5) 0 var(--g-space-2); padding: 0; list-style: none; }
+.member-activity-chart { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); align-items: end; gap: 6px; height: 128px; margin: var(--g-space-5) 0 var(--g-space-2); padding: 0; list-style: none; }
 .member-activity-chart li { display: grid; grid-template-rows: 1fr auto; min-width: 0; height: 100%; gap: 6px; }
-.member-activity-chart li span { display: block; align-self: end; width: 100%; height: var(--member-activity-height); min-height: 3px; border-radius: var(--g-radius-round); background: var(--g-rule-soft); transition: height var(--g-pop); }
+.member-activity-chart li span { display: block; align-self: end; justify-self: center; width: min(100%, 10px); height: var(--member-activity-height); min-height: 3px; border-radius: 2px; background: var(--g-rule-soft); transition: height var(--g-pop); }
 .member-activity-chart li span.is-active { background: var(--g-gold); }
 .member-activity-chart small { overflow: hidden; color: var(--g-ink-3); font: var(--g-type-label); text-align: center; }
 .member-activity-zone { margin: 0; color: var(--g-ink-3); font: var(--g-type-small); }

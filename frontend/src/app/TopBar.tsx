@@ -198,11 +198,9 @@ export function TopBar(props: TopBarProps) {
         {accountOpen ? <MemberActivityDialog open
           activity={summaryMember === user.id ? activitySummary : null} activityState={summaryMember === user.id ? summaryState : 'loading'} onRetryActivity={() => setSummaryAttempt((attempt) => attempt + 1)}
           user={user} theme={theme} onTheme={props.onTheme} onClose={() => setAccountOpen(false)}
-          switchMemberLabel={ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…'}
-          onSwitchMember={accountAction(openMemberPicker)}
+          onSwitchMember={(ringSize ?? 0) > 0 ? accountAction(openMemberPicker) : undefined}
           onEditHome={accountAction(() => { flushSync(props.onHome); requestAnimationFrame(() => requestHomeEdit()); })}
           onMobileConnect={accountAction(() => setMobileConnectOpen(true))}
-          onSettings={accountAction(props.onSettings)} onManageServer={props.onManageServer ? accountAction(props.onManageServer) : undefined}
           onSignOut={accountAction(props.onSignOut)}
         /> : null}
         {mobileConnectOpen ? <MobileConnectDialog onClose={() => setMobileConnectOpen(false)} open user={user} /> : null}

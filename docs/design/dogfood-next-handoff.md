@@ -1,6 +1,6 @@
 # Continue Lumina app dogfooding
 
-Current continuation handoff, October 31, 2026. Use this for the owner's next native-app screenshot, recording, bug or small feature request. Older handoffs describe historical batches; this document supplies the current workflow.
+Current continuation handoff, November 1, 2026. Use this for the owner's next native-app screenshot, recording, bug or small feature request. Older handoffs describe historical batches; this document supplies the current workflow.
 
 **Focused testing only. Test the specific change. A full repository, Core or native UI suite requires the owner's direct request.** This explicit owner instruction overrides older `make check` requirements in repository docs and skills. Land accepted fixes on main; all current features must stay together.
 
@@ -74,31 +74,37 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Only when the owner requests another build
 
-### Current release and production status, October 31
+### Current release and production status, November 1
 
-The latest staged packages are **iOS and tvOS 0.1.0 (43)** from clean main
-`eed35c244053a4b9bff0a7905a852a3d8d8112cb`. Both include PR #252's approved
-server-media recovery before H.264/SDR, plus the safe startup-error capture and
-all earlier native fixes. Physical HDR output confirmation remains pending.
-Keep Automatic quality and test the affected title, Resume/Start Over, seeking
-and track changes. If it still downgrades, record before reopening playback and
-share the JSONL after about ten seconds.
+The latest staged packages are **iOS and tvOS 0.1.0 (44)** from clean main
+`e252213343f9dc4ec54552589a20d35454dee17f`, including PR #260 and PR #259's
+native AVKit tvOS transport. Both include all earlier native fixes, including
+music persistence/observer cleanup, reader display scaling/artwork reclamation,
+encoded-reader memory/output bounds, Requests cache/detail admission, owned
+Home refreshes on both platforms, iOS Cast cancellation, and metadata refresh
+coalescing and Lumina-themed sheets. PrismCore's immutable revision is unchanged.
 
-Both distribution-signed IPAs and matching-symbol Organizer references passed
-local validation. Both are visibly staged as **Signed for Upload** with build
-43 and the signing team; iOS 43 is left selected. **The owner will upload; this
-operation uploaded neither platform and deployed no server changes.** Internal
-Only and fixed build numbering remain enabled. Signatures, UUIDs, source hashes,
-device families, artwork/privacy and fixture/fault-hook exclusion passed, as did
-both packaging safeguards. No full suite or new physical-device qualification
-ran. Preserve ignored `apple/Distribution/0.1.0-43/` and the
-[build-43 release record](../../apple/docs/testflight.md#internal-dogfood-package-43-2026-10-31).
+Both signed IPAs and matching-symbol Organizer references passed local signature,
+UUID, device-family, artwork/privacy, fixture/test-hook exclusion and source-input
+checks, including their staged copies. Both packaging safeguards passed. Focused
+native/Core/HTTP/SDK checks passed; metadata sheets were inspected in light, dark
+and increased contrast. No full suite or new physical-device qualification ran.
+Xcode visibly shows both **Signed for Upload** archives with build 44, the signing
+team and Distribute App available; tvOS 44 is left selected. **The owner uploads;
+this operation uploaded neither platform and deployed no server changes.**
+Internal Only and fixed build numbering remain enabled. Preserve ignored
+`apple/Distribution/0.1.0-44/` and the
+[build-44 release record](../../apple/docs/testflight.md#internal-dogfood-package-44-2026-11-01).
 
-During build-43 staging, Xcode showed **iOS 42 and tvOS 41 Uploaded to Apple**;
-those uploads were observed, not performed here. Preserve both and all earlier
-release packages. Local staging does not establish Apple upload validation,
-processing or tester availability for 43. Packaging did not deploy the backend;
-the subsequent production rollout below includes the AAC-only HLS correction.
+During build-44 staging, Xcode showed **iOS 43 Uploaded to Apple**; that upload was
+observed, not performed here. The browser App Store Connect session required
+sign-in; no remote inventory, Apple validation, processing or tester-availability
+claim is made for 44. Prior 43 and earlier packages remain preserved. Continue
+Automatic-quality physical HDR, Resume/Start Over, seeking and track checks; if
+quality still downgrades, record before reopening playback and share the JSONL
+after about ten seconds. Use What to Test for the new client lifecycle/reader,
+Requests, metadata, Cast and TV transport checks. Packaging did not deploy the
+backend; the production status below is unchanged by this release.
 
 The earlier observed uploads are **iOS and tvOS 0.1.0 (40)** from clean main
 `63eb0ccb9818fb60d6e9b37595bec1283c6f4049`. During build-41 staging, Xcode

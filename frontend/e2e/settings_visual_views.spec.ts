@@ -54,6 +54,8 @@ test('bookmarked controls and group anchors focus their destination after loadin
   await expect(page.getByRole('combobox', { name: 'Maximum quality' })).toBeFocused();
   await page.goto('/settings/playback?page=watching#settings-group-captions');
   await expect(page.locator('#settings-group-captions')).toBeFocused();
+  const [group, header] = await Promise.all([page.locator('#settings-group-captions').boundingBox(), page.locator('.g-topbar').boundingBox()]);
+  expect(group!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
   await expect(page.getByRole('heading', { name: 'Captions', exact: true })).toBeVisible();
 });
 

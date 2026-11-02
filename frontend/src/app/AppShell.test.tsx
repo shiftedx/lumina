@@ -10,11 +10,11 @@ const libraryActivity = vi.hoisted(() => ({ useLibraryActivity: vi.fn(() => ({ s
 vi.mock('./useLibraryActivity', () => libraryActivity);
 
 const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_active: true } as UserProfile;
-function Host({ focused = false, onNavigate = vi.fn(), onManageServer = vi.fn(), surface = 'home' as Surface, managingServer = false, mobile = false } = {}) {
+function Host({ focused = false, onNavigate = vi.fn(), onManageServer = vi.fn(), surface = 'home' as Surface, managingServer = false, mobile = false, videoView = undefined as string | undefined } = {}) {
   const [open, setOpen] = useState(false);
   return <AppShell activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} focused={focused} mainRef={createRef()} menuButtonRef={createRef()} mobile={mobile}
     moreItems={null} navigationOpen={open} onAddLink={vi.fn()} onCloseNavigation={() => setOpen(false)} onMenu={() => setOpen((value) => !value)} onNavigate={onNavigate} onSearch={vi.fn()} onSettings={vi.fn()} onManageServer={onManageServer}
-    onSignOut={vi.fn()} onTheme={vi.fn()} surface={surface} managingServer={managingServer} theme="system" user={user}><h1>Page</h1></AppShell>;
+    onSignOut={vi.fn()} onTheme={vi.fn()} surface={surface} videoView={videoView} managingServer={managingServer} theme="system" user={user}><h1>Page</h1></AppShell>;
 }
 
 describe('anchored navigation', () => {
@@ -35,6 +35,12 @@ describe('anchored navigation', () => {
     expect(screen.getByRole('button', { name: /account menu/ })).toBeTruthy();
     rerender(<Host surface="settings" managingServer mobile />);
     expect(screen.getByText('Manage server', { exact: true })).toBeTruthy();
+  });
+
+  it.each([['movies', 'Movies'], ['shows', 'Shows'], ['anime', 'Anime'], ['youtube', 'YouTube'], ['all', 'All video']])('names the active %s library in the global header', (view, label) => {
+    render(<Host surface="video" videoView={view} />);
+    expect(screen.getByRole('banner').textContent).toContain(label);
+    expect(screen.getByRole('link', { name: 'Lumina home' })).toBeTruthy();
   });
 
   it('scopes library activity polling to the signed-in member', () => {

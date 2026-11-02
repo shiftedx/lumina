@@ -1,6 +1,6 @@
 /* Settings share label/control columns and touch targets. Short forms can use parallel
    fields; switches keep their description across the full row. */
-.g-setting-row { display: grid; grid-template-columns: minmax(0, 1fr) min(20rem, 48%); align-content: start; align-items: center; gap: 12px 40px; min-width: 0; padding: 12px 0; scroll-margin-top: 24px; border-bottom: var(--g-rule); }
+.g-setting-row { display: grid; grid-template-columns: minmax(0, 1fr) min(20rem, 48%); align-content: start; align-items: center; gap: 12px 40px; min-width: 0; padding: 12px 0; scroll-margin-top: calc(var(--g-topbar) + env(safe-area-inset-top) + 16px); border-bottom: var(--g-rule); }
 .g-setting-row.is-switch { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
 .is-switch > .g-setting-head { display: contents; }
 .is-switch .g-setting-title { grid-column: 1; grid-row: 1; }
@@ -98,7 +98,7 @@
 .g-settings-section-head .g-label { margin: 0 0 8px; color: var(--g-gold-ink); }
 .g-settings-jumps { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 24px; padding-bottom: 16px; border-bottom: var(--g-rule); }
 .g-settings-page-link { display: inline-flex; align-items: center; min-width: var(--g-control); min-height: var(--g-control); color: var(--g-ink-2); font: var(--g-type-small); text-decoration: underline; text-underline-offset: 4px; }
-.g-settings-group { min-width: 0; margin-bottom: 24px; scroll-margin-top: 24px; }
+.g-settings-group { min-width: 0; margin-bottom: 24px; scroll-margin-top: calc(var(--g-topbar) + env(safe-area-inset-top) + 16px); }
 .g-settings-group-title { margin: 0 0 12px; font: var(--g-type-h3); }
 .g-settings-group:focus { outline: none; }
 .g-settings-group:focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 4px; }
@@ -414,7 +414,7 @@
 .g-settings-header .g-masthead h1 { font: inherit; }
 .g-settings-welcome { display: none; }
 .g-settings-search { margin: 0 0 12px; }
-.g-settings-navigation { top: 20px; }
+.g-settings-navigation { top: calc(var(--g-topbar) + env(safe-area-inset-top) + 20px); }
 .g-settings-sidebar { gap: 18px; }
 .g-settings-nav-group h2 { margin: 0 0 6px; color: var(--g-ink-3); font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: none; }
 .g-settings-link { gap: 10px; min-height: 40px; padding: 4px 0; border-radius: 0; font-size: 14px; }

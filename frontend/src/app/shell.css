@@ -31,7 +31,7 @@
 }
 @media (forced-colors: active) { .g-nav-item.is-active, .g-mobile-tabs button.is-active { border-color: Highlight; } }
 /* Direction A: compact toolbar; the media stage continues behind it. */
-.g-topbar { position: relative; z-index: var(--g-z-topbar); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: calc(var(--g-topbar) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--g-gutter) 0 16px; border-bottom: 0; background: var(--g-paper); }
+.g-topbar { position: sticky; top: 0; z-index: var(--g-z-topbar); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: calc(var(--g-topbar) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--g-gutter) 0 16px; border-bottom: 0; background: var(--g-paper); }
 .g-topbar-start, .g-topbar-end { display: flex; align-items: center; gap: 8px; }
 .g-topbar-brand { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; color: var(--g-ink); text-decoration: none; }
 .g-search-trigger { display: flex; width: max-content; min-height: var(--g-control); align-items: center; gap: 10px; justify-self: end; padding: 1px 0 0; border: 0; border-bottom: 0; background: transparent; color: var(--g-ink-3); cursor: pointer; font: var(--g-type-ui); text-align: start; }
@@ -88,10 +88,9 @@
 .g-navigation-close { position: absolute; inset-inline-end: 8px; top: 8px; }
 
 .g-topbar { padding-inline: 30px; }
-.g-topbar-start { padding-inline-start: 56px; gap: 16px; }
-.g-topbar-start > .g-icon-button { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 24px; z-index: var(--g-z-topbar); border-radius: 50%; background: var(--g-paper-2); color: var(--g-ink); }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: absolute; inset: 0 0 auto; background: var(--g-scrim-top); color: var(--g-on-art); }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar :is(.g-topbar-context, .g-topbar-brand, .g-search-trigger, .g-activity, .g-topbar-end > .g-button, .g-topbar-end > .g-icon-button) { color: var(--g-on-art); }
+.g-topbar-start { gap: 16px; }
+.g-topbar-start > .g-icon-button { flex: none; border-radius: 50%; background: var(--g-paper-2); color: var(--g-ink); }
+.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: fixed; inset: 0 0 auto; }
 .g-profile-trigger .g-avatar { font-family: var(--g-sans); font-style: normal; }
 .g-nav-item { min-height: 48px; border-radius: 10px; }
 .g-nav-group-label { margin-block: 12px 8px; font: var(--g-type-small); }
@@ -101,8 +100,7 @@
 .g-nav-group + .g-nav-group { padding-top: 12px; border-top: var(--g-rule); }
 @media (max-width: 680px) {
   .g-topbar { padding-inline: 16px; }
-  .g-topbar-start { padding-inline-start: 48px; gap: 10px; }
-  .g-topbar-start > .g-icon-button { top: calc(10px + env(safe-area-inset-top)); left: 12px; }
+  .g-topbar-start { gap: 10px; }
   .g-topbar-end { gap: 0; }
   .g-navigation-popover { max-height: calc(100dvh - var(--g-mobile-nav-height) - 24px); }
 }
@@ -114,7 +112,6 @@
 }
 
 .g-topbar .g-kbd { color: inherit; border-color: currentColor; }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-hero, .books-overview-hero, .books-title-hero, .books-series-hero, .t-hero, .rq-title-hero) .g-topbar .g-activity-ring { background: conic-gradient(var(--g-brand) var(--progress, 0deg), var(--g-overlay-track) 0); }
 
 /* Settings keeps forms clear of media navigation while retaining the global menu. */
 @media (max-width: 680px) {

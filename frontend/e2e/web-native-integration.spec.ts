@@ -136,3 +136,36 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: `../output/web-native/movies-zoom-contrast-${width}.png` });
   });
 }
+
+for (const width of [1440, 768, 390, 320]) for (const lens of ['movies', 'shows'] as const) {
+  test(`library header stays at the top without a gap or overlapping labels: ${lens} ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+    await mockApi(page, {}); await mockGalleryWall(page, { total: 120, artwork: true });
+    await page.goto(`/video/${lens}`); await signIn(page);
+    const name = lens === 'movies' ? 'Movies' : 'Shows';
+    await expect(page.getByRole('heading', { level: 1, name })).toBeAttached();
+    const header = page.locator('.g-topbar');
+    await expect(header.locator('.g-topbar-context')).toHaveText(name);
+    const top = await header.boundingBox();
+    const brand = await header.getByRole('link', { name: 'Lumina home' }).boundingBox();
+    const context = await page.locator('.g-browse-context').boundingBox();
+    expect.soft(context!.y, 'library lenses clear the global logo and menu').toBeGreaterThanOrEqual(top!.y + top!.height);
+    expect.soft(brand!.x + brand!.width, 'library title starts after the logo').toBeLessThanOrEqual((await header.locator('.g-topbar-context').boundingBox())!.x);
+    await page.evaluate(() => window.scrollTo(0, 1000));
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(900);
+    const scrolledHeader = await header.boundingBox();
+    const toolbar = await page.locator('.g-wall > .g-toolbar').boundingBox();
+    expect.soft(scrolledHeader!.y, 'the whole navigation stays at the viewport top').toBe(0);
+    expect.soft(Math.abs(toolbar!.y - scrolledHeader!.y - scrolledHeader!.height), 'filters follow the pinned header with no vacant band').toBeLessThanOrEqual(16);
+    await page.screenshot({ path: `../output/nav-scroll/${lens}-${width}-scrolled.png` });
+    await page.goto(`/video/${lens}?q=Title`);
+    await expect(page.locator('.g-browse-hero')).toHaveCount(0);
+    await expect(header.locator('.g-topbar-context')).toHaveText(name);
+    const heading = await page.getByRole('heading', { level: 1, name }).boundingBox();
+    const logo = await header.getByRole('link', { name: 'Lumina home' }).boundingBox();
+    expect(heading!.width <= 1 || heading!.y >= logo!.y + logo!.height, 'filtered library title does not overlap the logo').toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: `../output/nav-scroll/${lens}-${width}-filtered.png` });
+  });
+}

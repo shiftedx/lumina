@@ -242,7 +242,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
       </section> : null}
       {header ? header(sortedBy) : (
         <header className="g-masthead" onKeyDown={downToGrid}>
-          <h1 className={hero ? 'sr-only' : undefined}>{def.heading}</h1>
+          <h1 className={hero || videoBrowse ? 'sr-only' : undefined}>{def.heading}</h1>
           <p className="g-label g-kicker">{kicker}</p>
           {canEdit && def.shape !== 'square' ? (
             <button aria-pressed={selecting} className="g-button g-button-text" onClick={() => (selecting ? stopSelecting() : setSelecting(true))} ref={selectButton} type="button">Select</button>

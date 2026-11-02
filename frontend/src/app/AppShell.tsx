@@ -2,6 +2,7 @@ import { forwardRef, type FocusEventHandler, type ReactNode, type RefObject, use
 import type { ThemePreference } from '../theme';
 import type { UserProfile } from '../types';
 import type { CollectionLoadState } from '../workspace';
+import { LENS_LABELS, type LibraryLens } from '../features/gallery/libraryLens';
 import { MobileTabs, NavigationPopover } from './Navigation';
 import type { Surface } from './routes';
 import { TopBar } from './TopBar';
@@ -50,6 +51,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   onSignOut: () => void;
   moreItems: ReactNode;
 }) {
+  const libraryLabel = videoView && Object.hasOwn(LENS_LABELS, videoView) ? LENS_LABELS[videoView as LibraryLens] : videoView === 'collections' ? 'Collections' : 'All video';
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const libraryActivity = useLibraryActivity(user.id);
@@ -63,10 +65,10 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
       {focused ? null : <NavigationPopover videoView={videoView} onVideoView={onVideoView} anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
       <div className="app-background">
         {announcer}
-        {focused ? null : <TopBar contextLabel={surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? videoView === 'shows' ? 'Shows' : videoView === 'movies' ? 'Movies' : 'Video' : surface === 'settings' ? managingServer ? 'Manage server' : 'My settings' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch || surface === 'settings'} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
+        {focused ? null : <TopBar contextLabel={surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? libraryLabel : surface === 'settings' ? managingServer ? 'Manage server' : 'My settings' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch || surface === 'settings'} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
         <MainLandmark onFocusCapture={surface === 'settings' ? (event) => {
           const target = event.target;
-          if (target.closest('.music-dock, .music-mini, .watch-mini, dialog')) return;
+          if (target.closest('.music-dock, .music-mini, .watch-mini, dialog') || !target.matches('button, a, input, textarea, select, summary, [role=combobox]')) return;
           requestAnimationFrame(() => {
             if (!target.isConnected || !mainRef.current) return;
             const bounds = target.getBoundingClientRect();
@@ -74,7 +76,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
               const box = player.getBoundingClientRect();
               return box.height && bounds.right > box.left && bounds.left < box.right ? Math.min(edge, box.top) : edge;
             }, window.innerHeight);
-            if (bounds.bottom > top - 16) window.scrollBy({ top: bounds.bottom - top + 16, behavior: 'instant' });
+            if (top < window.innerHeight && bounds.bottom > top - 16) window.scrollBy({ top: bounds.bottom - top + 16, behavior: 'instant' });
           });
         } : undefined} ref={mainRef}>{children}</MainLandmark>
         {focused || surface === 'settings' ? null : <MobileTabs videoView={videoView} onVideoView={onVideoView} activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}

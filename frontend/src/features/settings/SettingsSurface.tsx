@@ -143,7 +143,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
         return false; // A provider may enable or mount its real field after loading.
       }
       (heading ? target : control!).focus();
-      target.scrollIntoView?.({ block: 'nearest', behavior: 'instant' });
+      target.scrollIntoView?.({ block: heading ? 'start' : 'nearest', behavior: 'instant' });
       pendingFocus.current = null;
       return true;
     };

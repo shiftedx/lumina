@@ -729,6 +729,7 @@ private struct TVLibraryView: View {
     @State private var videoBrowse = TVVideoBrowseState()
     @State private var audioBrowse = TVAudioBrowseState()
     @State private var deviceSettingsPresented = false
+    @State private var lastHomeHeaderCategory: HomeBrowsingDestination = .movies
     @State private var contentFocusRequest = 0
     @State private var restorationDestination: TVDestination?
     @State private var restorationRequest = 0
@@ -753,6 +754,7 @@ private struct TVLibraryView: View {
                                 onOpen: onOpen,
                                 onPlayback: onPlayback,
                                 focusRequest: contentFocusRequest,
+                                onRequestHeaderFocus: { focusedPrimaryCategory = primaryCategories.contains(lastHomeHeaderCategory) ? lastHomeHeaderCategory : primaryCategories.first },
                                 header: { navigationHeader(topInset: max(geometry.safeAreaInsets.top, geometry.frame(in: .global).minY)) }
                             )
                         } else {
@@ -816,6 +818,9 @@ private struct TVLibraryView: View {
             homeFeed.configure(session: store.session)
             homeSessionScope = TVHomeSessionScope(store.session)
         }
+        .onChange(of: focusedPrimaryCategory) { _, focused in
+            if destination == .home, let focused { lastHomeHeaderCategory = focused }
+        }
         .onChange(of: store.availableLibraryCategories) { _, available in
             if destination == .library, !available.contains(libraryCategory.rawValue) {
                 selectHomeDestination(.all)
@@ -842,7 +847,10 @@ private struct TVLibraryView: View {
             }
             .focusSection()
             .onMoveCommand { direction in
-                if direction == .down, destination == .requests { contentFocusRequest += 1 }
+                if direction == .down,
+                   destination == .home || destination == .requests || destination == .library && libraryCategory == .music {
+                    contentFocusRequest += 1
+                }
             }
             .ignoresSafeArea(.container, edges: .horizontal)
     }
@@ -911,22 +919,25 @@ private struct TVLibraryView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            Button { selectHomeDestination(.all) } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    LuminaBrandMark()
-                        .frame(width: 42, height: 26)
-                        .luminaBrandMarkBaseline()
-                    Text("LUMINA")
-                        .font(.system(size: 26, weight: .heavy))
-                        .tracking(3)
-                        .foregroundStyle(LuminaTheme.ink)
+            HStack(spacing: 24) {
+                LuminaBrandMark()
+                    .frame(width: 42, height: 26)
+                    .accessibilityHidden(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Lumina")
+                    .accessibilityAddTraits(.isImage)
+                    .accessibilityIdentifier("homeMasthead")
+                Button { selectHomeDestination(.all) } label: {
+                    Label("Home", glyph: .home, size: 28).labelStyle(.iconOnly)
+                        .frame(width: 64, height: 64)
                 }
-                .frame(width: 260, alignment: .leading)
+                .buttonStyle(TVNavigationButtonStyle())
+                .focusEffectDisabled()
+                .focused($focusedDestination, equals: .home)
+                .accessibilityIdentifier("homeNavigationButton")
+                Spacer(minLength: 0)
             }
-            .buttonStyle(LuminaUnderlineTabStyle(selected: false, alignsWithMasthead: true))
-            .accessibilityLabel("Lumina")
-            .accessibilityHint("Return to Home")
-            .accessibilityIdentifier("homeMasthead")
+            .frame(width: 260, alignment: .leading)
 
             HStack(spacing: 20) {
                 ForEach(primaryCategories, id: \.self) { category in
@@ -1132,6 +1143,7 @@ private struct TVHomeView<Header: View>: View {
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let focusRequest: Int
+    let onRequestHeaderFocus: () -> Void
     @ViewBuilder let header: Header
     @Environment(\.scenePhase) private var scenePhase
     #if LUMINA_UI_TESTING
@@ -1171,6 +1183,7 @@ private struct TVHomeView<Header: View>: View {
                             onOpen: onOpen,
                             onPlayback: onPlayback,
                             focusRequest: focusRequest,
+                            onRequestHeaderFocus: onRequestHeaderFocus,
                             minimumHeight: min(900, max(620, geometry.size.height * 0.82)),
                             onWatchlistChanged: { await feed.load() }
                         )
@@ -1755,6 +1768,7 @@ private struct TVFeaturedView: View {
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let focusRequest: Int
+    let onRequestHeaderFocus: () -> Void
     var minimumHeight: CGFloat
     var onWatchlistChanged: @MainActor () async -> Void = {}
     @State private var preparing = false
@@ -1802,6 +1816,13 @@ private struct TVFeaturedView: View {
             watchlist = model
             watchlistItemID = item.id
             await model.load(itemID: item.id)
+        }
+        .onChange(of: focusRequest) { _, _ in
+            guard selectedItem != nil, !preparing else { return }
+            focusedAction = "play"
+        }
+        .onMoveCommand { direction in
+            if direction == .up { onRequestHeaderFocus() }
         }
         // Menu restores the last browsing selection. Deliberately avoid
         // redirecting that return path to Play when Home is recreated.

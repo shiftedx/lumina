@@ -1,0 +1,3149 @@
+{
+  "schema_version": 1,
+  "source_revision": "a5e9329f32b9c6f1fb91f7a42b023dcd035a9be4",
+  "generated_from": {
+    "source": "frontend/src/api.ts",
+    "parser": "TypeScript compiler API already installed in frontend/node_modules",
+    "extraction": "AST direct-call traversal; manual list for non-api.ts primitives"
+  },
+  "scope": {
+    "included": [
+      "every exported api.ts declaration that directly calls requestJson/post/put/patch/del",
+      "direct browser network primitives in production frontend source",
+      "explicit URL builders that identify browser-controlled API resources"
+    ],
+    "excluded": [
+      "type-only exports",
+      "constants and non-network helpers",
+      "test files",
+      "browser image/video/audio subrequests whose URLs originate from response data",
+      "native clients and backend-to-backend traffic"
+    ]
+  },
+  "counts": {
+    "api_ts_wrapper_call_sites": 323,
+    "api_ts_wrapper_classifications": {
+      "transport_helper": 4,
+      "network_wrapper": 310,
+      "symbolic_static_path": 6,
+      "path_builder": 3
+    },
+    "direct_network_sites": 13,
+    "url_builders": 3,
+    "reexports": 0
+  },
+  "api_ts_network_wrappers": [
+    {
+      "name": "requestJson",
+      "method": "dynamic (init.method; GET default)",
+      "path_expression": "path",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 189,
+      "classification": "transport_helper",
+      "call_index": 1
+    },
+    {
+      "name": "post",
+      "method": "POST",
+      "path_expression": "path",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 256,
+      "classification": "transport_helper",
+      "call_index": 1
+    },
+    {
+      "name": "put",
+      "method": "PUT",
+      "path_expression": "path",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 257,
+      "classification": "transport_helper",
+      "call_index": 1
+    },
+    {
+      "name": "del",
+      "method": "DELETE",
+      "path_expression": "path",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 259,
+      "classification": "transport_helper",
+      "call_index": 1
+    },
+    {
+      "name": "getHealth",
+      "method": "GET",
+      "path_expression": "'/api/health'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 267,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getRuntimeHealth",
+      "method": "GET",
+      "path_expression": "'/api/runtime-health'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 268,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getBootstrapStatus",
+      "method": "GET",
+      "path_expression": "'/api/bootstrap/status'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 269,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createInitialAdmin",
+      "method": "POST",
+      "path_expression": "'/api/bootstrap/admin'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 270,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "loginSession",
+      "method": "POST",
+      "path_expression": "'/api/session/login'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 273,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getOAuthProviders",
+      "method": "GET",
+      "path_expression": "'/api/session/oauth/providers'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 276,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "startOAuth",
+      "method": "POST",
+      "path_expression": "`/api/session/oauth/${enc(providerId)}/start`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 278,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "verifyTwoFactor",
+      "method": "POST",
+      "path_expression": "'/api/session/two-factor'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 279,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "logoutSession",
+      "method": "POST",
+      "path_expression": "'/api/session/logout'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 280,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getSession",
+      "method": "GET",
+      "path_expression": "'/api/session/me'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 282,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getShowcase",
+      "method": "GET",
+      "path_expression": "'/api/public/showcase'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 287,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getDeviceMembers",
+      "method": "GET",
+      "path_expression": "'/api/session/device-members'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 288,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "switchMember",
+      "method": "POST",
+      "path_expression": "'/api/session/switch'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 289,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "forgetDeviceMember",
+      "method": "POST",
+      "path_expression": "'/api/session/forget'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 290,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateDisplayName",
+      "method": "PUT",
+      "path_expression": "'/api/session/me'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 291,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMyAccess",
+      "method": "GET",
+      "path_expression": "'/api/me/access'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 295,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "exportMyData",
+      "method": "GET",
+      "path_expression": "'/api/me/export'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 296,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getJellyfinImport",
+      "method": "GET",
+      "path_expression": "'/api/me/jellyfin-import'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 297,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewJellyfinImport",
+      "method": "POST",
+      "path_expression": "'/api/me/jellyfin-import/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 300,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runJellyfinImport",
+      "method": "POST",
+      "path_expression": "'/api/me/jellyfin-import'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 301,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewJellyfinHousehold",
+      "method": "POST",
+      "path_expression": "'/api/admin/jellyfin-household/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 304,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runJellyfinHousehold",
+      "method": "POST",
+      "path_expression": "'/api/admin/jellyfin-household'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 305,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPlexImport",
+      "method": "GET",
+      "path_expression": "'/api/me/plex-import'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 306,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewPlexImport",
+      "method": "POST",
+      "path_expression": "'/api/me/plex-import/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 307,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runPlexImport",
+      "method": "POST",
+      "path_expression": "'/api/me/plex-import'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 308,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewPlexHousehold",
+      "method": "POST",
+      "path_expression": "'/api/admin/plex-household/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 311,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runPlexHousehold",
+      "method": "POST",
+      "path_expression": "'/api/admin/plex-household'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 312,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "prefetchRemote",
+      "method": "POST",
+      "path_expression": "'/api/remote/prefetch'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 315,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewUrl",
+      "method": "POST",
+      "path_expression": "'/api/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 320,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "youtubeSearch",
+      "method": "POST",
+      "path_expression": "'/api/youtube-search'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 446,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "sourceSearch",
+      "method": "POST",
+      "path_expression": "'/api/source-search'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 448,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPopularDiscovery",
+      "method": "GET",
+      "path_expression": "'/api/discovery/popular'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 450,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLiveDiscovery",
+      "method": "GET",
+      "path_expression": "'/api/discovery/live'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 451,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLiveWall",
+      "method": "GET",
+      "path_expression": "`/api/discovery/live/${enc(category)}${wallQuery(cursor)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 454,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPopularWall",
+      "method": "GET",
+      "path_expression": "`/api/discovery/popular/${enc(category)}${wallQuery(cursor)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 455,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getChannelPage",
+      "method": "GET",
+      "path_expression": "`/api/channels/youtube/${enc(channelId)}${qs({ tab: query.tab, limit: query.limit })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 458,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "resolveChannel",
+      "method": "POST",
+      "path_expression": "'/api/channels/resolve'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 460,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMemberInterests",
+      "method": "GET",
+      "path_expression": "'/api/discovery/interests'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 461,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateMemberInterests",
+      "method": "PUT",
+      "path_expression": "'/api/discovery/interests'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 462,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHomeRecommendations",
+      "method": "GET",
+      "path_expression": "'/api/discovery/home'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 463,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getChannelSuggestions",
+      "method": "GET",
+      "path_expression": "`/api/discovery/channels${qs({ keys })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 464,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "searchChannels",
+      "method": "POST",
+      "path_expression": "'/api/discovery/channels/search'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 465,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "completeOnboarding",
+      "method": "POST",
+      "path_expression": "'/api/onboarding/complete'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 466,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "skipOnboarding",
+      "method": "POST",
+      "path_expression": "'/api/onboarding/skip'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 467,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getUpNext",
+      "method": "POST",
+      "path_expression": "'/api/discovery/up-next'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 474,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "suppressRecommendation",
+      "method": "POST",
+      "path_expression": "'/api/discovery/suppressions'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 490,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getSuppressions",
+      "method": "GET",
+      "path_expression": "'/api/discovery/suppressions'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 491,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "restoreSuppression",
+      "method": "DELETE",
+      "path_expression": "`/api/discovery/suppressions/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 492,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "sendRecoEvents",
+      "method": "POST",
+      "path_expression": "'/api/reco/events'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 494,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearRecoHistory",
+      "method": "DELETE",
+      "path_expression": "'/api/reco/history'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 501,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getSearchHistory",
+      "method": "GET",
+      "path_expression": "'/api/search/history'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 503,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "recordSearchHistory",
+      "method": "POST",
+      "path_expression": "'/api/search/history'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 506,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteSearchHistoryEntry",
+      "method": "DELETE",
+      "path_expression": "`/api/search/history/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 507,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearSearchHistory",
+      "method": "DELETE",
+      "path_expression": "'/api/search/history'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 508,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listJobs",
+      "method": "GET",
+      "path_expression": "`/api/jobs${pageQuery(query)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 527,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createJob",
+      "method": "POST",
+      "path_expression": "'/api/jobs'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 528,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelJob",
+      "method": "POST",
+      "path_expression": "`/api/jobs/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 529,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "retryJob",
+      "method": "POST",
+      "path_expression": "`/api/jobs/${enc(id)}/retry`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 530,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearCompletedJobs",
+      "method": "DELETE",
+      "path_expression": "'/api/jobs/completed'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 531,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createAcquisitionBatch",
+      "method": "POST",
+      "path_expression": "'/api/acquisition-batches'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 533,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listAcquisitionBatches",
+      "method": "GET",
+      "path_expression": "'/api/acquisition-batches?limit=8&include_entries=true'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 534,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "retryAcquisitionEntry",
+      "method": "POST",
+      "path_expression": "`/api/acquisition-batches/${enc(batchId)}/entries/${enc(entryId)}/retry`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 535,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLibrary",
+      "method": "GET",
+      "path_expression": "`/api/library${pageQuery(query)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 537,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteLibraryFile",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(id)}/delete-file`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 538,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "restoreLibraryFile",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(id)}/restore-file`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 539,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "refreshLibrary",
+      "method": "POST",
+      "path_expression": "'/api/library/refresh'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 540,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLibraryItem",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 541,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listHouseholdCollections",
+      "method": "GET",
+      "path_expression": "'/api/collections'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 543,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHouseholdCollection",
+      "method": "GET",
+      "path_expression": "`/api/collections/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 544,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createHouseholdCollection",
+      "method": "POST",
+      "path_expression": "'/api/collections'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 545,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "renameHouseholdCollection",
+      "method": "PUT",
+      "path_expression": "`/api/collections/${enc(id)}/name`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 546,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setHouseholdCollectionVisibility",
+      "method": "PUT",
+      "path_expression": "`/api/collections/${enc(id)}/visibility`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 547,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteHouseholdCollection",
+      "method": "DELETE",
+      "path_expression": "`/api/collections/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 548,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "addHouseholdCollectionItem",
+      "method": "POST",
+      "path_expression": "`/api/collections/${enc(collectionId)}/items/${enc(itemId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 549,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "addHouseholdCollectionRemoteItem",
+      "method": "POST",
+      "path_expression": "`/api/collections/${enc(collectionId)}/remote-items`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 554,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "removeHouseholdCollectionEntry",
+      "method": "DELETE",
+      "path_expression": "`/api/collections/${enc(collectionId)}/entries/${enc(entryId)}${qs({ expected_revision: expectedRevision })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 556,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "moveHouseholdCollectionEntry",
+      "method": "PATCH",
+      "path_expression": "`/api/collections/${enc(collectionId)}/entries/${enc(entryId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 558,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "searchLibrary",
+      "method": "GET",
+      "path_expression": "`/api/search${qs({ q: query, limit, scope })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 560,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLocalPlaybackOptions",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(id)}/playback-options${qs({ profiles: localPlaybackProfiles(), bandwidth_bps: bandwidthBps })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 565,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "startLocalPlaybackSession",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(id)}/playback-sessions${qs({ start: start || undefined, profiles: localPlaybackProfiles(), bandwidth_bps: bandwidthBps })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 567,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "stopLocalPlaybackSession",
+      "method": "DELETE",
+      "path_expression": "`/api/playback-sessions/${enc(sessionId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 568,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "stopDirectPlayback",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(itemId)}/playback/stop`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 569,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listContinueWatching",
+      "method": "GET",
+      "path_expression": "'/api/playback/continue'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 571,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPlaybackProgress",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(id)}/playback`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 572,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updatePlaybackProgress",
+      "method": "PUT",
+      "path_expression": "`/api/library/${enc(id)}/playback`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 574,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearPlaybackProgress",
+      "method": "DELETE",
+      "path_expression": "`/api/library/${enc(id)}/playback`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 577,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getRemotePlaybackProgress",
+      "method": "GET",
+      "path_expression": "`/api/playback/remote/${enc(sourceIdentity)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 580,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "refreshRemoteStream",
+      "method": "POST",
+      "path_expression": "`${remoteStreamPath(streamId)}/refresh`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 585,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "selectRemoteRendition",
+      "method": "POST",
+      "path_expression": "`${remoteStreamPath(streamId)}/renditions/${encodeURIComponent(renditionId)}/select`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 589,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "releaseRemoteStream",
+      "method": "DELETE",
+      "path_expression": "remoteStreamPath(streamId)",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 607,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateRemotePlaybackProgress",
+      "method": "PUT",
+      "path_expression": "`/api/playback/remote/${enc(sourceIdentity)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 630,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearRemotePlaybackProgress",
+      "method": "DELETE",
+      "path_expression": "`/api/playback/remote/${enc(sourceIdentity)}${qs({ checkpoint_client_id: checkpointClientId, checkpoint_sequence: checkpointSequence, expected_revision: expectedRevision })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 635,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getChatReplay",
+      "method": "GET",
+      "path_expression": "`/api/chat-replay/${enc(sourceIdentity)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 638,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "loadChatReplay",
+      "method": "POST",
+      "path_expression": "`/api/chat-replay/${enc(sourceIdentity)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 640,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLiveChat",
+      "method": "GET",
+      "path_expression": "`/api/live-chat?source_url=${enc(sourceUrl)}&after=${after}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 644,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createLiveRecording",
+      "method": "POST",
+      "path_expression": "'/api/live-recordings'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 657,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLiveRecordings",
+      "method": "GET",
+      "path_expression": "`/api/live-recordings${pageQuery(query)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 660,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLiveRecording",
+      "method": "GET",
+      "path_expression": "`/api/live-recordings/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 661,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "stopLiveRecording",
+      "method": "POST",
+      "path_expression": "`/api/live-recordings/${enc(id)}/stop`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 662,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelLiveRecording",
+      "method": "POST",
+      "path_expression": "`/api/live-recordings/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 663,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLibraryNotes",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(id)}/notes`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 665,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createLibraryNote",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(id)}/notes`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 666,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateLibraryNote",
+      "method": "PUT",
+      "path_expression": "`/api/library/notes/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 667,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteLibraryNote",
+      "method": "DELETE",
+      "path_expression": "`/api/library/notes/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 668,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLibraryTags",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(id)}/tags`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 670,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createLibraryTag",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(id)}/tags`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 671,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteLibraryTag",
+      "method": "DELETE",
+      "path_expression": "`/api/library/${enc(id)}/tags/${enc(tag)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 672,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMySettings",
+      "method": "GET",
+      "path_expression": "'/api/settings/me'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 674,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateMySettings",
+      "method": "PUT",
+      "path_expression": "'/api/settings/me'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 675,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHouseholdResources",
+      "method": "GET",
+      "path_expression": "'/api/admin/resources'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 676,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateHouseholdResources",
+      "method": "PUT",
+      "path_expression": "'/api/admin/resources'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 677,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMemberResources",
+      "method": "GET",
+      "path_expression": "`/api/admin/members/${enc(userId)}/resources`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 678,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateMemberResources",
+      "method": "PUT",
+      "path_expression": "`/api/admin/members/${enc(userId)}/resources`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 679,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMyResources",
+      "method": "GET",
+      "path_expression": "'/api/me/resources'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 680,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMyResourceJobs",
+      "method": "GET",
+      "path_expression": "'/api/me/resource-jobs'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 681,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelMyResourceJob",
+      "method": "POST",
+      "path_expression": "`/api/me/resource-jobs/${enc(kind)}/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 682,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "keepLiveRecording",
+      "method": "PUT",
+      "path_expression": "`/api/live-recordings/${encodeURIComponent(id)}/keep`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 684,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getRecordingRetention",
+      "method": "GET",
+      "path_expression": "'/api/admin/recording-retention'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 690,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateRecordingRetention",
+      "method": "PUT",
+      "path_expression": "'/api/admin/recording-retention'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 694,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listAutomations",
+      "method": "GET",
+      "path_expression": "'/api/automations'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 697,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "refreshFollows",
+      "method": "POST",
+      "path_expression": "'/api/follows/refresh'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 699,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createAutomation",
+      "method": "POST",
+      "path_expression": "'/api/automations'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 700,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setAutomationAutoDownload",
+      "method": "PATCH",
+      "path_expression": "`/api/automations/${enc(id)}/auto-download`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 701,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runAutomation",
+      "method": "POST",
+      "path_expression": "`/api/automations/${enc(id)}/run`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 702,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "pauseAutomation",
+      "method": "POST",
+      "path_expression": "`/api/automations/${enc(id)}/pause`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 703,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "resumeAutomation",
+      "method": "POST",
+      "path_expression": "`/api/automations/${enc(id)}/resume`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 704,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteAutomation",
+      "method": "DELETE",
+      "path_expression": "`/api/automations/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 705,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateLibraryItemVisibility",
+      "method": "PUT",
+      "path_expression": "`/api/library/${enc(id)}/visibility`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 707,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listUsers",
+      "method": "GET",
+      "path_expression": "'/api/admin/users'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 709,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateUser",
+      "method": "PUT",
+      "path_expression": "`/api/admin/users/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 710,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createInvitation",
+      "method": "POST",
+      "path_expression": "'/api/admin/invitations'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 711,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listInvitations",
+      "method": "GET",
+      "path_expression": "'/api/admin/invitations'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 715,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "revokeInvitation",
+      "method": "POST",
+      "path_expression": "`/api/admin/invitations/${enc(id)}/revoke`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 716,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "redeemInvitation",
+      "method": "POST",
+      "path_expression": "'/api/invitations/redeem'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 717,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "unlockUserSignIn",
+      "method": "POST",
+      "path_expression": "`/api/admin/users/${enc(userId)}/unlock`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 718,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createPasswordResetLink",
+      "method": "POST",
+      "path_expression": "`/api/admin/users/${enc(userId)}/reset-link`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 719,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "redeemPasswordReset",
+      "method": "POST",
+      "path_expression": "'/api/password-reset/redeem'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 720,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "changePassword",
+      "method": "POST",
+      "path_expression": "'/api/me/password'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 724,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminSettings",
+      "method": "GET",
+      "path_expression": "'/api/admin/settings'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 726,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateAdminSettings",
+      "method": "PUT",
+      "path_expression": "'/api/admin/settings'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 727,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminOverview",
+      "method": "GET",
+      "path_expression": "'/api/admin/overview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 728,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminUpdateStatus",
+      "method": "GET",
+      "path_expression": "'/api/admin/updates'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 729,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "checkAdminUpdates",
+      "method": "POST",
+      "path_expression": "'/api/admin/updates/check'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 730,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateAdminUpdateSettings",
+      "method": "PATCH",
+      "path_expression": "'/api/admin/updates'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 731,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminMediaSetup",
+      "method": "GET",
+      "path_expression": "'/api/admin/onboarding/media'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 747,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "completeAdminMediaSetup",
+      "method": "POST",
+      "path_expression": "'/api/admin/onboarding/media/complete'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 748,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listStorageRoots",
+      "method": "GET",
+      "path_expression": "`${STORAGE}/roots`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 749,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createStorageRoot",
+      "method": "POST",
+      "path_expression": "`${STORAGE}/roots`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 750,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateStorageRoot",
+      "method": "PATCH",
+      "path_expression": "`${STORAGE}/roots/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 751,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "probeStorageRoot",
+      "method": "POST",
+      "path_expression": "`${STORAGE}/roots/${enc(id)}/probe`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 752,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteStorageRoot",
+      "method": "DELETE",
+      "path_expression": "`${STORAGE}/roots/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 753,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getStorageRules",
+      "method": "GET",
+      "path_expression": "`${STORAGE}/rules`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 754,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "saveStorageRules",
+      "method": "PUT",
+      "path_expression": "`${STORAGE}/rules`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 755,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "resolveStorage",
+      "method": "POST",
+      "path_expression": "`${STORAGE}/resolve`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 756,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listBackups",
+      "method": "GET",
+      "path_expression": "'/api/admin/backups'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 761,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createBackup",
+      "method": "POST",
+      "path_expression": "'/api/admin/backups'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 762,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "verifyBackup",
+      "method": "POST",
+      "path_expression": "`/api/admin/backups/${enc(name)}/verify`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 763,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "deleteBackup",
+      "method": "DELETE",
+      "path_expression": "`/api/admin/backups/${enc(name)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 764,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateBackupSchedule",
+      "method": "PUT",
+      "path_expression": "'/api/admin/backups/schedule'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 765,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminActivity",
+      "method": "GET",
+      "path_expression": "'/api/admin/activity'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 797,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "stopActivitySession",
+      "method": "POST",
+      "path_expression": "`/api/admin/activity/${enc(sessionId)}/stop`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 798,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getActivityHistory",
+      "method": "GET",
+      "path_expression": "`/api/admin/activity/history?${query}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 805,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAdminDiagnostics",
+      "method": "GET",
+      "path_expression": "'/api/admin/diagnostics'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 807,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listImports",
+      "method": "GET",
+      "path_expression": "IMPORTS",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 817,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "getImport",
+      "method": "GET",
+      "path_expression": "`${IMPORTS}/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 818,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "startImport",
+      "method": "POST",
+      "path_expression": "IMPORTS",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 819,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "listImportEntries",
+      "method": "GET",
+      "path_expression": "`${IMPORTS}/${enc(id)}/entries${qs({ outcome })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 820,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelImport",
+      "method": "POST",
+      "path_expression": "`${IMPORTS}/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 821,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "resumeImport",
+      "method": "POST",
+      "path_expression": "`${IMPORTS}/${enc(id)}/resume`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 822,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getWatchQueue",
+      "method": "GET",
+      "path_expression": "WATCH_QUEUE_URL",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 858,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "addToWatchQueue",
+      "method": "POST",
+      "path_expression": "`${WATCH_QUEUE_URL}/entries`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 859,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "moveWatchQueueEntry",
+      "method": "PATCH",
+      "path_expression": "`${WATCH_QUEUE_URL}/entries/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 860,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "removeWatchQueueEntry",
+      "method": "DELETE",
+      "path_expression": "`${WATCH_QUEUE_URL}/entries/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 861,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "clearWatchQueue",
+      "method": "DELETE",
+      "path_expression": "`${WATCH_QUEUE_URL}?confirm=true`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 862,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listTranscripts",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/transcripts`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 868,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listTranscriptCues",
+      "method": "GET",
+      "path_expression": "`/api/transcripts/${enc(id)}/cues${qs({ limit, cursor: cursor || undefined })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 870,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "searchTranscript",
+      "method": "GET",
+      "path_expression": "`/api/transcripts/${enc(id)}/search${qs({ limit: 100, q })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 871,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLatestSummary",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/summary`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 882,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestSummary",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(itemId)}/summaries`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 883,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getSummary",
+      "method": "GET",
+      "path_expression": "`/api/summaries/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 884,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getEnrichmentCapabilities",
+      "method": "GET",
+      "path_expression": "'/api/enrichment'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 889,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLatestAsrJob",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/transcripts/asr`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 893,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestAsrTranscript",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(itemId)}/transcripts/asr`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 894,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getAiConfig",
+      "method": "GET",
+      "path_expression": "'/api/admin/ai/config'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 911,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateAiConfig",
+      "method": "PUT",
+      "path_expression": "'/api/admin/ai/config'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 912,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLocalModels",
+      "method": "GET",
+      "path_expression": "MODELS",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 926,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "downloadLocalModel",
+      "method": "POST",
+      "path_expression": "`${MODELS}/${enc(id)}/download`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 928,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelLocalModelDownload",
+      "method": "POST",
+      "path_expression": "`${MODELS}/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 929,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "activateLocalModel",
+      "method": "POST",
+      "path_expression": "`${MODELS}/${enc(id)}/activate`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 930,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "removeLocalModel",
+      "method": "DELETE",
+      "path_expression": "`${MODELS}/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 931,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "discoverAiModels",
+      "method": "POST",
+      "path_expression": "'/api/admin/ai/models'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 932,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "testAiConnection",
+      "method": "POST",
+      "path_expression": "'/api/admin/ai/test'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 933,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listAdminTasks",
+      "method": "GET",
+      "path_expression": "`/api/admin/tasks${qs({ kind, status, limit: 50, cursor: cursor || undefined })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 943,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "cancelAdminTask",
+      "method": "POST",
+      "path_expression": "`/api/admin/tasks/${kind}/${enc(id)}/cancel`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 944,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLatestIdeaGraph",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/idea-graph`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 954,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestIdeaGraph",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(itemId)}/idea-graphs`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 955,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getIdeaGraph",
+      "method": "GET",
+      "path_expression": "`/api/idea-graphs/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 956,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getProvenance",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/provenance`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 966,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listTitles",
+      "method": "GET",
+      "path_expression": "`/api/titles${qs({\n    type, category, sort, cursor: cursor || undefined, limit, letter: letter || undefined,\n    unwatched: unwatched || undefined, in_progress: in_progress || undefined, favorites: favorites || undefined,\n    genre: genre?.length ? genre : undefined, year_from, year_to, resolution: resolution?.length ? resolution : undefined,\n  })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 977,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getTitleFacets",
+      "method": "GET",
+      "path_expression": "`/api/titles/facets${qs({ type: query.type, category: query.category })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 985,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLibrarySections",
+      "method": "GET",
+      "path_expression": "'/api/library/sections'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 987,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listLibraryChannels",
+      "method": "GET",
+      "path_expression": "`/api/library/channels${qs({ source: 'youtube', sort })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 990,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getEpisodeSummaries",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(seriesId)}/episode-summaries${qs({ season })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 992,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getKeyScenes",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(titleId)}/key-scenes`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 993,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getArtworkProgress",
+      "method": "GET",
+      "path_expression": "'/api/admin/artwork'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 994,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHeroFraming",
+      "method": "GET",
+      "path_expression": "`/api/art/framing?src=${enc(src)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 999,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "sendClientMetrics",
+      "method": "POST",
+      "path_expression": "'/api/metrics/client'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1000,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getTitle",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1006,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listSeasonEpisodes",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(seriesId)}/episodes${qs({ season })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1007,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLibraryUpNext",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/up-next`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1008,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listNextUp",
+      "method": "GET",
+      "path_expression": "`/api/titles/next-up${qs({ limit })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1009,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setTitleWatched",
+      "method": "PUT",
+      "path_expression": "`/api/titles/${enc(id)}/watched`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1010,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setFavorite",
+      "method": "PUT",
+      "path_expression": "`/api/me/favorites/${enc(targetId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1011,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setFavorite",
+      "method": "DELETE",
+      "path_expression": "`/api/me/favorites/${enc(targetId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1011,
+      "classification": "network_wrapper",
+      "call_index": 2
+    },
+    {
+      "name": "dismissNextUp",
+      "method": "POST",
+      "path_expression": "`/api/titles/${enc(seriesId)}/next-up/dismiss`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1012,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "hideContinueWatching",
+      "method": "POST",
+      "path_expression": "`/api/library/${enc(itemId)}/playback/dismiss`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1013,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "unhideContinueWatching",
+      "method": "DELETE",
+      "path_expression": "`/api/library/${enc(itemId)}/playback/dismiss`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1014,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listSimilarTitles",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(id)}/similar${qs({ limit })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1015,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHomeArrivals",
+      "method": "GET",
+      "path_expression": "'/api/home/new-in-library'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1016,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getHomeTitleRows",
+      "method": "GET",
+      "path_expression": "'/api/home/title-rows'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1017,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getRecap",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(episodeId)}/recap`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1018,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestRecap",
+      "method": "POST",
+      "path_expression": "`/api/titles/${enc(episodeId)}/recap`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1019,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "buildSmartCollectionRules",
+      "method": "POST",
+      "path_expression": "'/api/collections/rules/draft'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1020,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewSmartCollectionRules",
+      "method": "POST",
+      "path_expression": "'/api/collections/rules/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1021,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setSmartCollectionRules",
+      "method": "PUT",
+      "path_expression": "`/api/collections/${enc(id)}/rules`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1022,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listUnmatchedTitles",
+      "method": "GET",
+      "path_expression": "'/api/admin/metadata/unmatched'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1024,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "searchTitleMatches",
+      "method": "GET",
+      "path_expression": "`/api/admin/titles/${enc(id)}/identify${qs({ q, year })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1025,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "identifyTitle",
+      "method": "POST",
+      "path_expression": "`/api/admin/titles/${enc(id)}/identify`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1026,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "unmatchTitle",
+      "method": "POST",
+      "path_expression": "`/api/admin/titles/${enc(id)}/unmatch`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1027,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "refreshTitleMetadata",
+      "method": "POST",
+      "path_expression": "`/api/admin/titles/${enc(id)}/refresh`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1028,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "refreshAllMetadata",
+      "method": "POST",
+      "path_expression": "'/api/admin/metadata/refresh-all'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1029,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "testTmdbKey",
+      "method": "POST",
+      "path_expression": "'/api/admin/media-server/tmdb-test'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1030,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "testOmdbKey",
+      "method": "POST",
+      "path_expression": "'/api/admin/metadata/omdb-test'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1031,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listConnectedApps",
+      "method": "GET",
+      "path_expression": "'/api/connected-apps'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1033,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createAgentToken",
+      "method": "POST",
+      "path_expression": "'/api/connected-apps'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1034,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "revokeConnectedApp",
+      "method": "DELETE",
+      "path_expression": "`/api/connected-apps/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1035,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createAppPassword",
+      "method": "POST",
+      "path_expression": "'/api/connected-apps/app-passwords'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1036,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "signOutAllApps",
+      "method": "POST",
+      "path_expression": "'/api/connected-apps/sign-out-all'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1037,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMobileConnect",
+      "method": "GET",
+      "path_expression": "'/api/mobile-connect'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1038,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createMobileConnect",
+      "method": "POST",
+      "path_expression": "'/api/mobile-connect'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1039,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMobileConnectCode",
+      "method": "GET",
+      "path_expression": "`/api/mobile-connect/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1040,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "revokeMobileConnect",
+      "method": "DELETE",
+      "path_expression": "`/api/mobile-connect/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1041,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "enableMobileConnect",
+      "method": "POST",
+      "path_expression": "'/api/mobile-connect/enable'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1042,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getTwoFactor",
+      "method": "GET",
+      "path_expression": "'/api/me/two-factor'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1043,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setupTwoFactor",
+      "method": "POST",
+      "path_expression": "'/api/me/two-factor/setup'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1044,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "enableTwoFactor",
+      "method": "POST",
+      "path_expression": "'/api/me/two-factor/enable'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1045,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "disableTwoFactor",
+      "method": "POST",
+      "path_expression": "'/api/me/two-factor/disable'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1046,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "regenerateRecoveryCodes",
+      "method": "POST",
+      "path_expression": "'/api/me/two-factor/recovery-codes'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1047,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "resetMemberTwoFactor",
+      "method": "DELETE",
+      "path_expression": "`/api/admin/users/${enc(userId)}/two-factor`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1048,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMediaServerSettings",
+      "method": "GET",
+      "path_expression": "'/api/admin/media-server'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1049,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "updateMediaServerSettings",
+      "method": "PUT",
+      "path_expression": "'/api/admin/media-server'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1050,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPlaybackPresencePolicy",
+      "method": "GET",
+      "path_expression": "'/api/playback/presence-policy'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1051,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "discoverHouseholdTransfer",
+      "method": "POST",
+      "path_expression": "`/api/admin/household-transfer/${provider}/discover`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1053,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "runTranscodeDiagnostics",
+      "method": "POST",
+      "path_expression": "'/api/admin/media-server/transcode-diagnostics'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1054,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listSubtitleTracks",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/subtitle-tracks`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1056,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestSubtitleJob",
+      "method": "POST",
+      "path_expression": "`${base}/generate`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1060,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "requestSubtitleJob",
+      "method": "POST",
+      "path_expression": "`${base}/${enc(request.trackId)}/sync`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1061,
+      "classification": "network_wrapper",
+      "call_index": 2
+    },
+    {
+      "name": "requestSubtitleJob",
+      "method": "POST",
+      "path_expression": "`${base}/${enc(request.trackId)}/translate`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1062,
+      "classification": "network_wrapper",
+      "call_index": 3
+    },
+    {
+      "name": "getEnrichmentJob",
+      "method": "GET",
+      "path_expression": "`/api/enrichment/jobs/${enc(jobId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1064,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMediaSegments",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/segments`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1065,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMuteRanges",
+      "method": "GET",
+      "path_expression": "`/api/library/${enc(itemId)}/mute-ranges`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1066,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "confirmImport",
+      "method": "POST",
+      "path_expression": "`${IMPORTS}/${enc(runId)}/confirm`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1067,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getTitleMetadata",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(titleId)}/metadata`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1071,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "saveMetadataEdits",
+      "method": "POST",
+      "path_expression": "`${META}/edits`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1074,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "revertMetadata",
+      "method": "POST",
+      "path_expression": "`/api/titles/${enc(titleId)}/metadata/revert`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1078,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMetadataHistory",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(titleId)}/metadata/history${qs({ cursor, limit })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1079,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "undoMetadataBatch",
+      "method": "POST",
+      "path_expression": "`${META}/batches/${enc(batchId)}/undo`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1080,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "previewMetadataRefresh",
+      "method": "POST",
+      "path_expression": "`/api/titles/${enc(titleId)}/metadata/refresh-preview`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1081,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listMetadataEpisodes",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(seriesId)}/metadata/episodes${qs({ season_id: seasonId })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1082,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMetadataVocabulary",
+      "method": "GET",
+      "path_expression": "`${META}/vocabulary${qs({ field })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1083,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "searchMetadataPeople",
+      "method": "GET",
+      "path_expression": "`${META}/people${qs({ q, limit })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1084,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listEpisodeGroups",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(seriesId)}/metadata/episode-groups`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1085,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getPerson",
+      "method": "GET",
+      "path_expression": "person(personId)",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1088,
+      "classification": "path_builder",
+      "call_index": 1
+    },
+    {
+      "name": "renamePerson",
+      "method": "PUT",
+      "path_expression": "person(personId)",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1090,
+      "classification": "path_builder",
+      "call_index": 1
+    },
+    {
+      "name": "uploadPersonPhoto",
+      "method": "PUT",
+      "path_expression": "`${person(personId)}/photo`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1092,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "removePersonPhoto",
+      "method": "DELETE",
+      "path_expression": "`${person(personId)}/photo`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1093,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listImageCandidates",
+      "method": "GET",
+      "path_expression": "`/api/titles/${enc(titleId)}/images/${type}/candidates${qs({ index })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1097,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "chooseTitleImage",
+      "method": "PUT",
+      "path_expression": "slot(titleId, type, index)",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1098,
+      "classification": "path_builder",
+      "call_index": 1
+    },
+    {
+      "name": "uploadTitleImage",
+      "method": "PUT",
+      "path_expression": "`${slot(titleId, type, index)}${qs({ base_tag: baseTag })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1101,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "removeTitleImage",
+      "method": "DELETE",
+      "path_expression": "`${slot(titleId, type, index)}${qs({ base_tag: baseTag })}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1102,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "reorderBackdrops",
+      "method": "POST",
+      "path_expression": "`/api/titles/${enc(titleId)}/images/Backdrop/order`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1103,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "bulkEditMetadata",
+      "method": "POST",
+      "path_expression": "`${META}/bulk`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1106,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicQueue",
+      "method": "POST",
+      "path_expression": "'/api/music/queue'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1110,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicTrack",
+      "method": "GET",
+      "path_expression": "`/api/music/tracks/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1111,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicTrackMetadata",
+      "method": "GET",
+      "path_expression": "`/api/music/tracks/${enc(id)}/metadata`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1112,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicHighlights",
+      "method": "GET",
+      "path_expression": "`/api/music/titles/${enc(id)}/tracks`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1113,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicLyrics",
+      "method": "GET",
+      "path_expression": "`/api/music/tracks/${enc(id)}/lyrics${retry ? '?retry=true' : ''}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1114,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicVideos",
+      "method": "GET",
+      "path_expression": "`/api/music/${kind === 'track' ? 'tracks' : 'titles'}/${enc(id)}/videos`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1115,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicEnrichment",
+      "method": "GET",
+      "path_expression": "`/api/music/titles/${enc(id)}/enrichment`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1116,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "identifyMusic",
+      "method": "POST",
+      "path_expression": "`/api/music/titles/${enc(id)}/identify`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1117,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "editMusicTracks",
+      "method": "POST",
+      "path_expression": "'/api/music/tracks/edit'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1118,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "createMusicRelease",
+      "method": "POST",
+      "path_expression": "'/api/music/albums'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1119,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "undoMusicEdit",
+      "method": "POST",
+      "path_expression": "`/api/music/edits/${enc(id)}/undo`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1120,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "discoverSonos",
+      "method": "GET",
+      "path_expression": "'/api/music/sonos'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1121,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "castMusic",
+      "method": "POST",
+      "path_expression": "'/api/music/cast'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1123,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "controlMusicCast",
+      "method": "POST",
+      "path_expression": "`/api/music/cast/${enc(id)}/control`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1124,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicCastStatus",
+      "method": "GET",
+      "path_expression": "`/api/music/cast/${enc(id)}/status`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1125,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "uploadMusicArtwork",
+      "method": "POST",
+      "path_expression": "'/api/music/artwork/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1127,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "uploadMusicArtwork",
+      "method": "PUT",
+      "path_expression": "`/api/music/artwork/bulk?plan_id=${enc(plan.plan_id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1128,
+      "classification": "network_wrapper",
+      "call_index": 2
+    },
+    {
+      "name": "previewMusicWriteback",
+      "method": "POST",
+      "path_expression": "'/api/music/writeback/preview'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1130,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "applyMusicWriteback",
+      "method": "POST",
+      "path_expression": "'/api/music/writeback/apply'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1131,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listMusicFileBackups",
+      "method": "GET",
+      "path_expression": "'/api/music/writeback/backups'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1132,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "restoreMusicFile",
+      "method": "POST",
+      "path_expression": "`/api/music/writeback/${enc(id)}/restore`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1133,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listMusicPlaylists",
+      "method": "GET",
+      "path_expression": "'/api/music/playlists'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1134,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "saveMusicPlaylist",
+      "method": "PUT",
+      "path_expression": "`/api/music/playlists/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1135,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "saveMusicPlaylist",
+      "method": "POST",
+      "path_expression": "'/api/music/playlists'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1135,
+      "classification": "network_wrapper",
+      "call_index": 2
+    },
+    {
+      "name": "deleteMusicPlaylist",
+      "method": "DELETE",
+      "path_expression": "`/api/music/playlists/${enc(id)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1136,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicPlaylistTracks",
+      "method": "GET",
+      "path_expression": "`/api/music/playlists/${enc(id)}/tracks`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1137,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicMix",
+      "method": "GET",
+      "path_expression": "`/api/music/mixes/${kind}${seedId ? `?seed_id=${enc(seedId)}` : ''}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1138,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicDiscography",
+      "method": "GET",
+      "path_expression": "`/api/music/titles/${enc(id)}/discography?offset=${offset}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1139,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getMusicEditions",
+      "method": "GET",
+      "path_expression": "`/api/music/titles/${enc(id)}/editions?offset=${offset}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1140,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLibraryActivity",
+      "method": "GET",
+      "path_expression": "'/api/library/activity'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1141,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getLibraryAutomation",
+      "method": "GET",
+      "path_expression": "AUTOMATION",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1142,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "updateRootAutomation",
+      "method": "PATCH",
+      "path_expression": "`${AUTOMATION}/roots/${enc(rootId)}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1143,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "setNightHour",
+      "method": "PATCH",
+      "path_expression": "AUTOMATION",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1144,
+      "classification": "symbolic_static_path",
+      "call_index": 1
+    },
+    {
+      "name": "scanLibraries",
+      "method": "POST",
+      "path_expression": "`${AUTOMATION}/scan`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1145,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "retryAdminTask",
+      "method": "POST",
+      "path_expression": "`/api/admin/tasks/${kind}/${enc(id)}/retry`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1146,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "listRecentlyPlayedAlbums",
+      "method": "GET",
+      "path_expression": "`/api/music/albums/recently-played?limit=${limit}`",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1150,
+      "classification": "network_wrapper",
+      "call_index": 1
+    },
+    {
+      "name": "getServerNavigation",
+      "method": "GET",
+      "path_expression": "'/api/navigation'",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1152,
+      "classification": "network_wrapper",
+      "call_index": 1
+    }
+  ],
+  "api_ts_url_builders": [
+    {
+      "name": "libraryMediaUrl",
+      "method": "GET (browser media element)",
+      "path_expression": "/api/library/{id}/media",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 562,
+      "classification": "url_builder_not_a_fetch"
+    },
+    {
+      "name": "bookPageUrl",
+      "method": "GET (used by getBookPageBytes)",
+      "path_expression": "/api/books/{id}/pages/{index}",
+      "source_file": "frontend/src/features/books/booksApi.ts",
+      "source_line": 19,
+      "classification": "url_builder_not_a_fetch"
+    },
+    {
+      "name": "bookResourceUrl",
+      "method": "GET (browser resource loader)",
+      "path_expression": "/api/books/{id}/resources?member={member}",
+      "source_file": "frontend/src/features/books/booksApi.ts",
+      "source_line": 29,
+      "classification": "url_builder_not_a_fetch"
+    }
+  ],
+  "direct_network_sites": [
+    {
+      "name": "requestJson transport fetch",
+      "primitive": "fetch",
+      "method": "dynamic (GET by default)",
+      "path_expression": "apiBaseUrl + path",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 189,
+      "classification": "shared_transport"
+    },
+    {
+      "name": "downloadBackup",
+      "primitive": "fetch",
+      "method": "POST",
+      "path_expression": "/api/admin/backups/{name}/download",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 768,
+      "classification": "direct_blob_download"
+    },
+    {
+      "name": "connectEvents",
+      "primitive": "EventSource",
+      "method": "GET",
+      "path_expression": "/api/events",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 825,
+      "classification": "server_sent_events"
+    },
+    {
+      "name": "beaconRecoEvents",
+      "primitive": "navigator.sendBeacon",
+      "method": "POST",
+      "path_expression": "/api/reco/events",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 498,
+      "classification": "pagehide_beacon"
+    },
+    {
+      "name": "beaconClientMetrics",
+      "primitive": "navigator.sendBeacon",
+      "method": "POST",
+      "path_expression": "/api/metrics/client",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 1004,
+      "classification": "pagehide_beacon"
+    },
+    {
+      "name": "getBookPageBytes",
+      "primitive": "fetch",
+      "method": "GET",
+      "path_expression": "bookPageUrl(id, index)",
+      "source_file": "frontend/src/features/books/booksApi.ts",
+      "source_line": 22,
+      "classification": "binary_book_page"
+    },
+    {
+      "name": "defaultGetAudio",
+      "primitive": "fetch",
+      "method": "GET",
+      "path_expression": "source.url",
+      "source_file": "frontend/src/features/music/musicEngine.ts",
+      "source_line": 263,
+      "classification": "audio_buffer_fallback"
+    },
+    {
+      "name": "boundedResponse",
+      "primitive": "fetch",
+      "method": "GET",
+      "path_expression": "url",
+      "source_file": "frontend/src/features/music/musicOffline.ts",
+      "source_line": 174,
+      "classification": "offline_audio_download"
+    },
+    {
+      "name": "musicSession read music",
+      "primitive": "fetch",
+      "method": "GET",
+      "path_expression": "source.url",
+      "source_file": "frontend/src/features/music/musicSession.ts",
+      "source_line": 351,
+      "classification": "audio_buffer_fallback"
+    },
+    {
+      "name": "defaultProbe",
+      "primitive": "fetch",
+      "method": "HEAD",
+      "path_expression": "url",
+      "source_file": "frontend/src/features/music/musicStream.ts",
+      "source_line": 38,
+      "classification": "audio_access_probe"
+    },
+    {
+      "name": "openStream",
+      "primitive": "fetch",
+      "method": "POST",
+      "path_expression": "/api/admin/household-transfer/{provider}/import",
+      "source_file": "frontend/src/features/onboarding/onboardingTransferApi.ts",
+      "source_line": 50,
+      "classification": "finite_sse_stream"
+    },
+    {
+      "name": "uploadPhoto",
+      "primitive": "XMLHttpRequest",
+      "method": "PUT",
+      "path_expression": "/api/photos/import?filename={encoded filename}",
+      "source_file": "frontend/src/features/photos/photoApi.ts",
+      "source_line": 156,
+      "classification": "upload_with_progress"
+    },
+    {
+      "name": "LocalPlayer media-error probe",
+      "primitive": "fetch",
+      "method": "GET",
+      "path_expression": "libraryMediaUrl(playId)",
+      "source_file": "frontend/src/localPlayer.tsx",
+      "source_line": 439,
+      "classification": "range_diagnostic_probe"
+    }
+  ],
+  "helpers": [
+    {
+      "name": "requestJson",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 176,
+      "classification": "shared_transport_function",
+      "note": "The exported helper is represented at its actual fetch call, api.ts:189; its recursive CSRF retry is not a second endpoint declaration."
+    },
+    {
+      "name": "patch",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 258,
+      "classification": "non_exported_transport_helper",
+      "note": "Included only indirectly through exported callers that invoke it."
+    }
+  ],
+  "reexports": [],
+  "unresolved_dynamic_paths": [
+    {
+      "name": "requestJson",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 176,
+      "path_expression": "path",
+      "reason": "shared transport accepts caller-supplied relative path and init.method"
+    },
+    {
+      "name": "post",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 256,
+      "path_expression": "path",
+      "reason": "shared mutation helper accepts caller-supplied relative path"
+    },
+    {
+      "name": "put",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 257,
+      "path_expression": "path",
+      "reason": "shared mutation helper accepts caller-supplied relative path"
+    },
+    {
+      "name": "del",
+      "source_file": "frontend/src/api.ts",
+      "source_line": 259,
+      "path_expression": "path",
+      "reason": "shared mutation helper accepts caller-supplied relative path"
+    },
+    {
+      "name": "music direct fetches",
+      "source_file": "frontend/src/features/music/{musicEngine,musicOffline,musicSession,musicStream}.ts",
+      "source_line": null,
+      "path_expression": "source.url or url",
+      "reason": "runtime URL originates from the application playback source; static endpoint cannot be inferred"
+    }
+  ],
+  "limitations": [
+    "One exported wrapper with conditional branches contributes one entry per direct transport call; call_index preserves that distinction.",
+    "Symbolic constants and path builders are retained rather than textually evaluated. They are statically resolvable in source but recorded as expressions to preserve provenance.",
+    "The inventory does not enumerate every browser-controlled img, video, audio, CSS, HLS segment, DASH segment, or signed artwork request. Those require a browser/network census and response-header capture.",
+    "No production traffic, latency, byte size, retry outcome, cache outcome, or server work was measured."
+  ]
+}

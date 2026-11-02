@@ -81,3 +81,18 @@ External provider accounts/network playback, physical casting devices, and physi
 Final additional music preference/search run: 3 passed at 1440/390/320 px, with populated Recently played artwork and a request assertion for the real `scope=music` boundary. Final frontend typecheck passed after all changes. The final stable production-bundle real-stack rerun passed all 3 journeys in 1.3 minutes.
 
 No full `make check`, full repository/Core/native UI suite, deployment, merge, push, marketing-site edit or native release was performed. The full PR/release gate remains unrun under the owner's focused-testing instruction.
+
+
+## Production review deployment — November 1, 2026
+
+At the owner's explicit follow-up request, application revision `44a00edbdd87a18cc2edd9052eb022384094d096` was deployed for production review as `lumina:web-native-44a00edb`, image `sha256:db9da908e3bfd0b3cd1bf8a395e2b5a1bcf7685d71083bb66ace6449443ed681`. This does not merge the implementation branch or release any native/marketing artifacts.
+
+The image is an immutable application layer on the previously verified runtime image `sha256:fb586240bb81b3c501760907c33785f541bd109eb44b69d7498cbf6614896966` (source `c0b9f6a59762e5fd80a75eac97bee684fe260311`). Dockerfile, runtime dependency locks, entrypoint and runtime package inputs are unchanged between that source and the reviewed revision. All tracked backend application files and the previously verified production frontend bundle replace the old application trees; no review prototype is included. Source/base provenance is recorded in image labels.
+
+Before switching, a consistent 8.6 GB SQLite snapshot passed full integrity checking and SHA-256 recording. Schema remained 42. The signing key, exact Compose inputs and protected environment configuration were backed up. The prior running image is retained by `lumina-web-native-44a00edb-rollback`, stopped with health checks/restart/networking disabled and covered by the existing cleanup exclusion. All 18 retained rollback pins remain stopped.
+
+The effective Compose configuration changed only the selected image. Post-recreation comparisons confirm equivalent environment values, host configuration, device/media/data mounts, networks, entrypoint, command, user, health check and proxy labels. Container health is healthy; running database and code schema are both 42. Every one of 308 backend source files and 91 frontend artifacts matches the reviewed inputs in the actual running container. Public HTTPS returns 200 for the app, health, bootstrap status and public showcase; all nine entry-asset hashes match the reviewed bundle. Session and recently-played album endpoints correctly return 401 when unauthenticated. Social metadata injection explains why served HTML bytes differ from the static index. These signed-out smoke checks do not claim a new authenticated household playback qualification.
+
+The owner additionally authorized old build/backup cleanup. Docker reported 5.568 GB of obsolete build cache reclaimed. Eleven old redundant/unmounted database snapshots reclaimed 74.26 GiB; incomplete backup retry files were also removed. Cleanup retained the fresh verified snapshot, the two newest previous snapshots, the newest snapshot for every older schema version, protected keys/configuration, all rollback pins/images and every container-mounted data directory. Root free space increased from approximately 1.4 GB to 5.2 GB. No media files or active canary/review data were deleted.
+
+Sanitized local deployment evidence is retained in ignored `output/web-native-deployment-44a00edb/`; protected backup/configuration and cleanup manifests remain on the production host. The full repository gate remains unrun per the owner's focused-testing instruction.

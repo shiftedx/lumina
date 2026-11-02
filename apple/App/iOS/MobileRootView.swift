@@ -784,14 +784,13 @@ private enum LibraryDestination: Hashable, CaseIterable {
 }
 
 private enum LibraryCategory: String, CaseIterable {
-    case movies, tv, anime, collections, music, books
+    case movies, tv, anime, music, books
 
     var title: String {
         switch self {
         case .movies: "Movies"
         case .tv: "TV"
         case .anime: "Anime"
-        case .collections: "Collections"
         case .music: "Music"
         case .books: "Books"
         }
@@ -801,7 +800,6 @@ private enum LibraryCategory: String, CaseIterable {
         switch self {
         case .tv: .shows
         case .anime: .anime
-        case .collections: .collections
         default: .movies
         }
     }
@@ -1011,7 +1009,7 @@ private struct LibraryShellView: View {
     @ViewBuilder private func libraryContent(usesPortraitRail: Bool) -> some View {
         if isLibraryCategoryAvailable(category) {
             switch category {
-            case .movies, .tv, .anime, .collections:
+            case .movies, .tv, .anime:
                 VideoLibraryView(store: store, kind: .constant(category.videoKind),
                                  activeKind: destination == .library ? category.videoKind : nil,
                                  usesPortraitNavigationRail: usesPortraitRail)
@@ -1031,9 +1029,7 @@ private struct LibraryShellView: View {
     }
 
     private func isLibraryCategoryAvailable(_ category: LibraryCategory) -> Bool {
-        // Collections can contain either automatic movie franchises or member-created
-        // manual/smart playlists, neither of which belongs in the media-root menu.
-        category == .collections || store.availableLibraryCategories.contains(category.rawValue)
+        store.availableLibraryCategories.contains(category.rawValue)
     }
 
     private func libraryCategories(centersContent: Bool = true) -> some View {
@@ -2105,6 +2101,23 @@ private struct VideoLibraryView: View {
                         .frame(height: 56)
                     }
 
+                    if filters.collectionID != nil {
+                        HStack {
+                            Label(filters.collectionName ?? "Collection", glyph: .library)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button("Clear collection", glyph: .close) {
+                                filters.collectionID = nil
+                                filters.collectionName = nil
+                            }
+                            .labelStyle(.iconOnly)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityIdentifier("videoClearCollectionFilterButton")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("videoActiveCollectionFilter")
+                    }
+
                     if store.isBusy && store.items.isEmpty && store.householdCollections.isEmpty {
                         LibraryLoadingView()
                     } else if store.items.isEmpty && (kind != .collections || store.householdCollections.isEmpty) {
@@ -2259,7 +2272,7 @@ private struct VideoLibraryView: View {
             }
             .sheet(isPresented: $filtersVisible) {
                 VideoFilterSheet(filters: $filters, store: store, allowsTechnicalFilters: supportsTechnicalFilterKind)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
             .toolbar {
@@ -2333,6 +2346,7 @@ private struct VideoLibraryView: View {
             kind.rawValue,
             sort.rawValue,
             searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            filters.collectionID ?? "",
             filters.genre,
             filters.year.map(String.init) ?? "",
             String(filters.unwatchedOnly),
@@ -2425,6 +2439,7 @@ private struct VideoLibraryView: View {
 
     private var filterSummary: String {
         var labels = [String]()
+        if filters.collectionID != nil { labels.append(filters.collectionName ?? "Collection") }
         if !filters.genre.isEmpty { labels.append(filters.genre) }
         if let year = filters.year { labels.append(String(year)) }
         if filters.unwatchedOnly { labels.append("Unwatched") }
@@ -2515,6 +2530,87 @@ private struct VideoAlphabetRail: View {
 }
 
 @MainActor
+private struct CollectionFilterPicker: View {
+    let store: LuminaStore
+    @Binding var selection: String?
+    @Binding var selectedName: String?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    @State private var options = [MediaItem]()
+    @State private var search = ""
+    @State private var loading = true
+    @State private var failure: String?
+
+    private var visible: [MediaItem] {
+        search.isEmpty ? options : options.filter { $0.name.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Button("Any collection") { selection = nil; selectedName = nil; dismiss() }
+                    .buttonStyle(LuminaQuietActionStyle())
+                if loading {
+                    ProgressView("Loading collections…")
+                } else if let failure {
+                    InlineErrorView(message: failure) { Task { await load() } }
+                } else if visible.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicType.isAccessibilitySize ? 220 : 144), spacing: 14, alignment: .top)], spacing: 22) {
+                        ForEach(visible) { item in
+                            Button {
+                                selection = item.id
+                                selectedName = item.name
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ArtworkView(url: store.imageURL(for: item), name: item.name, aspect: 2 / 3, glyph: .library)
+                                        .overlay(alignment: .topTrailing) {
+                                            if selection == item.id {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .symbolRenderingMode(.palette)
+                                                    .foregroundStyle(LuminaTheme.paper, LuminaTheme.ink)
+                                                    .padding(8)
+                                            }
+                                        }
+                                    Text(item.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                    if let count = item.childCount {
+                                        Text(count == 1 ? "1 title" : "\(count) titles").font(.caption).foregroundStyle(LuminaTheme.muted)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.name)
+                            .accessibilityValue(selection == item.id ? "Selected" : "")
+                            .accessibilityIdentifier("collectionFilter-\(item.id)")
+                        }
+                    }
+                }
+            }
+            .padding(LuminaTheme.contentGutter)
+        }
+        .background(LuminaTheme.paper)
+        .foregroundStyle(LuminaTheme.ink)
+        .navigationTitle("Collection")
+        .toolbarVisibility(.visible, for: .navigationBar)
+        .searchable(text: $search, prompt: "Find a collection")
+        .accessibilityIdentifier("collectionFilterPicker")
+        .task { await load() }
+    }
+
+    private func load() async {
+        loading = true; failure = nil
+        defer { loading = false }
+        do { options = try await store.collectionFilterOptions() }
+        catch is CancellationError { }
+        catch { failure = "Collections could not load. Check the connection and try again." }
+    }
+}
+
+@MainActor
 private struct VideoFilterSheet: View {
     @Binding var filters: VideoFilters
     let store: LuminaStore
@@ -2525,6 +2621,14 @@ private struct VideoFilterSheet: View {
     @State private var technicalSupported: Bool?
     @State private var checkingSupport = false
     @State private var supportError: String?
+
+    init(filters: Binding<VideoFilters>, store: LuminaStore, allowsTechnicalFilters: Bool) {
+        self._filters = filters
+        self.store = store
+        self.allowsTechnicalFilters = allowsTechnicalFilters
+        self._draft = State(initialValue: filters.wrappedValue)
+        self._year = State(initialValue: filters.wrappedValue.year.map(String.init) ?? "")
+    }
 
     private var validYear: Bool {
         year.isEmpty || (year.count == 4 && Int(year).map { (1000...9999).contains($0) } == true)
@@ -2538,6 +2642,18 @@ private struct VideoFilterSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
+                    NavigationLink {
+                        CollectionFilterPicker(store: store, selection: $draft.collectionID, selectedName: $draft.collectionName)
+                    } label: {
+                        HStack {
+                            Label("Collection", glyph: .library)
+                            Spacer()
+                            Text(draft.collectionName ?? "Any collection").foregroundStyle(LuminaTheme.muted)
+                            Image(systemName: "chevron.right").font(.caption)
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("videoCollectionFilterButton")
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Genre").font(.caption).foregroundStyle(LuminaTheme.muted)
@@ -2593,6 +2709,7 @@ private struct VideoFilterSheet: View {
             .background(LuminaTheme.paper)
             .foregroundStyle(LuminaTheme.ink)
             .navigationTitle("Filters")
+            .toolbarVisibility(.visible, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -2607,7 +2724,6 @@ private struct VideoFilterSheet: View {
                     .accessibilityIdentifier("videoApplyFiltersButton")
                 }
             }
-            .onAppear { draft = filters; year = filters.year.map(String.init) ?? "" }
             .task { if allowsTechnicalFilters { await checkSupport() } }
         }
         .tint(LuminaTheme.ink)

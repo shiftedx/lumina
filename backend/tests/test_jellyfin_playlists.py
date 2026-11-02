@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app import db as db_module
-from app.models import HouseholdCollection, User
+from app.models import HouseholdCollection, MediaTitle, User
 from app.services.household_collections import HouseholdCollectionService
 from app.services.media_titles import jellyfin_id, synthetic_id
 from app.services.playlists import (
@@ -179,6 +179,8 @@ def test_collections_as_playlists_respect_ownership_and_smart_rules(vault: Vault
     movie_tree(vault.media)
     scan(vault.admin, vault.media)
     arrival = title_ids(vault, "movie")["Arrival"]
+    with db_module.SessionLocal.begin() as db:
+        db.get(MediaTitle, arrival).images = {"Primary": {"tmdb": "/arrival-fixture.jpg"}}
     shared = vault.admin.post("/api/collections", json={"name": "Family night", "visibility": "shared"}).json()["id"]
     private = vault.admin.post("/api/collections", json={"name": "Mine", "visibility": "private"}).json()["id"]
     smart = vault.admin.post("/api/collections", json={"name": "Smart", "visibility": "private"}).json()["id"]
@@ -191,6 +193,11 @@ def test_collections_as_playlists_respect_ownership_and_smart_rules(vault: Vault
     assert vault.jf.post(url, headers=tv.headers, params={"ids": jellyfin_id(arrival)}).status_code == 204
     assert vault.jf.post(url, headers=tv.headers, params={"ids": jellyfin_id(arrival)}).status_code == 204  # idempotent
     assert names(vault.jf.get(url, headers=tv.headers)) == ["Arrival"]
+    filtered = vault.jf.get("/Items", headers=tv.headers, params={"Recursive": "true", "IncludeItemTypes": "Movie", "LuminaCollectionId": jellyfin_id(shared)})
+    assert names(filtered) == ["Arrival"]
+    assert names(vault.jf.get("/Items", headers=bob.headers, params={"Recursive": "true", "IncludeItemTypes": "Movie", "LuminaCollectionId": jellyfin_id(shared)})) == []
+    assert names(vault.jf.get("/Items", headers=bob.headers, params={"Recursive": "true", "IncludeItemTypes": "Movie", "LuminaCollectionId": jellyfin_id(private)})) == []
+    assert names(vault.jf.get("/Items", headers=tv.headers, params={"Recursive": "true", "IncludeItemTypes": "Movie", "LuminaCollectionId": jellyfin_id(shared), "SearchTerm": "not-present"})) == []
     assert vault.jf.get(f"/Playlists/{jellyfin_id(shared)}", headers=tv.headers).json()["OpenAccess"] is True
 
     assert vault.jf.get(url, headers=bob.headers).json()["Items"] == []  # bob sees the list, not admin's private film
@@ -200,7 +207,11 @@ def test_collections_as_playlists_respect_ownership_and_smart_rules(vault: Vault
     assert vault.jf.get(f"/Playlists/{jellyfin_id(private)}/Items", headers=bob.headers).status_code == 404
     assert vault.jf.get(f"/Items/{jellyfin_id(private)}", headers=bob.headers).status_code == 404  # final review #22
     assert vault.jf.get(f"/Items/{jellyfin_id(private)}", headers=tv.headers).json()["Type"] == "Playlist"
-    assert vault.jf.get(f"/Items/{jellyfin_id(shared)}", headers=bob.headers).json()["Name"] == "Family night"
+    shared_owner = vault.jf.get(f"/Items/{jellyfin_id(shared)}", headers=tv.headers).json()
+    shared_guest = vault.jf.get(f"/Items/{jellyfin_id(shared)}", headers=bob.headers).json()
+    assert shared_guest["Name"] == "Family night"
+    assert shared_owner["ParentPrimaryImageItemId"] == jellyfin_id(arrival)
+    assert "ParentPrimaryImageItemId" not in shared_guest  # Never borrow art from another member's hidden media.
     assert vault.jf.post(f"/Playlists/{jellyfin_id(smart)}/Items", headers=tv.headers, params={"ids": jellyfin_id(arrival)}).status_code == 403
     listed = vault.jf.get("/Items", headers=tv.headers, params={"ParentId": PLAYLISTS_VIEW}).json()["Items"]
     assert jellyfin_id(smart) in [row["Id"] for row in listed]  # smart collections are read-only playlists (G)

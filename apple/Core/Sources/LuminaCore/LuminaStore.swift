@@ -672,6 +672,26 @@ let tickScale = 10_000_000.0
         }
     }
 
+    /// Independent picker data: loading collection choices never replaces the active movie/show wall.
+    public func collectionFilterOptions() async throws -> [MediaItem] {
+        guard let active = session, !isOffline else { return [] }
+        async let household = loadHouseholdCollections(active, search: "")
+        var franchises = [MediaItem]()
+        var start = 0
+        while !Task.isCancelled {
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                                              search: "", start: start, types: "BoxSet", limit: 500)
+            guard isCurrent(active) else { throw CancellationError() }
+            franchises.append(contentsOf: page.items)
+            start = (page.startIndex ?? start) + page.items.count
+            if page.items.isEmpty || start >= page.total { break }
+        }
+        let lists = await household
+        guard !Task.isCancelled, isCurrent(active) else { throw CancellationError() }
+        if let failure = lists.failure { throw failure }
+        return (franchises + lists.items).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     public func loadMore() async {
         if let catalogTask { await catalogTask.value; return }
         if catalogEnabled { errorMessage = nil }

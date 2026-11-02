@@ -314,7 +314,7 @@ def playlist_listing(db: Session, user: User, query: jf.ItemsQuery) -> dict | No
     parent = parse_item_id(query.parentid)
     start, limit = query.startindex, query.page_limit()
     if parent == PLAYLISTS_VIEW_ID:
-        rows = [jf.playlist_dto(p, jf.JellyfinMapper(db, user).server_id) for p in pl.list_playlists(db, user)]
+        rows = jf.JellyfinMapper(db, user).playlist_dtos(pl.list_playlists(db, user))
     elif parent is not None and (parent == pl.watchlist_id(user) or db.get(HouseholdCollection, parent) is not None):
         try:
             rows = playlist_items_dtos(db, user, pl.get_playlist(db, user, parent), query.csv("fields"))

@@ -13,8 +13,8 @@ import { moveFocus } from '../media/focusNav';
 import { AnimePage } from './AnimePage';
 import { Browse, SearchResults } from './Browse';
 import { Discover } from './Discover';
-import { type CatalogItem, type CatalogStatus, getQuotas, type Quota } from './requestsApi';
-import { RequestsContext, type RequestsActions, type SessionGate } from './requestsContext';
+import { type CatalogItem, type CatalogStatus, getCatalogTitle, getQuotas, type Quota } from './requestsApi';
+import { RequestsContext, type RequestsActions, type SessionGate, useLoad } from './requestsContext';
 import { catalogId } from './requestsModel';
 import { Manage, MyRequests } from './RequestLists';
 import { RequestSheet } from './RequestSheet';
@@ -38,6 +38,9 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
   const isAdmin = user.role === 'admin';
   const [overrides, setOverrides] = useState<Record<string, CatalogStatus>>({});
   const [asking, setAsking] = useState<CatalogItem | null>(null);
+  const [selectedTitle, setSelectedTitle] = useState<CatalogItem | null>(null);
+  const titleKey = route.view === 'title' ? `${route.kind}:${route.id}` : '';
+  const title = useLoad(titleKey, (signal) => route.view === 'title' ? getCatalogTitle(route.kind, route.id, signal) : Promise.resolve(null));
   const [quotas, setQuotas] = useState<Quota[] | null>(null);
   const loadQuotas = useCallback(() => { getQuotas().then((result) => setQuotas(result.quotas), () => setQuotas(null)); }, []);
 
@@ -47,6 +50,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
     openTitle: (item, options) => {
       const id = catalogId(item);
       if (!id) return;
+      setSelectedTitle(item);
       if (options?.trailer) playTrailerOnOpen(item.key);
       window.scrollTo({ top: 0 });
       onRoute({ surface: 'requests', view: 'title', kind: item.kind, id });
@@ -92,7 +96,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
     { view: 'mine', label: 'My requests' }, ...(isAdmin ? [{ view: 'manage' as const, label: 'Manage' }] : []),
   ];
   let body;
-  if (route.view === 'title') body = <TitlePage id={route.id} key={`${route.kind}:${route.id}`} kind={route.kind} />;
+  if (route.view === 'title') body = <TitlePage key={titleKey} kind={route.kind} title={title} preview={selectedTitle?.kind === route.kind && catalogId(selectedTitle) === route.id ? selectedTitle : undefined} />;
   else if (route.view === 'search') body = <SearchResults query={route.query} />;
   else if (route.view === 'movies' || route.view === 'shows') body = <Browse genre={route.genre} section={route.section} view={route.view} />;
   else if (route.view === 'anime') body = <AnimePage genre={route.genre} section={route.section} />;
@@ -120,7 +124,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
         {route.view === 'title' ? <>{searchForm}</> : null}
         {body}
       </div>
-      {asking ? <RequestSheet item={asking} key={asking.key} onClose={() => setAsking(null)} onRequested={() => { loadQuotas(); onQueueChanged?.(); }} onStatus={setStatus} quota={quota} userId={user.id} /> : null}
+      {asking ? <RequestSheet item={asking} sharedDetail={route.view === 'title' && asking.kind === route.kind && catalogId(asking) === route.id ? title : undefined} key={asking.key} onClose={() => setAsking(null)} onRequested={() => { loadQuotas(); onQueueChanged?.(); }} onStatus={setStatus} quota={quota} userId={user.id} /> : null}
     </RequestsContext.Provider>
   );
 }

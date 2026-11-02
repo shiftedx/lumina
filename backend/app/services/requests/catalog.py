@@ -528,7 +528,9 @@ def annotate(response: dict, session: Session, user: User, *, include_languages:
     sources = {item["key"]: item for item in items}
     statuses = catalog_statuses(session, user, sorted(sources), sources) if items else {}
     for item in items:
-        item["status"] = statuses.get(item["key"], NONE_STATUS)
+        item["status"] = dict(statuses.get(item["key"], NONE_STATUS))
+        if item["kind"] == "anime":
+            item["status"]["language_requests_supported"] = True
     if "seasons" in response and "status" in response and not include_languages:
         response["status"]["language_requests_supported"] = response.get("kind") == "anime"
     if "seasons" in response and "status" in response and include_languages:

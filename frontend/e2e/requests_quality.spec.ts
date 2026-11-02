@@ -336,7 +336,7 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     await mockApi(page, {});
     await mockRequests(page, { discoverFailure: false, mineEmpty: false });
-    const status = { state: 'available' as const, library_title_id: 'title-anime' };
+    const status = { state: 'available' as const, library_title_id: 'title-anime', language_requests_supported: true };
     await page.route('**/api/requests/catalog/home', (route) => route.fulfill({ json: {
       hero: [], rails: [{ key: 'anime', title: 'Anime', items: [{ ...ANIME, status }] }],
     } }));
@@ -417,4 +417,33 @@ test('anime card can request all seasons without waiting for optional title meta
   expect((await submission).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', seasons: 'all' });
   release();
   await expect(dialog).toBeHidden();
+});
+
+test('anime title and request actions open before full metadata arrives', async ({ page }) => {
+  await mockApi(page, {});
+  await mockRequests(page, { discoverFailure: false, mineEmpty: false });
+  let release: () => void = () => undefined;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  let lookups = 0;
+  await page.route('**/api/requests/catalog/title/anime/16498*', async (route) => {
+    lookups++;
+    await hold;
+    await route.fulfill({ json: ANIME_DETAIL });
+  });
+  await page.goto('/requests');
+  await signIn(page);
+  await page.getByRole('button', { name: /^Attack on Titan, 2013/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Attack on Titan', exact: true })).toBeVisible({ timeout: 1500 });
+  await page.getByRole('button', { name: 'Request', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
+  await dialog.getByRole('radio', { name: /English audio/ }).click();
+  const started = lookups;
+  release();
+  await dialog.getByRole('radio', { name: 'Choose' }).click();
+  await dialog.getByRole('checkbox', { name: 'Season 1', exact: true }).check();
+  await expect(dialog.getByRole('radio', { name: /English audio/ })).toBeChecked();
+  const submitted = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/requests');
+  await dialog.getByRole('button', { name: 'Request', exact: true }).click();
+  expect((await submitted).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', seasons: [1] });
+  expect(lookups).toBe(started);
 });

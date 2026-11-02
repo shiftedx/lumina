@@ -113,6 +113,7 @@ def test_home_rails_in_order_with_hero_and_default_status(client, fake) -> None:
 def test_anime_items_map_to_tmdb_and_tvdb_or_are_unrequestable(client, fake) -> None:  # noqa: ANN001
     items = client.get(f"{BASE}/list/anime").json()["items"]
     frieren, film = items
+    assert all(item["status"]["language_requests_supported"] is True for item in items)
     assert frieren["key"] == "anime:154587" and frieren["kind"] == "anime" and frieren["media_type"] == "tv"
     assert (frieren["tmdb_id"], frieren["tvdb_id"], frieren["requestable"]) == (209867, 424536, True)  # the live-action decoy is skipped
     assert frieren["title"] == "Frieren: Beyond Journey's End" and frieren["original_title"] == "Sousou no Frieren"

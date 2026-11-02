@@ -42,18 +42,17 @@ export function StatusRibbon({ status }: { status: CatalogStatus }) {
   );
 }
 
-/** One poster card: opens the title (or, once in the vault, the Library title); Request and Trailer on hover or focus. */
+/** One poster card: opens Requests details, including language follow-ups for owned titles. */
 export function CatalogCard({ item, size = 'normal' }: { item: CatalogItem; size?: 'normal' | 'large' }) {
-  const { openTitle, openLibrary, ask, statusOf } = useRequests();
+  const { openTitle, ask, statusOf } = useRequests();
   const now = useNow();
   const status = statusOf(item);
   const shown = { ...item, status };
-  const available = status.state === 'available' && status.library_title_id;
   const next = size === 'large' ? item.anime?.next_episode : undefined;
   const sub = [item.year, item.kind === 'anime' && item.anime?.format ? formatLabel(item.anime.format) : KIND_LABEL[item.kind]].filter(Boolean).join(' · ');
   return (
     <div className={`rq-card is-${size}`}>
-      <button aria-label={[item.title, sub, statusBadge(status)?.label, available ? 'open in Library' : null].filter(Boolean).join(', ')} className="rq-card-open" data-focus-item onClick={() => (available ? openLibrary(status.library_title_id!) : openTitle(item))} type="button">
+      <button aria-label={[item.title, sub, statusBadge(status)?.label].filter(Boolean).join(', ')} className="rq-card-open" data-focus-item onClick={() => openTitle(item)} type="button">
         <span className="rq-frame" style={accentStyle(item)}>
           <Art fallback={item.title} src={item.poster_url} />
           <StatusRibbon status={status} />

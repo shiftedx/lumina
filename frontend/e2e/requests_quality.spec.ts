@@ -330,3 +330,35 @@ test.afterAll(() => {
   }))));
   writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify({ fixture_art: 'frontend/e2e/fixtures/open-films', source: 'frontend/e2e/requests_quality.spec.ts', captures }, null, 2)}\n`);
 });
+
+for (const viewport of VIEWPORTS) {
+  test(`owned anime language request: ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await mockApi(page, {});
+    await mockRequests(page, { discoverFailure: false, mineEmpty: false });
+    const status = { state: 'available' as const, library_title_id: 'title-anime' };
+    await page.route('**/api/requests/catalog/home', (route) => route.fulfill({ json: {
+      hero: [], rails: [{ key: 'anime', title: 'Anime', items: [{ ...ANIME, status }] }],
+    } }));
+    await page.route('**/api/requests/catalog/title/anime/16498', (route) => route.fulfill({ json: {
+      ...ANIME_DETAIL, status: { ...status, language_availability: {
+        state: 'known', total_files: 1, truncated: false,
+        files: [{ season: 1, episode: 1, audio_languages: ['ja'], subtitle_languages: ['en'], audio_known: true, subtitles_known: true }],
+      } },
+    } }));
+    await page.goto('/requests');
+    await signIn(page);
+    await page.getByRole('button', { name: /^Attack on Titan, 2013/ }).click();
+    await expect(page).toHaveURL(/\/requests\/title\/anime\/16498/);
+    await page.getByRole('button', { name: 'Request another language' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Request Attack on Titan' });
+    await dialog.getByRole('radio', { name: /English audio/ }).click();
+    const submission = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/requests');
+    await dialog.getByRole('button', { name: 'Request', exact: true }).click();
+    expect((await submission).postDataJSON()).toMatchObject({ kind: 'anime', language: 'dub', audio_language: 'en', seasons: 'all' });
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Open in Library' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open in Library' }).click();
+    await expect(page).toHaveURL(/title-anime/);
+  });
+}

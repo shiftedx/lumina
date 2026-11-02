@@ -28,6 +28,7 @@ def native(tmp_path: Path):  # noqa: ANN201
 def _enabled() -> None:
     with main.SessionLocal.begin() as db:
         db.get(AppSettings, 1).native_streaming_enabled = True
+        db.get(User, ALICE).onboarding_status = "completed"
 
 
 def _preview(url: str) -> PreviewResponse:

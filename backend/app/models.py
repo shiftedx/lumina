@@ -769,7 +769,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(24), default="viewer", index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # New members start pending so first-run onboarding can prepare their Home.
+    # New members start pending for optional web Streaming setup; enrollment opens Home.
     onboarding_status: Mapped[str] = mapped_column(
         String(24), default="pending", server_default=text("'pending'"), nullable=False
     )

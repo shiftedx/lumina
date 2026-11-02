@@ -350,6 +350,14 @@ it('a late Explore response never replaces the newer query', async () => {
 });
 
 describe('pending-member interest loading', () => {
+  beforeEach(async () => {
+    const api = await import('./api');
+    vi.spyOn(api, 'getServerNavigation').mockResolvedValue({ categories: ['youtube'], features: { streaming: true, requests: false } });
+  });
+  afterEach(async () => {
+    const api = await import('./api');
+    vi.mocked(api.getServerNavigation).mockRestore();
+  });
   const interests: MemberInterests = {
     categories: [{ key: 'music', label: 'Music' }, { key: 'film', label: 'Film' }],
     selected_keys: ['music'],
@@ -360,9 +368,10 @@ describe('pending-member interest loading', () => {
     let finish!: (value: MemberInterests) => void;
     workspaceState.currentUser = { ...user, onboarding_status: 'pending' };
     mocks.getMemberInterests.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    window.history.replaceState(null, '', '/streaming');
     render(<LuminaApp />);
 
-    await browser.click(await screen.findByRole('button', { name: 'Personalize my Home' }));
+    await browser.click(await screen.findByRole('button', { name: 'Set up my Streaming' }));
     expect(await screen.findByText('Loading interests…')).toBeTruthy();
     expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(false);
@@ -378,9 +387,10 @@ describe('pending-member interest loading', () => {
     mocks.getMemberInterests
       .mockRejectedValueOnce(new Error('temporarily unavailable'))
       .mockResolvedValueOnce({ ...interests, selected_keys: ['film'] });
+    window.history.replaceState(null, '', '/streaming');
     render(<LuminaApp />);
 
-    await browser.click(await screen.findByRole('button', { name: 'Personalize my Home' }));
+    await browser.click(await screen.findByRole('button', { name: 'Set up my Streaming' }));
     expect((await screen.findByRole('alert')).textContent).toContain('We couldn’t load your interests.');
     expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(false);
@@ -396,10 +406,11 @@ describe('pending-member interest loading', () => {
     let finish!: (value: MemberInterests) => void;
     workspaceState.currentUser = { ...user, onboarding_status: 'pending' };
     mocks.getMemberInterests.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    window.history.replaceState(null, '', '/streaming');
     render(<LuminaApp />);
     await waitFor(() => expect(mocks.getMemberInterests).toHaveBeenCalledTimes(1));
 
-    await browser.click(await screen.findByRole('button', { name: 'Explore without setup' }));
+    await browser.click(await screen.findByRole('button', { name: 'Back to Home' }));
     expect(await screen.findByRole('button', { name: 'Choose interests' })).toBeTruthy();
     await act(async () => { finish(interests); });
     expect(screen.getByRole('button', { name: 'Choose interests' })).toBeTruthy();

@@ -1,25 +1,35 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Route } from '@playwright/test';
-import { mockApi, user } from './lumina-mock';
+import { mockApi, navigateApp, user } from './lumina-mock';
 
 for (const width of [390, 1440]) {
-  test(`onboarding opens the vault and keeps both setup steps usable at ${width}px`, async ({ page }) => {
+  test(`Streaming entry opens setup and keeps both setup steps usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await mockApi(page, {});
     await page.route('**/api/session/me', (route) => route.fulfill({ json: { user: { ...user, onboarding_status: 'pending' } } }));
     await page.route('**/api/discovery/interests', (route) => route.fulfill({ json: { categories: [{ key: 'film', label: 'Film' }], selected_keys: [] } }));
     await page.route(/\/api\/discovery\/channels(\?|$)/, (route) => route.fulfill({ json: { categories: [] } }));
     await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: 'Film', exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+    await navigateApp(page, 'Streaming');
 
-    await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
+    await navigateApp(page, 'Streaming');
     const theme = width === 1440 ? 'dark' : 'light';
     await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     await expect(page.locator('.g-onboarding-welcome-art img')).toHaveAttribute('src', '/onboarding/vault-arrival-v2.jpg');
-    await expect(page.getByText(/new discoveries with family and friends/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
+    await expect(page.getByText(/personalize videos and live streams/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Set up my Streaming' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-    await page.getByRole('button', { name: 'Personalize my Home' }).click();
+    await page.getByRole('button', { name: 'Set up my Streaming' }).click();
 
     await expect(page.getByRole('heading', { name: 'What draws you in?' })).toBeVisible();
     await expect(page.locator('.g-onboarding-interest-art img')).toHaveAttribute('src', '/onboarding/listening-room-v1.jpg');
@@ -47,7 +57,7 @@ for (const width of [390, 1440]) {
       expect(button!.x).toBeGreaterThanOrEqual(field!.x + field!.width);
       const back = page.getByRole('button', { name: 'Back', exact: true });
       const picks = page.getByRole('button', { name: 'Your chosen creators, 0 selected' });
-      const next = page.getByRole('button', { name: 'Enter my Home', exact: true });
+      const next = page.getByRole('button', { name: 'Open Streaming', exact: true });
       const backBox = await back.boundingBox();
       const nextBox = await next.boundingBox();
       expect(Math.abs(backBox!.y - nextBox!.y)).toBeLessThan(2);
@@ -96,10 +106,10 @@ for (const width of [320, 390, 768, 1440]) {
       attempts++;
       return attempts === 1 ? route.fulfill({ status: 500, json: { detail: 'Temporarily unavailable' } }) : route.fulfill({ json: { status: 'completed', selected_keys: ['music'], followed: [] } });
     });
-    await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
+    await page.goto('/streaming');
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('welcome.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Personalize my Home' }).click();
+    await page.getByRole('button', { name: 'Set up my Streaming' }).click();
     await page.getByRole('checkbox', { name: 'Music', exact: true }).check();
     await page.screenshot({ path: testInfo.outputPath('taste.png'), fullPage: true });
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -126,13 +136,13 @@ for (const width of [320, 390, 768, 1440]) {
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Studio Sessions — selected, deselect' })).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: 'Enter my Home with 1 channel' }).click();
+    await page.getByRole('button', { name: 'Open Streaming with 1 channel' }).click();
     await expect(page.getByRole('alert')).toContainText('We could not save your setup');
     await page.getByRole('button', { name: 'Your chosen creators, 1 selected' }).click();
     await expect(page.getByRole('list', { name: 'Your chosen creators' })).toContainText('Studio Sessions');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Enter my Home with 1 channel' }).click();
-    await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Open Streaming with 1 channel' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Streaming', exact: true })).toBeVisible();
     expect(writes).toEqual(Array.from({ length: 2 }, () => ({ keys: ['music'], follows: [{ source_url: 'https://www.youtube.com/@studio-sessions', display_name: 'Studio Sessions' }] })));
   });
 }
@@ -152,13 +162,13 @@ test('creator discovery offers a starting collection even without choosing inter
     saved = route.request().postDataJSON();
     return route.fulfill({ json: { status: 'completed', selected_keys: [], followed: [] } });
   });
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await page.goto('/streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Follow Studio Sessions' })).toBeVisible();
   expect(requestedKeys).toEqual(['music', 'documentaries', 'science-technology']);
-  await page.getByRole('button', { name: 'Enter my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Streaming' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Streaming', exact: true })).toBeVisible();
   expect(saved).toEqual({ keys: [], follows: [] });
 });
 
@@ -172,8 +182,8 @@ test('a slow earlier shelf cannot replace the member’s newer interests', async
     if (keys.includes('music')) { earlier = route; return; }
     return route.fulfill({ json: { categories: [channelShelves[1]] } });
   });
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await page.goto('/streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await page.getByRole('checkbox', { name: 'Music', exact: true }).check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect.poll(() => Boolean(earlier)).toBe(true);
@@ -195,8 +205,8 @@ test('existing interests can be cleared without returning on Back', async ({ pag
   let interestsRequest: Route | undefined;
   await page.route('**/api/discovery/interests', (route) => { interestsRequest = route; });
   await page.route(/\/api\/discovery\/channels(\?|$)/, (route) => route.fulfill({ json: { categories: channelShelves } }));
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Personalize my Home' }).click();
+  await page.goto('/streaming');
+  await page.getByRole('button', { name: 'Set up my Streaming' }).click();
   await expect.poll(() => Boolean(interestsRequest)).toBe(true);
   await interestsRequest!.fulfill({ json: { categories: tasteCategories, selected_keys: ['music'] } });
   const music = page.getByRole('checkbox', { name: 'Music', exact: true });
@@ -206,4 +216,38 @@ test('existing interests can be cleared without returning on Back', async ({ pag
   await expect(page.getByRole('heading', { name: 'Meet your next favorites' })).toBeVisible();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(music).not.toBeChecked();
+});
+
+
+for (const streaming of [true, false]) {
+  test(`saved videos bypass setup with discovery ${streaming ? 'enabled' : 'disabled'}`, async ({ page }) => {
+    await mockApi(page, {}, { categories: ['movies', 'youtube'], features: { streaming, requests: false } });
+    await page.route('**/api/session/me', route => route.fulfill({ json: { user: { ...user, onboarding_status: 'pending' } } }));
+    await page.goto('/streaming/library');
+    await expect(page.getByRole('heading', { name: 'Saved videos', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
+    if (!streaming) {
+      await page.goto('/streaming');
+      await expect(page.getByRole('heading', { name: 'Saved videos', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toHaveCount(0);
+    }
+  });
+}
+
+test('leaving Streaming setup opens Home and resumes setup on the next Streaming visit', async ({ page }) => {
+  await mockApi(page, {});
+  let status = 'pending';
+  await page.route('**/api/session/me', route => route.fulfill({ json: { user: { ...user, onboarding_status: status } } }));
+  await page.route('**/api/onboarding/skip', route => {
+    status = 'skipped';
+    return route.fulfill({ json: { status, selected_keys: [], followed: [] } });
+  });
+  await page.goto('/streaming');
+  await page.getByRole('button', { name: 'Back to Home' }).click();
+  await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await navigateApp(page, 'Streaming');
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Set up Streaming' })).toBeVisible();
 });

@@ -199,7 +199,8 @@ def native_streaming_enabled(db: Session, user: User) -> bool:
 
 
 def native_streaming_providers(db: Session, user: User) -> tuple[str, ...]:
-    if not _native_remote_runtime_ready(db):
+    member = db.get(User, user.id)
+    if member is None or member.onboarding_status != "completed" or not _native_remote_runtime_ready(db):
         return ()
     access = member_access.for_user(db, user)
     effective = access or member_access.EffectiveAccess()
@@ -215,7 +216,8 @@ def native_live_streaming_enabled(db: Session, user: User) -> bool:
 
 
 def native_youtube_session_enabled(db: Session, user: User) -> bool:
-    if not _server_native_streaming_enabled(db):
+    member = db.get(User, user.id)
+    if member is None or member.onboarding_status != "completed" or not _server_native_streaming_enabled(db):
         return False
     access = member_access.for_user(db, user)
     effective = access or member_access.EffectiveAccess()

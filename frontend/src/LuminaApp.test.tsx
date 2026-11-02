@@ -206,7 +206,7 @@ describe('first-run onboarding surface presentation', () => {
     );
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('role="status"');
-    expect(html).toContain('Preparing your Home');
+    expect(html).toContain('Preparing Streaming');
     expect(html).not.toContain('type="checkbox"');
   });
 

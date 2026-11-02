@@ -104,6 +104,7 @@ def set_native_streaming_enabled(enabled: bool) -> None:
         record = db.get(AppSettings, 1)
         assert record is not None
         record.native_streaming_enabled = enabled
+        db.get(User, ALICE).onboarding_status = "completed"
 
 
 def streaming_capabilities(response):  # noqa: ANN001, ANN201
@@ -362,3 +363,26 @@ def test_password_change_requires_proof_and_revokes_the_calling_connected_app(na
     )
     assert changed.status_code == 204, changed.text
     assert call(native, "GET").status_code == 401
+
+
+@pytest.mark.parametrize("status", ["pending", "skipped"])
+def test_web_streaming_setup_unlocks_only_the_completed_member(native: TestClient, status: str) -> None:
+    from app.services.member_onboarding import MemberOnboardingService
+
+    set_native_streaming_enabled(True)
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, ALICE).onboarding_status = status
+    capabilities = call(native, "GET", "/capabilities").json()
+    assert capabilities["streaming"]["saved_library"]["available"] is True
+    assert capabilities["streaming"]["remote"] == {"available": False, "providers": [], "live_available": False}
+    assert capabilities["youtube_session_enabled"] is False
+    assert call(native, "GET", "/navigation").json()["features"]["streaming"] is False
+    response = native.post("/Lumina/Streaming/playback", headers=mediabrowser(ALICE_TOKEN), json={"source_url": "https://www.youtube.com/watch?v=setupfirst"})
+    assert response.status_code == 403
+    assert native.post("/api/onboarding/complete", headers=mediabrowser(ALICE_TOKEN), json={"keys": []}).status_code == 401
+    # The same durable write used by web setup unlocks all of this member's devices.
+    with db_module.SessionLocal.begin() as db:
+        MemberOnboardingService(db).complete(db.get(User, ALICE), ["music"])
+    assert call(native, "GET", "/capabilities").json()["streaming"]["remote"]["available"] is True
+    assert call(native, "GET", "/navigation").json()["features"]["streaming"] is True
+    assert call(native, "GET", "/capabilities", token=BOB_TOKEN).json()["streaming"]["remote"]["available"] is False

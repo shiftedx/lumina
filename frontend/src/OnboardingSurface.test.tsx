@@ -6,19 +6,19 @@ import { OnboardingSurface, WelcomeSurface } from './features/onboarding/Onboard
 
 const categories = [{ key: 'music', label: 'Music' }, { key: 'cooking', label: 'Cooking' }];
 
-describe('new-member welcome', () => {
+describe('Streaming setup welcome', () => {
   it('introduces factual vault capabilities before personalization', async () => {
     const browser = userEvent.setup();
     const onBegin = vi.fn();
     render(<WelcomeSurface displayName="Dana" onBegin={onBegin} onSkip={vi.fn()} />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Lumina' })).toBe(document.activeElement);
-    expect(screen.getByText('The vault is open, Dana.')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Set up Streaming' })).toBe(document.activeElement);
+    expect(screen.getByText('Make Streaming yours, Dana.')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Your library' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'A Home of your own' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Streaming for you' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Ready on any screen' })).toBeTruthy();
 
-    await browser.click(screen.getByRole('button', { name: 'Personalize my Home' }));
+    await browser.click(screen.getByRole('button', { name: 'Set up my Streaming' }));
     expect(onBegin).toHaveBeenCalledTimes(1);
   });
 
@@ -26,12 +26,12 @@ describe('new-member welcome', () => {
     const browser = userEvent.setup();
     const onSkip = vi.fn();
     const view = render(<WelcomeSurface onBegin={vi.fn()} onSkip={onSkip} />);
-    await browser.click(screen.getByRole('button', { name: 'Explore without setup' }));
+    await browser.click(screen.getByRole('button', { name: 'Back to Home' }));
     expect(onSkip).toHaveBeenCalledTimes(1);
 
     view.rerender(<WelcomeSurface busy onBegin={vi.fn()} onSkip={onSkip} />);
-    expect((screen.getByRole('button', { name: 'Personalize my Home' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Explore without setup' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Set up my Streaming' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Back to Home' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('uses the approved vault artwork decoratively and surfaces failures', () => {
@@ -122,7 +122,7 @@ describe('editorial onboarding', () => {
 
   it('preparing is a status with an indeterminate progress bar', () => {
     const { container } = render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="preparing" />);
-    expect(screen.getByRole('heading', { name: 'Preparing your Home' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Preparing Streaming' })).toBeTruthy();
     expect(screen.getByRole('progressbar').hasAttribute('aria-valuenow')).toBe(false);
     expect(screen.getByRole('status')).toBeTruthy();
     expect(container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art')?.getAttribute('src')).toBe('/onboarding/vault-arrival-v2.jpg');

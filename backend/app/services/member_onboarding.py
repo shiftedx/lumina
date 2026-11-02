@@ -9,9 +9,9 @@ from app.services.member_recommendations import MemberInterestService
 
 
 class MemberOnboardingService:
-    """Own the durable, member-scoped onboarding decision for one Household member.
+    """Own the durable, member-scoped Streaming setup decision.
 
-    A member is ``pending`` until they either complete first-run setup (choosing
+    A member is ``pending`` until they either complete web Streaming setup (choosing
     Interest categories, or continuing with none) or explicitly skip it. Both
     transitions are idempotent: replaying them from a reload, a second tab, or a
     second device leaves the same durable state. Skip never regresses a real

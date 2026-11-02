@@ -73,7 +73,7 @@ describe('channel discovery step', () => {
     expect(within(screen.getByRole('list', { name: 'Your chosen creators' })).getByText('Kurzgesagt')).toBeTruthy();
     await browser.click(screen.getByRole('button', { name: 'Remove Kurzgesagt from your picks' }));
     expect(onSelectionChange).toHaveBeenCalledWith([]);
-    await browser.click(screen.getByRole('button', { name: 'Enter my Home' }));
+    await browser.click(screen.getByRole('button', { name: 'Open Streaming' }));
     expect(onContinue).toHaveBeenCalledWith([]);
   });
 
@@ -131,7 +131,7 @@ describe('channel discovery step', () => {
     await browser.click(screen.getByRole('button', { name: 'Follow NPR Music' }));
     // Deselect NPR Music again.
     await browser.click(screen.getByRole('button', { name: 'NPR Music — selected, deselect' }));
-    await browser.click(screen.getByRole('button', { name: 'Enter my Home with 1 channel' }));
+    await browser.click(screen.getByRole('button', { name: 'Open Streaming with 1 channel' }));
 
     expect(onContinue).toHaveBeenCalledWith([
       { source_url: 'https://www.youtube.com/@kurzgesagt', display_name: 'Kurzgesagt' },
@@ -141,7 +141,7 @@ describe('channel discovery step', () => {
   it('lets a member complete without following any channel', async () => {
     const browser = userEvent.setup();
     const { onContinue } = renderStep();
-    await browser.click(screen.getByRole('button', { name: 'Enter my Home' }));
+    await browser.click(screen.getByRole('button', { name: 'Open Streaming' }));
     expect(onContinue).toHaveBeenCalledWith([]);
   });
 
@@ -171,7 +171,7 @@ describe('channel discovery step', () => {
     await browser.click(screen.getByRole('button', { name: 'Find channels' }));
 
     expect(onSearch).not.toHaveBeenCalled();
-    await browser.click(screen.getByRole('button', { name: 'Enter my Home with 1 channel' }));
+    await browser.click(screen.getByRole('button', { name: 'Open Streaming with 1 channel' }));
     expect(onContinue).toHaveBeenCalledWith([
       { source_url: 'https://www.youtube.com/@pastedchannel', display_name: 'pastedchannel' },
     ]);

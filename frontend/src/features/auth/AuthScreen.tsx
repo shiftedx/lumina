@@ -55,7 +55,7 @@ const COPY = {
   loading: { kicker: undefined, title: 'Opening your vault', lede: undefined },
   login: { kicker: 'Sign in', title: 'Welcome home', lede: 'Sign in with your Lumina account.' },
   setup: { kicker: 'Your household vault', title: 'Make Lumina yours', lede: 'Create your owner account. Next, we’ll help you connect your media and make your Home yours.' },
-  invite: { kicker: 'Your invitation', title: 'Step inside the vault.', lede: 'Create your account, then make your Home yours. Your watch history stays private to you.' },
+  invite: { kicker: 'Your invitation', title: 'Step inside the vault.', lede: 'Create your account to open your Home and shared libraries. Your watch history stays private to you.' },
   reset: { kicker: 'Password reset', title: 'Choose a new password', lede: 'Choose a new password, then sign in with it.' },
 } as const;
 const PRIMARY = { login: 'Sign in', setup: 'Create household vault', invite: 'Create my account', reset: 'Set new password' } as const;
@@ -165,7 +165,7 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
         {invitation ? (
           <div className="g-invite-preview">
             <img alt="An illustrated vault filled with film reels, records, and books." className="g-invite-vault" height={911} src="/onboarding/vault.jpg" width={1100} />
-            <div className="g-invite-promise"><p className="g-label">A shared vault. Your own Home.</p><h2>Find your next favorite.</h2><p>Discover what’s shared with you, follow the creators you love, and pick up right where you left off.</p></div>
+            <div className="g-invite-promise"><p className="g-label">A shared vault. Your own Home.</p><h2>Find your next favorite.</h2><p>Discover what’s shared with you and pick up right where you left off.</p></div>
           </div>
         ) : show ? <ShowcaseCaption show={show} /> : (
           <>

@@ -547,10 +547,10 @@ export function WatchSurface({
     ...(remote ? { unavailableAction } : {}),
     chapters: duration && markers.length ? <ChapterSeekMarkers chapters={markers} currentTime={currentTime} duration={duration} interactive={false} onSeek={seekPlayback} /> : undefined,
     theater: <TheaterModeControl onTheaterModeChange={onTheaterModeChange} shortcutEnabled={!mini} theaterMode={theaterMode} />,
-    ...(local && !mini ? {
+    ...(local ? {
       menu: <PlaybackMenu captions={captions} capabilities={enrichment} onCaptionsChange={onCaptionsChange} currentVersionId={local.id} itemId={playId as string} onPrefs={onPlaybackPrefsChange ?? (() => undefined)} onRequestChange={changeSessionRequest} onSubtitle={chooseSubtitle} onTracksChanged={reloadSubtitleTracks} options={playbackOptions} prefs={prefs} request={sessionRequest} subtitle={subtitle} tracks={subtitleTracks} versions={watchTitle.data?.versions ?? []} />,
       // Music gets no up-next card: its countdown would cut the last 20 s off every song. The stage names the next track.
-      overlay: <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} stillWatching={audio ? null : stillWatching} upNext={audio ? null : upNext} />,
+      overlay: !mini ? <PlayerOverlays autoSkip={prefs.autoSkip} autoplay={autoAdvance} currentTime={currentTime} duration={duration} onCancelUpNext={() => { upNextCancelledRef.current = true; }} onSeek={seekPlayback} recap={recap} segments={segments} stillWatching={audio ? null : stillWatching} upNext={audio ? null : upNext} /> : undefined,
     } : {}),
   };
 

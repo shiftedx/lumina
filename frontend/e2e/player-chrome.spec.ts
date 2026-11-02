@@ -78,7 +78,7 @@ test('a reco menu opens above the mini player', async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
-  test(`casting stays inside the player and follows receiver availability at ${viewport.width}px`, async ({ page }) => {
+  test(`casting stays in player settings and follows receiver availability at ${viewport.width}px`, async ({ page }) => {
     await page.addInitScript(() => {
       let state = 'NO_DEVICES_AVAILABLE';
       const listeners = new Set<() => void>();
@@ -110,19 +110,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       window.dispatchEvent(new CustomEvent('test-cast-availability', { detail: 'NOT_CONNECTED' }));
       document.querySelector('video')!.dispatchEvent(Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: 'available' }));
     });
-    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toBeVisible();
-    await expect(player.getByRole('button', { name: 'AirPlay', exact: true })).toBeVisible();
+    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toHaveCount(0);
+    await expect(player.getByRole('button', { name: 'AirPlay', exact: true })).toHaveCount(0);
     const timestamp = (await player.getByLabel('Playback time').boundingBox())!;
-    for (const name of ['Cast to Chromecast', 'AirPlay']) {
-      const control = (await player.getByRole('button', { name, exact: true }).boundingBox())!;
-      expect(control.y >= timestamp.y + timestamp.height || control.x >= timestamp.x + timestamp.width).toBeTruthy();
-    }
+    const settings = player.getByRole('button', { name: 'Playback settings' });
+    const control = (await settings.boundingBox())!;
+    expect(control.y >= timestamp.y + timestamp.height || control.x >= timestamp.x + timestamp.width).toBeTruthy();
     await page.screenshot({ path: `../output/playwright/casting-${viewport.width}.png` });
-    await player.getByRole('button', { name: 'Cast to Chromecast' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Receiver selection was canceled or network access was denied.');
-    await expect(page.getByRole('button', { name: 'Try casting again' })).toBeVisible();
+    await settings.click();
+    const menu = player.getByRole('group', { name: 'Playback settings' });
+    await expect(menu.getByRole('button', { name: 'Cast to Chromecast' })).toBeVisible();
+    await expect(menu.getByRole('button', { name: 'AirPlay', exact: true })).toBeVisible();
+    await page.screenshot({ path: `../output/playwright/casting-menu-${viewport.width}.png` });
+    await menu.getByRole('button', { name: 'Cast to Chromecast' }).click();
+    await expect(menu.getByRole('alert')).toHaveText('Receiver selection was canceled or network access was denied.');
+    await expect(menu.getByRole('button', { name: 'Cast to Chromecast' })).toBeEnabled();
     await page.keyboard.press('Escape');
-    await expect(player.getByRole('button', { name: 'Cast to Chromecast' })).toBeFocused();
+    await expect(settings).toBeFocused();
+    await expect(menu).toBeHidden();
+    await settings.click();
     await page.evaluate(() => {
       window.dispatchEvent(new CustomEvent('test-cast-availability', { detail: 'NO_DEVICES_AVAILABLE' }));
       document.querySelector('video')!.dispatchEvent(Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: 'not-available' }));

@@ -5,6 +5,7 @@ vi.mock('../../api', () => ({ post: mocks.post, del: mocks.del, getSessionUserId
 vi.mock('../../playIntent', () => ({ pauseMediaForUser: mocks.pause, playMediaForUser: mocks.play }));
 vi.mock('./chromecast', () => ({ watchChromecastAvailability: (listener: (available: boolean) => void) => { mocks.availability = listener; listener(mocks.available); return vi.fn(); }, startChromecast: mocks.start }));
 import { ChromecastPanel } from './ChromecastPanel';
+import { PlayerCastingContext, PlayerSettingsMenu } from './PlayerSettingsMenu';
 const ticket = { ticket_id: 'ticket', media_url: 'https://lumina.invalid/capability?token=scoped', title: 'Video', position_seconds: 42, duration: 90 };
 function target() { return { status: vi.fn(async () => ({ position: 42, duration: 90, playing: true })), stop: vi.fn(async () => undefined), play: vi.fn(), pause: vi.fn(), seek: vi.fn() }; }
 beforeEach(() => { vi.clearAllMocks(); mocks.owner = 'alice'; mocks.available = true; mocks.post.mockResolvedValue(ticket); mocks.del.mockResolvedValue(undefined); mocks.play.mockResolvedValue(undefined); });
@@ -84,6 +85,24 @@ it('hides casting until a receiver is discovered and retains controls during an 
   fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
   await screen.findByRole('button', { name: 'Return playback here' });
   act(() => mocks.availability(false));
-  expect(screen.getByRole('button', { name: 'Chromecast controls' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Return playback here' })).toBeTruthy();
   view.unmount();
+});
+
+it('keeps the receiver and its access alive while the gear menu is closed', async () => {
+  const media = document.createElement('video'), output = target();
+  mocks.start.mockImplementation(async (mint) => { await mint(); return output; });
+  const view = render(<PlayerCastingContext.Provider value={<ChromecastPanel audioIndex={null} getMedia={() => media} itemId="video" subtitle={null} />}><PlayerSettingsMenu /></PlayerCastingContext.Provider>);
+  expect(screen.queryByRole('button', { name: 'Cast to Chromecast' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cast to Chromecast' }));
+  await screen.findByRole('button', { name: 'Return playback here' });
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect(screen.queryByRole('button', { name: 'Return playback here' })).toBeNull();
+  expect(output.stop).not.toHaveBeenCalled();
+  expect(mocks.del).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect(screen.getByRole('button', { name: 'Return playback here' })).toBeTruthy();
+  view.unmount();
+  expect(output.stop).toHaveBeenCalledOnce();
 });

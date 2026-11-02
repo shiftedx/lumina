@@ -19,10 +19,10 @@
 .player-control-cluster { display: flex; min-width: 0; align-items: center; gap: 1px; }
 .player-control-cluster--end { justify-content: flex-end; }
 .player-cast-panel { display: grid; gap: 12px; }
-@media (max-width: 520px) {
-  .player-control-row:has([data-player-casting]) { flex-wrap: wrap; gap: 0; }
-  .player-control-row:has([data-player-casting]) .player-control-cluster { flex-shrink: 0; }
-  .player-control-row:has([data-player-casting]) .player-control-cluster--end { max-width: 100%; margin-inline-start: auto; flex-wrap: wrap; }
+@media (max-width: 360px) {
+  .player-control-row { flex-wrap: wrap; }
+  .player-control-cluster { flex-shrink: 0; }
+  .player-control-cluster--end { margin-inline-start: auto; }
 }
 .player-controls button:not(.player-panel *) { display: grid; width: var(--player-control-size); min-width: var(--player-control-size); height: var(--player-control-size); place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--g-overlay-ink); cursor: pointer; }
 @media (hover: hover) { .player-controls button:not(.player-panel *, :disabled):hover { background: var(--g-overlay-hover); } }
@@ -202,6 +202,12 @@
 .player-overlay > * { pointer-events: auto; }
 .lumina-player[data-controls-visible="false"] .player-overlay { bottom: 24px; }
 .playback-menu { position: relative; }
+.playback-menu[data-has-options='false']:has(.player-casting-options:empty) > button { display: none; }
+.playback-menu-panel[hidden], .player-casting-options:empty { display: none; }
+.player-casting-options { display: grid; }
+.player-casting-options > button { margin-inline: 12px; justify-content: flex-start; }
+.player-casting-options .g-button { justify-content: flex-start; }
+.player-panel.playback-menu-panel { background: var(--g-overlay-bg); }
 .playback-menu-panel { position: absolute; right: 0; bottom: calc(100% + 10px); z-index: 5; display: grid; width: min(360px, 86vw); max-height: min(70vh, 540px); gap: 6px; overflow-y: auto; padding: 8px 0 12px; }
 @media (max-width: 680px) {
   .player-overlay { right: 12px; bottom: 84px; max-width: calc(100% - 24px); }

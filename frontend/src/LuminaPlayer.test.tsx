@@ -15,6 +15,7 @@ describe('LuminaPlayer', () => {
       const availability = (value: string) => fireEvent(media, Object.assign(new Event('webkitplaybacktargetavailabilitychanged'), { availability: value }));
       expect(screen.queryByRole('button', { name: 'AirPlay' })).toBeNull();
       availability('available');
+      fireEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
       expect(picker).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: 'AirPlay' }));
       expect(picker).toHaveBeenCalledOnce();

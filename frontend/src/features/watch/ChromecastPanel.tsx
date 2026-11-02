@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { del, getSessionUserId, post } from '../../api';
 import { pauseMediaForUser, playMediaForUser } from '../../playIntent';
-import { Button, Field, fieldProps, Input, Popover } from '../../ui';
+import { Button, Field, fieldProps, Input } from '../../ui';
 import { LuminaSpriteIcon } from '../../luminaIcons';
 import { formatDuration } from '../../utils';
 import { watchChromecastAvailability, startChromecast, type ChromecastController, type ChromecastStatus, type ChromecastTicket } from './chromecast';
@@ -131,14 +131,12 @@ export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProg
     finally { returning.current = false; if (valid()) setBusy(false); }
   }
   if (!available && !status && !busy) return null;
-  return <Popover align="end" label="Chromecast" trigger={(props) => <button data-player-casting {...props} aria-label={status ? 'Chromecast controls' : 'Cast to Chromecast'} aria-pressed={Boolean(status)} disabled={busy} onClick={() => { props.onClick(); if (!status) void cast(); }} title={status ? 'Chromecast controls' : 'Cast to Chromecast'} type="button"><LuminaSpriteIcon name="cast" /></button>}>
-    <div className="player-panel player-cast-panel">
+  return <div className="player-cast-panel playback-menu-actions">
     {error ? <p className="g-warning" role="alert">{error}</p> : null}
-    {!status ? busy ? <p role="status">Connecting…</p> : <Button disabled={!available} onClick={() => { void cast(); }} variant="secondary">Try casting again</Button> : <>
+    {!status ? <Button icon={<LuminaSpriteIcon name="cast" />} busy={busy} disabled={!available} onClick={() => { void cast(); }} variant="secondary">{busy ? 'Connecting…' : 'Cast to Chromecast'}</Button> : <>
       <p className="g-setting-note" role="status">{status.playing ? 'Playing' : 'Paused'} on Chromecast · {formatDuration(status.position)}{status.duration ? ` / ${formatDuration(status.duration)}` : ''}</p>
       <div className="g-actions"><Button disabled={busy} onClick={() => { void control((target) => status.playing ? target.pause() : target.play()); }} variant="secondary">{status.playing ? 'Pause Chromecast' : 'Resume Chromecast'}</Button><Button disabled={busy} onClick={() => { void returnHere(); }} variant="secondary">Return playback here</Button></div>
       <Field label="Chromecast position in seconds">{(ids) => <Input {...fieldProps(ids)} defaultValue={Math.floor(status.position)} disabled={busy} max={status.duration || undefined} min={0} onBlur={(event) => { const position = Number(event.currentTarget.value); if (Number.isFinite(position) && position >= 0 && position <= (status.duration || 604800)) void control((target) => target.seek(position)); }} type="number" />}</Field>
     </>}
-    </div>
-  </Popover>;
+  </div>;
 }

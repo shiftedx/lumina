@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { LuminaSpriteIcon } from '../../luminaIcons';
+import { Button } from '../../ui';
 
 type AirPlayMedia = HTMLMediaElement & {
   webkitShowPlaybackTargetPicker?: () => void;
@@ -26,5 +27,5 @@ export function AirPlayControl({ getMedia }: { getMedia: () => HTMLMediaElement 
     };
   }, []); // Remounted by the player when its media element changes.
   if (!available && !wireless) return null;
-  return <button data-player-casting aria-label="AirPlay" aria-pressed={wireless} onClick={() => mediaRef.current?.webkitShowPlaybackTargetPicker?.()} title="AirPlay" type="button"><LuminaSpriteIcon name="airplay" /></button>;
+  return <Button icon={<LuminaSpriteIcon name="airplay" />} pressed={wireless} onClick={() => mediaRef.current?.webkitShowPlaybackTargetPicker?.()} variant="secondary">AirPlay</Button>;
 }

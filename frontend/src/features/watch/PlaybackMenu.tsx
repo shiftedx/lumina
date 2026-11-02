@@ -1,5 +1,5 @@
-import { useId, useRef, useState } from 'react';
-import { Settings2 } from '../../luminaIcons';
+import { useId, useState } from 'react';
+import { PlayerSettingsMenu } from './PlayerSettingsMenu';
 
 import { apiBaseUrl, ApiRequestError, type EnrichmentCapabilities, getEnrichmentJob, listSubtitleTracks, requestSubtitleJob, type SubtitleJobRequest } from '../../api';
 import type { LuminaPlayerTrack } from '../../LuminaPlayer';
@@ -61,12 +61,10 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
   captions?: CaptionPrefs;
   onCaptionsChange?: (next: CaptionPrefs) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [styling, setStyling] = useState(false);
   const [job, setJob] = useState<EnrichmentJob | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [language, setLanguage] = useState('en');
-  const toggleRef = useRef<HTMLButtonElement>(null);
   const id = `playback-menu-${useId().replace(/:/g, '')}`;
   usePollJob(job && !JOB_DONE.has(job.state) ? job.id : null, getEnrichmentJob, JOB_DONE, (next) => {
     setJob(next);
@@ -104,11 +102,6 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
       setJobError(conflict && failure.message === 'ai_feature_disabled' ? TURNED_OFF : conflict ? 'This needs a server the vault owner has not set up yet.' : errorMessage(failure, 'Lumina could not start that.'));
     }
   }
-  function close() {
-    setOpen(false);
-    setStyling(false);
-    toggleRef.current?.focus();
-  }
   const action = (key: keyof typeof reasons, label: string, request: SubtitleJobRequest | null) => (
     <>
       <Button aria-describedby={reasons[key] ? `${id}-${key}` : undefined} disabled={Boolean(reasons[key]) || busy || !request} onClick={() => { if (request) void start(request); }} variant="secondary">{label}</Button>
@@ -117,61 +110,51 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
   );
 
   return (
-    <div
-      className="playback-menu"
-      // Close when focus moves to another control; a null target (clicking the video, a button turning disabled) keeps it open.
-      onBlur={(event) => { if (open && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false); }}
-      onKeyDown={(event) => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(); } }}
-    >
-      <button aria-controls={open ? id : undefined} aria-expanded={open} aria-label="Playback settings" onClick={() => setOpen((value) => !value)} ref={toggleRef} type="button"><Settings2 aria-hidden="true" /></button>
-      {open ? (
-        <div aria-label="Playback settings" className="playback-menu-panel player-panel" id={id} role="group">
-          {styling && captions && onCaptionsChange ? (
-            <>
-              <div className="playback-menu-actions"><p className="g-label">Caption style</p></div>
-              <CaptionStyleRows onChange={onCaptionsChange} value={captions} />
-              <TextButton onClick={() => setStyling(false)}>Back</TextButton>
-            </>
-          ) : <>
-          {playbackFacts ? <div className="playback-menu-actions"><p className="playback-menu-status">Playing: {playbackFacts}</p></div> : null}
-          {quality.length > 1 ? (
-            <fieldset><legend className="g-label">Quality</legend>
-              {quality.map((entry) => <label key={entry.label}><input checked={(request.max_height ?? null) === entry.value} name={`${id}-quality`} onChange={() => onRequestChange({ ...request, max_height: entry.value })} type="radio" /> {entry.label}</label>)}
-            </fieldset>
-          ) : null}
-          {versions.length > 1 ? (
-            <fieldset><legend className="g-label">Version</legend>
-              {versions.map((version) => <label key={version.item_id}><input checked={version.item_id === (request.version_id ?? currentVersionId)} name={`${id}-version`} onChange={() => onRequestChange({ ...request, version_id: version.item_id === currentVersionId ? null : version.item_id })} type="radio" /> {versionLabel(version)}</label>)}
-            </fieldset>
-          ) : null}
-          {audio.length > 1 ? (
-            <fieldset><legend className="g-label">Audio</legend>
-              {audio.map((entry) => <label key={entry.index}><input checked={(request.audio_index ?? defaultAudio) === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index })} type="radio" /> {entry.label}</label>)}
-            </fieldset>
-          ) : null}
-          <fieldset><legend className="g-label">Subtitles</legend>
-            <label><input checked={subtitle === null} name={`${id}-subtitles`} onChange={() => onSubtitle(null)} type="radio" /> Off</label>
-            {tracks.map((track) => <label key={track.id}><input checked={subtitle === track.id} name={`${id}-subtitles`} onChange={() => onSubtitle(track)} type="radio" /> {track.format === 'image' ? `${track.label} (burned in)` : track.label}<small>{ORIGIN_LABELS[track.origin]}</small></label>)}
-          </fieldset>
-          {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
-          <div className="playback-menu-actions">
-            {action('generate', 'Generate subtitles', { kind: 'generate' })}
-            {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}
-            <div className="playback-menu-translate"><span>Translate to</span>
-              <Select aria-label="Translate to" disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</Select>
-            </div>
-            {action('translate', 'Translate', textTrack ? { kind: 'translate', trackId: textTrack.id, targetLanguage: language } : null)}
-            {job ? <p aria-live="polite" className="playback-menu-status" role="status">{job.state === 'failed' ? job.error || 'That did not work.' : JOB_STATUS[job.state] ?? job.state}</p> : null}
-            {jobError ? <p className="playback-menu-status" role="alert">{jobError}</p> : null}
-          </div>
-          <fieldset><legend className="g-label">Sound and skipping</legend>
-            <label><input checked={prefs.normalizeLoudness} onChange={(event) => onPrefs({ normalizeLoudness: event.currentTarget.checked })} type="checkbox" /> Even out loudness</label>
-            <label><input checked={prefs.profanity.enabled} onChange={(event) => onPrefs({ profanity: { ...prefs.profanity, enabled: event.currentTarget.checked } })} type="checkbox" /> Mute strong language<small>Web player only · may miss a word</small></label>
-            <label><input checked={prefs.autoSkip.intro} onChange={(event) => onPrefs({ autoSkip: { ...prefs.autoSkip, intro: event.currentTarget.checked } })} type="checkbox" /> Skip intros automatically</label>
-          </fieldset>
-          </>}
-        </div>
+    <PlayerSettingsMenu onClose={() => setStyling(false)}>
+      {styling && captions && onCaptionsChange ? (
+        <>
+          <div className="playback-menu-actions"><p className="g-label">Caption style</p></div>
+          <CaptionStyleRows onChange={onCaptionsChange} value={captions} />
+          <TextButton onClick={() => setStyling(false)}>Back</TextButton>
+        </>
+      ) : <>
+      {playbackFacts ? <div className="playback-menu-actions"><p className="playback-menu-status">Playing: {playbackFacts}</p></div> : null}
+      {quality.length > 1 ? (
+        <fieldset><legend className="g-label">Quality</legend>
+          {quality.map((entry) => <label key={entry.label}><input checked={(request.max_height ?? null) === entry.value} name={`${id}-quality`} onChange={() => onRequestChange({ ...request, max_height: entry.value })} type="radio" /> {entry.label}</label>)}
+        </fieldset>
       ) : null}
-    </div>
+      {versions.length > 1 ? (
+        <fieldset><legend className="g-label">Version</legend>
+          {versions.map((version) => <label key={version.item_id}><input checked={version.item_id === (request.version_id ?? currentVersionId)} name={`${id}-version`} onChange={() => onRequestChange({ ...request, version_id: version.item_id === currentVersionId ? null : version.item_id })} type="radio" /> {versionLabel(version)}</label>)}
+        </fieldset>
+      ) : null}
+      {audio.length > 1 ? (
+        <fieldset><legend className="g-label">Audio</legend>
+          {audio.map((entry) => <label key={entry.index}><input checked={(request.audio_index ?? defaultAudio) === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index })} type="radio" /> {entry.label}</label>)}
+        </fieldset>
+      ) : null}
+      <fieldset><legend className="g-label">Subtitles</legend>
+        <label><input checked={subtitle === null} name={`${id}-subtitles`} onChange={() => onSubtitle(null)} type="radio" /> Off</label>
+        {tracks.map((track) => <label key={track.id}><input checked={subtitle === track.id} name={`${id}-subtitles`} onChange={() => onSubtitle(track)} type="radio" /> {track.format === 'image' ? `${track.label} (burned in)` : track.label}<small>{ORIGIN_LABELS[track.origin]}</small></label>)}
+      </fieldset>
+      {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
+      <div className="playback-menu-actions">
+        {action('generate', 'Generate subtitles', { kind: 'generate' })}
+        {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}
+        <div className="playback-menu-translate"><span>Translate to</span>
+          <Select aria-label="Translate to" disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</Select>
+        </div>
+        {action('translate', 'Translate', textTrack ? { kind: 'translate', trackId: textTrack.id, targetLanguage: language } : null)}
+        {job ? <p aria-live="polite" className="playback-menu-status" role="status">{job.state === 'failed' ? job.error || 'That did not work.' : JOB_STATUS[job.state] ?? job.state}</p> : null}
+        {jobError ? <p className="playback-menu-status" role="alert">{jobError}</p> : null}
+      </div>
+      <fieldset><legend className="g-label">Sound and skipping</legend>
+        <label><input checked={prefs.normalizeLoudness} onChange={(event) => onPrefs({ normalizeLoudness: event.currentTarget.checked })} type="checkbox" /> Even out loudness</label>
+        <label><input checked={prefs.profanity.enabled} onChange={(event) => onPrefs({ profanity: { ...prefs.profanity, enabled: event.currentTarget.checked } })} type="checkbox" /> Mute strong language<small>Web player only · may miss a word</small></label>
+        <label><input checked={prefs.autoSkip.intro} onChange={(event) => onPrefs({ autoSkip: { ...prefs.autoSkip, intro: event.currentTarget.checked } })} type="checkbox" /> Skip intros automatically</label>
+      </fieldset>
+      </>}
+    </PlayerSettingsMenu>
   );
 }

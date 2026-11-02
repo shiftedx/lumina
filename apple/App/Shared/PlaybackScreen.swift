@@ -391,7 +391,6 @@ struct PlaybackScreen: View {
     @State private var pictureInPictureContinuing = false
     @State private var pictureInPictureStartRequest = 0
     @State private var videoSettingsVisible = false
-    @State private var restoreSettingsFocus = false
     @State private var videoSettingsTab: VideoSettingsTab = .info
     @State private var videoSettingsPresented = false
     @State private var videoGravity: AVLayerVideoGravity = .resizeAspect
@@ -484,12 +483,20 @@ struct PlaybackScreen: View {
                     audioStage
                         #if os(tvOS)
                         .onPlayPauseCommand { playback.togglePlayback() }
+                        .onExitCommand { handleExitCommand() }
                         #endif
                 }
             } else {
+                #if os(tvOS)
+                TVNativeVideoPlayer(playback: playback, videoGravity: videoGravity,
+                                    onSettings: presentVideoSettings, onDismiss: finish,
+                                    onMediaSelection: nativeTVMediaSelection)
+                    .ignoresSafeArea()
+                #else
                 GeometryReader { container in
                     videoStage(safeArea: container.safeAreaInsets).ignoresSafeArea()
                 }
+                #endif
             }
             #if !os(tvOS)
             if requestedPlayback.request.item.isAudio, ProcessInfo.processInfo.arguments.contains("--ui-testing") {
@@ -570,7 +577,17 @@ struct PlaybackScreen: View {
         #endif
         .preferredColorScheme(.dark)
         .sheet(isPresented: $queuePresented) { audioQueue }
-        #if !os(tvOS)
+        #if os(tvOS)
+        .fullScreenCover(isPresented: $videoSettingsVisible) {
+            ZStack {
+                Color.black.opacity(0.9).ignoresSafeArea()
+                videoSettingsPanel.padding(60)
+            }
+            .preferredColorScheme(.dark)
+            .onExitCommand { dismissVideoSettings() }
+            .onPlayPauseCommand { playback.togglePlayback() }
+        }
+        #else
         .sheet(isPresented: $videoSettingsPresented) {
             VideoPlaybackSettings(
                 tab: $videoSettingsTab,
@@ -709,6 +726,10 @@ struct PlaybackScreen: View {
             if !isPresented { revealVideoChrome() }
         }
         .onDisappear {
+            #if os(tvOS)
+            // A settings cover is part of this playback presentation, not its exit.
+            guard !videoSettingsVisible else { return }
+            #endif
             videoChromeHideTask?.cancel()
             videoTracksLoadTask?.cancel()
             #if os(iOS)
@@ -793,29 +814,6 @@ struct PlaybackScreen: View {
                 playback.pause()
             }
         }
-        #endif
-        #if os(tvOS)
-        .onPlayPauseCommand {
-            guard !playback.request.item.isAudio else { playback.togglePlayback(); return }
-            if playback.hasFinished, !playback.isSwitchingVideoStream { replay() } else { playback.togglePlayback() }
-            revealVideoChrome()
-        }
-        .onMoveCommand { direction in
-            guard !playback.request.item.isAudio, !videoSettingsVisible else { return }
-            switch direction {
-            case .down where !videoChromeVisible:
-                presentVideoSettings()
-            case .left where !videoChromeVisible:
-                playback.seek(to: playback.elapsedSeconds - 10)
-                revealVideoChrome()
-            case .right where !videoChromeVisible:
-                playback.seek(to: playback.elapsedSeconds + 10)
-                revealVideoChrome()
-            default:
-                break
-            }
-        }
-        .onExitCommand { handleExitCommand() }
         #endif
     }
 
@@ -1333,114 +1331,53 @@ struct PlaybackScreen: View {
     }
     #endif
 
+    #if os(iOS)
     private func videoStage(safeArea: EdgeInsets) -> some View {
         GeometryReader { geometry in
             let division = tabletopDivision(in: geometry)
-            #if os(tvOS)
-            let showsTapSurface = !videoChromeVisible
-            #else
-            let showsTapSurface = true
-            #endif
             ZStack(alignment: .topLeading) {
                 nativeVideoPlayer
                     .frame(maxWidth: .infinity)
                     .frame(height: division?.minY ?? geometry.size.height)
                     .frame(maxHeight: .infinity, alignment: .top)
-                #if os(iOS)
                 videoTouchSurface(safeArea: safeArea)
                     .frame(maxWidth: .infinity)
                     .frame(height: division?.minY ?? geometry.size.height)
-                #endif
                 if let division {
                     videoTransport
                         .padding(.top, division.maxY)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
-                    #if os(tvOS)
-                    if showsTapSurface, !videoSettingsVisible, displayedError == nil, !playback.hasFinished {
-                        Button {
-                            #if os(tvOS)
-                            revealVideoChrome()
-                            #else
-                            toggleVideoChrome()
-                            #endif
-                        } label: {
-                            Color.clear.contentShape(.rect)
-                        }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(.rect)
-                            .accessibilityLabel(videoChromeVisible ? "Hide playback controls" : "Show playback controls")
-                            .accessibilityIdentifier("videoControlsSurface")
-                            #if os(tvOS)
-                            // The reveal surface owns focus after the controls dismiss. A system button
-                            // style can paint its focus treatment over the entire video, so keep this
-                            // transparent and reserve visible focus for the actual transport controls.
-                            .buttonStyle(VideoControlsRevealButtonStyle())
-                            .focusEffectDisabled()
-                            .focused($videoControlsSurfaceFocused)
-                            #else
-                            .buttonStyle(.plain)
-                            #endif
-                    }
-                    #endif
                     if !videoSettingsVisible && (videoChromeVisible || displayedError != nil || playback.hasFinished) {
-                        videoOverlay(safeArea: safeArea)
-                            #if os(iOS)
+                        videoOverlayIOS(safeArea: safeArea)
                             .padding(.top, safeArea.top)
                             .padding(.bottom, safeArea.bottom)
-                            #endif
                             .background { videoScrim.allowsHitTesting(false) }
                             .transition(.opacity)
                     }
                     if !videoSettingsVisible, !videoSettingsPresented, displayedError == nil {
                         videoContextActions(showNext: showsContextualNextEpisode)
                             .padding(.horizontal, videoHorizontalInset)
-                            #if os(tvOS)
-                            .padding(.bottom, 260)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .onMoveCommand { direction in
-                                if direction == .down { focusedVideoControl = "videoPlayPauseButton" }
-                                if direction == .up { focusedVideoControl = "videoSettingsButton" }
-                            }
-                            #else
                             .padding(.top, safeArea.top + videoVerticalInset + 56)
                             .padding(.trailing, max(0, safeArea.trailing - videoHorizontalInset))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                            #endif
                     }
-                    #if os(tvOS)
-                    if videoSettingsVisible {
-                        videoSettingsPanel
-                            .frame(maxWidth: 1_560,
-                                   maxHeight: min(760, max(1, geometry.size.height - max(48, geometry.safeAreaInsets.top + 24) - 32)))
-                            .padding(.top, max(48, geometry.safeAreaInsets.top + 24))
-                            .padding(.horizontal, max(72, geometry.safeAreaInsets.leading + 36))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    }
-                    #endif
                 }
-                #if !os(tvOS)
                 if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                     playbackTimeProbe
                 }
-                #endif
-                #if os(iOS)
-                    VideoGestureFeedbackOverlay(presentation: videoGestures, safeArea: safeArea, reduceMotion: reduceMotion)
-                #endif
+                VideoGestureFeedbackOverlay(presentation: videoGestures, safeArea: safeArea, reduceMotion: reduceMotion)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            #if os(iOS)
             .onChange(of: geometry.size, initial: true) { _, size in
                 if videoGestureContainerSize != .zero { cancelVideoGestures(releaseBrightness: false) }
                 playback.traceContinuity("geometry=\(size)")
                 videoGestureContainerSize = size
             }
-            #endif
         }
     }
 
     private func tabletopDivision(in geometry: GeometryProxy) -> CGRect? {
-        #if os(iOS)
         guard #available(iOS 27.1, *) else { return nil }
         return geometry.reservedRegions(kind: .division, layoutDirectionBehavior: .fixed)
             .map { region in
@@ -1450,9 +1387,6 @@ struct PlaybackScreen: View {
                        height: region.frame.height + region.margins.top + region.margins.bottom)
             }
             .first { $0.width > $0.height }
-        #else
-        return nil
-        #endif
     }
 
     private var nativeVideoPlayer: some View {
@@ -1473,6 +1407,8 @@ struct PlaybackScreen: View {
         .accessibilityHidden(true)
         .accessibilityIdentifier("nativeVideoPlayer")
     }
+
+    #endif
 
     @ViewBuilder private var videoPictureInPictureButton: some View {
         #if os(iOS)
@@ -1512,6 +1448,7 @@ struct PlaybackScreen: View {
         #endif
     }
 
+    #if os(iOS)
     private var videoTransport: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -1524,11 +1461,9 @@ struct PlaybackScreen: View {
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("closePlayerButton")
                     Spacer(minLength: 0)
-                    #if os(iOS)
                     videoPictureInPictureButton
                     VideoRoutePicker()
                         .frame(width: 44, height: 44)
-                    #endif
                     Button("Playback settings", glyph: .subtitles) { presentVideoSettings() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("videoSettingsButton")
@@ -1553,13 +1488,7 @@ struct PlaybackScreen: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(spacing: 6) {
-                    #if os(tvOS)
-                    ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
-                        .tint(.white)
-                        .accessibilityLabel("Video position")
-                    #else
                     videoTimeline
-                    #endif
                     HStack {
                         Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
                         Spacer()
@@ -1620,6 +1549,8 @@ struct PlaybackScreen: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("videoTabletopControls")
     }
+
+    #endif
 
     private var subtitleStyleBinding: Binding<VideoSubtitleStyle> {
         Binding(get: { VideoSubtitleStyle(encodedString: subtitleStyleData) },
@@ -1726,7 +1657,6 @@ struct PlaybackScreen: View {
     }
 
     private func dismissVideoSettings() {
-        restoreSettingsFocus = true
         videoSettingsVisible = false
         revealVideoChrome()
     }
@@ -1752,38 +1682,24 @@ struct PlaybackScreen: View {
     }
 
     private func revealVideoChrome() {
+        #if os(iOS)
         videoChromeHideTask?.cancel()
         videoChromeVisible = true
         if videoControlsSurfaceFocused { videoControlsSurfaceFocused = false }
-        #if os(tvOS)
-        if !videoSettingsVisible, focusedVideoControl == nil {
-            focusedVideoControl = "videoPlayPauseButton"
-        }
-        #endif
         guard playback.isPlaying, !playback.hasFinished, !videoSettingsVisible, !videoSettingsPresented,
               !videoIsScrubbing, displayedError == nil else { return }
-        #if os(iOS)
         guard !voiceOverEnabled, !videoGestures.interacting else { return }
-        #endif
         videoChromeHideTask = Task {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             hideVideoChrome()
         }
+        #endif
     }
 
     private func handleExitCommand() {
-        if queuePresented {
-            queuePresented = false
-        } else if !playback.request.item.isAudio, videoSettingsVisible {
-            dismissVideoSettings()
-        } else if !playback.request.item.isAudio, displayedError != nil || playback.hasFinished {
-            finish()
-        } else if !playback.request.item.isAudio, videoChromeVisible {
-            hideVideoChrome()
-        } else {
-            finish()
-        }
+        if queuePresented { queuePresented = false }
+        else { finish() }
     }
 
     private func loadVideoTracks(for item: AVPlayerItem?) async {
@@ -1807,6 +1723,19 @@ struct PlaybackScreen: View {
         guard item === playback.player.currentItem else { return }
         videoTracks = next
     }
+
+    #if os(tvOS)
+    private func nativeTVMediaSelection(_ option: AVMediaSelectionOption?, _ group: AVMediaSelectionGroup) {
+        guard group === videoTracks.subtitleGroup else { return }
+        if playback.player.currentItem?.currentMediaSelection.mediaSelectionCriteriaCanBeAppliedAutomatically(to: group) == true {
+            selectSubtitle(.automatic)
+        } else if let option, let index = videoTracks.subtitleOptions.firstIndex(where: { $0 === option }) {
+            selectSubtitle(.option(index))
+        } else if option == nil {
+            selectSubtitle(.off)
+        }
+    }
+    #endif
 
     /// Defaults apply once to a new item; an explicit per-film selection wins thereafter.
     private func applyDeviceSubtitlePreference(to item: AVPlayerItem, group: AVMediaSelectionGroup) {
@@ -1876,160 +1805,6 @@ struct PlaybackScreen: View {
             item.select(option, in: group)
             videoTracks.selectSubtitle(index)
         }
-    }
-
-    @ViewBuilder private func videoOverlay(safeArea: EdgeInsets) -> some View {
-        #if os(iOS)
-        videoOverlayIOS(safeArea: safeArea)
-        #else
-        VStack(spacing: 24) {
-            HStack(spacing: 12) {
-                Spacer(minLength: 0)
-                #if os(iOS)
-                videoPictureInPictureButton
-                VideoRoutePicker().frame(width: 44, height: 44)
-                #endif
-                Button("Playback settings", glyph: .subtitles) { presentVideoSettings() }
-                    .labelStyle(.iconOnly)
-                    .accessibilityIdentifier("videoSettingsButton")
-                    .focused($focusedVideoControl, equals: "videoSettingsButton")
-                Button(isMuted ? "Unmute" : "Mute", glyph: isMuted ? .volumeHigh : .volumeOff, variant: .solid) {
-                    isMuted.toggle()
-                    playback.player.isMuted = isMuted
-                }
-                .labelStyle(.iconOnly)
-                .accessibilityIdentifier("videoMuteButton")
-                    .focused($focusedVideoControl, equals: "videoMuteButton")
-            }
-            .buttonStyle(LuminaQuietActionStyle())
-            .controlSize(.large)
-            #if os(iOS)
-            .padding(.leading, safeArea.leading)
-            .padding(.trailing, safeArea.trailing)
-            #endif
-            #if os(tvOS)
-            .focusSection()
-            .onMoveCommand { direction in
-                if direction == .down {
-                    focusedVideoControl = preferredContextualControl ?? "videoPlayPauseButton"
-                }
-            }
-            #endif
-            Spacer(minLength: 0)
-            VStack(spacing: 12) {
-                Text(playback.request.item.name)
-                    .font(.headline)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                #if os(tvOS)
-                ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
-                    .tint(.white)
-                #else
-                videoTimeline
-                #endif
-                HStack {
-                    Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
-                    Spacer()
-                    Text("−" + Duration.seconds(max(0, playback.request.item.durationSeconds - playback.elapsedSeconds)).formatted(.time(pattern: .minuteSecond)))
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.72))
-                HStack(spacing: videoTransportSpacing) {
-                    #if os(iOS)
-                    Color.clear
-                        .frame(width: videoTransportSideReserve, height: 44)
-                        .accessibilityHidden(true)
-                    #endif
-                    Button("Back \(videoSkipBackwardSeconds) seconds", glyph: videoSkipBackwardSeconds == 10 ? .seekBack10 : .rewind, size: 28) { skipVideo(forward: false); revealVideoChrome() }
-                        .labelStyle(.iconOnly)
-                        .accessibilityIdentifier("videoSeekBackwardButton")
-                    .focused($focusedVideoControl, equals: "videoSeekBackwardButton")
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
-                    Button {
-                        if playback.hasFinished { replay() } else { playback.togglePlayback() }
-                        revealVideoChrome()
-                    } label: {
-                        if playback.hasFinished {
-                            Label("Replay", systemImage: "arrow.counterclockwise")
-                        } else {
-                            Label(playback.videoPlaybackRequested ? "Pause" : "Play",
-                                  glyph: playback.videoPlaybackRequested ? .pause : .play,
-                                  variant: .solid, size: 28)
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.circle)
-                    .tint(.white)
-                    .foregroundStyle(.black)
-                    .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
-                    .focused($focusedVideoControl, equals: "videoPlayPauseButton")
-                    .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
-                    Button("Forward \(videoSkipForwardSeconds) seconds", glyph: videoSkipForwardSeconds == 10 ? .seekForward10 : .fastForward, size: 28) { skipVideo(forward: true); revealVideoChrome() }
-                        .labelStyle(.iconOnly)
-                        .accessibilityIdentifier("videoSeekForwardButton")
-                    .focused($focusedVideoControl, equals: "videoSeekForwardButton")
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
-                    #if os(iOS)
-                    if playback.nextEpisode != nil {
-                        nextEpisodeTransport
-                            .frame(width: videoTransportSideReserve, height: 44, alignment: .trailing)
-                    } else {
-                        Color.clear
-                            .frame(width: videoTransportSideReserve, height: 44)
-                            .accessibilityHidden(true)
-                    }
-                    #endif
-                }
-                .buttonStyle(LuminaQuietActionStyle())
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-                #if os(tvOS)
-                .focusSection()
-                .onMoveCommand { direction in
-                    if direction == .up {
-                        focusedVideoControl = preferredContextualControl ?? "videoSettingsButton"
-                    }
-                }
-                #endif
-            }
-            if let error = displayedError {
-                Text(error)
-                    .font(.callout)
-                    .padding(10)
-                    .background(.black.opacity(0.7), in: .rect(cornerRadius: 12))
-            }
-            if let syncError = playback.syncError {
-                Text(syncError)
-                    .font(.caption)
-                    .padding(10)
-                    .background(.black.opacity(0.7), in: .rect(cornerRadius: 12))
-            }
-        }
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .padding(.horizontal, videoHorizontalInset)
-        .padding(.vertical, videoVerticalInset)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("videoPlaybackChrome")
-        #if os(tvOS)
-        .task {
-            guard restoreSettingsFocus else { return }
-            focusedVideoControl = nil
-            await Task.yield()
-            guard !Task.isCancelled, !videoSettingsVisible else { return }
-            focusedVideoControl = "videoSettingsButton"
-            restoreSettingsFocus = false
-        }
-        #endif
-        #endif
     }
 
     #if os(iOS)
@@ -2264,16 +2039,6 @@ struct PlaybackScreen: View {
         #else
         16
         #endif
-    }
-    private var videoTransportSpacing: CGFloat {
-        #if os(tvOS)
-        28
-        #else
-        0
-        #endif
-    }
-    private var videoTransportSideReserve: CGFloat {
-        playback.nextEpisode == nil ? 0 : 64
     }
     #if os(tvOS)
     private var tvAudioControlBand: some View {
@@ -2705,6 +2470,10 @@ final class PlaybackModel {
 
     private func pauseNativePlayer() {
         recordPlaybackDiagnostic(.pause)
+        #if os(tvOS)
+        isPausingNativePlayer = true
+        defer { isPausingNativePlayer = false }
+        #endif
         player.pause()
     }
 
@@ -2767,9 +2536,12 @@ final class PlaybackModel {
     private var uiTestingInjectedServerVideoRecoveryFailure = false
     private var uiTestingInjectedServerMediaRecoveryFailure = false
     #endif
-    #if os(iOS)
     // NotificationCenter permits unregistering its token during nonisolated deinit.
     nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
+    #if os(tvOS)
+    private var isPausingNativePlayer = false
+    #endif
+    #if os(iOS)
     @ObservationIgnored private weak var pendingSystemBackgroundPauseItem: AVPlayerItem?
     #endif
     #if os(iOS) && LUMINA_UI_TESTING
@@ -2929,18 +2701,15 @@ final class PlaybackModel {
 
     deinit {
         for observer in playbackDiagnosticObservers { NotificationCenter.default.removeObserver(observer) }
-        #if os(iOS)
         if let videoRateChangeObserver {
             NotificationCenter.default.removeObserver(videoRateChangeObserver)
         }
-        #endif
         #if LUMINA_UI_TESTING
         print("LUMINA_LIFECYCLE playback-model deinit \(lifecycleToken)")
         #endif
     }
 
     private func installVideoRateChangeObserver() {
-        #if os(iOS)
         guard !request.item.isAudio, videoRateChangeObserver == nil else { return }
         videoRateChangeObserver = NotificationCenter.default.addObserver(
             forName: AVPlayer.rateDidChangeNotification,
@@ -2949,21 +2718,35 @@ final class PlaybackModel {
         ) { [weak self] notification in
             let reason = (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? AVPlayer.RateDidChangeReason)
                 ?? (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? String).map(AVPlayer.RateDidChangeReason.init(rawValue:))
+            #if os(tvOS)
+            MainActor.assumeIsolated {
+                guard let self, reason == .setRateCalled, !self.isPausingNativePlayer,
+                      self.didSeek, !self.closed, !self.isCommittingVideoStream else { return }
+                if self.hasFinished {
+                    if self.player.rate > 0, !self.isReplaying { Task { await self.replay() } }
+                    return
+                }
+                // AVKit owns remote pause/resume and temporary scanning rates.
+                self.autoplayWhenReady = self.player.rate != 0
+                if self.nextEpisodeAutoplay != nil { self.nextEpisodeAutoplay = self.autoplayWhenReady }
+                self.isPlaying = self.player.timeControlStatus == .playing
+                self.updatePosition()
+                self.enqueue(.progress, paused: !self.autoplayWhenReady)
+            }
+            #else
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.handleVideoRateChange(reason)
             }
+            #endif
         }
-        #endif
     }
 
     private func removeVideoRateChangeObserver() {
-        #if os(iOS)
         if let videoRateChangeObserver {
             NotificationCenter.default.removeObserver(videoRateChangeObserver)
             self.videoRateChangeObserver = nil
         }
-        #endif
     }
 
     private func handleVideoRateChange(_ reason: AVPlayer.RateDidChangeReason?) {
@@ -3246,7 +3029,9 @@ final class PlaybackModel {
                     return
                 }
                 self.isPlaying = self.player.timeControlStatus == .playing
+                #if os(iOS)
                 self.applyEffectiveVideoRateIfPermitted()
+                #endif
                 self.updatePosition()
                 if !self.request.item.isAudio, self.elapsedSeconds > self.request.startPositionSeconds + 0.25 {
                     self.videoAdvancedRequestID = self.request.id
@@ -3265,7 +3050,9 @@ final class PlaybackModel {
                 guard let self, !self.isCasting, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.traceContinuity("control-status-callback")
                 self.isPlaying = self.player.timeControlStatus == .playing
+                #if os(iOS)
                 self.applyEffectiveVideoRateIfPermitted()
+                #endif
                 self.updatePosition()
                 self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
             }
@@ -5197,6 +4984,9 @@ private struct VideoPlaybackSettings: View {
                         .accessibilityIdentifier("videoSettingsDoneButton")
                 }
             }
+            #if os(tvOS)
+            .focusSection()
+            #endif
             Group {
                 #if os(iOS)
                 ViewThatFits(in: .horizontal) {
@@ -5658,15 +5448,6 @@ private struct VideoPlaybackSettings: View {
     }
 
 }
-
-#if os(tvOS)
-/// A focusable hit target for revealing chrome must not draw a system focus plate over the video.
-private struct VideoControlsRevealButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-    }
-}
-#endif
 
 private struct NativePlayerLayer: UIViewRepresentable {
     let player: AVPlayer

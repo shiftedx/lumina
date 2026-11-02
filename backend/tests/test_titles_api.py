@@ -9,7 +9,7 @@ from app.models import LibraryItem, MediaTitle, PlaybackProgress, User
 from app.services.library import encode_library_cursor
 from support import make_user
 from title_support import (
-    ALICE, BOB, FILE, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SEASON2, SECRET_SERIES, SERIES, T0, S2E1, ROOT,
+    ALICE, BOB, BOXSET, FILE, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SEASON2, SECRET_SERIES, SERIES, T0, S2E1, ROOT,
     add_file, seed_tree, uid,
 )
 
@@ -70,6 +70,10 @@ def test_movie_detail_lists_versions_extras_and_boxset(library, api_client) -> N
     assert (four_k["container"], four_k["video_codec"], four_k["hdr"], four_k["height"]) == ("mkv", "hevc", True, 2160)
     assert [e["extra_type"] for e in movie["extras"]] == ["trailer"]
     assert movie["boxset"]["name"] == "Saga" and movie["play_item_id"] == MOVIE_1080
+    franchises = client.get("/api/titles", params={"type": "boxset"}).json()
+    assert [(title["id"], title["name"]) for title in franchises["items"]] == [(BOXSET, "Saga")]
+    franchise = client.get(f"/api/titles/{movie['boxset']['id']}").json()
+    assert [(child["id"], child["play_item_id"]) for child in franchise["children"]] == [(MOVIE, MOVIE_1080)]
     assert movie["provider_ids"] == {"Tmdb": "603", "Imdb": "tt0133093"} and movie["match"] is None
     assert (movie["imdb_rating"], movie["rotten_tomatoes_rating"], movie["metacritic_rating"]) == (8.2, 91, 73)
     with factory() as session:  # unwatched: the largest file is preferred

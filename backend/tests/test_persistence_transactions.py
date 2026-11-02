@@ -37,7 +37,7 @@ from app.services.user_settings import UserSettingsService
 from app.services.yt_dlp_service import YtDlpService
 
 
-METRIC_KEYS = {"count", "errors", "busy_timeouts", "total_ms", "max_ms", "total_wait_ms", "max_wait_ms"}
+METRIC_KEYS = {"count", "errors", "busy_timeouts", "rollbacks", "total_ms", "max_ms", "total_wait_ms", "max_wait_ms"}
 
 
 def make_session_factory(tmp_path, *, busy_timeout_ms: int = 100):
@@ -99,6 +99,9 @@ def test_write_transaction_rolls_back_and_reraises_on_failure(tmp_path) -> None:
                     raise RuntimeError("boom")
         with session_factory() as verifier:
             assert verifier.get(User, "member-1") is None
+        metrics = persistence_metrics_snapshot()["test_write"]
+        assert metrics["errors"] == 0
+        assert metrics["rollbacks"] == 1
     finally:
         engine.dispose()
 
@@ -147,6 +150,7 @@ def test_write_transaction_times_out_when_writer_slot_is_busy(tmp_path, monkeypa
         assert snapshot["busy_write"]["count"] == 1
         assert snapshot["busy_write"]["errors"] == 1
         assert snapshot["busy_write"]["busy_timeouts"] == 1
+        assert snapshot["busy_write"]["rollbacks"] == 1
         with session_factory() as verifier:
             assert verifier.get(User, "member-1") is None
     finally:
@@ -164,6 +168,7 @@ def test_sqlite_busy_errors_count_as_busy_timeouts(tmp_path) -> None:
         assert snapshot["locked_write"]["count"] == 1
         assert snapshot["locked_write"]["errors"] == 1
         assert snapshot["locked_write"]["busy_timeouts"] == 1
+        assert snapshot["locked_write"]["rollbacks"] == 1
     finally:
         engine.dispose()
 

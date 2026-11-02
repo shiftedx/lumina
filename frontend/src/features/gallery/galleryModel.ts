@@ -11,7 +11,7 @@ export type ArtKind = 'poster' | 'backdrop' | 'still' | 'logo' | 'square';
 export type GalleryTheme = 'light' | 'dark';
 
 /** The Library walls GalleryWall draws. */
-export type WallKind = 'movies' | 'shows' | 'anime' | 'albums' | 'artists';
+export type WallKind = 'movies' | 'shows' | 'anime' | 'boxsets' | 'albums' | 'artists';
 /** One wall's fixed behaviour. `sorts[0]` is the wall's default sort. */
 export type WallDef = {
   heading: string;
@@ -50,6 +50,11 @@ export const WALLS: Record<WallKind, WallDef> = {
     heading: 'Anime', noun: ['title', 'titles'], query: { category: 'anime' }, shape: 'poster', sorts: POSTER_SORTS, chips: true, search: 'anime',
     facets: { category: 'anime' }, featured: true,
     empty: { title: 'No anime yet', body: 'Keep anime in a folder named Anime (for example TV/Anime/Show/Season 1/…), or choose your anime folders in Settings › Library & storage.', icon: Sparkles },
+  },
+  boxsets: {
+    heading: 'Movie franchises', noun: ['franchise', 'franchises'], query: { type: 'boxset' }, shape: 'poster', sorts: ['name'], chips: false, search: null,
+    facets: null, featured: false,
+    empty: { title: 'No movie franchises yet', body: 'Movie franchises appear here after Lumina matches your movies.', icon: Film },
   },
   albums: {
     heading: 'Albums', noun: ['album', 'albums'], query: { type: 'album' }, shape: 'square', sorts: ['created', 'name', 'year'], chips: false, search: null,

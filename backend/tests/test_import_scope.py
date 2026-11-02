@@ -196,6 +196,7 @@ from sqlalchemy import func, select  # noqa: E402
 from app import db as db_module  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.models import ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, User  # noqa: E402
+from app.persistence import persistence_metrics_snapshot, reset_persistence_metrics  # noqa: E402
 from app.security import hash_password  # noqa: E402
 from app.services import library_import as library_import_module  # noqa: E402
 from app.services.library_import import LibraryImportService, drive  # noqa: E402
@@ -523,6 +524,18 @@ def test_one_active_run_per_root_any_trigger(lib) -> None:  # noqa: ANN001
         LibraryImportService(db).start(root_id, "admin", trigger="watch", scope=[{"dir": "A", "deep": True}])
     with db_module.session_scope() as db, pytest.raises(ImportRunError):
         LibraryImportService(db).start(root_id, "admin")
+
+
+def test_duplicate_start_rolls_back_without_a_database_error(lib) -> None:  # noqa: ANN001
+    _, root_id = lib
+    reset_persistence_metrics()
+    with db_module.session_scope() as db:
+        LibraryImportService(db).start(root_id, "admin")
+    with db_module.session_scope() as db, pytest.raises(ImportRunError, match="already running"):
+        LibraryImportService(db).start(root_id, "admin")
+
+    metrics = persistence_metrics_snapshot()["import_start"]
+    assert (metrics["count"], metrics["errors"], metrics["busy_timeouts"], metrics["rollbacks"]) == (2, 0, 0, 1)
 
 
 # --- 2.1.0 final review fixes (bfa: I1, I5, I6) ---

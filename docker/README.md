@@ -658,6 +658,18 @@ Choose **Output → Sonos** in the listening room. The server must discover the 
 
 The selected speaker's group coordinator receives up to the next 100 tracks. Output is lossless FLAC with supported source sample rates preserved up to 48 kHz and stereo; use **Compatibility** for 16-bit Sonos S1 output. The browser follows the speaker's track, position and volume. Browser loudness normalization applies only to browser output. Controller tickets remain in memory rather than browser storage; after reload, controls return only after the authenticated server session and speaker status are validated. Cast capabilities expire after 24 hours and are revoked on Stop, account changes or a denied member listening policy while status is polled. Speakers may finish a buffered track when disconnected from the server. Hardware verification requires speakers reachable from the running server.
 
+## Reading library and database health
+
+Overview keeps missing file records for history, including old versions replaced by an accessible, available version of the same title. Replaced versions are reported separately from missing items that need attention; no media or playback history is deleted to clear a warning. These counts use the last recorded scan and storage-root state. Restore a genuinely missing source or recover it through the configured download manager, then reconcile its folder.
+
+Database errors count database failures and writer timeouts. A rejected operation, such as starting a scan while that root is already scanning, rolls back without becoming a database error. Rollback counts remain available in diagnostics; counters cover the current server process.
+
+## Collections
+
+Collections on web, iOS and tvOS includes movie franchise groups from imported NFO sets or TMDB metadata alongside household manual and smart collections. Open a franchise to browse its movies. Only movies the signed-in member can access appear; a franchise with no accessible movies is hidden. Existing franchise groups appear without a metadata refresh or a rescan after updating the clients.
+
+Franchises remain metadata-backed groups, separate from household collections. Existing manual memberships, ownership, sharing and smart rules are preserved; creating and editing household collections remains available in the web app.
+
 ## Editing details
 
 Open a movie, show, season or episode and choose **Edit details** (or use the command palette) to correct titles, overviews, ratings, genres, cast and artwork in the Lumina web app. Edits are saved in Lumina's database only: nothing is written to NFO files, and Jellyfin apps (Infuse, Swiftfin) show the edits read-only; they cannot edit.

@@ -8,18 +8,19 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 
 from app.config import settings
 from app.db import get_db
 from app.events import EventBus
-from app.models import DownloadJob, LibraryItem, MediaArtifact, StorageRoot
+from app.models import DownloadJob, LibraryItem, LibraryItemArtifact, MediaArtifact, StorageRoot
 from app.persistence import persistence_metrics_snapshot
 from app.security import get_admin_user, utcnow
 from app.services.job_manager import _free_bytes  # the same measurement admission uses
 from app.services import release_updates
 from app.services.yt_dlp_service import YtDlpService
+from app.services.storage_roots import ONLINE_STATES
 
 FAILURE_WINDOW = timedelta(days=7)
 FAILURE_REASONS = 5
@@ -46,6 +47,13 @@ class RootSummary(BaseModel):
     artifact_bytes: int
 
 
+class MissingMediaSummary(BaseModel):
+    """Missing records partitioned without discarding their audit/history rows."""
+
+    retired_versions: int
+    unreplaced_items: int
+
+
 class AdminOverviewResponse(BaseModel):
     generated_at: datetime
     jobs_by_status: dict[str, int]
@@ -56,6 +64,7 @@ class AdminOverviewResponse(BaseModel):
     min_free_disk_mb: int
     library_free_bytes: int | None
     library_items_by_status: dict[str, int]
+    missing_media: MissingMediaSummary
     roots: list[RootSummary]
     event_streams: int
     persistence: dict[str, dict]
@@ -80,15 +89,50 @@ def build_overview(db: Session, events: EventBus) -> AdminOverviewResponse:
         root_id: (count, int(size or 0))
         for root_id, count, size in db.query(MediaArtifact.root_id, func.count(), func.sum(MediaArtifact.size)).group_by(MediaArtifact.root_id).all()
     }
+    root_rows = db.query(StorageRoot).order_by(StorageRoot.created_at.asc()).all()
     roots = []
-    for root in db.query(StorageRoot).order_by(StorageRoot.created_at.asc()).all():
+    unavailable_root_ids = []
+    for root in root_rows:
         seen = root.observation or {}  # last probe, with its own checked_at: freshness is explicit
+        if not root.enabled or (seen.get("state") is not None and seen["state"] not in ONLINE_STATES):
+            unavailable_root_ids.append(root.id)
         count, size = artifacts.get(root.id, (0, 0))
         roots.append(RootSummary(
             id=root.id, label=root.label, mode=root.mode, enabled=bool(root.enabled), state=seen.get("state"),
             checked_at=seen.get("checked_at"), free_bytes=seen.get("free_bytes"), total_bytes=seen.get("total_bytes"),
             minimum_free_bytes=root.minimum_free_bytes or 0, artifact_count=count, artifact_bytes=size,
         ))
+    missing, replacement = aliased(LibraryItem), aliased(LibraryItem)
+    replacement_artifact, replacement_root = aliased(MediaArtifact), aliased(StorageRoot)
+    # One aggregate, rather than a per-missing-item lookup. A replacement must be a regular,
+    # accessible version: an extra, missing/quarantined artifact, disabled root, or known-offline
+    # root cannot make an old version safe to retire from the attention count.
+    retired_versions = db.query(func.count(func.distinct(missing.id))).select_from(missing).join(
+        replacement,
+        and_(
+            replacement.title_id == missing.title_id,
+            replacement.status == "available",
+            replacement.extra_type.is_(None),
+            or_(replacement.visibility == "shared", replacement.user_id == missing.user_id),
+        ),
+    ).join(
+        LibraryItemArtifact, LibraryItemArtifact.library_item_id == replacement.id,
+    ).join(
+        replacement_artifact,
+        and_(
+            replacement_artifact.id == LibraryItemArtifact.artifact_id,
+            replacement_artifact.lifecycle == "available",
+        ),
+    ).join(
+        replacement_root,
+        and_(replacement_root.id == replacement_artifact.root_id, replacement_root.enabled.is_(True)),
+    ).filter(
+        missing.status == "missing",
+        missing.title_id.is_not(None),
+        missing.extra_type.is_(None),
+        ~replacement_root.id.in_(unavailable_root_ids) if unavailable_root_ids else True,
+    ).scalar() or 0
+    missing_total = items.get("missing", 0)
     limits = YtDlpService(db).get_app_settings()
     return AdminOverviewResponse(
         generated_at=now,
@@ -100,6 +144,7 @@ def build_overview(db: Session, events: EventBus) -> AdminOverviewResponse:
         min_free_disk_mb=limits.min_free_disk_mb,
         library_free_bytes=_free_bytes(settings.library_root),
         library_items_by_status=items,
+        missing_media=MissingMediaSummary(retired_versions=retired_versions, unreplaced_items=missing_total - retired_versions),
         roots=roots,
         event_streams=events.stream_count(),
         persistence=persistence_metrics_snapshot(),

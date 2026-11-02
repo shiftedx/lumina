@@ -783,13 +783,14 @@ private enum LibraryDestination: Hashable, CaseIterable {
 }
 
 private enum LibraryCategory: String, CaseIterable {
-    case movies, tv, anime, music, books
+    case movies, tv, anime, collections, music, books
 
     var title: String {
         switch self {
         case .movies: "Movies"
         case .tv: "TV"
         case .anime: "Anime"
+        case .collections: "Collections"
         case .music: "Music"
         case .books: "Books"
         }
@@ -799,6 +800,7 @@ private enum LibraryCategory: String, CaseIterable {
         switch self {
         case .tv: .shows
         case .anime: .anime
+        case .collections: .collections
         default: .movies
         }
     }
@@ -981,7 +983,7 @@ private struct LibraryShellView: View {
             destination = .home
         })
         .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
-            guard !available.contains(category.rawValue) else { return }
+            guard !isLibraryCategoryAvailable(category) else { return }
             if let first = LibraryCategory.allCases.first(where: { available.contains($0.rawValue) }) {
                 category = first
             } else if destination == .library {
@@ -1001,9 +1003,9 @@ private struct LibraryShellView: View {
     }
 
     @ViewBuilder private func libraryContent(usesPortraitRail: Bool) -> some View {
-        if store.availableLibraryCategories.contains(category.rawValue) {
+        if isLibraryCategoryAvailable(category) {
             switch category {
-            case .movies, .tv, .anime:
+            case .movies, .tv, .anime, .collections:
                 VideoLibraryView(store: store, kind: .constant(category.videoKind),
                                  activeKind: destination == .library ? category.videoKind : nil,
                                  usesPortraitNavigationRail: usesPortraitRail)
@@ -1022,9 +1024,15 @@ private struct LibraryShellView: View {
         }
     }
 
+    private func isLibraryCategoryAvailable(_ category: LibraryCategory) -> Bool {
+        // Collections can contain either automatic movie franchises or member-created
+        // manual/smart playlists, neither of which belongs in the media-root menu.
+        category == .collections || store.availableLibraryCategories.contains(category.rawValue)
+    }
+
     private func libraryCategories(centersContent: Bool = true) -> some View {
         LuminaCategoryBar(selection: category.rawValue, centersContent: centersContent) {
-            ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
+            ForEach(LibraryCategory.allCases.filter(isLibraryCategoryAvailable), id: \.self) { value in
                 Button {
                     category = value
                 } label: {
@@ -1087,7 +1095,7 @@ private struct LibraryShellView: View {
                 resetHomeNavigation()
                 destination = .home
             }
-            ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
+            ForEach(LibraryCategory.allCases.filter(isLibraryCategoryAvailable), id: \.self) { value in
                 unifiedCategoryButton(value.title, id: value.rawValue,
                                       selected: destination == .library && category == value) {
                     openLibrary(value, fromHome: destination == .home)
@@ -1149,7 +1157,7 @@ private struct LibraryShellView: View {
                     if !showsCategoryHeader, owner == destination, (owner == .home || owner == .library) {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
-                                ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
+                                ForEach(LibraryCategory.allCases.filter(isLibraryCategoryAvailable), id: \.self) { value in
                                     Button(value.title) {
                                         openLibrary(value, fromHome: destination == .home)
                                     }
@@ -1199,6 +1207,8 @@ private struct LibraryShellView: View {
                             MusicCollectionView(item: item, store: store)
                         } else if item.type == "Episode" {
                             EpisodeCollectionDestination(item: item, store: store)
+                        } else if item.type == "BoxSet" || item.type == "Playlist" {
+                            MovieCollectionView(item: item, store: store)
                         } else if item.isCollection {
                             VideoCollectionView(item: item, store: store)
                         } else {
@@ -1249,7 +1259,7 @@ private struct LibraryShellView: View {
     }
 
     private func openLibrary(_ selected: LibraryCategory, fromHome: Bool) {
-        guard store.availableLibraryCategories.contains(selected.rawValue) else { return }
+        guard isLibraryCategoryAvailable(selected) else { return }
         if fromHome {
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
@@ -2124,13 +2134,23 @@ private struct VideoLibraryView: View {
                         .frame(height: 56)
                     }
 
-                    if store.isBusy && store.items.isEmpty {
+                    if store.isBusy && store.items.isEmpty && store.householdCollections.isEmpty {
                         LibraryLoadingView()
-                    } else if store.items.isEmpty {
+                    } else if store.items.isEmpty && (kind != .collections || store.householdCollections.isEmpty) {
                         if let message = store.errorMessage, !message.isEmpty {
                             InlineErrorView(message: message) {
                                 refresh()
                             }
+                        } else if kind == .collections, let householdError = store.householdCollectionsError {
+                            InlineErrorView(message: "Your lists could not load: \(householdError)") {
+                                refresh()
+                            }
+                        } else if kind == .collections {
+                            ContentUnavailableView(
+                                "No collections yet",
+                                systemImage: "rectangle.stack",
+                                description: Text("Movie franchises and your saved lists will appear here.")
+                            )
                         } else if !searchText.isEmpty {
                             ContentUnavailableView.search(text: searchText)
                         } else if kind != .all || filters != VideoFilters() {
@@ -2151,7 +2171,26 @@ private struct VideoLibraryView: View {
                             }
                         }
 
-                        if !store.items.isEmpty {
+                        if kind == .collections {
+                            if !store.items.isEmpty {
+                                Text("Movie collections")
+                                    .font(.title2.bold())
+                                    .accessibilityAddTraits(.isHeader)
+                                    .accessibilityIdentifier("movieCollectionsHeading")
+                                VideoPosterWall(items: store.items, store: store)
+                            }
+                            if !store.householdCollections.isEmpty {
+                                Text("Your lists")
+                                    .font(.title2.bold())
+                                    .accessibilityAddTraits(.isHeader)
+                                    .accessibilityIdentifier("householdCollectionsHeading")
+                                    .padding(.top, store.items.isEmpty ? 0 : 16)
+                                VideoPosterWall(items: store.householdCollections, store: store)
+                            }
+                            if let householdError = store.householdCollectionsError {
+                                InlineErrorView(message: "Your lists could not load: \(householdError)") { refresh() }
+                            }
+                        } else if !store.items.isEmpty {
                             VideoPosterWall(items: store.items, store: store)
                         }
 
@@ -2696,6 +2735,65 @@ private struct NativeWatchlistButton: View {
 }
 
 @MainActor
+private struct MovieCollectionView: View {
+    let item: MediaItem
+    let store: LuminaStore
+    @State private var children = [MediaItem]()
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    private var title: String { item.type == "BoxSet" ? "Movies" : "Titles" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(item.name).font(.largeTitle.bold())
+                    if let overview = item.overview, !overview.isEmpty {
+                        Text(overview).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("movieCollectionHeader")
+                if isLoading {
+                    LibraryLoadingView()
+                } else if let errorMessage {
+                    InlineErrorView(message: errorMessage) { Task { await load() } }
+                } else if children.isEmpty {
+                    ContentUnavailableView(
+                        item.type == "Playlist" ? "No playable video titles" : "No movies yet",
+                        systemImage: "rectangle.stack",
+                        description: Text(item.type == "Playlist" ? "This list has no video titles Lumina can play here." : "Add movies to Lumina, then refresh this collection.")
+                    )
+                } else {
+                    Text(title).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                    VideoPosterWall(items: children, store: store)
+                }
+            }
+            .padding(.horizontal, LuminaTheme.contentGutter)
+            .padding(.vertical, 24)
+        }
+        .background(LuminaTheme.paper)
+        .navigationTitle(item.name)
+        .accessibilityIdentifier("movieCollectionScreen")
+        .task(id: item.id) { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        isLoading = children.isEmpty
+        errorMessage = nil
+        do {
+            children = try await store.loadChildren(of: item)
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = "This collection could not load. Check your connection and try again."
+        }
+        isLoading = false
+    }
+}
+
+@MainActor
 struct VideoCollectionView: View {
     let item: MediaItem
     let store: LuminaStore
@@ -2830,9 +2928,6 @@ struct VideoCollectionView: View {
         .background(LuminaTheme.paper)
         .modifier(VideoDetailChrome())
         .accessibilityIdentifier("videoCollectionScreen")
-        .standardPhonePushedChrome(store: store, foreground: .white, background: LuminaTheme.theater) {
-            collectionActionsMenu
-        }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { collectionActionsMenu } }
         .scrollClipDisabled()
         .task(id: item.id + "-\(store.metadata.revision)") { await load() }
@@ -4550,13 +4645,9 @@ struct TitleDetailView: View {
         .scrollClipDisabled()
         .accessibilityIdentifier("detailScreen")
         .modifier(VideoDetailChrome(isEnabled: !currentItem.isAudio))
-        .standardPhonePushedChrome(store: store,
+        .standardPhonePushedChrome(isEnabled: currentItem.isAudio, store: store,
                                    foreground: currentItem.isAudio ? LuminaTheme.ink : .white,
-                                   background: currentItem.isAudio ? LuminaTheme.paper : LuminaTheme.theater) {
-            if !currentItem.isAudio {
-                titleActionsMenu
-            }
-        }
+                                   background: currentItem.isAudio ? LuminaTheme.paper : LuminaTheme.theater)
         .toolbar {
             if !currentItem.isAudio {
                 ToolbarItem(placement: .topBarTrailing) {

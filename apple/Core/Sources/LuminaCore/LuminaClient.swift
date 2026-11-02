@@ -136,10 +136,9 @@ final class LuminaClient: @unchecked Sendable {
 
     func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init(), catalog: Bool = false, limit: Int = 50) async throws -> ItemPage {
         let query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
-                                 sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters)
-        let projected = catalog ? query.filter { $0.name != "Fields" && $0.name != "Limit" } + [
+                                 sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters, limit: limit)
+        let projected = catalog ? query.filter { $0.name != "Fields" } + [
             URLQueryItem(name: "Fields", value: "LuminaCatalog"),
-            URLQueryItem(name: "Limit", value: String(min(1000, max(1, limit)))),
         ] : query
         return try await json(request(origin: origin, path: "/Items", query: projected, token: token, deviceID: deviceID))
     }
@@ -171,7 +170,7 @@ final class LuminaClient: @unchecked Sendable {
         }
     }
 
-    private func libraryQuery(search: String, start: Int, types: String, sort: VideoSort, parentID: String?, sourceProvider: String?, luminaCategory: String?, filters: VideoFilters) -> [URLQueryItem] {
+    private func libraryQuery(search: String, start: Int, types: String, sort: VideoSort, parentID: String?, sourceProvider: String?, luminaCategory: String?, filters: VideoFilters, limit: Int = 50) -> [URLQueryItem] {
         var query = [
             URLQueryItem(name: "IncludeItemTypes", value: types),
             URLQueryItem(name: "Recursive", value: "true"),
@@ -179,7 +178,7 @@ final class LuminaClient: @unchecked Sendable {
             URLQueryItem(name: "SortBy", value: sort.field),
             URLQueryItem(name: "SortOrder", value: sort == .name ? "Ascending" : "Descending"),
             URLQueryItem(name: "StartIndex", value: String(start)),
-            URLQueryItem(name: "Limit", value: "50"),
+            URLQueryItem(name: "Limit", value: String(min(1000, max(1, limit)))),
         ]
         let genre = filters.genre.trimmingCharacters(in: .whitespacesAndNewlines)
         if !genre.isEmpty { query.append(URLQueryItem(name: "Genres", value: genre)) }
@@ -228,8 +227,9 @@ final class LuminaClient: @unchecked Sendable {
         if item.type == "Series" {
             return try await json(request(origin: origin, path: "/Shows/\(item.id)/Seasons", token: token, deviceID: deviceID))
         }
-        let query = [URLQueryItem(name: "ParentId", value: item.id), URLQueryItem(name: "IncludeItemTypes", value: "Episode"),
-                     URLQueryItem(name: "SortBy", value: "IndexNumber"), URLQueryItem(name: "SortOrder", value: "Ascending"),
+        let types = item.type == "Season" ? "Episode" : item.type == "BoxSet" ? "Movie" : "Movie,Episode,Video"
+        let query = [URLQueryItem(name: "ParentId", value: item.id), URLQueryItem(name: "IncludeItemTypes", value: types),
+                     URLQueryItem(name: "SortBy", value: item.type == "BoxSet" ? "ProductionYear,SortName" : "IndexNumber"), URLQueryItem(name: "SortOrder", value: "Ascending"),
                      URLQueryItem(name: "StartIndex", value: String(start)), URLQueryItem(name: "Limit", value: "50"),
                      URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags")]
         return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))

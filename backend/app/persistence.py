@@ -18,7 +18,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Iterator
 
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 
@@ -49,17 +49,19 @@ def reset_persistence_metrics() -> None:
         _metrics.clear()
 
 
-def _record(name: str, *, wait_ms: float, duration_ms: float, error: bool, busy: bool) -> None:
+def _record(name: str, *, wait_ms: float, duration_ms: float, error: bool, busy: bool, rolled_back: bool) -> None:
     with _metrics_lock:
         metric = _metrics.setdefault(
             name,
-            {"count": 0, "errors": 0, "busy_timeouts": 0, "total_ms": 0.0, "max_ms": 0.0, "total_wait_ms": 0.0, "max_wait_ms": 0.0},
+            {"count": 0, "errors": 0, "busy_timeouts": 0, "rollbacks": 0, "total_ms": 0.0, "max_ms": 0.0, "total_wait_ms": 0.0, "max_wait_ms": 0.0},
         )
         metric["count"] += 1
         if error:
             metric["errors"] += 1
         if busy:
             metric["busy_timeouts"] += 1
+        if rolled_back:
+            metric["rollbacks"] += 1
         metric["total_ms"] += duration_ms
         metric["max_ms"] = max(metric["max_ms"], duration_ms)
         metric["total_wait_ms"] += wait_ms
@@ -133,7 +135,7 @@ def write_transaction(db: Session, *, name: str) -> Iterator[None]:
     if not acquired:
         discard_after_commit_actions(db)
         db.rollback()
-        _record(name, wait_ms=wait_ms, duration_ms=0.0, error=True, busy=True)
+        _record(name, wait_ms=wait_ms, duration_ms=0.0, error=True, busy=True, rolled_back=True)
         raise OperationalError(
             "acquire SQLite writer slot",
             {},
@@ -144,6 +146,7 @@ def write_transaction(db: Session, *, name: str) -> Iterator[None]:
     started = time.perf_counter()
     error = False
     busy = False
+    rolled_back = False
     try:
         _begin_immediate(db)
         yield
@@ -153,6 +156,7 @@ def write_transaction(db: Session, *, name: str) -> Iterator[None]:
         busy = _is_busy_error(exc)
         discard_after_commit_actions(db)
         if busy:
+            rolled_back = True
             db.rollback()
         else:
             # A non-busy OperationalError (e.g. "disk I/O error") can leave the
@@ -165,15 +169,21 @@ def write_transaction(db: Session, *, name: str) -> Iterator[None]:
             # connection. The session itself stays reusable.
             db.invalidate()
         raise
-    except BaseException:
+    except SQLAlchemyError:
         error = True
+        rolled_back = True
+        discard_after_commit_actions(db)
+        db.rollback()
+        raise
+    except BaseException:
+        rolled_back = True
         discard_after_commit_actions(db)
         db.rollback()
         raise
     finally:
         db.info[_WRITE_DEPTH_KEY] = 0
         writer_admission_lock.release()
-        _record(name, wait_ms=wait_ms, duration_ms=(time.perf_counter() - started) * 1000.0, error=error, busy=busy)
+        _record(name, wait_ms=wait_ms, duration_ms=(time.perf_counter() - started) * 1000.0, error=error, busy=busy, rolled_back=rolled_back)
     # Reached only after a durable commit, with the writer slot released:
     # deferred actions must never extend another writer's admission wait.
     drain_after_commit_actions(db)

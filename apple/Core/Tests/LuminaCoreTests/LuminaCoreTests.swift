@@ -83,7 +83,7 @@ final class LuminaCoreTests: XCTestCase {
         let client = LuminaClient(configuration: mockConfiguration())
         let store = LuminaStore(client: client, credentials: TestCredentials())
         let requests = RequestRecorder()
-        MockURLProtocol.handler = { request in
+        MockURLProtocol.handler = { @Sendable request in
             requests.append(request)
             return response(request, json: ["username": "member", "password": "app-password", "server_url": "https://elsewhere.example"])
         }
@@ -423,6 +423,65 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.items.map(\.id), ["movie-1"], "Explicit refresh must still query the server.")
         XCTAssertTrue(store.hasMore)
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 5)
+    }
+
+    func testCollectionsKeepMovieFranchisesPagedAndHouseholdListsOrdered() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        MockURLProtocol.handler = { @Sendable request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let value = { (name: String) in query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/UserViews": return response(request, json: page(items: [["Id": "playlists", "Name": "Playlists", "Type": "CollectionFolder", "CollectionType": "playlists"]]))
+            case "/Items":
+                switch (value("IncludeItemTypes"), value("ParentId"), value("StartIndex")) {
+                case ("BoxSet", nil, "0"):
+                    return response(request, json: ["Items": [["Id": "boxset-1", "Name": "First collection", "Type": "BoxSet"]], "TotalRecordCount": 2, "StartIndex": 0])
+                case ("BoxSet", nil, "1"):
+                    return response(request, json: ["Items": [["Id": "boxset-2", "Name": "Second collection", "Type": "BoxSet"]], "TotalRecordCount": 2, "StartIndex": 1])
+                case ("Playlist", "playlists", "0"):
+                    return response(request, json: ["Items": [["Id": "list-1", "Name": "Friday", "Type": "Playlist"]], "TotalRecordCount": 2, "StartIndex": 0])
+                case ("Playlist", "playlists", "1"):
+                    return response(request, json: ["Items": [["Id": "list-2", "Name": "Smart picks", "Type": "Playlist"]], "TotalRecordCount": 2, "StartIndex": 1])
+                case ("Movie", "boxset-1", _): return response(request, json: page(items: [["Id": "box-film", "Name": "First film", "Type": "Movie"]]))
+                case ("Movie,Episode,Video", "list-1", _): return response(request, json: page(items: [["Id": "z-first", "Name": "First", "Type": "Movie"], ["Id": "a-second", "Name": "Second", "Type": "Movie"]]))
+                default: return response(request, json: page(items: []))
+                }
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        await store.loadLibrary(kind: .collections, forceRefresh: true, preloadCatalog: true)
+        XCTAssertEqual(store.items.map(\.id), ["boxset-1"])
+        XCTAssertEqual(store.householdCollections.map(\.id), ["list-1", "list-2"])
+        await store.loadMore()
+        XCTAssertEqual(store.items.map(\.id), ["boxset-1", "boxset-2"])
+        let franchiseMovies = try await store.loadChildren(of: store.items[0])
+        let playlistTitles = try await store.loadChildren(of: store.householdCollections[0])
+        XCTAssertEqual(franchiseMovies.map(\.id), ["box-film"])
+        XCTAssertEqual(playlistTitles.map(\.id), ["z-first", "a-second"], "Playlist members must keep the server's manual or rule order.")
+    }
+
+    func testCollectionsAuthenticationFailureClearsSession() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        MockURLProtocol.handler = { @Sendable request in
+            let itemTypes = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "IncludeItemTypes" }?.value
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume", "/UserViews": return response(request, json: page(items: []))
+            case "/Items": return itemTypes == "BoxSet" ? response(request, status: 401) : response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        XCTAssertNotNil(store.session)
+        await store.loadLibrary(kind: .collections, forceRefresh: true)
+
+        XCTAssertNil(store.session)
     }
 
     func testFullLibraryCatalogLoadsAheadAndAlphabetJumpRetainsTheEntireWall() async throws {

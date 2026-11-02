@@ -36,7 +36,8 @@ test('Home shelves fit the wide layout and preserve phone navigation', async ({ 
   }
   const firstHead = (await first.locator('.h-shelf-head').boundingBox())!;
   const heroBox = (await hero.boundingBox())!;
-  expect(firstHead.y - (heroBox.y + heroBox.height)).toBeLessThanOrEqual(40);
+  expect(firstHead.y - (heroBox.y + heroBox.height)).toBeGreaterThanOrEqual(12);
+  expect(firstHead.y - (heroBox.y + heroBox.height)).toBeLessThanOrEqual(16);
   for (const [previous, following] of [[first, next], [next, live], [live, posters]] as const) {
     const card = (await previous.locator('.h-card').first().boundingBox())!;
     const head = (await following.locator('.h-shelf-head').boundingBox())!;
@@ -59,6 +60,10 @@ test('Home shelves fit the wide layout and preserve phone navigation', async ({ 
   await page.screenshot({ path: join(OUT, 'desktop-1440.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await first.scrollIntoViewIfNeeded();
+  const phoneHead = (await first.locator('.h-shelf-head').boundingBox())!;
+  const phoneHero = (await hero.boundingBox())!;
+  expect(phoneHead.y - (phoneHero.y + phoneHero.height)).toBeGreaterThanOrEqual(12);
+  expect(phoneHead.y - (phoneHero.y + phoneHero.height)).toBeLessThanOrEqual(16);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   const browse = page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Browse' });
   const browseBox = (await browse.boundingBox())!;

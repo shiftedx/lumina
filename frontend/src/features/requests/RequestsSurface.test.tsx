@@ -245,3 +245,12 @@ it('a title page shows the movie and its trailer button', async () => {
   expect(performers.map((person) => person.textContent)).toEqual(['Mara QuillKeeper', 'Mara QuillNarrator', 'Mara QuillKeeper']);
   expect(performers[0].querySelector('img')?.getAttribute('src')).toBe(photo);
 });
+
+it('keeps the catalog search visible and scoped on a title page', async () => {
+  const { onRoute } = renderSurface({ surface: 'requests', view: 'title', kind: 'movie', id: 603 });
+  const search = await screen.findByRole('searchbox', { name: 'Search films, series and anime' });
+  expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+  await userEvent.type(search, 'Dune{Enter}');
+  expect(onRoute).toHaveBeenLastCalledWith({ surface: 'requests', view: 'search', query: 'Dune' }, false);
+  expect(screen.getAllByRole('searchbox', { name: 'Search films, series and anime' })).toHaveLength(1);
+});

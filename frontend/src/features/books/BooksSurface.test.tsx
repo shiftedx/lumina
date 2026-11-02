@@ -103,6 +103,24 @@ describe('BooksSurface', () => {
     expect(screen.queryByText(/sample catalog/i)).toBeNull();
   });
 
+  it('keeps one contextual search on overview and title pages, then searches both book kinds from a title', async () => {
+    const browser = userEvent.setup();
+    const crossKind = [book(), mangaVolume()];
+    api.listBooks.mockResolvedValue(page(crossKind));
+    render(<Surface initial={{ surface: 'books', view: 'overview' }} />);
+    await screen.findByRole('heading', { level: 1, name: 'Books' });
+    expect(screen.getAllByRole('searchbox', { name: 'Search books, authors, and series' })).toHaveLength(1);
+    await browser.click(screen.getAllByRole('button', { name: 'Open Northbound' })[0]);
+    await screen.findByRole('heading', { level: 1, name: 'Northbound' });
+    expect(screen.getAllByRole('searchbox', { name: 'Search books, authors, and series' })).toHaveLength(1);
+    await browser.type(screen.getByRole('searchbox', { name: 'Search books, authors, and series' }), ' Skybound ');
+    await browser.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByRole('heading', { level: 1, name: 'Results for “Skybound”' });
+    expect(api.listBooks).toHaveBeenLastCalledWith({ q: 'Skybound', limit: 48 });
+    expect(screen.getByRole('button', { name: 'Open Northbound' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Skybound, Volume 1' })).toBeTruthy();
+  });
+
   it('keeps continued stories out of Recent and sends Recent View all to the complete book list', async () => {
     const browser = userEvent.setup();
     const continuing = book({ progress: { unit_index: 0, offset: 0.25, percent: 25, completed: false, updated_at: '2026-10-02T00:00:00Z' } });

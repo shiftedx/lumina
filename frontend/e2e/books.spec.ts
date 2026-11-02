@@ -51,7 +51,7 @@ const richOverview = {
 };
 
 async function mockBooks(page: Page) {
-  await page.route('**/api/books/**', async (route) => {
+  await page.route((url) => url.pathname === '/api/books' || url.pathname.startsWith('/api/books/'), async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const { pathname } = url;
@@ -274,4 +274,17 @@ test('phone book detail keeps a missing-cover title on one line', async ({ page 
     range.selectNodeContents(title);
     return [...range.getClientRects()].filter((rect) => rect.width > 0).length;
   })).toBe(1);
+});
+
+test('book overview and details keep one contextual search that opens real catalog results', async ({ page }) => {
+  await openBooks(page, '/books/title/ebook-1', PHONE);
+  const search = page.getByRole('searchbox', { name: 'Search books, authors, and series' });
+  await expect(search).toBeVisible();
+  await expect(page.getByRole('searchbox')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Search Lumina/ })).toHaveCount(0);
+  await page.keyboard.press('Control+k'); await expect(search).toBeFocused();
+  await search.fill('Northbound'); await search.press('Enter');
+  await expect(page).toHaveURL(/\/books\?q=Northbound$/);
+  await expect(page.getByRole('button', { name: 'Open Northbound', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox')).toHaveCount(1);
 });

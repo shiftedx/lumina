@@ -8,10 +8,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicEditBatch, MusicTrackOverride, User, utcnow
+from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicEditBatch, MusicTrackOverride, PlaybackProgress, User, utcnow
+from app.media_schemas import TitleSummary
 from app.music_schemas import MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit
 from app.persistence import write_transaction
 from app.services import library_search
@@ -33,6 +34,38 @@ def visible_tracks(db: Session, user: User, ids: list[str]) -> list[LibraryItem]
     if len(mapped) != len(unique):
         raise HTTPException(404, "Track not found")
     return [mapped[item_id] for item_id in ids]
+
+
+def recently_played_albums(db: Session, user: User, limit: int) -> list[TitleSummary]:
+    """The member's albums with a depth-qualified play, newest listening activity first."""
+    latest = func.max(PlaybackProgress.last_watched_at).label("latest")
+    # The track join below establishes the listening event.  The title predicate
+    # separately applies member title restrictions before the bounded aggregate.
+    visible_albums = select(MediaTitle.id.label("id")).where(
+        MediaTitle.type == "album", LibraryService.visible_title_predicate(user),
+    ).correlate(None).subquery()
+    rows = db.execute(
+        select(MediaTitle.id, latest)
+        .join(visible_albums, visible_albums.c.id == MediaTitle.id)
+        .join(LibraryItem, LibraryItem.title_id == MediaTitle.id)
+        .join(PlaybackProgress, PlaybackProgress.item_id == LibraryItem.id)
+        .where(
+            MediaTitle.type == "album",
+            PlaybackProgress.user_id == user.id,
+            PlaybackProgress.plays > 0,
+            LibraryItem.kind.in_(("track", "audio")),
+            LibraryItem.status != "missing",
+            LibraryService.visible_predicate(user),
+        )
+        .group_by(MediaTitle.id)
+        .order_by(latest.desc(), MediaTitle.id)
+        .limit(limit)
+    ).all()
+    if not rows:
+        return []
+    order = [album_id for album_id, _at in rows]
+    titles = {title.id: title for title in db.scalars(select(MediaTitle).where(MediaTitle.id.in_(order)))}
+    return TitleService(db).summaries(user, [titles[album_id] for album_id in order if album_id in titles])
 
 
 def track_fields(item: LibraryItem, override: MusicTrackOverride | None) -> dict[str, Any]:

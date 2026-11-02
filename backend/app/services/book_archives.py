@@ -33,6 +33,7 @@ MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024
 MAX_MARKUP_NODES = 50_000
 MAX_MARKUP_DEPTH = 128
 MAX_DESCRIPTION_CHARS = 10_000
+MAX_COMIC_CHAPTERS = 500
 RESOURCE_CACHE_BYTES = 64 * 1024 * 1024
 RESOURCE_CACHE_ENTRIES = 128
 RESOURCE_READERS = 4
@@ -356,6 +357,7 @@ def _cbz(archive: _Archive, path: Path) -> dict[str, Any]:
         raise BookArchiveError("CBZ archive has too many pages")
     data: dict[str, Any] = {}
     comic = next((name for name in archive.info if name.casefold() == "comicinfo.xml"), None)
+    chapters: list[dict[str, Any]] = []
     if comic:
         try:
             root = _xml(archive.read(comic, MAX_METADATA_BYTES), "ComicInfo")
@@ -365,6 +367,11 @@ def _cbz(archive: _Archive, path: Path) -> dict[str, Any]:
                 value = clean_synopsis(_metadata_markup(node)) if name == "summary" else _text(node)
                 if value:
                     data[name] = value
+            # ComicInfo's optional per-page Bookmark field is author-provided
+            # navigation metadata. It is the only archive-native boundary we
+            # expose as a comic chapter; page filenames and positions are not
+            # renamed into synthetic chapters.
+            chapters = _comic_bookmarks(root, pages)
         except BookArchiveError:
             data = {}
     genres = _unique(re.split(r"[;,/]", ";".join(filter(None, (data.get("genres"), data.get("genre"), data.get("tags"))))))
@@ -373,8 +380,36 @@ def _cbz(archive: _Archive, path: Path) -> dict[str, Any]:
         "format": "cbz", "title": data.get("title") or _clean(path.stem), "author": data.get("writer"),
         "description": data.get("summary"), "language": data.get("languageiso") or data.get("language"), "genres": genres,
         "series_name": data.get("series"), "volume_number": _volume(data.get("number")), "cover_member": pages[0],
-        "chapters": [], "pages": pages, "reading_direction": "rtl" if ("yes" in direction or "rtl" in direction or "righttoleft" in direction) else "ltr",
+        "chapters": chapters, "pages": pages, "reading_direction": "rtl" if ("yes" in direction or "rtl" in direction or "righttoleft" in direction) else "ltr",
     }
+
+
+def _comic_bookmarks(root: ET.Element, pages: list[str]) -> list[dict[str, Any]]:
+    """Return bounded ComicInfo page bookmarks as genuine illustrated boundaries."""
+    result: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for node in root.iter():
+        if _local_name(node.tag) != "page":
+            continue
+        raw_page = node.get("Image")
+        raw_label = node.get("Bookmark")
+        label = _clean(raw_label, 160)
+        if raw_page is None or label is None or len(" ".join((raw_label or "").split())) > 160:
+            continue
+        try:
+            page = int(raw_page)
+        except ValueError:
+            continue
+        if page < 0 or page >= len(pages) or page in seen:
+            continue
+        seen.add(page)
+        result.append({"label": label, "start_page": page})
+        if len(result) >= MAX_COMIC_CHAPTERS:
+            break
+    # ComicInfo XML order is not necessarily reading order. The reader derives
+    # each boundary's range from the next entry, so normalize the validated
+    # zero-based indexes before exposing them.
+    return sorted(result, key=lambda chapter: chapter["start_page"])
 
 
 def _image_type(member: str) -> str | None:

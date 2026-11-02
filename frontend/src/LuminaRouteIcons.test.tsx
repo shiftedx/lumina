@@ -18,6 +18,12 @@ describe('Lumina route icons', () => {
     expect(renderToStaticMarkup(<LuminaRouteIcon route="books" />)).toContain('<path');
   });
 
+  it('gives movie, show and full-library navigation distinct approved assets', () => {
+    expect(renderToStaticMarkup(<LuminaRouteIcon route="movies" />)).toContain('#lumina-movies');
+    expect(renderToStaticMarkup(<LuminaRouteIcon route="shows" />)).toContain('#lumina-series');
+    expect(renderToStaticMarkup(<LuminaRouteIcon route="library" />)).toContain('#lumina-library');
+  });
+
   it('uses the approved selected artwork when navigation exposes active state', () => {
     const outline = renderToStaticMarkup(<LuminaRouteIcon route="home" />);
     const selected = renderToStaticMarkup(<LuminaRouteIcon route="home" selected />);

@@ -13,7 +13,7 @@ export type BooksRoute =
   | ({ surface: 'books'; view: 'shelves'; shelfId?: string } & BooksFilters)
   | { surface: 'books'; view: 'title'; bookId: string }
   | { surface: 'books'; view: 'series'; seriesId: string }
-  | { surface: 'books'; view: 'read'; bookId: string };
+  | { surface: 'books'; view: 'read'; bookId: string; page?: number };
 
 const BOOK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_QUERY = 200;
@@ -62,7 +62,8 @@ export function parseBooksRoute(path: string, params: URLSearchParams): BooksRou
   const reader = /^\/books\/read\/([^/]+)$/.exec(path);
   if (reader) {
     const bookId = safeId(reader[1]);
-    return bookId ? { surface: 'books', view: 'read', bookId } : defaultRoute();
+    const page = params.has('page') ? Number(params.get('page')) : null;
+    return bookId ? { surface: 'books', view: 'read', bookId, ...(page !== null && Number.isInteger(page) && page >= 0 && page < 2500 ? { page } : {}) } : defaultRoute();
   }
   return defaultRoute();
 }
@@ -70,7 +71,7 @@ export function parseBooksRoute(path: string, params: URLSearchParams): BooksRou
 export function booksRoutePath(route: BooksRoute): string {
   if (route.view === 'title') return `/books/title/${encodeURIComponent(route.bookId)}`;
   if (route.view === 'series') return `/books/series/${encodeURIComponent(route.seriesId)}`;
-  if (route.view === 'read') return `/books/read/${encodeURIComponent(route.bookId)}`;
+  if (route.view === 'read') return `/books/read/${encodeURIComponent(route.bookId)}${route.page === undefined ? '' : `?page=${route.page}`}`;
   const path = route.view === 'overview' ? '/books' : `/books/${route.view}${route.view === 'shelves' && route.shelfId ? `/${encodeURIComponent(route.shelfId)}` : ''}`;
   const query = [route.q ? `q=${encodeURIComponent(route.q)}` : '', route.sort ? `sort=${route.sort}` : '', route.status ? `status=${route.status}` : ''].filter(Boolean).join('&');
   return query ? `${path}?${query}` : path;

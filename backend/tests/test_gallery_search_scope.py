@@ -43,7 +43,7 @@ def test_scope_limits_kinds_and_moments_to_the_wall(db_factory, api_client, monk
     assert hits(scope="shows") == [("title", "harbor"), ("moment", "harbor-s1e1")]
     assert hits() == [("title", "ferry"), ("title", "harbor"), ("moment", "ferry"), ("moment", "harbor-s1e1")]
     assert seen == [("movie", "moment"), ("series", "episode", "moment"), None]
-    assert client.get("/api/search", params={"q": "lamp", "scope": "music"}).status_code == 422
+    assert client.get("/api/search", params={"q": "lamp", "scope": "unknown"}).status_code == 422
 
 
 def test_scope_through_the_real_search() -> None:
@@ -71,3 +71,24 @@ def test_scope_through_the_real_search() -> None:
         assert hits("movies") == {("title", "ferry"), ("moment", "ferry")}
         assert hits("shows") == {("title", "harbor"), ("title", "harbor-s1e1"), ("moment", "harbor-s1e1")}  # episodes too; never the season
         assert hits(None) == {("title", "ferry"), ("title", "harbor"), ("title", "harbor-s1"), ("title", "harbor-s1e1"), ("moment", "ferry"), ("moment", "harbor-s1e1")}
+
+
+def test_music_scope_filters_before_ranking_and_keeps_visible_albums_and_artists(tmp_path) -> None:
+    from pathlib import Path
+    from app.services.library_search import ensure_search_index
+    from support import memory_session_factory
+    from title_support import ALBUM, ARTIST, ALICE, BOB, seed_tree, seed_gallery
+
+    with memory_session_factory()() as session:
+        session.add_all([make_user(ALICE), make_user(BOB)])
+        seed_tree(session, tmp_path)
+        seed_gallery(session, tmp_path)
+        session.commit()
+        ensure_search_index(session.get_bind())
+        member = session.get(User, BOB)
+        # Select music before ranking/limit instead of discarding a cross-media top-N.
+        album = main.search_library(q="Album One", limit=1, scope="music", current_user=member, db=session)
+        assert [(match.kind, match.title_id) for match in album.matches] == [("title", ALBUM)]
+        artist = main.search_library(q="Artist A", limit=30, scope="music", current_user=member, db=session)
+        assert ARTIST in {match.title_id for match in artist.matches}
+        assert all(match.media_title.type in ("album", "artist") for match in artist.matches)

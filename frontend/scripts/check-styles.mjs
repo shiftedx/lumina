@@ -18,7 +18,9 @@ const KB = 1024;
 // Shared brand alignment also reaches the standalone offline entry (<0.1 KB gzip).
 // Responsive focus clearance, missing-art fallbacks and 44px player targets add <0.2 KB gzip.
 // Source-identified rating marks add a compact wrapping row and Metascore status tokens.
-export const CSS_BUDGET = 76.1 * KB;
+// Native web integration adds browse artwork, album disclosures and illustrated chapter navigation.
+// The shared core and lazy JS ceilings remain unchanged.
+export const CSS_BUDGET = 77 * KB;
 export const CORE_BUDGET = 7.2 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };

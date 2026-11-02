@@ -9,6 +9,8 @@ export const luminaRouteIconNames = [
   'requests',
   'subscriptions',
   'library',
+  'movies',
+  'shows',
   'music',
   'books',
   'photos',
@@ -30,6 +32,8 @@ const routeGlyphs: Record<LuminaRouteIconName, LuminaIconName | null> = {
   requests: 'requests',
   subscriptions: 'bookmark',
   library: 'library',
+  movies: 'movies',
+  shows: 'series',
   music: 'music',
   // The approved set does not yet include a book glyph. Keep the existing geometry
   // distinct from Library until the canonical icon package gains one.
@@ -39,7 +43,7 @@ const routeGlyphs: Record<LuminaRouteIconName, LuminaIconName | null> = {
   settings: 'user-settings',
 };
 
-const selectedRouteGlyphs = new Set<LuminaIconName>(['home', 'library', 'requests', 'user-settings']);
+const selectedRouteGlyphs = new Set<LuminaIconName>(['home', 'library', 'movies', 'series', 'music', 'requests', 'user-settings']);
 
 /** A decorative route glyph; its labelled button or link provides the accessible name. */
 export function LuminaRouteIcon({ route, selected = false, ...props }: LuminaRouteIconProps) {

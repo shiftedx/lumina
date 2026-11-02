@@ -297,3 +297,14 @@
 @media (max-width: 599px) { .gallery .g-select-bar { bottom: calc(72px + env(safe-area-inset-bottom)); padding-bottom: 12px; } }
 .gallery .g-rail-more { min-height: 44px; display: flex; align-items: center; justify-content: center; margin-top: 16px; }
 .gallery .g-live-total { margin-right: 12px; }
+
+/* The actual first catalog title supplies the browse artwork; filters retain the compact poster wall. */
+.gallery .g-browse-hero { position: relative; min-height: 420px; margin: 16px calc(-1 * var(--g-gutter)) 0; isolation: isolate; display: flex; align-items: end; }
+.gallery.has-rail .g-browse-hero { margin-right: calc(-1 * (var(--g-gutter) + 28px)); }
+.gallery .g-browse-hero-art { position: absolute; inset: 0; z-index: -2; }
+.gallery .g-browse-hero::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, color-mix(in srgb, var(--g-overlay-bg) 70%, transparent), transparent 85%), linear-gradient(0deg, var(--g-paper), transparent 55%); }
+.gallery .g-browse-hero-copy { width: min(680px, 100%); padding: 64px var(--g-gutter) 48px; color: var(--g-on-art); }
+.gallery .g-browse-hero-copy h2 { margin: 0 0 16px; font: var(--g-type-media-title); text-wrap: balance; overflow-wrap: anywhere; }
+.gallery .g-browse-hero-copy p { max-width: 58ch; margin: 0 0 24px; font: var(--g-type-ui); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gallery.has-browse-hero > .g-masthead { margin-top: 0; }
+@media (max-width: 680px) { .gallery .g-browse-hero { min-height: 350px; } .gallery .g-browse-hero-copy { padding-top: 120px; padding-bottom: 32px; } }

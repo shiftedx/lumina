@@ -459,7 +459,9 @@ export const pauseAt = (page: Page, seconds: number) => page.locator('video').ev
 export async function navigateApp(page: Page, destination: string) {
   const dialog = page.getByRole('dialog', { name: 'Navigation', exact: true });
   if (!await dialog.isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-  const label = destination === 'Settings' ? 'My Settings' : destination;
+  // Existing workflow specs name the former broad destinations; keep their intent while
+  // the production menu exposes the more useful first-level choices.
+  const label = destination === 'Settings' ? 'My Settings' : destination === 'Video' ? 'All video' : destination === 'Audio' ? 'Music' : destination;
   await dialog.getByRole('button', { name: new RegExp(`^${label}(,|$)`) }).click();
   await expect(dialog).toHaveCount(0);
 }

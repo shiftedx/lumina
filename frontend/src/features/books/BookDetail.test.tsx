@@ -38,3 +38,13 @@ it('uses page counts for PDF ebooks and hides management controls for shared rea
   expect(screen.queryByRole('button', { name: 'Move to trash' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Combine entries' })).toBeNull();
 });
+
+it('offers only real illustrated chapter markers without changing reading state', async () => {
+  const browser = userEvent.setup();
+  const onReadChapter = vi.fn();
+  const onState = vi.fn();
+  render(<BookDetail book={book({ kind: 'manga', format: 'cbz', page_count: 12, chapter_count: 2 })} chapters={[{ label: 'Opening', start_page: 0 }, { label: 'Part two', start_page: 7 }]} onCombine={vi.fn()} onDelete={vi.fn()} onEdit={vi.fn()} onRead={vi.fn()} onReadChapter={onReadChapter} onReadFile={vi.fn()} onSeries={vi.fn()} onShelf={vi.fn()} onState={onState} />);
+  await browser.click(screen.getByRole('button', { name: /Page 8.*Part two/ }));
+  expect(onReadChapter).toHaveBeenCalledWith(expect.objectContaining({ id: 'ebook-1' }), 7);
+  expect(onState).not.toHaveBeenCalled();
+});

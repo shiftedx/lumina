@@ -36,6 +36,9 @@ test('a show starts, resumes from Home and moves on to the next episode', async 
   await test.step('the show page resumes past the saved position', async () => {
     await openShow(page);
     await page.getByRole('button', { name: 'Resume S1 · E1', exact: true }).click();
+    const choice = page.getByRole('dialog', { name: 'Resume playback?' });
+    await expect(choice).toContainText('Resume playback from 0:30?');
+    await choice.getByRole('button', { name: 'Resume', exact: true }).click();
     await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(29);
   });
 

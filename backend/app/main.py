@@ -3622,7 +3622,7 @@ def list_library_channels(
 # The title and moment kinds each wall's search asks for; the title's category
 # then decides (a moment belongs to its movie's or episode's category).
 SEARCH_SCOPE_TYPES = {
-    "movies": ("movie", "moment"), "shows": ("series", "episode", "moment"), "anime": ("movie", "series", "episode", "moment"),
+    "movies": ("movie", "moment"), "shows": ("series", "episode", "moment"), "anime": ("movie", "series", "episode", "moment"), "music": ("album", "artist"),
 }
 
 
@@ -3643,7 +3643,7 @@ def search_library(
     blocked = set(streaming_gate.blocked_kinds(db, current_user))  # a blocked kind's followed sources are left out, not an error
     found = tuple(match for match in discovery.matches
                   if not (match.automation and streaming_gate.url_kind(match.automation.source_url) in blocked))
-    if scope is not None:  # a match belongs to the wall when its title (a moment's movie or episode) is in the wall's category
+    if scope is not None and scope != "music":  # a match belongs to the wall when its title (a moment's movie or episode) is in the wall's category
         found = tuple(match for match in found if getattr(summaries.get(match_title_id(match) or ""), "category", None) == scope)
     matches = [
         LocalSearchMatchResponse(

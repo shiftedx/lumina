@@ -110,7 +110,7 @@ describe('authenticated navigation accessibility', () => {
   it('marks the current destination inside the navigation dialog', () => {
     const html = renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" />);
     expect(html).toContain('popover="manual"');
-    expect(html).toMatch(/aria-current="page" aria-label="Video"/);
+    expect(html).toMatch(/aria-current="page" aria-label="All video"/);
   });
 
   it('does not render navigation until its dialog opens', () => {
@@ -119,7 +119,7 @@ describe('authenticated navigation accessibility', () => {
 
   it('marks the active mobile tab, and Watch does not pretend to be Home', () => {
     const tabs = { activeDownloads: 0, moreOpen: false, onMore: noop, onNavigate: noop, onSearch: noop };
-    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="video" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Video<\/span>/);
+    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="video" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Movies<\/span>/);
     expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="watch" />)).not.toMatch(/aria-current/);
   });
 

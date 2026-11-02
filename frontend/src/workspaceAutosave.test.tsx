@@ -54,3 +54,16 @@ describe('mounted workspace preference persistence', () => {
     })), { timeout: 2000 });
   });
 });
+
+it('saves the chosen music browser through the authenticated member endpoint without replacing sibling ui preferences', async () => {
+  const saved = { ...settings, ui_prefs: { ...settings.ui_prefs, music_browse: { view: 'albums', future: true }, home_shelves: [] } };
+  apiMocks.connectEvents.mockReturnValue({ close: vi.fn(), onopen: null, onerror: null });
+  apiMocks.getMySettings.mockResolvedValue(saved);
+  apiMocks.updateMySettings.mockResolvedValue(saved);
+  const { result } = renderHook(() => useAuthenticatedWorkspace({ onError: vi.fn() }));
+  await waitFor(() => expect(result.current.state.authStage).toBe('ready'));
+  act(() => result.current.dispatch({ type: 'preferences/patch', patch: { musicBrowseView: 'artists' } }));
+  await waitFor(() => expect(updateMySettings).toHaveBeenCalledWith(expect.objectContaining({ ui_prefs: expect.objectContaining({ music_browse: { view: 'artists', future: true } }) })), { timeout: 2000 });
+  const payload = apiMocks.updateMySettings.mock.calls.at(-1)?.[0];
+  expect(payload.ui_prefs).not.toHaveProperty('home_shelves');
+});

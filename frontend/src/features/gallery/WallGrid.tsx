@@ -130,7 +130,7 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
     if (range.pitch === pitch && range.rows === rows && range.to >= range.from) store.ensure(rowStart(range.from, layout), rowStart(range.to + 1, layout) - 1);
   }, [store, range.from, range.to, range.pitch, range.rows, pitch, rows, layout.columns, layout.featured]); // layout is rebuilt from these each render
 
-  const [focus, setFocus] = useState(() => store.focusIndex ?? 0);
+  const [focus, setFocus] = useState(() => Math.max(0, store.focusIndex ?? 0));
   const pendingFocus = useRef(false);
   const focusInside = useRef(false);
   const laidOut = useRef(columns);
@@ -161,7 +161,8 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
       window.scrollTo(0, scrollY);
       const seen = visibleRows(-element.getBoundingClientRect().top, window.innerHeight, pitch, rows, 0);
       store.revalidate(rowStart(seen.first, layout), rowStart(seen.last + 1, layout) - 1);
-      if (focusIndex !== null) element.querySelector<HTMLElement>(`button[data-index="${focusIndex}"]`)?.focus({ preventScroll: true });
+      const origin = focusIndex === -1 ? element.closest('.g-wall')?.querySelector<HTMLElement>('[data-browse-details]') : focusIndex === null ? null : element.querySelector<HTMLElement>(`button[data-index="${focusIndex}"]`);
+      origin?.focus({ preventScroll: true });
     });
   }, [store, width]); // runs once the width is known; pitch and rows come from that same render
 

@@ -10,10 +10,10 @@ import { resetImageLoader } from './imageLoader';
 import { MusicTab, parseMusicState, serializeMusicState } from './MusicTab';
 import { forgetWallStores } from './wallPages';
 
-function tab(state = '', sections: LibrarySections | null = librarySections()) {
+function tab(state = '', sections: LibrarySections | null = librarySections(), options: Partial<Pick<React.ComponentProps<typeof MusicTab>, 'preferredView' | 'onBrowseViewChange'>> = {}) {
   const onWallChange = vi.fn();
   const onPlay = vi.fn();
-  render(<MusicTab canDelete={() => false} lenses={<nav aria-label="Library" />} onItemChanged={vi.fn()} onOpen={vi.fn()} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={state} />);
+  render(<MusicTab canDelete={() => false} lenses={<nav aria-label="Library" />} onItemChanged={vi.fn()} onOpen={vi.fn()} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={state} {...options} />);
   return { onWallChange, onPlay };
 }
 
@@ -21,6 +21,7 @@ beforeEach(() => {
   forgetWallStores();
   resetImageLoader();
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+  vi.spyOn(api, 'listRecentlyPlayedAlbums').mockResolvedValue({ items: [] });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -31,10 +32,10 @@ describe('MusicTab', () => {
     tab();
     expect(screen.getByRole('navigation', { name: 'Library' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Music' })).toBeTruthy();
-    expect(screen.getByText('110 albums · 108 artists · Sorted by recently added')).toBeTruthy();
+    expect(screen.getByText('110 albums · 108 artists')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Show' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Albums' }).getAttribute('aria-pressed')).toBe('true');
-    expect(await screen.findByRole('button', { name: 'Album One by Artist A, 2019, 12 tracks' })).toBeTruthy();
+    expect((await screen.findAllByRole('button', { name: 'Album One by Artist A, 2019, 12 tracks' })).length).toBeGreaterThan(0);
   });
 
   it('switches views through the address, keeping each view’s own wall keys', async () => {
@@ -48,16 +49,16 @@ describe('MusicTab', () => {
     chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
     expect(onWallChange).toHaveBeenLastCalledWith('view=artists');
     await userEvent.click(screen.getByRole('button', { name: 'Albums' }));
-    expect(onWallChange).toHaveBeenLastCalledWith('');
+    expect(onWallChange).toHaveBeenLastCalledWith('view=albums');
     await userEvent.click(screen.getByRole('button', { name: 'Saved audio' }));
     expect(onWallChange).toHaveBeenLastCalledWith('view=saved');
   });
 
   it('drops an unknown view and keeps Saved audio only when there is saved audio', () => {
-    expect(parseMusicState('view=bogus&sort=year')).toEqual({ view: 'albums', wall: 'sort=year' });
-    expect(parseMusicState(undefined)).toEqual({ view: 'albums', wall: '' });
+    expect(parseMusicState('view=bogus&sort=year')).toEqual({ view: 'albums', wall: 'sort=year', hasExplicitView: false });
+    expect(parseMusicState(undefined)).toEqual({ view: 'albums', wall: '', hasExplicitView: false });
     expect(serializeMusicState('artists', 'sort=created')).toBe('view=artists&sort=created');
-    expect(serializeMusicState('albums', 'sort=year')).toBe('sort=year');
+    expect(serializeMusicState('albums', 'sort=year')).toBe('view=albums&sort=year');
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
     const library = vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
     tab('', librarySections({ saved_audio: 0 }));
@@ -85,5 +86,36 @@ describe('MusicTab', () => {
     expect(screen.getByRole('button', { name: 'Saved audio' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('110 albums · 108 artists')).toBeTruthy();
     expect(screen.queryByRole('heading', { level: 2, name: 'Saved audio' })).toBeNull();
+  });
+
+  it('leads albums with real recently played and recently added shelves before the complete catalog', async () => {
+    const played = albumSummary('played-album', { name: 'Played album' });
+    const added = albumSummary('added-album', { name: 'Added album' });
+    vi.spyOn(api, 'listRecentlyPlayedAlbums').mockResolvedValue({ items: [played] });
+    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([added], { total: 1 }));
+    vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    const { onWallChange } = tab();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Recently played' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Recently added' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'All albums' })).toBeTruthy();
+    expect(screen.getByText('All albums').closest('details')?.open).toBe(false);
+    await userEvent.click(screen.getByText('All albums'));
+    expect(onWallChange).toHaveBeenCalledWith('view=albums&catalog=1');
+    expect(api.listRecentlyPlayedAlbums).toHaveBeenCalledWith({ limit: 24 });
+    expect(api.listTitles).toHaveBeenCalledWith({ type: 'album', sort: 'created', limit: 24 });
+  });
+
+  it('uses the remembered view only for bare Music and keeps an explicit Albums choice in the address', async () => {
+    const remembered = vi.fn();
+    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
+    vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    const first = tab('', librarySections(), { preferredView: 'artists', onBrowseViewChange: remembered });
+    expect(screen.getByRole('button', { name: 'Artists' }).getAttribute('aria-pressed')).toBe('true');
+    await userEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    expect(remembered).toHaveBeenCalledWith('albums');
+    expect(first.onWallChange).toHaveBeenLastCalledWith('view=albums');
+    forgetWallStores();
+    tab('sort=name', librarySections(), { preferredView: 'artists' });
+    expect(screen.getAllByRole('button', { name: 'Albums' }).at(-1)?.getAttribute('aria-pressed')).toBe('true');
   });
 });

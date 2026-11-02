@@ -68,7 +68,8 @@ export type BooksOverview = {
   discover: Book[];
 };
 export type BookPage<T> = { items: T[]; total: number; next_cursor: string | null };
-export type BookReaderManifest = { book: Book; chapters: { label: string }[]; page_count: number; reading_direction: 'ltr' | 'rtl' };
+/** `start_page` exists only for explicit ComicInfo bookmarks; page position remains the checkpoint unit. */
+export type BookReaderManifest = { book: Book; chapters: { label: string; start_page?: number }[]; page_count: number; reading_direction: 'ltr' | 'rtl' };
 export type BookNode = {
   tag: string;
   id?: string;

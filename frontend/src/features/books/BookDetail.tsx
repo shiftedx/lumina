@@ -9,8 +9,10 @@ const languageName = (language: string) => {
   catch { return language; }
 };
 
-export function BookDetail({ book, onRead, onReadFile, onState, onShelf, onEdit, onCombine, onDelete, onSeries, onSeparate }: {
+export function BookDetail({ book, chapters = [], onRead, onReadChapter, onReadFile, onState, onShelf, onEdit, onCombine, onDelete, onSeries, onSeparate }: {
   book: Book; onRead: (book: Book) => void; onReadFile: (id: string) => void;
+  /** Real ComicInfo bookmarks, not page-number aliases. */
+  chapters?: { label: string; start_page?: number }[]; onReadChapter?: (book: Book, page: number) => void;
   onState: (book: Book, patch: BookStateUpdate) => void; onShelf: () => void; onEdit: () => void;
   onCombine: () => void; onDelete: () => void; onSeries: () => void; onSeparate?: (id: string) => void;
 }) {
@@ -29,6 +31,7 @@ export function BookDetail({ book, onRead, onReadFile, onState, onShelf, onEdit,
       {!book.available ? <p className="books-form-error">The book file is not available right now.</p> : null}
       {paragraphs.length ? <section aria-label="Synopsis" className="books-title-synopsis"><h2>About this book</h2>{paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section> : null}
       {book.genres.length ? <ul aria-label="Genres" className="books-title-genres">{book.genres.map((genre) => <li key={genre}>{genre}</li>)}</ul> : null}
+      {book.kind === 'manga' && chapters.some((chapter) => Number.isInteger(chapter.start_page)) ? <section aria-label="Chapters" className="books-title-chapters"><h2>Chapters</h2><ol>{chapters.map((chapter) => Number.isInteger(chapter.start_page) ? <li key={`${chapter.start_page}:${chapter.label}`}><button disabled={!book.available} onClick={() => onReadChapter?.(book, chapter.start_page!)} type="button"><span>Page {chapter.start_page! + 1}</span>{chapter.label}</button></li> : null)}</ol></section> : null}
     </div>
     <aside aria-label="Book details and files" className="books-title-information">
       <section><h2>In your library</h2><dl><div><dt>Formats</dt><dd>{[...new Set(files.map((file) => file.format.toUpperCase()))].join(' · ')}</dd></div><div><dt>Length</dt><dd>{book.format === 'epub' ? `${book.chapter_count} chapters` : `${book.page_count} pages`}</dd></div>{book.language ? <div><dt>Language</dt><dd>{languageName(book.language)}</dd></div> : null}<div><dt>Visibility</dt><dd>{book.visibility === 'shared' ? 'Household' : 'Private'}</dd></div></dl></section>

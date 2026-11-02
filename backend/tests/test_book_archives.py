@@ -114,6 +114,17 @@ def test_cbz_uses_natural_page_order_and_comicinfo(tmp_path: Path) -> None:
     }
 
 
+def test_cbz_uses_only_valid_comicinfo_bookmarks_as_chapter_boundaries(tmp_path: Path) -> None:
+    book = _zip(tmp_path / "chapters.cbz", {
+        "10.png": PNG, "2.png": PNG, "1.png": PNG,
+        "ComicInfo.xml": b"<ComicInfo><Pages><Page Image='2' Bookmark='Finale'/><Page Image='0' Bookmark=' Arrival '/><Page Image='2' Bookmark='Duplicate'/><Page Image='8' Bookmark='Outside'/><Page Image='1'/><Page Image='1' Bookmark='" + b"x" * 161 + b"'/></Pages></ComicInfo>",
+    })
+    manifest = inspect_book(book, "cbz")
+    # Image indexes address the reader's natural page order (1, 2, 10), not ZIP
+    # order or arbitrary ComicInfo XML marker order.
+    assert manifest["chapters"] == [{"label": "Arrival", "start_page": 0}, {"label": "Finale", "start_page": 2}]
+
+
 def test_repeated_resource_reads_reuse_work_and_file_changes_invalidate_cache(tmp_path: Path, monkeypatch) -> None:
     from app.services import book_archives
 

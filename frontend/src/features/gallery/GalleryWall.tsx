@@ -19,6 +19,7 @@ import { episodeCode, useFetched } from '../titles/titleModel';
 import { rangeIds, selectionNote, toggleId } from './bulkModel';
 import { CHIPS, FilterDrawer } from './FilterDrawer';
 import { GalleryArt } from './GalleryArt';
+import { HeroFrame } from './HeroFrame';
 import { activeFacetCount, cardColour, countNoun, DEFAULT_WALL, fallbackColour, serializeWallQuery, wallFiltered, wallKey, type WallKind, wallListQuery, type WallQuery, wallQueryFor, WALLS } from './galleryModel';
 import { PosterCard } from './PosterCard';
 import { forgetTitle } from './titleCache';
@@ -221,12 +222,18 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
     );
   }
 
+  const featured = !header && !query.q && !selecting && !wallFiltered(query) && (wall === 'movies' || wall === 'shows') ? store.itemAt(0) : undefined;
+  const hero = featured?.backdrop ? featured : undefined;
   return (
-    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}`}>
+    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}`}>
       {lenses}
+      {hero ? <section aria-label={hero.name} className="g-browse-hero">
+        <HeroFrame className="g-browse-hero-art" src={hero.backdrop!.url} placement="home"><GalleryArt alt="" art={hero.backdrop} card={null} colour={cardColour(hero, 'backdrop')} kind="backdrop" priority={1} sizes="100vw" /></HeroFrame>
+        <div className="g-browse-hero-copy"><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
+      </section> : null}
       {header ? header(sortedBy) : (
         <header className="g-masthead" onKeyDown={downToGrid}>
-          <h1>{def.heading}</h1>
+          <h1 className={hero ? 'sr-only' : undefined}>{def.heading}</h1>
           <p className="g-label g-kicker">{kicker}</p>
           {canEdit && def.shape !== 'square' ? (
             <button aria-pressed={selecting} className="g-button g-button-text" onClick={() => (selecting ? stopSelecting() : setSelecting(true))} ref={selectButton} type="button">Select</button>

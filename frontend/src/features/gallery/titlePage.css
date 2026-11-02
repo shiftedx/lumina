@@ -28,7 +28,7 @@
 .t-page.is-plain .t-body { margin-top: var(--g-space-6); }
 .t-heading { grid-area: heading; min-width: 0; }
 .t-main { grid-area: main; min-width: 0; }
-.t-headline { margin: 0 0 var(--g-space-4); font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+.t-headline { margin: 0 0 var(--g-space-4); font: var(--g-type-media-title); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
 /* The title's accent hairline under the masthead. */
 .t-headline::after { content: ''; display: block; width: 72px; margin-top: var(--g-space-4); border-top: 1px solid var(--g-accent); }
 .gallery.t-page .t-logo { display: block; max-width: min(100%, 600px); height: 160px; background: none; }

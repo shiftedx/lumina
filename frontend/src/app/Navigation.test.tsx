@@ -7,14 +7,14 @@ import { MobileTabs, navGroups, NavigationPopover } from './Navigation';
 describe('NavigationPopover', () => {
   it('makes Video, Audio, and Books primary destinations, without the old Library item', () => {
     expect(navGroups.map((group) => [group.label, group.items.map((item) => item.label)])).toEqual([
-      ['Watch', ['Home', 'Video', 'Audio', 'Books', 'Photos', 'Streaming', 'Requests']],
+      ['Watch', ['Home', 'Movies', 'Shows', 'All video', 'Music', 'Books', 'Photos', 'Streaming', 'Requests']],
       ['Vault', ['Downloads', 'My Settings']],
     ]);
     render(<NavigationPopover activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="audio" />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).queryByRole('button', { name: 'Library' })).toBeNull();
     expect(within(nav).getByRole('button', { name: 'Photos' })).toBeTruthy();
-    expect(within(nav).getByRole('button', { name: 'Audio' }).getAttribute('aria-current')).toBe('page');
+    expect(within(nav).getByRole('button', { name: 'Music' }).getAttribute('aria-current')).toBe('page');
     expect(within(nav).getByRole('button', { name: 'Downloads, 2 active' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /settings$/ })).toBeNull();
   });
@@ -26,7 +26,8 @@ describe('NavigationPopover', () => {
     expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull();
     rerender(<NavigationPopover {...props} open />);
     const dialog = screen.getByRole('dialog', { name: 'Navigation' });
-    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
+    within(dialog).getByRole('button', { name: 'Home' }).focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
     fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -34,7 +35,7 @@ describe('NavigationPopover', () => {
   it('closes before opening a destination, preserving all the existing badges and destinations', async () => {
     const onClose = vi.fn(); const onNavigate = vi.fn();
     render(<NavigationPopover activeDownloads={0} onClose={onClose} onNavigate={onNavigate} open surface="home" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Video' }));
+    await userEvent.click(screen.getByRole('button', { name: 'All video' }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onNavigate).toHaveBeenCalledWith('video');
     expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(onNavigate.mock.invocationCallOrder[0]);
@@ -69,17 +70,39 @@ describe('MobileTabs', () => {
     const onNavigate = vi.fn(); const onMore = vi.fn();
     render(<MobileTabs activeDownloads={3} moreOpen={false} onMore={onMore} onNavigate={onNavigate} onSearch={vi.fn()} surface="audio" />);
     const tabs = screen.getByRole('navigation', { name: 'Mobile primary navigation' });
-    expect(within(tabs).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Video', 'Audio', 'Books', 'More3']);
-    expect(within(tabs).getByRole('button', { name: 'Audio' }).getAttribute('aria-current')).toBe('page');
-    await userEvent.click(within(tabs).getByRole('button', { name: 'Books' }));
-    expect(onNavigate).toHaveBeenCalledWith('books');
-    await userEvent.click(within(tabs).getByRole('button', { name: 'More, 3 active downloads' }));
+    expect(within(tabs).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Music', 'Streaming', 'Requests', 'Browse3']);
+    expect(within(tabs).getByRole('button', { name: 'Music' }).getAttribute('aria-current')).toBe('page');
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Requests' }));
+    expect(onNavigate).toHaveBeenCalledWith('requests');
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Browse, 3 active downloads' }));
     expect(onMore).toHaveBeenCalledOnce();
   });
 
   it.each(['video', 'audio', 'books'] as const)('marks %s as the current mobile media surface', (surface) => {
     render(<MobileTabs activeDownloads={0} moreOpen={false} onMore={vi.fn()} onNavigate={vi.fn()} onSearch={vi.fn()} surface={surface} />);
-    const label = surface[0].toUpperCase() + surface.slice(1);
+    const label = surface === 'video' ? 'Movies' : surface === 'audio' ? 'Music' : 'Books';
     expect(screen.getByRole('button', { name: label }).getAttribute('aria-current')).toBe('page');
   });
+});
+
+it('opens the existing movie and show routes and only dismisses mouse navigation after its grace period', () => {
+  vi.useFakeTimers();
+  const onClose = vi.fn(); const onVideoView = vi.fn();
+  const { unmount } = render(<NavigationPopover activeDownloads={0} onClose={onClose} onNavigate={vi.fn()} onVideoView={onVideoView} open surface="video" videoView="shows" />);
+  const panel = screen.getByRole('dialog', { name: 'Navigation' });
+  expect(screen.getByRole('button', { name: 'Shows' }).getAttribute('aria-current')).toBe('page');
+  fireEvent.click(screen.getByRole('button', { name: 'Movies' }));
+  expect(onVideoView).toHaveBeenCalledWith('movies');
+  onClose.mockClear();
+  fireEvent.pointerLeave(panel, { pointerType: 'mouse' });
+  vi.advanceTimersByTime(699); expect(onClose).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1); expect(onClose).toHaveBeenCalledOnce();
+  onClose.mockClear();
+  panel.showPopover();
+  screen.getByRole('button', { name: 'Home' }).focus();
+  fireEvent.keyDown(panel, { key: 'ArrowDown' });
+  fireEvent.pointerLeave(panel, { pointerType: 'mouse' });
+  vi.advanceTimersByTime(700); expect(onClose).not.toHaveBeenCalled();
+  fireEvent.keyDown(panel, { key: 'Escape' }); expect(onClose).toHaveBeenCalledOnce();
+  unmount(); vi.useRealTimers();
 });

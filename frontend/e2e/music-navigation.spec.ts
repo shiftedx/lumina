@@ -102,7 +102,15 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'artist page overflow').toBeLessThanOrEqual(0);
   const artistAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(artistAccessibility.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);
-  if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/artist-page-desktop.png`, fullPage: true });
+  if (process.env.MUSIC_VISUAL_DIR) {
+    await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/artist-page-desktop.png`, fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/artist-page-phone.png`, fullPage: true });
+    await page.goto('/audio/title/album-1');
+    await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
+    await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/album-page-phone.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
 });
 
 for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }, { name: 'tv', width: 1920, height: 1080 }]) {

@@ -173,6 +173,21 @@ def test_epub_reader_resources_listing_series_and_shelves(api_client, db_factory
         assert client.get(f"/api/books/{first['id']}/cover").status_code == 404
 
 
+def test_comicinfo_bookmarks_are_reader_navigation_without_a_checkpoint(api_client, db_factory) -> None:
+    owner = _user(db_factory, "comic-reader")
+    body = io.BytesIO()
+    with zipfile.ZipFile(body, "w") as archive:
+        archive.writestr("ComicInfo.xml", "<ComicInfo><Title>Marked</Title><Pages><Page Image='1' Bookmark='Part two'/></Pages></ComicInfo>")
+        for page in range(3): archive.writestr(f"{page}.png", _png())
+    with api_client(user=owner, base_url="http://localhost") as client:
+        imported = client.put("/api/books/import?filename=marked.cbz", content=body.getvalue()).json()
+        reader = client.get(f"/api/books/{imported['id']}/reader")
+        assert reader.status_code == 200
+        assert reader.json()["chapters"] == [{"label": "Part two", "start_page": 1}]
+        # Loading reader metadata is browsing: the server checkpoint stays pristine.
+        assert reader.json()["book"]["progress"]["updated_at"] is None
+
+
 def test_invalid_imports_cleanup_and_metadata_preserves_state(api_client, db_factory) -> None:
     from app.services.books import book_root
 

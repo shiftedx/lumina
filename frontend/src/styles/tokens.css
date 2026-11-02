@@ -6,8 +6,11 @@
 
     --g-serif: 'Newsreader', 'Newsreader Fallback', Georgia, 'Times New Roman', serif;
   --g-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --g-type-display: italic 700 clamp(44px, 5.2vw, 84px) / .95 var(--g-serif);
-  --g-type-masthead: italic 700 56px / 1 var(--g-serif);
+  --g-type-page-title: 600 1.25rem / 1.25 var(--g-sans);
+  --g-media-title-size: 3rem;
+  --g-type-media-title: italic 700 var(--g-media-title-size) / 1.05 var(--g-serif);
+  --g-type-display: var(--g-type-media-title);
+  --g-type-masthead: var(--g-type-media-title);
   --g-type-h2: italic 600 27px / 1.15 var(--g-serif);
   --g-type-h3: italic 600 19px / 1.25 var(--g-serif);
   --g-type-lede: 400 19px / 1.5 var(--g-serif);
@@ -165,7 +168,7 @@
 }
 
 @media (min-width: 1600px) {
-  .gallery.home { --g-gutter: 72px; --g-type-masthead: italic 700 72px / 1 var(--g-serif); }
+  .gallery.home { --g-gutter: 72px; --g-type-masthead: var(--g-type-media-title); }
 }
 
 @media (min-width: 1920px) {
@@ -174,8 +177,8 @@
 
 @media (max-width: 1023px) {
   :root {
-    --g-type-display: italic 700 clamp(40px, 6vw, 56px) / .95 var(--g-serif);
-    --g-type-masthead: italic 700 44px / 1 var(--g-serif);
+    --g-type-display: var(--g-type-media-title);
+    --g-type-masthead: var(--g-type-media-title);
     --g-type-chapter: italic 700 34px / 1.05 var(--g-serif);
     --g-grid-gap: 16px;
   }
@@ -183,8 +186,8 @@
 
 @media (max-width: 599px) {
   :root {
-    --g-type-display: italic 700 34px / .95 var(--g-serif);
-    --g-type-masthead: italic 700 34px / 1 var(--g-serif);
+    --g-type-display: var(--g-type-media-title);
+    --g-type-masthead: var(--g-type-media-title);
     --g-type-chapter: italic 700 26px / 1.05 var(--g-serif);
     --g-type-h2: italic 600 21px / 1.15 var(--g-serif);
     --g-type-h3: italic 600 17px / 1.25 var(--g-serif);
@@ -203,8 +206,8 @@
 @media (pointer: fine) and (min-width: 600px) {
   :root {
     --g-control: 36px;
-    --g-type-display: italic 700 clamp(40px, 4.2vw, 64px) / .95 var(--g-serif);
-    --g-type-masthead: italic 700 48px / 1 var(--g-serif);
+    --g-type-display: var(--g-type-media-title);
+    --g-type-masthead: var(--g-type-media-title);
     --g-type-h2: italic 600 23px / 1.15 var(--g-serif);
     --g-type-lede: 400 16px / 1.5 var(--g-serif);
     --g-type-body: 400 14px / 1.55 var(--g-serif);
@@ -248,3 +251,5 @@
   --g-danger: #e58a74; --g-danger-wash: var(--g-overlay-hover);
 }
 @media (forced-colors: active) { .ph-viewer-panel { --g-danger: CanvasText; } }
+
+@media (max-width: 680px) { :root { --g-media-title-size: 2.125rem; } }

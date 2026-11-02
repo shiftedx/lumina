@@ -40,7 +40,7 @@ SmartRuleOp = Literal["is", "is_not", "in", "not_in", "gte", "lte", "within_days
 SmartRuleSortField = Literal["name", "year", "rating", "added", "runtime"]
 SortOrder = Literal["asc", "desc"]
 TitleResolution = Literal["4k", "1080p", "720p", "sd"]  # buckets, in display order
-SearchScope = Literal["movies", "shows", "anime"]
+SearchScope = Literal["movies", "shows", "anime", "music"]
 TitleCategory = Literal["movies", "shows", "anime"]  # Which Library tab a movie or show belongs to
 ClientMetricName = Literal[
     "wall_first_screen_ms", "wall_sharp_ms", "detail_hero_ms", "home_first_screen_ms", "home_hero_ms",

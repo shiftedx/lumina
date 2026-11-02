@@ -47,6 +47,7 @@ for (const theme of ['light', 'dark'] as const) {
     test(`Explore reads cleanly in ${theme} at ${label} width`, async ({ page }) => {
       await open(page, { width, height, theme });
       await expect(page.getByRole('heading', { level: 1, name: 'Streaming' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Featured' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'News' })).toBeVisible();
       const results = await new AxeBuilder({ page }).include('main').analyze();
       expect(results.violations.map((violation) => `${violation.id}: ${violation.nodes.length}`)).toEqual([]);
@@ -59,6 +60,7 @@ for (const theme of ['light', 'dark'] as const) {
 test('the masthead, live teaser, 25 categories and popular rails', async ({ page }) => {
   await open(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Streaming' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Featured' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Live now' })).toBeVisible();
   await expect(page.getByRole('link', { name: /See all/ }).first()).toHaveAttribute('href', '/streaming/live');
   await expect(page.getByRole('navigation', { name: 'Browse by category' }).getByRole('button')).toHaveCount(25);

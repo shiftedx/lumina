@@ -13,6 +13,8 @@ import type { LibraryActivitySnapshot } from './useLibraryActivity';
 
 export interface TopBarProps {
   user: UserProfile;
+  hideSearch?: boolean;
+  contextLabel?: string;
   mobile: boolean;
   compact: boolean;
   menuLabel: 'Open navigation' | 'Close navigation';
@@ -113,16 +115,17 @@ export function TopBar(props: TopBarProps) {
   return (
     <header className="g-topbar">
       <div className="g-topbar-start">
-        <IconButton aria-controls="primary-navigation" aria-expanded={props.menuExpanded} aria-haspopup="dialog" icon={<MenuIcon />} label={props.menuLabel} onClick={props.onMenu} ref={props.menuButtonRef} />
-        <a className="g-topbar-brand" href="/" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); props.onHome(); }}>
-          <BrandMark compact={compact} size="bar" />
+        <IconButton aria-controls="primary-navigation" aria-expanded={props.menuExpanded} aria-haspopup="dialog" icon={<MenuIcon />} onPointerDownCapture={(event) => { event.currentTarget.dataset.navigationKeyboard = 'false'; }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.currentTarget.dataset.navigationKeyboard = 'true'; }} label={props.menuLabel} onClick={props.onMenu} ref={props.menuButtonRef} />
+        <a aria-label="Lumina home" className="g-topbar-brand" href="/" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); props.onHome(); }}>
+          <BrandMark compact size="bar" />
         </a>
+        <span className="g-topbar-context">{props.contextLabel}</span>
       </div>
-      <button aria-label={`Search Lumina, ${shortcut}`} className="g-search-trigger" onClick={props.onSearch} type="button">
+      {props.hideSearch ? <span /> : <button aria-label={`Search Lumina, ${shortcut}`} className="g-search-trigger" onClick={props.onSearch} type="button">
         <Search aria-hidden="true" />
         <span className="g-search-trigger-text">Search Lumina</span>
         <Kbd>{shortcut}</Kbd>
-      </button>
+      </button>}
       <div className="g-topbar-end">
         {!canAddLink ? null : mobile ? <IconButton icon={<Plus />} label="Add a link" onClick={props.onAddLink} /> : <Button aria-label="Add a link" icon={<Plus />} onClick={props.onAddLink} variant="quiet">Add link</Button>}
         <Popover label="Activity" openOnHover trigger={(triggerProps) => activityButton(triggerProps)}>

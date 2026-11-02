@@ -75,7 +75,7 @@
 .rq-hero-art { position: absolute; inset: 0; }
 .rq-hero-scrim { position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--g-overlay-bg) 72%, transparent), transparent 72%), var(--g-scrim); pointer-events: none; }
 .rq-hero-text { position: relative; max-width: 640px; }
-.rq-surface .rq-hero-title, .rq-title-name { margin: 8px 0; font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+.rq-surface .rq-hero-title, .rq-title-name { margin: 8px 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
 .rq-hero-logo { display: block; width: auto; max-width: min(100%, 460px); height: auto; max-height: 140px; object-fit: contain; object-position: left bottom; }
 .rq-hero .rq-hero-meta { color: var(--g-overlay-ink-2); }
 .rq-hero-overview { display: -webkit-box; margin: 12px 0 0; overflow: hidden; font: var(--g-type-lede); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
@@ -93,13 +93,16 @@
 @keyframes rq-pip { from { transform: scaleX(0); } }
 @keyframes rq-fade { from { opacity: 0; } }
 @media (max-width: 599px) {
-  .rq-hero { height: auto; min-height: 520px; }
+  /* On a phone, the feature artwork ends before the factual request copy starts. */
+  .rq-hero { height: auto; min-height: 520px; background: var(--g-paper); color: var(--g-ink); }
   .rq-hero-slide { padding-bottom: var(--g-space-6); }
   .rq-hero:has(.hero-frame) { height: calc(56.25vw + 360px); }
   .rq-hero-slide:has(.hero-frame) { align-items: flex-start; padding-top: calc(56.25vw + var(--g-space-4)); }
   .rq-hero .hero-frame { bottom: auto; height: 56.25vw; }
   .rq-hero:has(.hero-frame) .rq-hero-scrim { bottom: auto; height: 56.25vw; background: linear-gradient(transparent 70%, var(--g-overlay-bg)); }
-  .rq-pips { top: var(--g-space-2); bottom: auto; }
+  .rq-hero .rq-hero-meta { color: var(--g-ink-3); }
+  .rq-hero .g-button.is-primary { background: var(--g-ink); color: var(--g-paper); }
+  .rq-pips { top: var(--g-space-2); bottom: auto; color: var(--g-on-art); }
 }
 
 /* Inline trailer: Lumina's own player in the hero */

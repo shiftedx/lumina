@@ -6,7 +6,7 @@
 .soundstage-portrait img { object-fit: cover; object-position: center top; }
 .soundstage-origin { position: absolute; bottom: var(--g-space-6); left: var(--g-space-5); margin: 0; padding: var(--g-space-2) var(--g-space-3); background: var(--g-art-chip); color: var(--g-on-art); font: var(--g-type-ui); }
 .soundstage-content { min-width: 0; padding-top: var(--g-space-5); }
-.soundstage-title { margin: var(--g-space-3) 0 var(--g-space-5); font: 500 4.75rem / 1.05 var(--g-serif); letter-spacing: -.025em; text-wrap: balance; overflow-wrap: anywhere; }
+.soundstage-title { margin: var(--g-space-3) 0 var(--g-space-5); font: var(--g-type-media-title); letter-spacing: -.025em; text-wrap: balance; overflow-wrap: anywhere; }
 .soundstage-biography { max-width: 65ch; margin: 0; font: 400 1.1rem / 1.6 var(--g-serif); color: var(--g-ink-2); white-space: pre-line; }
 .soundstage-genres { margin: var(--g-space-4) 0; font: var(--g-type-ui); color: var(--g-ink-2); }
 .soundstage-content .g-album-actions { margin-top: var(--g-space-5); }
@@ -76,7 +76,7 @@
 @media (max-width: 1199px) {
   .soundstage-records { grid-template-columns: minmax(0, 1fr); }
   .soundstage-records .g-album-grid li:first-child { grid-column: auto; }
-  .soundstage-title { font-size: 3.5rem; }
+  .soundstage-title { font-size: var(--g-media-title-size); }
   .soundstage-layout { gap: var(--g-space-5); }
   .audio-soundstage { grid-template-columns: minmax(200px, .65fr) minmax(0, 1.35fr); gap: var(--g-space-5); }
   .audio-soundstage-story h2 { font-size: 3rem; }
@@ -86,7 +86,7 @@
   .soundstage-portrait { position: relative; top: auto; height: 48vh; min-height: 280px; max-height: 480px; margin: 0 calc(-1 * var(--g-gutter)); }
   .soundstage-portrait .g-art-square { mask-image: linear-gradient(to bottom, var(--g-overlay-bg) 75%, transparent); }
   .soundstage-content { padding-top: var(--g-space-4); }
-  .soundstage-title { font-size: 2.75rem; }
+  .soundstage-title { font-size: var(--g-media-title-size); }
   .soundstage-biography { font-size: 1rem; }
   .soundstage-records { margin-top: var(--g-space-6); }
   .music-film-row { grid-auto-columns: 86%; }

@@ -16,7 +16,10 @@ export const MainLandmark = forwardRef<HTMLElement, { children: ReactNode }>(fun
   return <main aria-label="Main content" className="lumina-main" id="main-content" ref={ref} tabIndex={-1}>{children}</main>;
 });
 
-export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems }: {
+export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems, videoView, onVideoView, contextualSearch = false }: {
+  videoView?: string;
+  onVideoView?: (view: 'movies' | 'shows') => void;
+  contextualSearch?: boolean;
   children: ReactNode;
   surface: Surface;
   /** Requests waiting for an admin (the Requests nav badge); 0 for members. */
@@ -57,12 +60,12 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
     <div className="lumina-app">
       <SkipLink />
       {extraSkipLinks}
-      {focused ? null : <NavigationPopover anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
+      {focused ? null : <NavigationPopover videoView={videoView} onVideoView={onVideoView} anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
       <div className="app-background">
         {announcer}
-        {focused ? null : <TopBar activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel="Open navigation" mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
+        {focused ? null : <TopBar contextLabel={surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? videoView === 'shows' ? 'Shows' : videoView === 'movies' ? 'Movies' : 'Video' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
         <MainLandmark ref={mainRef}>{children}</MainLandmark>
-        {focused ? null : <MobileTabs activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}
+        {focused ? null : <MobileTabs videoView={videoView} onVideoView={onVideoView} activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}
       </div>
     </div>
   );

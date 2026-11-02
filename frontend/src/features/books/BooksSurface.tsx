@@ -9,7 +9,7 @@ import { BookCard, BookCover, readingPosition, SeriesCard, ShelfTile } from './B
 import { BookDetail } from './BookDetail';
 import { BookReader } from './BookReader';
 import { booksRoutePath, type BooksRoute } from './routes';
-import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
+import { deleteBook, deleteBookShelf, getBook, getBookReader, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
 import type { Book, BookPage, BookSeries, BookShelf, BookSort, BookStateUpdate } from './types';
 import './books.css';
 
@@ -70,13 +70,18 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   const listView = route.view !== 'read' && route.view !== 'title' && route.view !== 'series';
   const filters = listView ? route : null;
   const isShelfList = route.view === 'shelves' && (Boolean(route.shelfId) || Boolean(route.status));
-  const listActive = route.view === 'ebooks' || route.view === 'discover' || isShelfList;
+  const overviewSearch = route.view === 'overview' && Boolean(route.q);
+  const listActive = overviewSearch || route.view === 'ebooks' || route.view === 'discover' || isShelfList;
   const query: BooksQuery = filters ? { q: filters.q, sort: filters.sort ?? (route.view === 'shelves' && route.shelfId ? 'custom' : undefined), status: route.view === 'discover' ? filters.status ?? 'unread' : filters.status, ...(route.view === 'ebooks' ? { kind: 'ebook' } : {}), ...(route.view === 'shelves' ? { shelf_id: route.shelfId, ...(shelfFormat === 'all' ? {} : { kind: shelfFormat }) } : {}), limit: 48 } : {};
-  const overviewActive = route.view === 'overview' || route.view === 'shelves' || shelfIds !== null;
+  const overviewActive = (route.view === 'overview' && !overviewSearch) || route.view === 'shelves' || shelfIds !== null;
   const overview = useFetched(overviewActive ? `${user.id}:books-overview` : null, getBooksOverview, revision);
   const books = useFetched(listActive ? `${user.id}:${routeKey}:${shelfFormat}` : null, () => listBooks(query), revision);
   const series = useFetched(route.view === 'manga' ? `${user.id}:${routeKey}:series` : null, () => listBookSeries({ q: filters?.q, sort: filters?.sort, status: filters?.status, limit: 48 }), revision);
   const detail = useFetched(route.view === 'title' ? `${user.id}:book:${route.bookId}` : null, () => getBook(route.view === 'title' ? route.bookId : ''), revision);
+  // The logical title can bundle files. Ask the same selected file the Read action opens,
+  // so an illustrated chapter marker never jumps into a different format.
+  const detailReaderFile = detail.data?.reading_file_id ?? detail.data?.id;
+  const detailReader = useFetched(route.view === 'title' && detail.data?.kind === 'manga' && detailReaderFile ? `${user.id}:book-reader:${detailReaderFile}` : null, () => getBookReader(detailReaderFile ?? ''), revision);
   const seriesDetail = useFetched(route.view === 'series' ? `${user.id}:series:${route.seriesId}` : null, () => getBookSeries(route.view === 'series' ? route.seriesId : ''), revision);
   const related = useFetched(route.view === 'title' && detail.data?.author ? `${user.id}:related:${detail.data.author}` : null, () => listBooks({ q: detail.data?.author, kind: detail.data?.kind, sort: 'title', limit: 12 }), revision);
   const shelves = overview.data?.shelves ?? [];
@@ -101,9 +106,9 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
 
   function open(next: BooksRoute, replace = false) { setNotice(null); setMutationError(null); onRoute(next, replace); }
   function openBook(book: Book) { open(titleRoute(book)); }
-  function read(book: Book) {
+  function read(book: Book, page?: number) {
     const fileId = book.reading_file_id || book.files?.find((file) => file.format === 'epub')?.id || book.id;
-    const begin = () => { lastReaderRoute.current = route; open({ surface: 'books', view: 'read', bookId: fileId }); };
+    const begin = () => { lastReaderRoute.current = route; open({ surface: 'books', view: 'read', bookId: fileId, ...(page === undefined ? {} : { page }) }); };
     if (book.progress.completed) void mutate(() => updateBookState(fileId, { completed: false, unit_index: 0, offset: 0 }), '').then((saved) => { if (saved) begin(); });
     else begin();
   }
@@ -147,15 +152,23 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   function updateFilter(change: { q?: string; sort?: BookSort; status?: BooksQuery['status'] }) {
     if (filters) open({ ...filters, ...change }, true);
   }
+  function submitSearch() {
+    const q = search.trim();
+    if (route.view === 'ebooks' || route.view === 'manga' || route.view === 'discover' || isShelfList) {
+      updateFilter({ q: q || undefined });
+      return;
+    }
+    open({ surface: 'books', view: 'overview', ...(q ? { q } : {}) });
+  }
+  const bookSearch = <form className="books-search" onSubmit={(event) => { event.preventDefault(); submitSearch(); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form>;
   const toolbar = <div className="books-toolbar">
-    <form className="books-search" onSubmit={(event) => { event.preventDefault(); updateFilter({ q: search.trim() || undefined }); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form>
     <div className="books-sort"><span>Sort</span><Select aria-label="Sort" onChange={(event) => updateFilter({ sort: event.target.value as BookSort })} value={filters?.sort ?? (activeShelf ? 'custom' : 'added')}>{activeShelf ? <option value="custom">Custom order</option> : null}<option value="added">Recently added</option><option value="title">Title</option><option value="author">Author</option></Select></div>
     <div className="books-status"><SlidersHorizontal aria-hidden="true" /><span className="sr-only">Reading status</span><Select aria-label="Reading status" onChange={(event) => updateFilter({ status: event.target.value as BooksQuery['status'] })} value={filters?.status ?? (route.view === 'discover' ? 'unread' : 'all')}><option value="all">All stories</option><option value="unread">Unread</option><option value="reading">Reading</option><option value="read">Read</option><option value="favorites">Favorites</option><option value="reading_list">Reading list</option></Select></div>
     {route.view !== 'manga' ? <Button onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }} pressed={selecting} variant="quiet">{selecting ? 'Done selecting' : 'Select'}</Button> : null}
   </div>;
   const dataState = <T,>(resource: { data: BookPage<T> | null; loading: boolean; error: unknown }, children: ReactNode) => resource.error ? <ErrorState body={ERROR(resource.error)} onRetry={refreshed} title="Your collection could not be loaded" /> : !resource.data ? <Skeleton count={6} label="Loading your books…" shape="poster" /> : resource.data.total === 0 ? <EmptyState action={canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import books</Button> : undefined} body={filters?.q || (filters?.status && filters.status !== 'all') ? 'Try a different search or reading status.' : canImport ? 'Import an EPUB or CBZ to begin your collection.' : 'Book imports are not available on this account.'} size="page" title={filters?.q ? 'No matching stories' : 'This shelf is waiting for its first story'} /> : children;
 
-  if (route.view === 'read') return <BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
+  if (route.view === 'read') return <BookReader bookId={route.bookId} initialPage={route.page} key={`${user.id}:${route.bookId}:${route.page ?? ''}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
 
   let body: ReactNode;
   let heading = 'Books';
@@ -163,7 +176,11 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   let meta: string | undefined;
   let actions: ReactNode = <><Button onClick={() => setTrashOpen(true)} variant="quiet">Trash</Button>{canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import</Button> : null}</>;
 
-  if (route.view === 'overview') {
+  if (overviewSearch) {
+    heading = `Results for “${route.q}”`;
+    meta = books.data ? count(books.data.total, 'book') : undefined;
+    body = dataState(books, <div className="books-cover-grid">{allBooks.map((book) => card(book))}</div>);
+  } else if (route.view === 'overview') {
     const data = overview.data;
     const continuing = data?.continue_reading.slice(0, 3) ?? [];
     const readingIds = new Set(continuing.map((book) => book.id));
@@ -182,7 +199,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   } else if (route.view === 'title') {
     const book = detail.data;
     heading = book?.title ?? 'Book'; actions = undefined;
-    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} onRead={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onSeparate={setFileToSeparate} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
+    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} chapters={detailReader.data?.chapters} onRead={read} onReadChapter={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onSeparate={setFileToSeparate} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
   } else if (route.view === 'series') {
     const data = seriesDetail.data;
     heading = data?.series.title ?? 'Manga series'; actions = undefined;
@@ -227,6 +244,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
     {route.view === 'title' || route.view === 'series' ? <Button className="books-back" icon={<ArrowLeft />} onClick={() => open(lastListRoute.current)} variant="quiet">Back to Books</Button> : null}
     {route.view !== 'title' ? <Masthead actions={actions} lede={description} meta={meta} title={heading} /> : null}
     {listView ? <TabScroller activeKey={route.view} ariaLabel="Books" as="nav" rowClassName="g-tabs books-tabs">{TABS.map(([view, label]) => <a aria-current={route.view === view ? 'page' : undefined} href={booksRoutePath({ surface: 'books', view })} key={view} onClick={(event) => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); open({ surface: 'books', view }); } }}>{label}</a>)}</TabScroller> : null}
+    {bookSearch}
     {notice ? <p className="books-notice" role="status">{notice}</p> : null}
     {mutationError ? <p className="books-form-error" role="alert">{mutationError}</p> : null}
     {body}

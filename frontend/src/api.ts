@@ -1123,3 +1123,6 @@ export const setNightHour = (night_hour: number): Promise<LibraryAutomation> => 
 export const scanLibraries = (rootId?: string): Promise<ScanLibrariesResult> => post(`${AUTOMATION}/scan`, rootId ? { root_id: rootId } : {});
 export const retryAdminTask = (kind: 'download' | 'import', id: string): Promise<{ status: string }> => post(`/api/admin/tasks/${kind}/${enc(id)}/retry`, {});
 export const retryAdminDownload = (id: string) => retryAdminTask('download', id);
+
+/** The authenticated member's albums ordered by actual track activity. */
+export const listRecentlyPlayedAlbums = ({ limit = 12 }: { limit?: number } = {}): Promise<{ items: TitleSummary[] }> => requestJson(`/api/music/albums/recently-played?limit=${limit}`);

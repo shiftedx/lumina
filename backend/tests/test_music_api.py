@@ -22,11 +22,12 @@ from app.models import (
     MusicEditBatch,
     MusicLookup,
     MusicTrackOverride,
+    PlaybackProgress,
     TitleEdit,
     User,
     utcnow,
 )
-from app.services import music_audio, music_providers, music_sonos, public_address, screen_time
+from app.services import member_access, music_audio, music_providers, music_sonos, public_address, screen_time
 from app.services.library_search import LibrarySearchService
 from support import make_user, seed_app_settings
 from title_support import ALBUM, ALICE, ARTIST, BOB, ROOT, TRACKS, add_file, seed_gallery, seed_tree, uid
@@ -36,6 +37,8 @@ PRIVATE_TRACK = uid(174)
 MISSING_TRACK = uid(175)
 SECOND_ALBUM = uid(72)
 SECOND_TRACK = uid(176)
+RESTRICTED_ALBUM = uid(73)
+RESTRICTED_TRACK = uid(177)
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -57,6 +60,15 @@ def music_world(db_factory, tmp_path: Path, api_client):  # noqa: ANN001, ANN201
         add_file(
             db, root, "Music/Artist A/Album Two (2024)/01 Other.flac", item_id=SECOND_TRACK,
             title_id=SECOND_ALBUM, owner=ALICE, title="Other song", kind="track",
+            metadata={"artist": "Artist A", "album_artist": "Artist A", "track_number": 1, "disc_number": 1},
+        )
+        db.add(MediaTitle(
+            id=RESTRICTED_ALBUM, type="album", key="album:artist a/restricted album", root_id=ROOT,
+            name="Restricted album", parent_id=ARTIST, year=2024,
+        ))
+        add_file(
+            db, root, "Music/Artist A/Restricted Album/01 Restricted.flac", item_id=RESTRICTED_TRACK,
+            title_id=RESTRICTED_ALBUM, owner=BOB, visibility="shared", title="Restricted song", kind="track",
             metadata={"artist": "Artist A", "album_artist": "Artist A", "track_number": 1, "disc_number": 1},
         )
         add_file(
@@ -100,6 +112,44 @@ def test_queue_keeps_requested_order_and_hides_private_and_missing_tracks(music_
     for item_id in (PRIVATE_TRACK, MISSING_TRACK, uid(9999)):
         reply = alice.post("/api/music/queue", json={"item_ids": [item_id]})
         assert (reply.status_code, reply.json()) == (404, {"detail": "Track not found"})
+
+
+def test_recently_played_albums_groups_qualified_member_history_and_hides_ineligible_tracks(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    now = utcnow()
+    with factory() as db:
+        db.add_all([
+            PlaybackProgress(id=uid(801), user_id=ALICE, item_id=TRACKS[0], plays=1, last_watched_at=now - timedelta(hours=2)),
+            PlaybackProgress(id=uid(802), user_id=ALICE, item_id=TRACKS[1], plays=2, last_watched_at=now),
+            PlaybackProgress(id=uid(803), user_id=ALICE, item_id=SECOND_TRACK, plays=1, last_watched_at=now - timedelta(hours=1)),
+            PlaybackProgress(id=uid(807), user_id=ALICE, item_id=RESTRICTED_TRACK, plays=1, last_watched_at=now - timedelta(minutes=30)),
+            PlaybackProgress(id=uid(804), user_id=ALICE, item_id=TRACKS[2], plays=0, last_watched_at=now + timedelta(hours=1)),
+            PlaybackProgress(id=uid(805), user_id=ALICE, item_id=PRIVATE_TRACK, plays=9, last_watched_at=now + timedelta(hours=2)),
+            PlaybackProgress(id=uid(806), user_id=ALICE, item_id=MISSING_TRACK, plays=9, last_watched_at=now + timedelta(hours=3)),
+        ])
+        db.commit()
+
+    for limit in (0, 51):
+        assert client_for(ALICE).get(f"/api/music/albums/recently-played?limit={limit}").status_code == 422
+    reply = client_for(ALICE).get("/api/music/albums/recently-played?limit=1")
+    assert reply.status_code == 200
+    assert [entry["id"] for entry in reply.json()["items"]] == [ALBUM]
+    assert reply.json()["items"][0]["artist_name"] == "Artist A"
+    all_recent = client_for(ALICE).get("/api/music/albums/recently-played?limit=12")
+    assert [entry["id"] for entry in all_recent.json()["items"]] == [ALBUM, RESTRICTED_ALBUM, SECOND_ALBUM]
+    # A same-second activity tie remains stable across refreshes and the limit.
+    with factory() as db:
+        db.get(PlaybackProgress, uid(803)).last_watched_at = now
+        db.commit()
+    tied = client_for(ALICE).get("/api/music/albums/recently-played?limit=12")
+    assert [entry["id"] for entry in tied.json()["items"]] == [*sorted([ALBUM, SECOND_ALBUM]), RESTRICTED_ALBUM]
+    with factory() as db:
+        db.add(MemberAccess(user_id=ALICE, sections=["movies"]))
+        db.commit()
+    member_access.invalidate(ALICE)
+    restricted = client_for(ALICE).get("/api/music/albums/recently-played").json()["items"]
+    assert [entry["id"] for entry in restricted] == sorted([ALBUM, SECOND_ALBUM])
+    assert client_for(BOB).get("/api/music/albums/recently-played").json() == {"items": []}
 
 
 def test_track_metadata_uses_the_same_effective_values_as_the_queue(music_world) -> None:  # noqa: ANN001

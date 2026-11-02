@@ -15,7 +15,7 @@
 
 /* Masthead. */
 .gallery.home .h-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--g-space-4); padding: var(--g-space-4) 0; border-bottom: var(--g-hairline); }
-.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: italic 700 clamp(24px, 2vw, 32px) / 1.2 var(--g-serif); letter-spacing: var(--g-track-display); color: var(--g-ink); }
+.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); color: var(--g-ink); }
 .gallery.home .h-date { margin: 0; text-align: right; }
 @media (max-width: 599px) { .gallery.home .h-date { max-width: 14ch; } }
 
@@ -26,12 +26,16 @@
 /* A colour field has no artwork to earn the cinematic masthead; it still grows for long copy. */
 .gallery.home .h-slide.is-field { height: auto; min-height: 360px; }
 .gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+/* Artwork carries the entry, while the fade makes the move into browsing and its controls readable. */
+@media (min-width: 600px) {
+  .gallery.home .h-slide:not(.is-field)::after { position: absolute; z-index: 0; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--g-overlay-halo) 56%, transparent) 0%, color-mix(in srgb, var(--g-overlay-halo) 16%, transparent) 64%, transparent 100%), linear-gradient(transparent 44%, var(--g-paper) 100%); content: ''; pointer-events: none; }
+}
 .gallery.home .h-hero-blur > img { filter: blur(40px) brightness(.5); transform: scale(1.2); }
-.gallery.home .h-hero-poster { position: absolute; top: var(--g-space-6); right: calc(var(--g-gutter) + 8%); height: calc(100% - 2 * var(--g-space-6) - var(--g-control)); aspect-ratio: 2 / 3; box-shadow: var(--g-elev-2); }
-.gallery.home .h-hero-text { position: relative; z-index: 1; max-width: 560px; }
+.gallery.home .h-hero-poster { position: absolute; z-index: 1; top: var(--g-space-6); right: calc(var(--g-gutter) + 8%); height: calc(100% - 2 * var(--g-space-6) - var(--g-control)); aspect-ratio: 2 / 3; box-shadow: var(--g-elev-2); }
+.gallery.home .h-hero-text { position: relative; z-index: 2; max-width: 560px; }
 .gallery.home .h-slide:not(.is-field) .h-hero-text { text-shadow: 0 1px 3px var(--g-overlay-halo); }
 .gallery.home .h-hero .g-label { color: inherit; }
-.gallery.home .h-hero-title { margin: var(--g-space-2) 0; font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+.gallery.home .h-hero-title { margin: var(--g-space-2) 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
 .gallery.home .h-hero-logo { width: auto; max-width: 100%; max-height: 120px; aspect-ratio: auto; }
 .gallery.home .h-hero-progress { display: block; width: 240px; height: 3px; margin: var(--g-space-3) 0 0; background: var(--g-progress-track); }
 .gallery.home .h-hero-progress > span { display: block; height: 100%; background: var(--g-gold); }
@@ -71,7 +75,6 @@
   .gallery.home .h-hero-art { inset: 0 0 auto; height: var(--h-art); }
   .gallery.home .h-hero-poster { height: calc(var(--h-art) - 2 * var(--g-space-6) - var(--g-control)); }
   .gallery.home .h-hero-overview { display: none; }
-  .gallery.home .h-slide:not(.is-field) .h-hero-text { text-shadow: 0 1px 3px var(--g-overlay-halo); }
 .gallery.home .h-hero .g-label { color: var(--g-ink-3); }
   .gallery.home .h-hero .is-primary { background: var(--g-ink); color: var(--g-paper); }
   .gallery.home .h-hero-controls { top: calc(var(--h-art) - var(--g-control)); bottom: auto; color: var(--g-on-art); }

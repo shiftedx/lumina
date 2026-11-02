@@ -13,7 +13,7 @@
 .gallery .g-album-cover .g-art { box-shadow: var(--g-elev-2); }
 .gallery .g-album-body { display: grid; min-width: 0; align-content: start; gap: 16px; }
 .gallery .g-album-body > p { margin: 0; }
-.gallery .g-album-title { margin: 0; max-width: 30ch; font: 500 2.5rem / 1.12 var(--g-serif); letter-spacing: -.025em; overflow-wrap: anywhere; text-wrap: balance; }
+.gallery .g-album-title { margin: 0; max-width: 30ch; font: var(--g-type-media-title); letter-spacing: -.025em; overflow-wrap: anywhere; text-wrap: balance; }
 .gallery .g-album-title:focus-visible { outline-offset: 4px; }
 .gallery .g-album-artist { font: 400 1.125rem / 1.5 var(--g-serif); color: var(--g-ink-2); }
 .gallery .g-album-artist a { color: var(--g-ink); text-underline-offset: 3px; }
@@ -51,13 +51,10 @@
 .gallery.g-artist-page .g-chapter { display: flex; align-items: baseline; gap: 12px; margin: 0 0 24px; font: var(--g-type-chapter); letter-spacing: var(--g-track-chapter); }
 /* wallColumns as CSS: 168 px cards, never fewer than three columns. */
 .gallery .g-album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--g-poster-min), calc((100% - 2 * var(--g-grid-gap)) / 3)), 1fr)); gap: var(--g-grid-gap); margin: 0; padding: 0; list-style: none; }
-@media (min-width: 1600px) { .gallery .g-album-title { font-size: 3rem; } }
 @media (max-width: 1023px) {
-  .gallery .g-album-title { font-size: 2rem; }
   .gallery .g-album-layout { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 32px; }
 }
 @media (max-width: 599px) {
-  .gallery .g-album-title { font-size: 1.75rem; }
   .gallery .g-album-layout { grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
   .gallery .g-album-cover { position: static; width: min(100%, 280px); justify-self: center; }
   .gallery .g-album-actions .g-album-play { flex: 1 0 100%; justify-content: center; }
@@ -72,6 +69,10 @@
 .gallery .g-shelf { margin: 24px 0 8px; }
 .gallery .g-shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .gallery .g-shelf-head h2 { margin: 0; }
+.gallery .g-music-catalog-heading { margin: 40px 0 0; font: var(--g-type-chapter); letter-spacing: var(--g-track-chapter); }
+.gallery .g-music-search { margin-top: 20px; }
+.gallery .g-music-search .g-search { max-width: 32rem; }
+.gallery .g-music-results { margin-top: 24px; }
 .gallery .g-shelf-row { display: grid; grid-auto-columns: 168px; grid-auto-flow: column; gap: var(--g-grid-gap); margin: 0; padding: 0 0 8px; overflow-x: auto; overscroll-behavior-x: contain; list-style: none; scroll-snap-type: x proximity; }
 .gallery .g-shelf-row > li { scroll-snap-align: start; }
 @media (max-width: 599px) {
@@ -96,3 +97,8 @@
 .watch-mini .gallery.g-audio-stage .g-audio-art { width: 48px; }
 .watch-mini .gallery .g-audio-title { margin: 0; font-size: 15px; }
 .watch-mini .gallery .g-audio-byline, .watch-mini .gallery .g-audio-next { display: none; }
+
+.gallery.g-music-browse { padding: 32px var(--g-gutter) 48px; }
+.g-music-browse > details > summary { cursor: pointer; min-height: var(--g-control); }
+.g-music-browse > details > summary h2 { display: inline; }
+.g-music-browse > details > .g-wall { padding: 16px 0 0; }

@@ -27,6 +27,9 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parents[2]
 PLAYBACK_PREPARATION_DELAY_TEST = "NativeTVBackDuringPlaybackPreparationTests"
 PLAYBACK_PREPARATION_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
+OVERSIZED_EPUB_ENV = "LUMINA_NATIVE_OVERSIZED_EPUB"
+REQUESTS_METRICS_ENV = "LUMINA_NATIVE_REQUESTS_METRICS"
+METADATA_REFRESH_METRICS_ENV = "LUMINA_NATIVE_METADATA_REFRESH_METRICS"
 
 
 def proof_server_environment(test_class: str) -> dict[str, str]:
@@ -54,6 +57,12 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
         }
     if test_class == "NativeAudioAlbumPlayAfterUnavailableRestoreTests":
         return {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"}
+    if test_class == "NativeBookTextLimitsTests":
+        return {OVERSIZED_EPUB_ENV: "1"}
+    if test_class == "NativeRequestsCatalogEfficiencyTests":
+        return {REQUESTS_METRICS_ENV: "1"}
+    if test_class == "NativeLibraryMetadataTests":
+        return {METADATA_REFRESH_METRICS_ENV: "1"}
     return {}
 
 
@@ -95,6 +104,9 @@ class FixtureBroker:
             environment.pop("LUMINA_NATIVE_LONG_SERIES", None)
             environment.pop("LUMINA_NATIVE_AUTOPLAY_SERIES", None)
             environment.pop("LUMINA_NATIVE_AUTOPLAY_DISABLED", None)
+            environment.pop(OVERSIZED_EPUB_ENV, None)
+            environment.pop(REQUESTS_METRICS_ENV, None)
+            environment.pop(METADATA_REFRESH_METRICS_ENV, None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
             environment.update(proof_server_environment(fixture_test_class(key)))
             # Do not retain the server's output: its errors may include the fixture path.

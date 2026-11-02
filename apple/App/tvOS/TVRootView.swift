@@ -1136,9 +1136,14 @@ private struct TVHomeView<Header: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     #if LUMINA_UI_TESTING
     @Environment(NativeAudioSession.self) private var audioSession
+    @State private var uiTestingHomeLifecycleRefreshCount = 0
     #endif
 
     @State private var loadingInitialLibrary = false
+    @State private var initialHomeLoadOwner: TVHomeSessionScope?
+    @State private var homeRefreshTask: Task<Void, Never>?
+    @State private var homeRefreshID: UUID?
+    @State private var needsHomeRefresh = false
     @State private var hiddenRecommendationID: String?
     @State private var showRecommendationUndo = false
     private var refinement: HomeRefinementResult {
@@ -1219,10 +1224,15 @@ private struct TVHomeView<Header: View>: View {
             Button("Done", role: .cancel) {}
         }
         #if LUMINA_UI_TESTING
-        .accessibilityValue(audioSession.uiTestingTVRestoreDiagnostics)
+        .accessibilityValue("\(audioSession.uiTestingTVRestoreDiagnostics) lifecycleRefreshes=\(uiTestingHomeLifecycleRefreshCount)")
         #endif
         .task(id: TVHomeSessionScope(store.session)) {
-            guard store.session != nil else { return }
+            let scope = TVHomeSessionScope(store.session)
+            let preservesAdmission = initialHomeLoadOwner == scope
+            cancelHomeRefresh()
+            needsHomeRefresh = preservesAdmission ? needsHomeRefresh || scenePhase == .background : scenePhase == .background
+            initialHomeLoadOwner = nil
+            guard let owner = scope else { return }
             let needsInitialLibraryLoad = !layout.hasLoaded || !feed.hasLoaded
             loadingInitialLibrary = needsInitialLibraryLoad
             defer { loadingInitialLibrary = false }
@@ -1235,20 +1245,52 @@ private struct TVHomeView<Header: View>: View {
                 async let navigation: Void = store.refreshNavigationCategories()
                 _ = await (savedLayout, rows, navigation)
             }
+            guard !Task.isCancelled, TVHomeSessionScope(store.session) == owner else { return }
+            initialHomeLoadOwner = owner
+            refreshAfterForegrounding()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                Task {
-                    async let savedLayout: Void = layout.load()
-                    async let rows: Void = feed.load()
-                    async let activity: Void = store.loadHome()
-                    _ = await (savedLayout, rows, activity)
-                }
+            if phase == .background {
+                needsHomeRefresh = true
+                cancelHomeRefresh()
+            } else if phase == .active {
+                refreshAfterForegrounding()
             }
         }
         .onChange(of: store.resumeItems) { _, _ in
             if feed.hasLoaded, !loadingInitialLibrary { Task { await feed.load() } }
         }
+        .onDisappear { cancelHomeRefresh(preservingAdmission: true) }
+    }
+
+    private func refreshAfterForegrounding() {
+        guard scenePhase == .active, needsHomeRefresh, homeRefreshTask == nil,
+              let owner = TVHomeSessionScope(store.session), initialHomeLoadOwner == owner else { return }
+        let id = UUID()
+        needsHomeRefresh = false
+        #if LUMINA_UI_TESTING
+        uiTestingHomeLifecycleRefreshCount += 1
+        #endif
+        homeRefreshID = id
+        homeRefreshTask = Task {
+            defer {
+                if homeRefreshID == id {
+                    homeRefreshTask = nil
+                    homeRefreshID = nil
+                }
+            }
+            async let savedLayout: Void = layout.load()
+            async let rows: Void = feed.load()
+            async let activity: Void = store.loadHome()
+            _ = await (savedLayout, rows, activity)
+        }
+    }
+
+    private func cancelHomeRefresh(preservingAdmission: Bool = false) {
+        if preservingAdmission, homeRefreshTask != nil { needsHomeRefresh = true }
+        homeRefreshTask?.cancel()
+        homeRefreshTask = nil
+        homeRefreshID = nil
     }
 
     @ViewBuilder private func homeShelf(_ id: HomeShelfID) -> some View {

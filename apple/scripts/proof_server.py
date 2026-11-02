@@ -98,10 +98,13 @@ PERFORMANCE_REQUEST_LOG_ENV = "LUMINA_NATIVE_PERF_REQUEST_LOG"
 MAX_PERFORMANCE_REQUEST_LOG_BYTES = 4 * 1024 * 1024
 ARTWORK_METRICS_PATH_ENV = "LUMINA_NATIVE_ARTWORK_METRICS_PATH"
 MAX_ARTWORK_METRICS_BYTES = 1 * 1024 * 1024
+REQUESTS_METRICS_ENV = "LUMINA_NATIVE_REQUESTS_METRICS"
+METADATA_REFRESH_METRICS_ENV = "LUMINA_NATIVE_METADATA_REFRESH_METRICS"
 PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
 VIDEO_FORMAT_FAILURE_ENV = "LUMINA_NATIVE_VIDEO_FORMAT_FAILURE"
 CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY_ENV = "LUMINA_NATIVE_CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY"
+OVERSIZED_EPUB_ENV = "LUMINA_NATIVE_OVERSIZED_EPUB"
 REQUEST_MOVIE_KEY = "movie:603"
 REQUEST_MOVIE_TITLE = "The Matrix"
 REQUEST_SHOW_KEY = "show:1399"
@@ -447,12 +450,16 @@ def make_books(state_root: Path, db, owner) -> dict[str, str]:
         archive.writestr("ComicInfo.xml", "<ComicInfo><Title>Lantern panels</Title><Writer>Synthetic Author</Writer><Manga>YesAndRightToLeft</Manga></ComicInfo>")
         for index, image in enumerate(images): archive.writestr(f"{index:03}.png", image)
     prose = state_root / "Lantern chapters.epub"
+    oversized_epub = os.environ.get(OVERSIZED_EPUB_ENV) == "1"
     with zipfile.ZipFile(prose, "w") as archive:
         archive.writestr("mimetype", "application/epub+zip")
         archive.writestr("META-INF/container.xml", "<container><rootfiles><rootfile full-path='content.opf'/></rootfiles></container>")
         archive.writestr("content.opf", "<package><metadata><title>Lantern chapters</title><creator>Synthetic Author</creator><meta name='cover' content='cover'/></metadata><manifest><item id='cover' href='cover.png' media-type='image/png' properties='cover-image'/><item id='one' href='one.xhtml' media-type='application/xhtml+xml'/><item id='two' href='two.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/><itemref idref='two'/></spine></package>")
         archive.writestr("cover.png", images[0])
         for filename, title in [("one.xhtml", "The harbour lights"), ("two.xhtml", "The morning map")]:
+            if oversized_epub and filename == "one.xhtml":
+                archive.writestr(filename, "<html><body><span>" + "🧭" * 500_001 + "</span></body></html>")
+                continue
             paragraphs = "".join(f"<p id='line-{n}'>Passage {n + 1}. The keeper followed the lanterns beside the quiet harbour. A bright map marked the way home. <em>The story continued across the water.</em></p>" for n in range(50))
             archive.writestr(filename, f"<html><body><h1>{title}</h1>{paragraphs}</body></html>")
     pdf = state_root / "Lantern atlas.pdf"
@@ -864,6 +871,128 @@ def install_artwork_request_metrics(app: Any, path: Path) -> _ArtworkRequestMetr
 
     app.add_api_route("/Lumina/Proof/artwork-metrics", artwork_metrics, methods=["GET"], include_in_schema=False)
     app.add_api_route("/Lumina/Proof/artwork-metrics/reset", reset_artwork_metrics, methods=["POST"], include_in_schema=False)
+    return recorder
+
+
+def _requests_catalog_metric_kind(path: str) -> str | None:
+    """Classify only the aggregate native Requests calls used by its efficiency proof."""
+    normalized = urlsplit(path).path.rstrip("/")
+    prefix = "/Lumina/Requests/catalog/genres/"
+    if normalized.startswith(prefix):
+        kind = normalized.removeprefix(prefix)
+        return f"genres_{kind}" if kind in {"movie", "show", "anime"} else None
+    return "details" if normalized.startswith("/Lumina/Requests/catalog/title/") else None
+
+
+class _RequestsCatalogMetrics:
+    """Opt-in bounded in-memory aggregate counters; no request URLs or credentials are retained."""
+
+    _empty_counts = {"genres_movie": 0, "genres_show": 0, "genres_anime": 0, "details": 0}
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counts = dict(self._empty_counts)
+
+    def record(self, *, method: str, path: str) -> None:
+        if method != "GET":
+            return
+        kind = _requests_catalog_metric_kind(path)
+        if kind is None:
+            return
+        with self._lock:
+            self._counts[kind] += 1
+
+    def reset(self) -> dict[str, int]:
+        with self._lock:
+            self._counts = dict(self._empty_counts)
+            return dict(self._counts)
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._counts)
+
+
+def install_requests_catalog_metrics(app: Any) -> _RequestsCatalogMetrics:
+    """Add proof-only Requests aggregate counters without exposing request data."""
+    recorder = _RequestsCatalogMetrics()
+
+    @app.middleware("http")
+    async def record_requests_catalog_request(request, call_next):  # noqa: ANN001, ANN202
+        recorder.record(method=request.method, path=request.url.path)
+        return await call_next(request)
+
+    async def requests_metrics():  # noqa: ANN202
+        return recorder.snapshot()
+
+    async def reset_requests_metrics():  # noqa: ANN202
+        return recorder.reset()
+
+    app.add_api_route("/proof/requests-metrics", requests_metrics, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/proof/requests-metrics/reset", reset_requests_metrics, methods=["POST"], include_in_schema=False)
+    metrics_routes = [
+        route for route in app.router.routes
+        if getattr(route, "path", None) in {"/proof/requests-metrics", "/proof/requests-metrics/reset"}
+    ]
+    frontend_index = next(
+        (index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"),
+        len(app.router.routes),
+    )
+    for route in metrics_routes:
+        app.router.routes.remove(route)
+    for offset, route in enumerate(metrics_routes):
+        app.router.routes.insert(frontend_index + offset, route)
+    return recorder
+
+
+class _MetadataRefreshMetrics:
+    """Opt-in aggregate evidence that metadata saves refresh the Home cycle once."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._next_up = 0
+
+    def record(self, *, method: str, path: str) -> None:
+        if method == "GET" and urlsplit(path).path.rstrip("/") == "/Shows/NextUp":
+            with self._lock:
+                self._next_up += 1
+
+    def reset(self) -> dict[str, int]:
+        with self._lock:
+            self._next_up = 0
+            return {"next_up": self._next_up}
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return {"next_up": self._next_up}
+
+
+def install_metadata_refresh_metrics(app: Any) -> _MetadataRefreshMetrics:
+    """Add proof-only metadata refresh counters without retaining request data."""
+    recorder = _MetadataRefreshMetrics()
+
+    @app.middleware("http")
+    async def record_metadata_refresh_request(request, call_next):  # noqa: ANN001, ANN202
+        recorder.record(method=request.method, path=request.url.path)
+        return await call_next(request)
+
+    async def metadata_refresh_metrics():  # noqa: ANN202
+        return recorder.snapshot()
+
+    async def reset_metadata_refresh_metrics():  # noqa: ANN202
+        return recorder.reset()
+
+    paths = {"/proof/metadata-refresh-metrics", "/proof/metadata-refresh-metrics/reset"}
+    app.add_api_route("/proof/metadata-refresh-metrics", metadata_refresh_metrics, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/proof/metadata-refresh-metrics/reset", reset_metadata_refresh_metrics, methods=["POST"], include_in_schema=False)
+    metrics_routes = [route for route in app.router.routes if getattr(route, "path", None) in paths]
+    frontend_index = next(
+        (index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"),
+        len(app.router.routes),
+    )
+    for route in metrics_routes:
+        app.router.routes.remove(route)
+    for offset, route in enumerate(metrics_routes):
+        app.router.routes.insert(frontend_index + offset, route)
     return recorder
 
 
@@ -1681,6 +1810,10 @@ def main() -> None:
             performance_request_log = install_performance_request_log(app, request_log_path)
         if (metrics_path := artwork_metrics_path()) is not None:
             artwork_metrics = install_artwork_request_metrics(app, metrics_path)
+        if os.environ.get(REQUESTS_METRICS_ENV) == "1":
+            install_requests_catalog_metrics(app)
+        if os.environ.get(METADATA_REFRESH_METRICS_ENV) == "1":
+            install_metadata_refresh_metrics(app)
 
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_keep_alive=30))
         thread = threading.Thread(target=lambda: server.run(sockets=[listener]), name="lumina-apple-proof", daemon=True)

@@ -31,13 +31,23 @@ final class NativeBookDocument: @unchecked Sendable {
 enum NativeBookTypesetter {
     static func document(nodes: [BookNode], size: CGFloat, color: UIColor, images: [String: UIImage], pageSize: CGSize) throws -> NativeBookDocument {
         let output = NSMutableAttributedString(string: "")
+        let maximumOutputLength = 1_000_000
         var anchors = [String: Int](), visited = 0
+        func appendText(_ text: String, attributes: [NSAttributedString.Key: Any]) throws {
+            guard text.utf16.count <= maximumOutputLength - output.length else { throw LuminaError.malformedResponse }
+            output.append(NSAttributedString(string: text, attributes: attributes))
+        }
+        func appendAttachment(_ attachment: NSTextAttachment, attributes: [NSAttributedString.Key: Any]) throws {
+            guard output.length <= maximumOutputLength - 2 else { throw LuminaError.malformedResponse }
+            output.append(NSAttributedString(attachment: attachment))
+            output.append(NSAttributedString(string: "\n", attributes: attributes))
+        }
         func append(_ nodes: [BookNode], depth: Int, font: UIFont, ordered: Bool = false) throws {
             guard depth <= 40 else { throw LuminaError.malformedResponse }
             var listNumber = 0
             for node in nodes {
                 visited += 1
-                guard visited <= 50_000, output.length <= 1_000_000 else { throw LuminaError.malformedResponse }
+                guard visited <= 50_000, output.length <= maximumOutputLength else { throw LuminaError.malformedResponse }
                 if let id = node.id { anchors[id] = output.length }
                 let start = output.length
                 var currentFont = font
@@ -49,16 +59,15 @@ enum NativeBookTypesetter {
                 paragraph.paragraphSpacing = size * 0.5
                 paragraph.baseWritingDirection = .natural
                 let attributes: [NSAttributedString.Key: Any] = [.font: currentFont, .foregroundColor: color, .paragraphStyle: paragraph]
-                if node.tag == "li" { listNumber += 1; output.append(NSAttributedString(string: ordered ? "\(listNumber). " : "• ", attributes: attributes)) }
-                if let text = node.text { output.append(NSAttributedString(string: text, attributes: attributes)) }
+                if node.tag == "li" { listNumber += 1; try appendText(ordered ? "\(listNumber). " : "• ", attributes: attributes) }
+                if let text = node.text { try appendText(text, attributes: attributes) }
                 if let children = node.children { try append(children, depth: depth + 1, font: currentFont, ordered: node.tag == "ol") }
                 if node.tag == "img", let member = node.member, let image = images[member] {
                     let attachment = NSTextAttachment()
                     attachment.image = image
                     let scale = min(1, pageSize.width / max(1, image.size.width), pageSize.height * 0.7 / max(1, image.size.height))
                     attachment.bounds = CGRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
-                    output.append(NSAttributedString(attachment: attachment))
-                    output.append(NSAttributedString(string: "\n", attributes: attributes))
+                    try appendAttachment(attachment, attributes: attributes)
                 }
                 if node.tag == "a", node.chapter != nil || node.anchor != nil {
                     var parts = URLComponents()
@@ -67,7 +76,7 @@ enum NativeBookTypesetter {
                     if let url = parts.url { output.addAttribute(.link, value: url, range: NSRange(location: start, length: output.length - start)) }
                 }
                 if ["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "br", "hr"].contains(node.tag) {
-                    output.append(NSAttributedString(string: "\n", attributes: attributes))
+                    try appendText("\n", attributes: attributes)
                 }
             }
         }

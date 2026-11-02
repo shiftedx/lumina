@@ -104,12 +104,12 @@ final class LuminaBooksTests: XCTestCase {
     }
 
     func testPageWindowDiscardsFailedLookaheadForRetryWithinEncodedBudget() async throws {
-        let firstPage = Data(repeating: 0, count: BookPagePreparation.maximumEncodedBytes)
+        let firstPage = Data(repeating: 0, count: BookPagePreparation.maximumEncodedBytes / 2)
         let loader = RetryingPageLoader(firstPage: firstPage)
         let window = BookPageWindow(load: { index in try await loader.load(index) })
 
         let visible = try await window.bytes(0)
-        XCTAssertEqual(visible.count, BookPagePreparation.maximumEncodedBytes)
+        XCTAssertEqual(visible.count, firstPage.count)
         await window.retain([0], next: 1)
         do {
             _ = try await window.bytes(1)
@@ -122,6 +122,64 @@ final class LuminaBooksTests: XCTestCase {
         XCTAssertEqual(retriedPage, Data([1]))
         let retryAttempts = await loader.callCount(for: 1)
         XCTAssertEqual(retryAttempts, 2)
+
+        await window.retain([0], next: 2)
+        let prefetchedPage = try await window.bytes(2)
+        XCTAssertEqual(prefetchedPage, Data([2]))
+        let prefetchAttempts = await loader.callCount(for: 2)
+        XCTAssertEqual(prefetchAttempts, 1, "A prefetched page within the remaining budget must be reused.")
+    }
+
+    func testPageWindowLimitsVisibleCacheAndDoesNotReuseRetiredLoads() async throws {
+        let fullPage = Data(repeating: 0, count: BookPagePreparation.maximumEncodedBytes)
+        let loader = RetiredPageLoader(firstPage: fullPage)
+        let window = BookPageWindow(load: { index in await loader.load(index) })
+
+        let firstPage = try await window.bytes(0)
+        XCTAssertEqual(firstPage, fullPage)
+        await window.retain([0, 1], next: 2)
+        let speculativeCalls = await loader.callCount(for: 2)
+        XCTAssertEqual(speculativeCalls, 0, "A full visible cache must leave no room for speculative work.")
+        let firstUncachedPage = try await window.bytes(1)
+        let secondUncachedPage = try await window.bytes(1)
+        XCTAssertEqual(firstUncachedPage, Data([1]))
+        XCTAssertEqual(secondUncachedPage, Data([1]))
+        let uncachedCalls = await loader.callCount(for: 1)
+        XCTAssertEqual(uncachedCalls, 2, "A visible page remains usable even when it cannot be retained.")
+
+        let partialPage = Data(repeating: 0, count: BookPagePreparation.maximumEncodedBytes / 2)
+        let oversizedLookahead = Data(repeating: 2, count: BookPagePreparation.maximumEncodedBytes)
+        let fallbackLoader = RetiredPageLoader(firstPage: partialPage, oversizedLookahead: oversizedLookahead)
+        let fallbackWindow = BookPageWindow(load: { index in await fallbackLoader.load(index) })
+        _ = try await fallbackWindow.bytes(0)
+        await fallbackWindow.retain([0], next: 2)
+        let fallbackPage = try await fallbackWindow.bytes(2)
+        XCTAssertEqual(fallbackPage, Data([2]))
+        let fallbackCalls = await fallbackLoader.callCount(for: 2)
+        XCTAssertEqual(fallbackCalls, 2, "An oversized prefetched page must be released and fetched explicitly when requested.")
+
+        await window.retain([], next: nil)
+        let retired = Task { try await window.bytes(3) }
+        let retiredStarted = await loader.waitForCall(to: 3)
+        XCTAssertTrue(retiredStarted)
+        await window.retain([0], next: nil)
+        await loader.release(3)
+        let retiredPage = try await retired.value
+        XCTAssertEqual(retiredPage, Data([3]))
+        _ = try await window.bytes(3)
+        let retiredCalls = await loader.callCount(for: 3)
+        XCTAssertEqual(retiredCalls, 2, "A load retired by a new visible window must not repopulate the cache.")
+
+        let stopped = Task { try await window.bytes(4) }
+        let stoppedStarted = await loader.waitForCall(to: 4)
+        XCTAssertTrue(stoppedStarted)
+        await window.stop()
+        await loader.release(4)
+        let stoppedPage = try await stopped.value
+        XCTAssertEqual(stoppedPage, Data([4]))
+        _ = try await window.bytes(4)
+        let stoppedCalls = await loader.callCount(for: 4)
+        XCTAssertEqual(stoppedCalls, 2, "Stopping the reader must prevent an in-flight page from being retained later.")
     }
 }
 
@@ -139,6 +197,44 @@ private actor RetryingPageLoader {
     }
 
     func callCount(for index: Int) -> Int { calls[index, default: 0] }
+}
+
+private actor RetiredPageLoader {
+    private let firstPage: Data
+    private let oversizedLookahead: Data?
+    private var calls = [Int: Int]()
+    private var continuations = [Int: [CheckedContinuation<Void, Never>]]()
+
+    init(firstPage: Data, oversizedLookahead: Data? = nil) {
+        self.firstPage = firstPage; self.oversizedLookahead = oversizedLookahead
+    }
+
+    func load(_ index: Int) async -> Data {
+        calls[index, default: 0] += 1
+        if (index == 3 || index == 4), calls[index] == 1 {
+            await withCheckedContinuation { continuation in
+                continuations[index, default: []].append(continuation)
+            }
+        }
+        if index == 0 { return firstPage }
+        if index == 2, calls[index] == 1, let oversizedLookahead { return oversizedLookahead }
+        return Data([UInt8(index)])
+    }
+
+    func callCount(for index: Int) -> Int { calls[index, default: 0] }
+
+    func waitForCall(to index: Int) async -> Bool {
+        for _ in 0..<1_000 {
+            if calls[index, default: 0] > 0 { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return calls[index, default: 0] > 0
+    }
+
+    func release(_ index: Int) {
+        let waiting = continuations.removeValue(forKey: index) ?? []
+        waiting.forEach { $0.resume() }
+    }
 }
 
 private let bookID = "00000000-0000-0000-0000-000000000001"

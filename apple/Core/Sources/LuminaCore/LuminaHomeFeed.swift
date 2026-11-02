@@ -194,7 +194,7 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
     }
 
     public func load() async {
-        guard !isLoading else { return }
+        guard !Task.isCancelled, !isLoading else { return }
         operationGeneration += 1
         let operation = operationGeneration
         let currentSession = sessionGeneration
@@ -207,12 +207,12 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         defer { if operation == operationGeneration, currentSession == sessionGeneration { isLoading = false } }
         do {
             let response: Response = try await request(session: session)
-            guard operation == operationGeneration, currentSession == sessionGeneration else { return }
+            guard !Task.isCancelled, operation == operationGeneration, currentSession == sessionGeneration else { return }
             rows = withoutHiddenTitles(response.rows)
             hasLoaded = true
         } catch {
-            guard operation == operationGeneration, currentSession == sessionGeneration else { return }
-            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            guard !Task.isCancelled, operation == operationGeneration, currentSession == sessionGeneration else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
             if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
                 rows = []
                 hasLoaded = false

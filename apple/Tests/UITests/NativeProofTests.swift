@@ -46,6 +46,12 @@ final class NativeBookCurlTests: NativeProofJourney {
         try await journeyArtworkCurlHonorsReadingOrderAndCommitsOnlyCompletedTurns()
     }
 }
+@MainActor
+final class NativeBookTextLimitsTests: NativeProofJourney {
+    func testOversizedProseChapterShowsReaderError() async throws {
+        try await journeyOversizedProseChapterShowsReaderError()
+    }
+}
 #endif
 
 @MainActor
@@ -107,6 +113,16 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 final class NativeLibraryMetadataTests: NativeProofJourney {
     func testPosterEditAndDetailFixMatchUseAuthorizedServerWorkflows() async throws {
         try await journeyLibraryMetadata()
+    }
+
+    func testMetadataSaveRefreshesCatalogOnce() async throws {
+        try await journeyLibraryMetadata(refreshOnly: true)
+    }
+    func testMetadataSheetsFollowLightAndDarkAppearance() async throws {
+        try await journeyMetadataSheetAppearance(themes: ["light", "dark"])
+    }
+    func testMetadataSheetsRemainUsableWithIncreasedContrast() async throws {
+        try await journeyMetadataSheetAppearance(themes: ["light"])
     }
 }
 
@@ -398,6 +414,14 @@ final class NativeRequestsVaultViewTests: NativeProofJourney {
         try await journeyNativeRequestsVaultView()
     }
 }
+#if os(iOS)
+@MainActor
+final class NativeRequestsCatalogEfficiencyTests: NativeProofJourney {
+    func testBrowseCachesGenresAndDefersHeroDetailsUntilVisible() async throws {
+        try await journeyNativeRequestsCatalogEfficiency()
+    }
+}
+#endif
 @MainActor
 final class NativeHomeDetailWatchlistPersistsThroughServerTests: NativeProofJourney { func testNativeHomeDetailWatchlistPersistsThroughServer() async throws { try await journeyNativeHomeDetailWatchlistPersistsThroughServer() } }
 @MainActor
@@ -453,6 +477,13 @@ final class NativePerformanceTourTests: NativeProofJourney {
 }
 
 @MainActor
+final class NativeHomeForegroundRefreshTests: NativeProofJourney {
+    func testHomeRefreshesOnlyAfterBackgroundAndCoalescesActivation() async throws {
+        try await journeyHomeForegroundRefresh()
+    }
+}
+
+@MainActor
 class NativeProofJourney: XCTestCase {
     private var application: XCUIApplication?
     private let isolationID = UUID().uuidString
@@ -494,6 +525,55 @@ class NativeProofJourney: XCTestCase {
         continueAfterFailure = false
     }
 
+    func journeyHomeForegroundRefresh() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-ios-lifecycle"])
+        try signIn(using: fixture, waitsForAccount: false)
+        let home = element("homeScreen")
+        try waitForExistence(home, timeout: 25, named: "Home before lifecycle transitions")
+        try waitForExistence(element("featuredPlayButton"), timeout: 25, named: "loaded Home content")
+        func lifecycleRefreshes() -> Int? {
+            accessibilityText(home).split(separator: " ").first { $0.hasPrefix("lifecycleRefreshes=") }
+                .flatMap { Int($0.dropFirst("lifecycleRefreshes=".count)) }
+        }
+        XCTAssertTrue(waitUntil(timeout: 15) { lifecycleRefreshes() == 0 },
+                      "Initial Home loading must not count as a foreground refresh.")
+        #if os(iOS)
+        let lifecycle = element("iosLifecycleProbe")
+        let window = try applicationWindow()
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.01))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.72)))
+        XCTAssertTrue(waitUntil(timeout: 10) { self.accessibilityText(lifecycle).contains("phase=inactive") })
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+            .press(forDuration: 0.05, thenDragTo: springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        XCTAssertTrue(waitUntil(timeout: 15) { self.accessibilityText(lifecycle).contains("phase=active") })
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(lifecycleRefreshes(), 0, "Control Center must not refresh Home.")
+        #endif
+        for expected in 1...2 {
+            #if os(iOS)
+            try backgroundApplication()
+            #else
+            XCUIRemote.shared.press(.home)
+            XCTAssertTrue(waitUntil(timeout: 10) {
+                self.application!.state == .runningBackground || self.application!.state == .runningBackgroundSuspended
+            }, "The remote Home action must background Lumina.")
+            #endif
+            application!.activate()
+            try waitForExistence(home, timeout: 20, named: "Home after background return")
+            XCTAssertTrue(waitUntil(timeout: 15) { lifecycleRefreshes() == expected },
+                          "Each real background return must admit exactly one Home refresh.")
+            application!.activate()
+            try await Task.sleep(for: .milliseconds(500))
+            XCTAssertEqual(lifecycleRefreshes(), expected, "Activating an already active scene must not refresh again.")
+            try waitForExistence(element("featuredPlayButton"), timeout: 20, named: "retained Home content")
+        }
+        completed = true
+    }
+
     #if os(iOS)
     func journeyIdleHomeReturnsAfterUsingAnotherApp() async throws {
         let fixture = try loadFixture()
@@ -532,8 +612,8 @@ class NativeProofJourney: XCTestCase {
         for book in books { try await api.seedBookProgress(identity: identity, bookID: book) }
         try signIn(using: fixture)
         try selectDestination("Books", screen: "booksScreen")
-        try revealBookItem(element("bookCatalogButton"))
-        try activate(element("bookCatalogButton"))
+        let catalog = try revealBookItem(element("bookCatalogButton"))
+        catalog.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try attachFrame(named: "Books catalog before reading")
         for book in books {
             let format = book == epub ? "EPUB" : book == pdf ? "PDF" : book == cbz ? "CBZ" : "CBR"
@@ -581,6 +661,23 @@ class NativeProofJourney: XCTestCase {
             }
             try activate(element("bookCloseButton"))
         }
+        completed = true
+    }
+
+    func journeyOversizedProseChapterShowsReaderError() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let prose = try XCTUnwrap(fixture.proseBookID, "Generate the oversized EPUB proof fixture.")
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Books", screen: "booksScreen")
+        let catalog = try revealBookItem(element("bookCatalogButton"))
+        catalog.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let card = try revealBookItem(element("book-\(prose)"))
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
+        try waitForExistence(application!.staticTexts["Unable to load page"], timeout: 30, named: "oversized EPUB reader error")
+        XCTAssertFalse(element("bookProsePage").exists, "The oversized EPUB must not reach the TextKit page view.")
         completed = true
     }
 
@@ -1601,7 +1698,7 @@ class NativeProofJourney: XCTestCase {
         try closePlayer()
     }
 
-    func journeyLibraryMetadata() async throws {
+    func journeyLibraryMetadata(refreshOnly: Bool = false) async throws {
         XCUIDevice.shared.orientation = .portrait
         let correctedTitle = "Corrected synthetic title \(UUID().uuidString.prefix(4))"
         let fixture = try loadFixture()
@@ -1612,9 +1709,15 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
         try signIn(using: fixture, waitsForAccount: false)
-        try activate(application!.buttons["Library"])
+        let library = application!.buttons["Library"]
+        try waitForExistence(library, timeout: 15, named: "Library tab")
+        library.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library posters")
         let poster = try revealLibraryItem(id: fixture.directItemID, named: "metadata poster")
+        if refreshOnly {
+            try await Task.sleep(for: .milliseconds(500))
+            try await api.resetMetadataRefreshMetrics()
+        }
         try attachFrame(named: "Library before poster context menu")
         poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.1)
         try activate(element("editMetadataAction"))
@@ -1627,6 +1730,11 @@ class NativeProofJourney: XCTestCase {
         try revealDetailElement(yearField, in: form, named: "Year field", requiresHittable: true)
         try replaceMetadataText(yearField, with: "2023")
         try activate(element("metadataKeyboardDone"))
+        if refreshOnly {
+            let beforeSave = try await api.metadataRefreshMetrics()
+            XCTAssertEqual(beforeSave.nextUp, 0,
+                           "Opening and editing metadata must not refresh the Home catalog.")
+        }
         try attachFrame(named: "Native metadata editor from poster long press")
         try activate(element("metadataEditorSave"))
         XCTAssertTrue(disappears(form, timeout: 10), "Saving valid metadata must return to the library.")
@@ -1636,6 +1744,14 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(fields["year"]?["value"] as? Int, 2023)
         XCTAssertTrue(waitUntil(timeout: 12) { poster.exists && poster.label.contains(correctedTitle) },
                       "The saved title must replace the old poster label without restarting the app.")
+        if refreshOnly {
+            let refreshed = try await waitForMetadataRefreshMetrics(api) { $0.nextUp >= 1 }
+            XCTAssertEqual(refreshed.nextUp, 1, "A saved metadata revision must refresh Home exactly once.")
+            try await Task.sleep(for: .milliseconds(500))
+            let settled = try await api.metadataRefreshMetrics()
+            XCTAssertEqual(settled.nextUp, 1, "The completed revision must not refresh again while unchanged.")
+            return
+        }
         poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("detailScreen"), timeout: 12, named: "updated title detail")
         try attachFrame(named: "Updated title detail overflow entry")
@@ -1662,10 +1778,83 @@ class NativeProofJourney: XCTestCase {
                        "Fix match must preserve user-authored edits.")
     }
 
+    private func waitForMetadataRefreshMetrics(_ api: ProofAPI, timeout: TimeInterval = 12,
+                                                where condition: (MetadataRefreshMetrics) -> Bool) async throws -> MetadataRefreshMetrics {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = try await api.metadataRefreshMetrics()
+        while Date() < deadline {
+            if condition(latest) { return latest }
+            try await Task.sleep(for: .milliseconds(200))
+            latest = try await api.metadataRefreshMetrics()
+        }
+        throw ProofFailure.timeout("Metadata refresh metrics did not settle: \(latest)")
+    }
+
+    func journeyMetadataSheetAppearance(themes: [String]) async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let before = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let originalFields = try XCTUnwrap(before["fields"] as? [String: [String: Any]])
+        let originalTitle = originalFields["name"]?["value"] as? String
+        func tap(_ control: XCUIElement, named name: String) throws {
+            try waitForExistence(control, timeout: 15, named: name)
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        for (index, theme) in themes.enumerated() {
+            _ = try await api.settingsJSON(identity: identity, method: "PUT", body: ["ui_prefs": ["theme": theme]])
+            if index == 0 {
+                try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+                try signIn(using: fixture, waitsForAccount: false)
+            } else {
+                application!.terminate()
+                application!.launch()
+                try waitForExistence(element("homeScreen"), timeout: 30, named: "restored Home")
+            }
+            try selectTourLibraryCategory("movies", screen: "libraryScreen")
+            try waitForExistence(element("libraryScreen"), timeout: 20, named: "Library before themed metadata")
+            let poster = try revealLibraryItem(id: fixture.directItemID, named: "metadata appearance poster")
+            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.1)
+            try tap(element("editMetadataAction"), named: "Edit metadata action")
+            let form = element("metadataEditorForm")
+            let title = element("metadataField-name")
+            try waitForExistence(title, timeout: 15, named: "themed metadata title")
+            XCTAssertFalse(element("metadataEditorSave").isEnabled, "An unchanged editor must not offer Save.")
+            try attachFrame(named: "Metadata \(theme) appearance")
+            try tap(title, named: "metadata title field")
+            try waitForExistence(application!.keyboards.firstMatch, timeout: 10, named: "metadata keyboard")
+            try attachFrame(named: "Metadata \(theme) focused title and keyboard")
+            try tap(element("metadataEditorCancel"), named: "metadata Cancel")
+            XCTAssertTrue(disappears(form, timeout: 10), "Cancel must dismiss the themed editor.")
+            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.1)
+            try tap(element("fixMatchAction"), named: "Fix match action")
+            try tap(element("metadataMatchQuery"), named: "Fix match search field")
+            try waitForExistence(application!.keyboards.firstMatch, timeout: 10, named: "Fix match keyboard")
+            try attachFrame(named: "Fix match \(theme) focused search and keyboard")
+            try tap(element("metadataEditorCancel"), named: "Fix match Cancel")
+            XCTAssertTrue(disappears(form, timeout: 10), "Cancel must dismiss Fix match.")
+        }
+        let after = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let finalFields = try XCTUnwrap(after["fields"] as? [String: [String: Any]])
+        XCTAssertEqual(finalFields["name"]?["value"] as? String, originalTitle,
+                       "Appearance changes and cancelling either sheet must preserve metadata.")
+        completed = true
+    }
+
     private func replaceMetadataText(_ field: XCUIElement, with text: String) throws {
         let visible = try waitForHittable(field, timeout: 10, named: "metadata field")
-        visible.tap()
-        visible.typeKey("a", modifierFlags: .command)
+        visible.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        if let current = visible.value as? String, !current.isEmpty, current != visible.placeholderValue {
+            visible.press(forDuration: 1.1)
+            let selectAll = menuAction("Select All")
+            try waitForExistence(selectAll, timeout: 10, named: "Select All metadata text")
+            selectAll.tap()
+        }
         visible.typeText(text)
     }
 
@@ -6577,6 +6766,112 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    #if os(iOS)
+    func journeyNativeRequestsCatalogEfficiency() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        guard let movieKey = fixture.requestMovieKey,
+              let showKey = fixture.requestShowKey,
+              let showTitle = fixture.requestShowTitle else {
+            throw XCTSkip("Generate the Requests catalog proof fixture.")
+        }
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        if usesStandardPhonePushedChrome {
+            let requestsTab = application!.tabBars.buttons["Requests"]
+            try waitForExistence(requestsTab, timeout: 15, named: "Requests tab")
+            requestsTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        } else {
+            try selectDestination("Requests", screen: "requestsScreen")
+        }
+        try waitForExistence(element("requestsScreen"), timeout: 25, named: "Requests catalog")
+        try waitForExistence(element("requestsFeaturedHero"), timeout: 30, named: "Requests featured hero")
+        try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer")
+
+        func tapVisible(_ control: XCUIElement, named name: String) throws {
+            try waitForExistence(control, timeout: 15, named: name)
+            guard waitUntil(timeout: 10, condition: { self.hasVisibleFrame(control) }) else {
+                throw ProofFailure.timeout("Timed out waiting for visible \(name).")
+            }
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        func selectKind(_ title: String, named name: String) throws {
+            try tapVisible(element("requestsOptionsMenu"), named: "Requests options")
+            try tapVisible(application!.buttons[title], named: name)
+        }
+
+        try await api.resetRequestsMetrics()
+        try selectKind("Films", named: "Requests Films filter")
+        try waitForExistence(element("requestPoster-\(movieKey)"), timeout: 20, named: "Requests Films result")
+        try await Task.sleep(for: .milliseconds(500))
+        let movies = try await waitForRequestsMetrics(api) {
+            $0.genresMovie == 1 && $0.genresShow == 0 && $0.details == 0
+        }
+        XCTAssertEqual(movies.genresAnime, 0)
+
+        try selectKind("Series", named: "Requests Series filter")
+        try waitForExistence(element("requestPoster-\(showKey)"), timeout: 20, named: "Requests Series result")
+        try await Task.sleep(for: .milliseconds(500))
+        let shows = try await waitForRequestsMetrics(api) {
+            $0.genresMovie == 1 && $0.genresShow == 1 && $0.details == 0
+        }
+        XCTAssertEqual(shows.genresAnime, 0)
+
+        try selectKind("Films", named: "Requests cached Films filter")
+        try waitForExistence(element("requestPoster-\(movieKey)"), timeout: 20, named: "Requests cached Films result")
+        try await Task.sleep(for: .milliseconds(500))
+        let cachedMovies = try await api.requestsMetrics()
+        XCTAssertEqual(cachedMovies.genresMovie, 1, "Returning to Films must reuse the current Requests screen's genres.")
+        XCTAssertEqual(cachedMovies.genresShow, 1)
+        XCTAssertEqual(cachedMovies.details, 0, "Browse results must not fetch an invisible hero's details.")
+
+        try scrollLibrary(element("requestsScreen"), up: false)
+        let refreshedMovies = try await waitForRequestsMetrics(api) {
+            $0.genresMovie == 2 && $0.genresShow == 1 && $0.details == 0
+        }
+        XCTAssertEqual(refreshedMovies.genresAnime, 0,
+                       "Pull-to-refresh must revalidate only the current Requests genre list.")
+
+        try await api.resetRequestsMetrics()
+        try selectKind("Everything", named: "Requests Everything filter")
+        try waitForExistence(element("requestsFeaturedHero"), timeout: 20, named: "restored Requests hero")
+        try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "restored featured trailer")
+        let restoredHero = try await waitForRequestsMetrics(api) { $0.details == 1 }
+        XCTAssertEqual(restoredHero.genresMovie, 0)
+        XCTAssertEqual(restoredHero.genresShow, 0)
+
+        try await api.resetRequestsMetrics()
+        try tapVisible(element("requestsSearchButton"), named: "Requests search")
+        let search = application!.searchFields.firstMatch
+        try tapVisible(search, named: "Requests efficiency search")
+        search.typeText(showTitle)
+        try waitForExistence(element("requestPoster-\(showKey)"), timeout: 20, named: "Requests search result")
+        try await Task.sleep(for: .milliseconds(500))
+        let searched = try await api.requestsMetrics()
+        XCTAssertEqual(searched.details, 0,
+                       "Search results must not fetch an invisible hero's details.")
+        completed = true
+    }
+
+    private func waitForRequestsMetrics(_ api: ProofAPI, timeout: TimeInterval = 10,
+                                        where condition: (RequestsCatalogMetrics) -> Bool) async throws -> RequestsCatalogMetrics {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = try await api.requestsMetrics()
+        while Date() < deadline {
+            if condition(latest) { return latest }
+            try await Task.sleep(for: .milliseconds(200))
+            latest = try await api.requestsMetrics()
+        }
+        throw ProofFailure.timeout("Requests efficiency metrics did not settle: \(latest)")
+    }
+    #endif
+
 
     func journeyNativeHomeDetailWatchlistPersistsThroughServer() async throws {
         var completed = false
@@ -10775,6 +11070,34 @@ private struct APIRequestPage: Decodable {
     let items: [APIRequestRecord]
 }
 
+private struct RequestsCatalogMetrics: Decodable, CustomStringConvertible {
+    let genresMovie: Int
+    let genresShow: Int
+    let genresAnime: Int
+    let details: Int
+
+    enum CodingKeys: String, CodingKey {
+        case genresMovie = "genres_movie"
+        case genresShow = "genres_show"
+        case genresAnime = "genres_anime"
+        case details
+    }
+
+    var description: String {
+        "genres_movie=\(genresMovie) genres_show=\(genresShow) genres_anime=\(genresAnime) details=\(details)"
+    }
+}
+
+private struct MetadataRefreshMetrics: Decodable, CustomStringConvertible {
+    let nextUp: Int
+
+    enum CodingKeys: String, CodingKey {
+        case nextUp = "next_up"
+    }
+
+    var description: String { "next_up=\(nextUp)" }
+}
+
 private struct APIRequestRecord: Decodable {
     let id: String
     let key: String
@@ -10883,6 +11206,28 @@ private struct ProofAPI {
         request.setValue(mediaBrowserAuthorization(identity.token), forHTTPHeaderField: "Authorization")
         let response = try JSONDecoder().decode(APIRequestPage.self, from: await send(request))
         return response.items
+    }
+
+    func requestsMetrics() async throws -> RequestsCatalogMetrics {
+        let request = URLRequest(url: origin.appendingPathComponent("proof/requests-metrics"))
+        return try JSONDecoder().decode(RequestsCatalogMetrics.self, from: await send(request))
+    }
+
+    func resetRequestsMetrics() async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/requests-metrics/reset"))
+        request.httpMethod = "POST"
+        _ = try JSONDecoder().decode(RequestsCatalogMetrics.self, from: await send(request))
+    }
+
+    func metadataRefreshMetrics() async throws -> MetadataRefreshMetrics {
+        let request = URLRequest(url: origin.appendingPathComponent("proof/metadata-refresh-metrics"))
+        return try JSONDecoder().decode(MetadataRefreshMetrics.self, from: await send(request))
+    }
+
+    func resetMetadataRefreshMetrics() async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/metadata-refresh-metrics/reset"))
+        request.httpMethod = "POST"
+        _ = try JSONDecoder().decode(MetadataRefreshMetrics.self, from: await send(request))
     }
 
     func authenticate(username: String, password: String) async throws -> APIIdentity {

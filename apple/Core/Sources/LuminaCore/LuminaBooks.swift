@@ -242,7 +242,9 @@ public enum BookPagePreparation {
 public actor BookPageWindow {
     private let load: @Sendable (Int) async throws -> Data
     private var cache = [Int: Data]()
-    private var lookahead: (index: Int, task: Task<Data, Error>)?
+    private var lookahead: (index: Int, id: Int, task: Task<Void, Error>)?
+    private var generation = 0
+    private var nextLookaheadID = 0
 
     public init(api: LuminaBooks, bookID: String) {
         load = { index in try await api.page(id: bookID, index: index) }
@@ -254,34 +256,63 @@ public actor BookPageWindow {
 
     public func bytes(_ index: Int) async throws -> Data {
         if let data = cache[index] { return data }
-        let data: Data
+        let currentGeneration = generation
         if let pending = lookahead, pending.index == index {
-            lookahead = nil
-            data = try await pending.task.value
-        } else {
-            data = try await load(index)
+            do {
+                try await pending.task.value
+            } catch {
+                discardLookahead(index: pending.index, id: pending.id)
+                throw error
+            }
+            try Task.checkCancellation()
+            if let data = cache[index] { return data }
         }
+        let data = try await load(index)
         try Task.checkCancellation()
-        cache[index] = data
+        if currentGeneration == generation,
+           cache.values.reduce(0, { $0 + $1.count }) <= BookPagePreparation.maximumEncodedBytes - data.count {
+            cache[index] = data
+        }
         return data
     }
 
     public func retain(_ visible: [Int], next: Int?) {
+        generation += 1
         if let pending = lookahead, !visible.contains(pending.index), pending.index != next {
             pending.task.cancel()
             lookahead = nil
         }
         cache = cache.filter { visible.contains($0.key) }
         guard let next, cache[next] == nil, lookahead == nil,
-              cache.values.reduce(0, { $0 + $1.count }) <= 24 * 1024 * 1024 else { return }
+              cache.values.reduce(0, { $0 + $1.count }) < BookPagePreparation.maximumEncodedBytes else { return }
+        nextLookaheadID += 1
+        let id = nextLookaheadID
         let load = load
-        lookahead = (next, Task { try await load(next) })
+        lookahead = (next, id, Task { [weak self] in
+            let data = try await load(next)
+            try Task.checkCancellation()
+            await self?.admitLookahead(data, index: next, id: id)
+        })
     }
 
     public func stop() {
+        generation += 1
         lookahead?.task.cancel()
         lookahead = nil
         cache = [:]
+    }
+
+    private func admitLookahead(_ data: Data, index: Int, id: Int) {
+        guard let pending = lookahead, pending.index == index, pending.id == id else { return }
+        lookahead = nil
+        guard cache[index] == nil,
+              cache.values.reduce(0, { $0 + $1.count }) <= BookPagePreparation.maximumEncodedBytes - data.count else { return }
+        cache[index] = data
+    }
+
+    private func discardLookahead(index: Int, id: Int) {
+        guard let pending = lookahead, pending.index == index, pending.id == id else { return }
+        lookahead = nil
     }
 }
 

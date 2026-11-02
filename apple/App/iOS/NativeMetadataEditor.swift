@@ -18,11 +18,55 @@ struct NativeMetadataActions: View {
 
 struct NativeMetadataPresentation: ViewModifier {
     let store: LuminaStore
+    @State private var completedRefreshKey: NativeMetadataRefreshKey?
+    @Environment(\.colorScheme) private var colorScheme
+
     func body(content: Content) -> some View {
         @Bindable var editor = store.metadata
+        let refreshKey = NativeMetadataRefreshKey(owner: NativeMetadataSessionScope(store.session), revision: editor.revision)
         content.environment(editor)
-            .sheet(item: $editor.destination) { target in NativeMetadataEditorSheet(editor: editor, target: target) }
-            .onChange(of: editor.revision) { _, _ in Task { await store.refresh() } }
+            .sheet(item: $editor.destination) { target in
+                NativeMetadataEditorSheet(editor: editor, target: target)
+                    .preferredColorScheme(colorScheme)
+            }
+            .task(id: refreshKey) {
+                guard let owner = refreshKey.owner else {
+                    completedRefreshKey = nil
+                    return
+                }
+                // The first render for each account establishes its revision baseline.
+                guard completedRefreshKey?.owner == owner else {
+                    completedRefreshKey = refreshKey
+                    return
+                }
+                guard completedRefreshKey != refreshKey else { return }
+                do { try await Task.sleep(for: .milliseconds(250)) }
+                catch { return }
+                guard !Task.isCancelled,
+                      NativeMetadataRefreshKey(owner: NativeMetadataSessionScope(store.session), revision: editor.revision) == refreshKey else { return }
+                await store.refresh()
+                guard !Task.isCancelled,
+                      NativeMetadataRefreshKey(owner: NativeMetadataSessionScope(store.session), revision: editor.revision) == refreshKey else { return }
+                completedRefreshKey = refreshKey
+            }
+    }
+}
+
+private struct NativeMetadataRefreshKey: Hashable {
+    let owner: NativeMetadataSessionScope?
+    let revision: Int
+}
+
+private struct NativeMetadataSessionScope: Hashable {
+    let serverURL: URL
+    let userID: String
+    let accessToken: String
+
+    init?(_ session: LuminaSession?) {
+        guard let session else { return nil }
+        serverURL = session.serverURL
+        userID = session.userID
+        accessToken = session.accessToken
     }
 }
 
@@ -38,9 +82,12 @@ private struct NativeMetadataEditorSheet: View {
                 Section {
                     Text(editor.document?.name ?? target.name).font(.headline)
                     Text("These changes affect the household library. Saved edits are kept over provider refreshes.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(LuminaTheme.muted)
                 }
-                if editor.document == nil && editor.isLoading { ProgressView("Loading metadata…") }
+                .listRowBackground(LuminaTheme.paper)
+                if editor.document == nil && editor.isLoading {
+                    ProgressView("Loading metadata…").listRowBackground(LuminaTheme.paper)
+                }
                 else if editor.document != nil {
                     if target.mode == .edit { editFields } else { matchFields }
                 }
@@ -51,13 +98,21 @@ private struct NativeMetadataEditorSheet: View {
                             Button("Reload latest details") { showsReloadConfirmation = true }.disabled(editor.isSaving)
                         } else if editor.document == nil { Button("Retry") { Task { await editor.load() } } }
                     }
+                    .listRowBackground(LuminaTheme.paper)
                 }
-                if editor.isSaving { ProgressView("Saving…") }
+                if editor.isSaving { ProgressView("Saving…").listRowBackground(LuminaTheme.paper) }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LuminaTheme.paper.ignoresSafeArea())
+            .foregroundStyle(LuminaTheme.ink)
+            .tint(LuminaTheme.ink)
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("metadataEditorForm")
             .navigationTitle(target.mode == .edit ? "Edit metadata" : "Fix match")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(LuminaTheme.paper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -94,6 +149,7 @@ private struct NativeMetadataEditorSheet: View {
                 }
             }
         }
+        .presentationBackground(LuminaTheme.paper)
     }
     private var editFields: some View {
         Section {
@@ -104,18 +160,20 @@ private struct NativeMetadataEditorSheet: View {
                         .accessibilityIdentifier("metadataField-\(field.id)")
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(field.title).font(.caption).foregroundStyle(.secondary)
+                        Text(field.title).font(.caption).foregroundStyle(LuminaTheme.muted)
                         TextField(field.title, text: value, axis: field.kind == .multiline || field.kind == .list ? .vertical : .horizontal)
                             .focused($focusedField, equals: field.id)
                             .lineLimit(field.kind == .multiline ? 4...12 : field.kind == .list ? 2...8 : 1...1)
                             .keyboardType(field.kind == .integer ? .numberPad : field.kind == .decimal ? .decimalPad : .default)
                             .textInputAutocapitalization(field.kind == .list || field.kind == .text || field.kind == .multiline ? .sentences : .never)
                             .accessibilityLabel(field.title).accessibilityIdentifier("metadataField-\(field.id)")
-                        if field.kind == .list { Text("One entry per line.").font(.caption).foregroundStyle(.secondary) }
+                        if field.kind == .list { Text("One entry per line.").font(.caption).foregroundStyle(LuminaTheme.muted) }
                     }
                 }
             }
-        }.disabled(!editor.canEdit || editor.isSaving || editor.isLoading)
+        }
+        .listRowBackground(LuminaTheme.paper)
+        .disabled(!editor.canEdit || editor.isSaving || editor.isLoading)
     }
     @ViewBuilder private var matchFields: some View {
         if editor.document?.canIdentify == true, editor.document?.tmdbConfigured == true {
@@ -126,6 +184,7 @@ private struct NativeMetadataEditorSheet: View {
                     .disabled(!editor.canIdentify || editor.isLoading || editor.isSaving || editor.query.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityIdentifier("metadataMatchSearch")
             }
+            .listRowBackground(LuminaTheme.paper)
             Section("Matches") {
                 if editor.isLoading { ProgressView("Searching…") }
                 ForEach(editor.candidates) { candidate in
@@ -133,13 +192,14 @@ private struct NativeMetadataEditorSheet: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(candidate.name).font(.headline)
                             if let year = candidate.year { Text(String(year)).font(.subheadline) }
-                            if let overview = candidate.overview { Text(overview).font(.caption).foregroundStyle(.secondary).lineLimit(4) }
-                            Text("TMDB \(candidate.tmdbID)").font(.caption).foregroundStyle(.secondary)
-                        }.foregroundStyle(.primary)
+                            if let overview = candidate.overview { Text(overview).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(4) }
+                            Text("TMDB \(candidate.tmdbID)").font(.caption).foregroundStyle(LuminaTheme.muted)
+                        }.foregroundStyle(LuminaTheme.ink)
                     }.disabled(!editor.canIdentify || editor.isSaving).accessibilityIdentifier("metadataMatch-\(candidate.id)")
                 }
-                if editor.hasSearched && editor.candidates.isEmpty && !editor.isLoading { Text("No matches. Try another name or year.") }
+                if editor.hasSearched && editor.candidates.isEmpty && !editor.isLoading { Text("No matches. Try another name or year.").foregroundStyle(LuminaTheme.muted) }
             }
+            .listRowBackground(LuminaTheme.paper)
         }
     }
 }

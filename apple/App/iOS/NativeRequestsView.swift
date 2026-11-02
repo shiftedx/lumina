@@ -19,6 +19,26 @@ private struct RequestArtwork: View {
     }
 }
 
+/// Genre choices are stable for one signed-in Requests screen, but never shared across members.
+private struct RequestGenreCacheKey: Hashable {
+    let kind: RequestCatalogKind
+    let serverURL: URL
+    let userID: String
+    let accessToken: String
+
+    init(kind: RequestCatalogKind, session: LuminaSession) {
+        self.kind = kind
+        serverURL = session.serverURL
+        userID = session.userID
+        accessToken = session.accessToken
+    }
+}
+
+private struct RequestGenreTaskKey: Hashable {
+    let cacheKey: RequestGenreCacheKey?
+    let reloadGeneration: Int
+}
+
 @MainActor
 struct NativeRequestsView: View {
     let store: LuminaStore
@@ -36,6 +56,8 @@ struct NativeRequestsView: View {
     @State private var section = "trending"
     @State private var genre: String?
     @State private var genres: [RequestCatalogGenre] = []
+    @State private var genreCache: [RequestGenreCacheKey: [RequestCatalogGenre]] = [:]
+    @State private var genreReloadGeneration = 0
     @State private var resultPage = 0
     @State private var totalPages = 0
     @State private var loadingResults = false
@@ -64,6 +86,12 @@ struct NativeRequestsView: View {
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var browsingResults: Bool { !query.isEmpty || kind != nil }
     private var queryKey: String { query.isEmpty ? "browse|\(kind?.rawValue ?? "")|\(section)|\(genre ?? "")" : "search|\(query)" }
+    private var genreCacheKey: RequestGenreCacheKey? {
+        kind.map { RequestGenreCacheKey(kind: $0, session: session) }
+    }
+    private var genreTaskKey: RequestGenreTaskKey {
+        RequestGenreTaskKey(cacheKey: genreCacheKey, reloadGeneration: genreReloadGeneration)
+    }
     private var sections: [(String, String)] {
         switch kind {
         case .anime: [("trending", "Trending"), ("this_season", "This season"), ("next_season", "Next season"), ("popular", "Popular"), ("top", "Top rated"), ("movies", "Films")]
@@ -155,6 +183,7 @@ struct NativeRequestsView: View {
                     .refreshable {
                         if browsingResults { await loadResults(reset: true) } else { await catalog.loadHome() }
                         await catalog.loadQuotas()
+                        refreshGenres()
                     }
                 }
             }
@@ -190,20 +219,29 @@ struct NativeRequestsView: View {
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await loadResults(reset: true)
         }
-        .task(id: kind) {
+        .task(id: genreTaskKey) {
             genres = []
-            guard let kind else { return }
-            let values = try? await catalog.genres(kind)
-            guard !Task.isCancelled else { return }
-            genres = values ?? []
+            guard let key = genreCacheKey else { return }
+            if let cached = genreCache[key] {
+                genres = cached
+                return
+            }
+            do {
+                let values = try await catalog.genres(key.kind)
+                guard !Task.isCancelled, genreCacheKey == key else { return }
+                genreCache[key] = values
+                genres = values
+            } catch {
+                // Leave failures uncached so revisiting this kind or refreshing retries them.
+            }
         }
         .onChange(of: kind) { _, _ in section = "trending"; genre = nil }
-        .task(id: "\(featured?.id ?? "")|\(isActive)") {
-            if trailerItemID != featured?.id {
+        .task(id: "\(featured?.id ?? "")|\(isActive)|\(browsingResults)") {
+            if browsingResults || trailerItemID != featured?.id {
                 featuredTrailer = nil
                 trailerItemID = nil
             }
-            guard isActive, let item = featured, let id = item.catalogID, trailerItemID != item.id else { return }
+            guard isActive, !browsingResults, let item = featured, let id = item.catalogID, trailerItemID != item.id else { return }
             guard let detail = try? await catalog.detail(kind: item.kind, id: id), !Task.isCancelled else { return }
             featuredTrailer = detail.trailers.compactMap(\.youtubeURL).first
             trailerItemID = item.id
@@ -271,6 +309,13 @@ struct NativeRequestsView: View {
             if searchResults == nil { searchResults = [] }
             searchError = "The catalog couldn’t load. Try again."
         }
+    }
+
+    private func refreshGenres() {
+        guard let key = genreCacheKey else { return }
+        genreCache[key] = nil
+        genres = []
+        genreReloadGeneration &+= 1
     }
 
     private func feature(_ item: RequestCatalogItem) -> some View {

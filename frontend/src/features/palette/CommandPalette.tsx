@@ -118,13 +118,13 @@ export function CommandPalette(props: CommandPaletteProps) {
     local: shown.query === typed && shown.local ? { ...shown.local, matches: (shown.local.matches ?? []).filter((match) => match.kind === 'title' ? Boolean(match.media_title && homeTitleVisible(match.media_title, props.navigation)) : match.kind === 'library' || match.kind === 'moment' ? Boolean(match.item && homeItemVisible(match.item, props.navigation)) : streaming) } : null,
     remote: shown.query === typed ? shown.remote : [],
     actions: filterActions(typed, fullContext).filter((action) => {
-      if (noOpen && action.id === 'add-link') return false;
+      if ((noOpen || !streaming) && action.id === 'add-link') return false;
       if (['go-streaming', 'go-live', 'go-subscriptions'].includes(action.id)) return streaming;
       if (action.id === 'go-channels') return Boolean(props.navigation?.categories.includes('youtube'));
       if (action.id === 'new-collection' || action.id === 'new-smart-collection') return isNavigationSurfaceAvailable(props.navigation, 'library');
       return true;
     }),
-  }).filter((group) => !(noOpen && (group.id === 'link' || group.id === 'everything' || group.id === 'youtube')) && (streaming || !['everything', 'youtube', 'channels'].includes(group.id)))
+  }).filter((group) => !(noOpen && (group.id === 'link' || group.id === 'everything' || group.id === 'youtube')) && (streaming || !['link', 'everything', 'youtube', 'channels'].includes(group.id)))
     .map((group) => ({ ...group, options: group.options.filter((option) => {
       if (option.kind === 'title') return homeTitleVisible(option.title, props.navigation);
       if (option.kind === 'video') return homeItemVisible(option.item, props.navigation);

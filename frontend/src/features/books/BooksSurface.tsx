@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, BookOpen, Check, Ellipsis, Heart, Library, Plus, Search, SlidersHorizontal } from '../../luminaIcons';
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { UserProfile } from '../../types';
@@ -160,7 +161,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
     }
     open({ surface: 'books', view: 'overview', ...(q ? { q } : {}) });
   }
-  const bookSearch = <form className="books-search" onSubmit={(event) => { event.preventDefault(); submitSearch(); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form>;
+  const bookSearch = <ContextualSearch label="Search books, authors, and series"><form className="books-search" onSubmit={(event) => { event.preventDefault(); submitSearch(); }}><Search aria-hidden="true" /><label className="sr-only" htmlFor="books-search">Search books, authors, and series</label><input id="books-search" maxLength={200} onChange={(event) => setSearch(event.target.value)} placeholder="Find a title, author, or series…" type="search" value={search} /><Button type="submit" variant="quiet">Search</Button></form></ContextualSearch>;
   const toolbar = <div className="books-toolbar">
     <div className="books-sort"><span>Sort</span><Select aria-label="Sort" onChange={(event) => updateFilter({ sort: event.target.value as BookSort })} value={filters?.sort ?? (activeShelf ? 'custom' : 'added')}>{activeShelf ? <option value="custom">Custom order</option> : null}<option value="added">Recently added</option><option value="title">Title</option><option value="author">Author</option></Select></div>
     <div className="books-status"><SlidersHorizontal aria-hidden="true" /><span className="sr-only">Reading status</span><Select aria-label="Reading status" onChange={(event) => updateFilter({ status: event.target.value as BooksQuery['status'] })} value={filters?.status ?? (route.view === 'discover' ? 'unread' : 'all')}><option value="all">All stories</option><option value="unread">Unread</option><option value="reading">Reading</option><option value="read">Read</option><option value="favorites">Favorites</option><option value="reading_list">Reading list</option></Select></div>

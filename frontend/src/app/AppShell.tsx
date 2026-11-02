@@ -17,12 +17,11 @@ export const MainLandmark = forwardRef<HTMLElement, { children: ReactNode; onFoc
   return <main aria-label="Main content" className="lumina-main" id="main-content" onFocusCapture={onFocusCapture} ref={ref} tabIndex={-1}>{children}</main>;
 });
 
-export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems, videoView, onVideoView, contextualSearch = false, hideContextLabel = false, navigation }: {
+export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems, videoView, onVideoView, hideContextLabel = false, navigation }: {
   navigation?: ServerNavigation | null;
   videoView?: string;
   hideContextLabel?: boolean;
   onVideoView?: (view: 'movies' | 'shows') => void;
-  contextualSearch?: boolean;
   children: ReactNode;
   surface: Surface;
   /** Requests waiting for an admin (the Requests nav badge); 0 for members. */
@@ -67,7 +66,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
       {focused ? null : <NavigationPopover navigation={navigation} videoView={videoView} onVideoView={onVideoView} anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
       <div className="app-background">
         {announcer}
-        {focused ? null : <TopBar contextLabel={hideContextLabel ? undefined : surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? libraryLabel : surface === 'settings' ? managingServer ? 'Manage server' : 'My settings' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} hideSearch={contextualSearch || surface === 'settings'} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
+        {focused ? null : <TopBar contextLabel={hideContextLabel ? undefined : surface === 'audio' ? 'Music' : surface === 'video' || surface === 'library' ? libraryLabel : surface === 'settings' ? managingServer ? 'Manage server' : 'My settings' : surface === 'subscriptions' ? 'Streaming' : surface[0].toUpperCase() + surface.slice(1)} streamingEnabled={Boolean(navigation?.features.streaming)} activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel={navigationOpen ? 'Close navigation' : 'Open navigation'} mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
         <MainLandmark onFocusCapture={surface === 'settings' ? (event) => {
           const target = event.target;
           if (target.closest('.music-dock, .music-mini, .watch-mini, dialog') || !target.matches('button, a, input, textarea, select, summary, [role=combobox]')) return;

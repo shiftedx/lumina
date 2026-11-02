@@ -14,6 +14,7 @@ import type { LibraryActivitySnapshot } from './useLibraryActivity';
 export interface TopBarProps {
   user: UserProfile;
   hideSearch?: boolean;
+  streamingEnabled?: boolean;
   contextLabel?: string;
   mobile: boolean;
   compact: boolean;
@@ -90,7 +91,7 @@ export function TopBar(props: TopBarProps) {
     return () => window.removeEventListener('scroll', update);
   }, []);
   const ringSize = useDeviceRingSize();
-  const canAddLink = !providerBlocked(useAccess().access, 'open_search');
+  const canAddLink = Boolean(props.streamingEnabled) && !providerBlocked(useAccess().access, 'open_search');
   const name = user.display_name || user.username;
   const current = (activity.state === 'ready' || activity.state === 'empty') && !activity.retrying;
   const active = current ? activity.active : 0;
@@ -128,11 +129,11 @@ export function TopBar(props: TopBarProps) {
         </a>
         {props.contextLabel ? <span className="g-topbar-context">{props.contextLabel}</span> : null}
       </div>
-      {props.hideSearch ? <span /> : <button aria-label={`Search Lumina, ${shortcut}`} className="g-search-trigger" onClick={props.onSearch} type="button">
+      {props.hideSearch ? <span /> : <div className="g-header-search" id="g-header-search"><button aria-label={`Search Lumina, ${shortcut}`} className="g-search-trigger" onClick={props.onSearch} type="button">
         <Search aria-hidden="true" />
         <span className="g-search-trigger-text">Search Lumina</span>
         <Kbd>{shortcut}</Kbd>
-      </button>}
+      </button></div>}
       <div className="g-topbar-end">
         {!canAddLink || mobile ? null : <Button aria-label="Add a link" icon={<Plus />} onClick={props.onAddLink} variant="quiet">Add link</Button>}
         <Popover label="Activity" openOnHover trigger={(triggerProps) => activityButton(triggerProps)}>

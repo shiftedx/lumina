@@ -356,7 +356,6 @@
 /* Approved A composition: real cover art makes the library feel like a place to read,
    while all catalog controls and actions remain in the ordinary content flow. */
 .books-surface { max-width: 1600px; }
-.books-surface > .books-search { max-width: 520px; margin: 0 0 24px; }
 .books-overview { gap: 48px; }
 .books-overview.is-sparse.has-reading { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
 .books-overview-hero, .books-series-hero, .books-title-hero { position: relative; isolation: isolate; overflow: hidden; color: var(--g-overlay-ink); background: var(--g-reader-dark-paper); }
@@ -444,25 +443,18 @@
 .books-surface:has(.books-overview-hero) > .g-tab-scroller { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); left: var(--g-gutter); right: calc(var(--g-gutter) + 250px); }
 .books-surface:has(.books-overview-hero) .books-tabs { margin: 0; border: 0; }
 .books-surface:has(.books-overview-hero) .books-tabs a { color: var(--g-on-art); }
-.books-surface:has(.books-overview-hero) > .books-search { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 80px); left: var(--g-gutter); width: min(480px, calc(100% - 2 * var(--g-gutter))); }
-.books-surface:has(.books-overview-hero, .books-title-hero, .books-series-hero) > .books-search :is(input, .g-button) { color: var(--g-on-art); }
-.books-surface:has(.books-overview-hero, .books-title-hero, .books-series-hero) > .books-search input::placeholder { color: var(--g-overlay-ink-2); }
 .books-surface .books-overview-hero { min-height: 600px; margin-top: 0; padding: 220px var(--g-gutter) 56px; }
 .books-overview-hero-shade, .books-title-hero-shade, .books-series-hero-shade { background: var(--g-stage-shade); }
 .books-surface .books-overview-hero .g-button.is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
 .books-surface:has(.books-title-hero, .books-series-hero) > .books-back { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); left: var(--g-gutter); color: var(--g-on-art); }
-.books-surface:has(.books-title-hero, .books-series-hero) > .books-search { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); right: var(--g-gutter); width: min(420px, 50%); }
 .books-surface :is(.books-title-hero, .books-series-hero) { min-height: 560px; padding-top: 168px; }
 @media (max-width: 680px) {
   .books-surface:has(.books-overview-hero) > .g-tab-scroller { right: var(--g-gutter); }
   .books-surface:has(.books-overview-hero) > .g-masthead { top: calc(var(--g-topbar) + 70px); }
-  .books-surface:has(.books-overview-hero) > .books-search { top: calc(var(--g-topbar) + 124px); }
   .books-surface .books-overview-hero { min-height: 640px; padding-top: 254px; padding-bottom: 40px; }
-  .books-surface:has(.books-title-hero, .books-series-hero) > .books-search { top: calc(var(--g-topbar) + 72px); inset-inline: var(--g-gutter); width: auto; }
   .books-surface :is(.books-title-hero, .books-series-hero) { padding-top: 218px; }
 }
 
-.books-surface:has(.books-overview-hero, .books-title-hero, .books-series-hero) > .books-search svg { color: var(--g-overlay-ink-2); }
 
 .books-surface :is(.books-overview-hero, .books-title-hero, .books-series-hero) .g-button:not(.is-primary) { color: var(--g-on-art); }
 .books-surface :is(.books-title-hero, .books-series-hero) .g-button.is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }

@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 import { type ChangeEvent, type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
 import { CircleUserRound, Compass, Download, FolderOpen, Gauge, Palette, Play, Plug, ShieldCheck, Sparkles, Users, Wrench } from '../../luminaIcons';
 
@@ -198,9 +199,9 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
       <div className="g-settings" data-view="detail" data-space={activeSpace}>
         <header className="g-settings-header"><Masthead title={activeSpace === 'personal' ? 'My settings' : 'Manage server'} /><p className="g-settings-welcome">{activeSpace === 'personal' ? 'Your profile, your defaults.' : 'Household-wide controls and connections.'}</p></header>
         <div className="g-settings-navigation">
-        <div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = searching ? paneRef.current?.querySelector<HTMLElement>('.g-settings-result-link') : firstNavControl(); if (first) { event.preventDefault(); first.focus(); } } }}>
+        <ContextualSearch label="Search settings"><div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = searching ? paneRef.current?.querySelector<HTMLElement>('.g-settings-result-link') : firstNavControl(); if (first) { event.preventDefault(); first.focus(); } } }}>
           <Field hideLabel label="Search settings">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => changeQuery(event.target.value)} placeholder="Find any setting" type="search" value={query} />}</Field>
-        </div>
+        </div></ContextualSearch>
         <nav aria-label="Settings sections" className="g-settings-sidebar" onKeyDown={onNavKeyDown} ref={navRef}>
           {(['personal', 'server'] as const).filter((scope) => scope === activeSpace).map((scope) => <div className="g-settings-nav-group" key={scope}>
             <h2>{scope === 'personal' ? 'Your preferences' : 'Server'}</h2>

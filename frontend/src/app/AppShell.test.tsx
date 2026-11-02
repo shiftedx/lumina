@@ -26,10 +26,10 @@ describe('anchored navigation', () => {
     expect(screen.queryByRole('navigation', { name: 'Mobile primary navigation' })).toBeNull();
   });
 
-  it('gives settings one local search and no media tabs while keeping global navigation and Account', async () => {
+  it('reserves the shared header search position for settings without media tabs', async () => {
     const { rerender } = render(<Host surface="settings" mobile />);
     expect(screen.queryByRole('navigation', { name: 'Mobile primary navigation' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^Search Lumina/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Search Lumina/ })).toBeTruthy();
     expect(screen.getByText('My settings', { exact: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Open navigation' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /account menu/ })).toBeTruthy();

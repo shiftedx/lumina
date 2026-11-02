@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual';
 import { CalendarDays, Camera, Check, FolderPlus, Heart, ImagePlus, Images, Search, Trash2, Undo2, Upload, UserRound, X } from '../../luminaIcons';
 import { lazy, type KeyboardEvent, type ReactNode, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -472,7 +473,7 @@ function PeopleView({ route, onRoute, user }: { route: PhotosRoute; onRoute: (ro
 
 function TimelineToolbar({ route, onRoute, camera, onCamera, dateFrom, onDateFrom, dateTo, onDateTo }: { route: PhotosRoute; onRoute: (route: PhotosRoute) => void; camera: string; onCamera: (value: string) => void; dateFrom: string; onDateFrom: (value: string) => void; dateTo: string; onDateTo: (value: string) => void }) {
   return <div className="ph-toolbar">
-    <label className="ph-search"><Search aria-hidden="true" /><Input type="search" aria-label="Search photos" onChange={(event) => onRoute({ ...route, q: event.target.value || undefined })} placeholder="Search photos" value={route.q ?? ''} /></label>
+    <ContextualSearch label="Search photos"><label className="ph-search"><Search aria-hidden="true" /><Input type="search" aria-label="Search photos" onChange={(event) => onRoute({ ...route, q: event.target.value || undefined })} placeholder="Search photos" value={route.q ?? ''} /></label></ContextualSearch>
     <Button icon={<Heart />} onClick={() => onRoute({ ...route, favorite: route.favorite ? undefined : true })} pressed={route.favorite} variant="quiet">Favorites</Button>
     <details className="ph-filters"><summary><Camera />Filters</summary><div className="ph-filter-panel">
       <label className="ph-sort"><span>Sort</span><Select aria-label="Sort photos" onChange={(event) => onRoute({ ...route, sort: event.target.value as 'captured' | 'added' })} value={route.sort ?? 'captured'}><option value="captured">Date taken</option><option value="added">Recently added</option></Select></label>

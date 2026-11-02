@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * Requests: discover films, series and anime, watch trailers inline, and ask the
  * household's Sonarr/Radarr for them. Pages: Discover, Films, Series, Anime, search, a title, My requests and Manage (admins).
@@ -79,11 +80,11 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
   };
   const submit = (event: FormEvent) => { event.preventDefault(); window.clearTimeout(timer.current); search(draft, false); };
   const searchForm = (
-    <form className="g-search" onSubmit={submit} role="search">
+    <ContextualSearch label="Search films, series and anime"><form className="g-search" onSubmit={submit} role="search">
       <Search aria-hidden="true" />
       <label className="sr-only" htmlFor="rq-search">Search films, series and anime</label>
       <input className="g-input" id="rq-search" onChange={(event) => onDraft(event.currentTarget.value)} placeholder="Search films, series and anime" type="search" value={draft} />
-    </form>
+    </form></ContextualSearch>
   );
 
   const tabs: Array<{ view: RequestsRoute['view']; label: string }> = [
@@ -116,7 +117,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
             </TabScroller>
           </>
         )}
-        {route.view === 'title' ? <div className="g-toolbar rq-title-toolbar">{searchForm}</div> : null}
+        {route.view === 'title' ? <>{searchForm}</> : null}
         {body}
       </div>
       {asking ? <RequestSheet item={asking} key={asking.key} onClose={() => setAsking(null)} onRequested={() => { loadQuotas(); onQueueChanged?.(); }} onStatus={setStatus} quota={quota} userId={user.id} /> : null}

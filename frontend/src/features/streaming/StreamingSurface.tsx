@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * Streaming (2.3.0): one page for YouTube, Twitch and Kick. It composes the Live, Explore and Subscriptions screens in
  * their embedded mode behind a provider switch (shown only when the member turned another provider on). Home is
@@ -88,11 +89,11 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
       <Masthead
         actions={!searchable ? undefined : (
           // Only YouTube search exists server-side; Twitch and Kick show their live and followed channels instead.
-          <form className="g-search" onSubmit={submit} role="search">
+          <ContextualSearch label={`Search ${name}`}><form className="g-search" onSubmit={submit} role="search">
             <Search aria-hidden="true" />
             <label className="sr-only" htmlFor="g-streaming-q">{`Search ${name}`}</label>
             <input className="g-input" id="g-streaming-q" onChange={(event) => setDraft(event.currentTarget.value)} placeholder={`Search ${name}`} type="search" value={draft} />
-          </form>
+          </form></ContextualSearch>
         )}
         title="Streaming"
       />

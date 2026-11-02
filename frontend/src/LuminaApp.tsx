@@ -384,7 +384,7 @@ export default function LuminaApp() {
         if ((document.activeElement !== main && document.activeElement !== document.body) || focusHeading()) observer.disconnect();
       });
       pendingHeadingFocusRef.current = observer;
-      observer.observe(main, { childList: true, subtree: true });
+      observer.observe(document.getElementById('g-header-search') ?? main, { childList: true, subtree: true });
     });
   }, []);
 
@@ -441,23 +441,26 @@ export default function LuminaApp() {
   const openPaletteMode = useCallback((mode: PaletteMode = 'search') => {
     if (mode === 'search') {
       const main = document.getElementById('main-content');
-      const field = main?.querySelector<HTMLInputElement>('input[type="search"]');
+      const header = document.getElementById('g-header-search');
+      const opener = header?.querySelector<HTMLButtonElement>('.g-context-search-open');
+      if (opener && window.matchMedia('(max-width: 680px)').matches) { opener.click(); return; }
+      const field = header?.querySelector<HTMLInputElement>('input[type="search"]') ?? main?.querySelector<HTMLInputElement>('input[type="search"]');
       if (field) { field.focus(); field.scrollIntoView({ block: 'nearest' }); return; }
       if (surface === 'settings' && main) {
         pendingContextSearchRef.current?.disconnect();
         // Settings is lazy: keep its shortcut scoped while its registry search mounts.
         const observer = new MutationObserver(() => {
-          const search = main.querySelector<HTMLInputElement>('input[type="search"]');
+          const search = document.querySelector<HTMLInputElement>('#g-header-search input[type="search"]') ?? main.querySelector<HTMLInputElement>('input[type="search"]');
           if (search) { search.focus(); search.scrollIntoView({ block: 'nearest' }); observer.disconnect(); }
         });
         pendingContextSearchRef.current = observer;
-        observer.observe(main, { childList: true, subtree: true });
+        observer.observe(document.getElementById('g-header-search') ?? main, { childList: true, subtree: true });
         return;
       }
       const trigger = main?.querySelector<HTMLButtonElement>('button.g-search-open');
       if (trigger) { trigger.click(); requestAnimationFrame(() => main?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()); return; }
     }
-    return mode === 'link' && openSearchBlocked ? undefined : setPalette((value) => ({ open: true, mode, key: value.open ? value.key : value.key + 1 })); }, [openSearchBlocked, surface]);
+    return mode === 'link' && (openSearchBlocked || !streamingEnabled) ? undefined : setPalette((value) => ({ open: true, mode, key: value.open ? value.key : value.key + 1 })); }, [openSearchBlocked, streamingEnabled, surface]);
   const closePalette = useCallback(() => setPalette((value) => (value.open ? { ...value, open: false } : value)), []);
   useEffect(() => onCommand<PaletteRequest | undefined>(PALETTE_EVENT, (request) => openPaletteMode(request?.mode ?? 'search')), [openPaletteMode]);
   // Prefetch the palette chunk once the member is in.
@@ -1629,10 +1632,10 @@ export default function LuminaApp() {
     <div className="g-nav-group">
       <p aria-hidden="true" className="g-label g-nav-group-label">{moreName}</p>
       <button className="g-nav-item" onClick={moreSwitch} type="button"><span>Switch member…</span></button>
-      {openSearchBlocked ? null : <button className="g-nav-item" onClick={moreAddLink} type="button"><span>Add a link</span></button>}
+      {openSearchBlocked || !streamingEnabled ? null : <button className="g-nav-item" onClick={moreAddLink} type="button"><span>Add a link</span></button>}
       <button className="g-nav-item" onClick={moreSignOut} type="button"><span>Sign out</span></button>
     </div>
-  ), [moreName, moreSwitch, moreAddLink, moreSignOut, openSearchBlocked]);
+  ), [moreName, moreSwitch, moreAddLink, moreSignOut, openSearchBlocked, streamingEnabled]);
   if (accountLink) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onCancel={() => { setAccountLink(null); setError(null); }} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleAccountLink} onSwitched={() => void handleSwitched()} sessionProblem={null} stage={accountLink.kind} /></>;
   if (twoFactor || state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={twoFactor ? 'login' : state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
 
@@ -1749,7 +1752,6 @@ export default function LuminaApp() {
       hideContextLabel={Boolean(libraryLocation.titleId) && ['video', 'library', 'audio'].includes(surface)}
       videoView={libraryLocation.view}
       onVideoView={(view) => openRoute({ surface: 'video', view })}
-      contextualSearch={(((surface === 'video' || surface === 'library') && !libraryLocation.titleId && ['movies', 'shows', 'anime'].includes(libraryLocation.view ?? 'all')) || (surface === 'audio' && !libraryLocation.titleId && !new URLSearchParams(libraryLocation.wall).has('pane'))) || (surface === 'photos' && photosRoute.view === 'timeline') || surface === 'requests' || surface === 'streaming' || (surface === 'books' && booksRoute.view !== 'read')}
       activity={{ state: state.jobsState, retrying: state.jobsRetrying, active: activeDownloads }}
       announcer={collectionAnnouncer}
       focused={surface === 'books' && booksRoute.view === 'read'}

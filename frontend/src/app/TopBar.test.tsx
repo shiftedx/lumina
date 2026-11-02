@@ -201,3 +201,15 @@ describe('TopBar', () => {
     expect(screen.getByText('Lumina').className).toContain('sr-only');
   });
 });
+
+
+it('shows Add Link only after server Streaming is enabled', async () => {
+  const p = props({ streamingEnabled: false });
+  const view = render(<TopBar {...p} />);
+  expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
+  view.rerender(<TopBar {...p} streamingEnabled />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add a link' }));
+  expect(p.onAddLink).toHaveBeenCalledOnce();
+  view.rerender(<TopBar {...p} />);
+  expect(screen.queryByRole('button', { name: 'Add a link' })).toBeNull();
+});

@@ -1,3 +1,4 @@
+import { ContextualSearch } from '../../app/ContextualSearch';
 /**
  * The Library walls: Movies, Shows, Anime and the Music tab's Albums
  * and Artists. Editorial masthead (or the Music tab's own), sticky toolbar (sort, quick chips, "Find the one where…",
@@ -235,7 +236,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   const hero = featured;
   return (
     <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
-      {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? searchForm : null}</div> : lenses}
+      {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? <ContextualSearch label={searchLabel}>{searchForm}</ContextualSearch> : null}</div> : lenses}
       {hero ? <section aria-label={hero.name} className="g-browse-hero">
         <HeroFrame className="g-browse-hero-art" src={hero.backdrop?.url ?? hero.poster?.url} placement="home"><GalleryArt alt="" art={hero.backdrop ?? hero.poster} card={null} colour={cardColour(hero, 'backdrop')} kind={hero.backdrop ? 'backdrop' : 'poster'} priority={1} sizes="100vw" /></HeroFrame>
         <div className="g-browse-hero-copy"><p className="g-browse-hero-context">In your library{hero.year ? ` · ${hero.year}` : ''}</p><h2>{hero.name}</h2>{hero.overview ? <p>{hero.overview}</p> : null}<Button data-route-focus-origin={store.focusIndex === -1 || undefined} data-browse-details onClick={() => { store.freeze(window.scrollY, -1); onOpen(hero); }}>Details</Button></div>
@@ -261,7 +262,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
             {CHIPS.map(([chip, label]) => <button aria-pressed={query[chip]} className="g-chip g-button-text" key={chip} onClick={() => refilter({ ...query, [chip]: !query[chip] })} type="button">{label}</button>)}
           </div>
         )}
-        {!def.search || videoBrowse ? null : phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}
+        {!def.search || videoBrowse ? null : <ContextualSearch label={searchLabel} fallback={phone && !searchOpen ? <button aria-label="Search" className="g-icon-button g-search-open" onClick={() => setSearchOpen(true)} ref={searchButton} type="button"><Search aria-hidden="true" /></button> : searchForm}>{searchForm}</ContextualSearch>}
         {!def.facets ? null : phone ? (
           <button aria-label={filterCount ? `Filters (${filterCount})` : 'Filters'} className="g-icon-button g-filters" onClick={() => setFiltersOpen(true)} ref={filtersButton} type="button">
             <SlidersHorizontal aria-hidden="true" />

@@ -27,7 +27,7 @@ beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); token = 1; });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('CommandPalette', () => {
-  it('hides unavailable results and Streaming actions while allowing a manual link', async () => {
+  it('hides unavailable results, Streaming actions and link acquisition when server Streaming is off', async () => {
     const youtube = vi.spyOn(api, 'youtubeSearch');
     vi.spyOn(api, 'searchLibrary').mockResolvedValue({ query: 'al', mode: 'lexical', matches: [match('m', 'Allowed movie'), match('s', 'Hidden show', 'shows')], items: [], index_generation: 1 } as never);
     const p = props({ navigation: { categories: ['movies'], features: { streaming: false, requests: false } } });
@@ -44,7 +44,8 @@ describe('CommandPalette', () => {
     await userEvent.clear(input());
     await userEvent.type(input(), 'https://example.test/video');
     await userEvent.keyboard('{Enter}');
-    expect(p.onOpenUrl).toHaveBeenCalledWith('https://example.test/video');
+    expect(p.onOpenUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole('option', { name: /Open link/ })).toBeNull();
   });
 
   it('fails closed for unavailable destination suggestions', async () => {

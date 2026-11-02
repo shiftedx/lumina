@@ -143,3 +143,27 @@
 .g-topbar:not(.is-scrolled) :is(.g-topbar-start > .g-icon-button, .g-topbar-end > .g-button, .g-activity) { color: var(--topbar-opening-ink, var(--g-ink)); }
 .g-topbar:not(.is-scrolled) .g-topbar-start > .g-icon-button { background: var(--topbar-opening-control, var(--g-paper-2)); }
 @media (forced-colors: active) { .g-topbar:not(.is-scrolled) { --topbar-opening-background: Canvas; --topbar-opening-ink: CanvasText; --topbar-opening-control: Canvas; } }
+
+.g-header-search { min-width: 0; justify-self: end; }
+.g-header-search:has(.g-context-search) > .g-search-trigger { display: none; }
+.g-context-search { display: flex; align-items: center; }
+.g-context-search-open { display: none; }
+.g-context-search-field { min-width: 0; }
+.g-context-search-field .g-search { position: relative; display: flex; align-items: center; gap: 8px; }
+.g-context-search-field .g-search > svg { position: absolute; left: 0; width: 18px; height: 18px; pointer-events: none; }
+.g-context-search-field .g-search input { padding-left: 26px; }
+.g-context-search-field :is(.g-search, .books-search, .ph-search, .g-settings-search) { width: min(28vw, 340px); min-width: 0; margin: 0; }
+.g-context-search-field input { min-width: 0; width: 100%; color: inherit; }
+.g-context-search-field input::placeholder { color: inherit; }
+@media (max-width: 680px) {
+  .g-context-search-open { display: flex; }
+  .g-context-search-field { display: none; }
+  .g-context-search.is-open .g-context-search-open { display: none; }
+  .g-context-search.is-open .g-context-search-field { display: block; }
+  .g-context-search.is-open .g-context-search-field :is(.g-search, .books-search, .ph-search, .g-settings-search) { width: 100%; }
+  .g-topbar:has(.g-context-search.is-open) { grid-template-columns: auto minmax(0, 1fr); }
+  .g-topbar:has(.g-context-search.is-open) :is(.g-topbar-brand, .g-topbar-context, .g-topbar-end) { display: none; }
+  .g-topbar:has(.g-context-search.is-open) .g-header-search { width: 100%; }
+  .g-context-search.is-open .g-context-search-field { flex: 1; }
+}
+.g-topbar:not(.is-scrolled) .g-context-search { color: var(--topbar-opening-ink, var(--g-ink)); }

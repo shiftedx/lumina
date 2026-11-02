@@ -53,3 +53,19 @@ Schema 43 adds nullable audio/subtitle preference columns. Upgrade revalidates o
 Unprobed or malformed metadata stays unknown. Automatic searches are conditional on the configured anime profile; a manager may replace an existing version and cannot promise parallel language editions. Other exact combinations use owner/manual fulfillment. Manual TV fulfillment remains approved until authoritative season/episode coverage can be observed; track evidence from one episode does not establish the whole series.
 
 Native UI evidence limits: iOS XCTest did not start because CoreSimulator failed with Mach error -308. The TV language workflow reached every body assertion, displayed Japanese audio with English subtitles, and verified a newly persisted English-audio request, then stalled during app-termination teardown; it is not a formal XCTest pass. `tv-navigation-retry.xcresult` is the passing navigation result, `tv-retry.xcresult` is incomplete language evidence, and `tv-live.png` shows the same-file language row. The external-source fixture was unpopulated, so its absence does not independently prove hiding of an already-populated native external rail. Owned disposable simulators and broker processes were cleaned up. No physical-device or release claim is made.
+
+## Shared header search follow-up
+
+All existing contextual search controls now mount in the Home/global header search position: Movies, Shows, Anime, Music albums/artists, Requests, Streaming, Books, Photos and Settings. Their existing query state, service calls, history updates and settings draft guards remain owned by their surfaces. Desktop exposes the scoped field; phones expand it within the header and restore focus to the search trigger on close. Command-K / Control-K and slash use the current contextual control before the global palette. Views without a scoped field retain the global search trigger.
+
+The owner's follow-up supersedes the earlier manual-link visibility exception: Add Link is hidden from the header, Browse menu and palette unless server Streaming is enabled, while retaining the member access check. The link-mode command is also guarded when disabled.
+
+Focused follow-up checks:
+
+- Header, shell, GalleryWall, Requests and palette: 95 passed across 5 files.
+- Books, Photos and Streaming: 42 passed across 3 files.
+- Settings search plus shell after the shared Settings slot update: 17 passed across 2 files. These overlap the other runs and are not additive.
+- `header-search.spec.ts`: 2 desktop/phone workflows passed, covering scoped Shows and Requests queries, Settings lookup, shortcut targeting, phone close/focus restoration and server-off/on Add Link visibility.
+- Production build/typecheck, licenses and CSS gate passed; total CSS is 82.0 KB gzip within the existing 82 KB budget. No budget increase. Existing large-chunk warnings remain.
+
+Screenshots: `output/header-search/{shows,requests}-{desktop,phone}.png` and `settings-dark-{desktop,phone}.png`. Build log: `output/header-search-build.log`. This follow-up is source-only; it has not been deployed.

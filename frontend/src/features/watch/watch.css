@@ -43,31 +43,40 @@
 .watch-episode-byline { margin: 0 0 6px; color: var(--g-ink-3); font-size: 13px; }
 .watch-episode-byline .g-text-button { min-height: var(--g-control); padding: 0; color: var(--g-gold-ink); font-size: inherit; }
 
-/* A movie or episode begins with the stage, then becomes its own title page below it. */
+/* Playing library media: compact identity/actions, continuation, then working details. */
 .watch-layout.is-library-title, .watch-layout.is-library-title.theater { display: block; }
-.watch-layout.is-library-title .watch-main, .watch-layout.is-library-title.theater .watch-main { display: block; }
-.watch-local-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: clamp(32px, 5vw, 72px); max-width: var(--g-page-width); margin: 0 auto; padding: clamp(28px, 4vw, 56px) 4px 0; align-items: start; }
-.watch-local-body:has(> .watch-local-continuation:empty) { grid-template-columns: minmax(0, 1fr); }
-.watch-local-story { display: grid; min-width: 0; max-width: 980px; grid-template-columns: 144px minmax(0, 1fr); gap: clamp(20px, 3vw, 40px); padding: 0; }
-.watch-local-story.is-episode { grid-template-columns: minmax(0, 1fr); }
-.watch-local-poster { width: 144px; overflow: hidden; aspect-ratio: 2 / 3; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
-.watch-local-poster > :is(img, .artwork-placeholder) { width: 100%; height: 100%; object-fit: cover; }
-.watch-local-copy { min-width: 0; }
-.watch-local-series { margin: 0 0 4px; }
-.watch-local-series .g-text-button { min-height: var(--g-control); color: var(--g-gold-ink); font: italic 600 18px / 1.25 var(--g-serif); text-decoration-thickness: 1px; }
-.watch-info .watch-local-title { max-width: 22ch; margin: 0; font: var(--g-type-media-title); letter-spacing: var(--g-track-display); text-wrap: balance; }
-.watch-local-meta { margin: 12px 0 0; color: var(--g-ink-3); font: var(--g-type-small); font-variant-numeric: tabular-nums; }
-.watch-local-synopsis { max-width: 68ch; margin: 20px 0 0; color: var(--g-ink-2); font: var(--g-type-body); white-space: pre-line; text-wrap: pretty; }
-.watch-local-synopsis.is-empty { color: var(--g-ink-3); font-style: italic; }
-.watch-local-actions { margin-top: 24px; }
-.watch-local-continuation { display: grid; min-width: 0; align-content: start; gap: 24px; padding-left: 28px; border-left: var(--g-rule); }
+.watch-layout.is-library-title .watch-main, .watch-layout.is-library-title.theater .watch-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); grid-template-rows: auto auto 1fr; gap: 16px 24px; align-items: start; }
+.watch-layout.is-library-title .watch-main:has(.watch-local-continuation:empty) { grid-template-columns: minmax(0, 1fr); }
+.watch-layout.is-library-title .player-frame { grid-column: 1 / -1; grid-row: 1; }
+.watch-local-body { display: contents; }
+.watch-info.watch-local-story { grid-column: 1; grid-row: 2; min-width: 0; margin-inline: 4px; padding: 0; }
+.watch-local-copy { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; }
+.watch-local-series { grid-column: 1; margin: 0; }
+.watch-local-series .g-text-button { min-height: 44px; color: var(--g-ink-2); font: var(--g-type-ui); }
+.watch-info .watch-local-title { grid-column: 1; max-width: none; margin: 0; font: 500 24px / 1.2 var(--g-serif); letter-spacing: -.01em; text-wrap: pretty; }
+.watch-local-meta { grid-column: 1; margin: 6px 0 0; color: var(--g-ink-2); font: var(--g-type-small); font-variant-numeric: tabular-nums; }
+.watch-local-actions { grid-column: 2; grid-row: 1 / span 3; align-self: start; margin: 0; gap: 4px; }
+.watch-local-copy > .share-feedback { grid-column: 1 / -1; }
+.watch-local-continuation { grid-column: 2; grid-row: 2 / span 2; display: grid; min-width: 0; align-content: start; gap: 12px; }
 .watch-local-continuation:empty { display: none; }
 .watch-local-continuation .chat-rail { margin-top: 0; }
-.watch-local-empty-next { margin: 0; color: var(--g-ink-2); font: var(--g-type-body); }
-.watch-local-empty-next .g-text-button { margin-top: 8px; }
-.watch-local-tools { max-width: var(--g-page-width); margin: clamp(32px, 5vw, 64px) auto 0; padding: 0 4px; border-top: var(--g-rule); }
+.watch-local-tools { grid-column: 1; grid-row: 3; min-width: 0; margin-inline: 4px; }
 .watch-local-tools .watch-tools { margin-top: 0; }
 .watch-local-tools .watch-tools-tabs { border-top: 0; }
+.watch-local-tools .watch-tools-tabs.g-tabs { flex-wrap: nowrap; overflow-x: auto; }
+.watch-media-details { display: grid; gap: 4px; padding-block: 12px; }
+.watch-media-details dl { margin: 0; }
+.watch-file-name div { display: flex; gap: 12px; align-items: baseline; }
+.watch-media-details dt { color: var(--g-ink-3); font: var(--g-type-small); }
+.watch-media-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--g-ink); font: var(--g-type-ui); }
+.watch-description-disclosures { display: flex; flex-wrap: wrap; column-gap: 24px; }
+.watch-description-disclosures > details[open] { flex-basis: 100%; }
+.watch-file { display: grid; gap: 4px; }
+.watch-file-facts { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.watch-file-facts > div { display: grid; gap: 4px; }
+.watch-media-details summary { width: fit-content; min-height: 44px; align-content: center; color: var(--g-ink-2); font: var(--g-type-ui); cursor: pointer; }
+.watch-file-history > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; padding-block: 4px; }
+.watch-media-details :is(p, .description-timestamps) { max-width: 70ch; margin: 4px 0 12px; color: var(--g-ink-2); font: var(--g-type-small); white-space: pre-line; }
 @media (max-width: 1240px) {
   .watch-layout, .watch-layout.theater { grid-template-columns: minmax(0, 1fr) 288px; gap: 20px; }
 }
@@ -77,8 +86,8 @@
   .watch-layout.theater .player-frame, .watch-layout.theater .watch-info, .watch-layout.theater .watch-tools, .watch-layout.theater .watch-rail { grid-column: auto; grid-row: auto; }
   .watch-layout { grid-template-columns: 1fr; }
   .watch-rail { margin-top: 20px; }
-  .watch-local-body { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  .watch-local-continuation { padding: 24px 0 0; border-top: var(--g-rule); border-left: 0; }
+  .watch-layout.is-library-title .watch-main, .watch-layout.is-library-title.theater .watch-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 12px; }
+  .watch-local-continuation, .watch-local-tools { grid-column: auto; grid-row: auto; }
 }
 @media (max-width: 680px) {
   .watch-surface:not(.watch-mini) { padding-top: 8px; }
@@ -88,13 +97,13 @@
   .watch-byline { flex-wrap: wrap; }
   .watch-byline .g-button { width: calc(100% - 48px); margin-left: 48px; flex: 0 0 calc(100% - 48px); }
   .watch-actions { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .watch-local-body { gap: 28px; padding-top: 24px; }
-  .watch-local-story { grid-template-columns: 88px minmax(0, 1fr); gap: 16px; }
-  .watch-local-poster { width: 88px; }
-  .watch-local-story.is-film .watch-local-copy { display: contents; }
-  .watch-local-story.is-film .watch-local-poster { grid-row: 1 / span 2; }
-  .watch-local-story.is-film .watch-local-synopsis, .watch-local-story.is-film .watch-local-actions, .watch-local-story.is-film .share-feedback { grid-column: 1 / -1; }
-  .watch-local-actions > :is(.g-button, .g-text-button, .download-control) { justify-content: center; }
+  .watch-local-copy { display: block; }
+  .watch-info .watch-local-title { font-size: 22px; }
+  .watch-local-actions { display: flex; width: auto; margin-top: 8px; }
+  .watch-local-actions > :is(.g-button, .g-text-button, .download-control) { justify-content: flex-start; }
+  .watch-local-tools { margin-top: 12px; }
+  .watch-local-tools .watch-tools-tabs.g-tabs { gap: 8px; }
+  .watch-file-facts { gap: 12px 20px; }
   .description-card { padding: 13px; }
 }
 @media (min-width: 1600px) {
@@ -165,3 +174,5 @@
 @media (max-width: 680px) {
   .watch-surface:not(.watch-mini) .player-frame { width: calc(100% + 2 * var(--g-gutter)); max-width: calc(100% + 2 * var(--g-gutter)); margin-left: calc(-1 * var(--g-gutter)); }
 }
+
+.watch-mini .watch-layout.is-library-title .watch-main { display: block; }

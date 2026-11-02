@@ -29,6 +29,9 @@ test('an episode lists the rest of its show in order and plays the next one when
   const continuation = await page.locator('.watch-local-continuation').boundingBox();
   expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
   expect(continuation!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
+  const story = (await page.locator('.watch-local-story').boundingBox())!;
+  const tools = (await page.locator('.watch-local-tools').boundingBox())!;
+  expect(tools.y - story.y - story.height).toBeLessThanOrEqual(28);
   await expect(page.getByRole('heading', { name: /Your queue/ })).toHaveCount(0);
   await expect(page.getByText(/Related videos appear here/)).toHaveCount(0);
   await page.locator('video').first().evaluate((media: HTMLVideoElement) => media.dispatchEvent(new Event('ended')));
@@ -123,3 +126,49 @@ test('picture-in-picture stays open while autoplay moves to the next episode', a
   })).toBe(true);
   expect(await page.evaluate(() => navigator.mediaSession?.metadata?.title)).toBeTruthy();
 });
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const kind of ['movie', 'episode'] as const) {
+    test(`compact ${kind} details keep facts and actions without filler at ${viewport.width}px`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: kind === 'movie' ? 'light' : 'dark', reducedMotion: 'reduce' });
+      await page.setViewportSize(viewport);
+      await mockApi(page, {});
+      await mockTitles(page);
+      const itemId = kind === 'movie' ? 'item-movie-4k' : 'item-ep-2-3';
+      await page.route(`**/api/library/${itemId}/provenance`, (route) => route.fulfill({ json: {
+        origin: 'imported', provider: null, original_url: null, channel: 'Library series', channel_url: null,
+        uploaded_on: null, saved_at: '2026-10-01T00:00:00Z', storage_label: 'Media', storage_mode: 'external', media_state: 'available',
+        file_size: 1024 ** 3, format: { container: 'matroska', video_codec: 'hevc', audio_codec: 'aac', width: 1920, height: 1080 }, notes_count: 0,
+        related: [{ reason: 'same_channel', name: 'Library series', count: 8, items: [{ id: 'duplicate', title: 'Duplicate episode from source' }] }],
+      } }));
+      await page.goto(`/watch/library/${itemId}`);
+      await signIn(page);
+      await expect(page.locator('.watch-local-title')).toBeVisible();
+      const details = page.getByRole('tabpanel', { name: 'Details', exact: true });
+      await expect(details.getByText('1920×1080 · HEVC')).toBeVisible();
+      await expect(details.getByText('AAC', { exact: true })).toBeVisible();
+      await expect(details.getByText('1.0 GB', { exact: true })).toBeVisible();
+      await expect(page.getByText('No synopsis available.')).toHaveCount(0);
+      await expect(page.getByText(/No next episode in your library/)).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Duplicate episode from source' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible();
+      if (kind === 'episode') await expect(page.getByRole('button', { name: 'See all episodes' })).toBeVisible();
+      else {
+        await expect(details.getByText(movieTitle.overview as string)).toBeHidden();
+        await details.getByText('Synopsis', { exact: true }).click();
+        await expect(details.getByText(movieTitle.overview as string)).toBeVisible();
+        await details.getByText('Synopsis', { exact: true }).click();
+      }
+      await expect(details.getByText('Imported from Media')).toBeHidden();
+      await details.getByText('Source history', { exact: true }).click();
+      await expect(details.getByText('Imported from Media')).toBeVisible();
+      await details.getByText('Source history', { exact: true }).click();
+      const frame = (await page.locator('.player-frame').boundingBox())!;
+      const title = (await page.locator('.watch-local-title').boundingBox())!;
+      expect(title.y - frame.y - frame.height).toBeLessThan(64);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.locator('.watch-local-story').evaluate((element) => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 100));
+      await page.screenshot({ path: `../output/playwright/watch-details-${kind}-${viewport.width}.png` });
+    });
+  }
+}

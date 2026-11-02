@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -49,4 +49,21 @@ describe('ProvenancePanel', () => {
     expect(screen.queryByText(/Youtube/)).toBeNull();
     expect(screen.queryByText('Notes')).toBeNull();
   });
+});
+
+it('keeps library file facts scannable, with source history disclosed and catalog navigation left to episodes', async () => {
+  api.getProvenance.mockResolvedValue({ ...saved, origin: 'imported', original_url: null });
+  render(<ProvenancePanel compact itemId="film" />);
+  const file = await screen.findByRole('region', { name: 'Media file' });
+  expect(within(file).getByText('1920×1080 · H264')).toBeTruthy();
+  expect(within(file).getByText('AAC')).toBeTruthy();
+  expect(within(file).getByText('MOV')).toBeTruthy();
+  expect(within(file).getByText('1.4 MB')).toBeTruthy();
+  const origin = within(file).getByText('Imported from Library');
+  const history = origin.closest('details')!;
+  expect(history.open).toBe(false);
+  expect(within(file).queryByRole('link', { name: 'Sibling film' })).toBeNull();
+  await userEvent.click(within(file).getByText('Source history'));
+  expect(history.open).toBe(true);
+  expect(origin.textContent).toBe('Imported from Library');
 });

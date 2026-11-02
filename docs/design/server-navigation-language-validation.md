@@ -1,6 +1,6 @@
 # Server navigation and language-specific requests
 
-Implementation branch: `codex/server-driven-media-requests`. This integrates the approved web work and native Home/navigation changes onto the current application base without changing the prototype branches. No deployment or native release is part of this revision.
+Implementation branch: `codex/server-driven-media-requests`. This integrates the approved web work and native Home/navigation changes onto the current application base without changing the prototype branches. The owner subsequently authorized the production server rollout recorded below. No native release was uploaded.
 
 ## Packet ownership and status
 
@@ -68,4 +68,22 @@ Focused follow-up checks:
 - `header-search.spec.ts`: 2 desktop/phone workflows passed, covering scoped Shows and Requests queries, Settings lookup, shortcut targeting, phone close/focus restoration and server-off/on Add Link visibility.
 - Production build/typecheck, licenses and CSS gate passed; total CSS is 82.0 KB gzip within the existing 82 KB budget. No budget increase. Existing large-chunk warnings remain.
 
-Screenshots: `output/header-search/{shows,requests}-{desktop,phone}.png` and `settings-dark-{desktop,phone}.png`. Build log: `output/header-search-build.log`. This follow-up is source-only; it has not been deployed.
+Screenshots: `output/header-search/{shows,requests}-{desktop,phone}.png` and `settings-dark-{desktop,phone}.png`. Build log: `output/header-search-build.log`. This follow-up was initially source-only; its production deployment is recorded below.
+
+
+## Production rollout and navigation recovery
+
+Production application revision: `b90a5532731a30ec427e7ace6404ffebce79e14b`. The spotlight count now appears at the bottom-right of its artwork, outside the account/header area; normal poster badges retain their placement. The desktop/phone badge regression passed before and after scrolling (2 workflows).
+
+The initial rollout exposed a navigation performance regression on the production-scale catalog: a correlated OR query timed out, causing optional destinations to fail closed and appear empty. The prior working application was restored without deleting data; the additive schema was stamped back to 42 while retaining its new columns. The corrected query follows indexed title/item links. A restricted/unrestricted 1,500-series regression fails against the former query and passes against the fix; focused native/web navigation contracts passed (5 tests). A separate 20,000-series synthetic call took 0.070 seconds locally. The corrected function returned the actual production navigation in 0.040 seconds before final deployment.
+
+Final rollout evidence:
+
+- Complete backend/frontend application source deployed over a verified unchanged runtime: dependency locks, entrypoint and runtime support programs matched the previous image. 398 application files hash-verified.
+- Private database/key backup retained. A disk-backed isolated copy passed schema 42 → 43 and focused integrity checks on the migrated settings/request tables before the live upgrade. Full-catalog integrity scans were stopped in favor of those focused checks; no full-database integrity result is claimed.
+- Compose configuration changed only the image. Environment values, mounts, startup configuration, host settings, networks and proxy labels verified unchanged. Environment order is insignificant and is compared as a mapping.
+- Live container healthy, zero restarts. Public Home/video/Shows/Requests/settings/manage/health routes returned 200; unauthenticated navigation, Requests quota and session routes returned 401. Nine public entry assets matched the build hashes.
+- Authenticated production browser proof confirmed the populated hero, actual library cards and all configured destinations, hidden Streaming/Add Link, and the featured-series badge below the header. Complete workflow: 1.376 seconds. Its temporary verification session was removed.
+- All 25 retained rollback pins stopped. Owned disposable migration database copies removed; actual backups and rollback images retained. Existing canary/review containers, media mounts and native release packages were untouched.
+
+Ignored proof files live under `output/production-rollout/`: `verification.json`, `public-verification.json`, `browser-verification.json`, `navigation-production-timing.json`, `production-all-video.png` and `production-libraries-restored.png`. These screenshots contain owner library content and are not committed. Local synthetic badge captures are under `output/badge-containment/`.

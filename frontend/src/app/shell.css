@@ -88,8 +88,8 @@
 
 .g-topbar { padding-inline: 30px; }
 .g-topbar-start { gap: 16px; }
-.g-topbar-start > .g-icon-button { flex: none; border-radius: 50%; background: var(--g-paper-2); color: var(--g-ink); }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: fixed; inset: 0 0 auto; --topbar-opening-background: color-mix(in srgb, var(--g-overlay-halo) 12%, transparent); --topbar-opening-ink: var(--g-on-art); --topbar-activity-track: var(--g-overlay-track); --topbar-opening-control: color-mix(in srgb, var(--g-overlay-halo) 20%, transparent); }
+.g-topbar-start > .g-icon-button { flex: none; border-radius: 0; background: transparent; color: var(--g-ink); }
+.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { position: fixed; inset: 0 0 auto; --topbar-opening-background: color-mix(in srgb, var(--g-overlay-halo) 12%, transparent); --topbar-opening-ink: var(--g-on-art); --topbar-activity-track: var(--g-overlay-track); }
 .g-profile-trigger .g-avatar { font-family: var(--g-sans); font-style: normal; }
 .g-nav-item { min-height: 48px; border-radius: 10px; }
 .g-nav-group-label { margin-block: 12px 8px; font: var(--g-type-small); }
@@ -140,8 +140,7 @@
 .g-topbar:not(.is-scrolled) .g-topbar-context { color: var(--topbar-opening-ink, var(--g-ink-2)); }
 .g-topbar:not(.is-scrolled) .g-search-trigger { color: var(--topbar-opening-ink, var(--g-ink-3)); }
 .g-topbar:not(.is-scrolled) :is(.g-topbar-start > .g-icon-button, .g-topbar-end > .g-button, .g-activity) { color: var(--topbar-opening-ink, var(--g-ink)); }
-.g-topbar:not(.is-scrolled) .g-topbar-start > .g-icon-button { background: var(--topbar-opening-control, var(--g-paper-2)); }
-@media (forced-colors: active) { .g-topbar:not(.is-scrolled) { --topbar-opening-background: Canvas; --topbar-opening-ink: CanvasText; --topbar-opening-control: Canvas; } }
+@media (forced-colors: active) { .g-topbar:not(.is-scrolled) { --topbar-opening-background: Canvas; --topbar-opening-ink: CanvasText; } }
 
 .g-header-search { min-width: 0; justify-self: end; }
 .g-header-search:has(.g-context-search) > .g-search-trigger { display: none; }

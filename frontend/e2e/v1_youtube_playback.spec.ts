@@ -64,7 +64,7 @@ async function openWatch(page: Page) {
   await signIn(page);
 }
 
-test('test_youtube_playback_seek_resume_quality', async ({ page }) => {
+test('test_youtube_playback_seek_resume_quality', async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -98,8 +98,32 @@ test('test_youtube_playback_seek_resume_quality', async ({ page }) => {
   // Quality switch: actual chosen quality is shown, position survives, one media element.
   await video.evaluate((m: HTMLVideoElement) => { m.pause(); m.currentTime = 5; });
   await page.locator('[data-lumina-player="true"]').hover();
-  const quality = page.getByLabel('Remote playback quality');
+  const quality = page.getByRole('combobox', { name: 'Remote playback quality' });
   await expect(quality).toHaveText('720p');
+  // Both text selectors keep a flat gold underline while open, including on phones.
+  for (const width of [1536, 390]) {
+    await page.setViewportSize({ width, height: 960 });
+    for (const control of [quality, page.getByRole('combobox', { name: 'Playback speed' })]) {
+      await control.click();
+      await expect(control).toHaveAttribute('aria-expanded', 'true');
+      expect(await control.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const probe = document.createElement('i');
+        probe.style.color = 'var(--g-gold)';
+        element.append(probe);
+        const gold = getComputedStyle(probe).color;
+        probe.remove();
+        return style.borderRadius === '0px' && style.borderBottomColor === gold
+          && style.borderBottomWidth === '2px' && style.backgroundColor === 'rgba(0, 0, 0, 0)'
+          && element.getBoundingClientRect().height >= 44;
+      })).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`selector-${width}-${await control.getAttribute('aria-label')}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(control).toBeFocused();
+      expect(await control.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid');
+    }
+  }
+  await page.setViewportSize({ width: 1536, height: 960 });
   await chooseSelect(page, quality, '360p');
   expect(selections).toEqual(['r360']);
   await expect(quality).toHaveText('360p');

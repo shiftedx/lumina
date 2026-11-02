@@ -49,7 +49,7 @@
 .player-progress-stack [data-chapter-marker='true'].active { background: var(--g-gold); box-shadow: none; }
 .player-progress-stack [data-moment-origin]:not(.active) { background: var(--g-overlay-ink); }
 .player-rate-control { display: inline-flex; min-height: var(--player-control-size); align-items: center; }
-.player-controls .player-rate-control .g-select-trigger { display: flex; width: auto; min-width: var(--player-control-size); min-height: var(--player-control-size); padding: 0 6px; border: 0; border-radius: var(--g-radius); background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.player-controls .player-rate-control .g-select-trigger { display: flex; width: auto; min-width: var(--player-control-size); min-height: var(--player-control-size); padding: 0 6px; border: 0; border-radius: 0; background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .player-notice { position: absolute; bottom: calc(100% + 4px); left: 12px; max-width: calc(100% - 24px); margin: 0; padding: 7px 11px; border-radius: var(--g-radius-sheet); background: var(--g-overlay-panel); color: var(--g-overlay-ink); font: var(--g-type-small); }
 .player-volume-control { display: flex; align-items: center; }
 .player-volume-control label { display: grid; width: 0; min-width: 0; height: var(--g-control); align-items: center; overflow: hidden; }
@@ -61,7 +61,10 @@
 .quality-control > svg { width: 19px; height: 19px; margin-left: 9px; pointer-events: none; }
 .quality-control .quality-select { display: inline-flex; min-height: var(--player-control-size); align-items: center; }
 .player-controls .quality-control .g-select-trigger { display: flex; width: auto; min-width: var(--player-control-size); min-height: var(--player-control-size); max-width: 92px; padding: 0 20px 0 5px; border: 0; outline: 0; background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-weight: 600; }
-.quality-control .g-select-trigger:focus-visible { border-radius: var(--g-radius); outline: var(--g-focus-width) solid var(--g-overlay-focus); outline-offset: -2px; }
+/* Text selectors use the shared gold underline, not the circular icon-button treatment. */
+.player-controls :is(.quality-control, .player-rate-control) .g-select-trigger { border-bottom: 2px solid transparent; border-radius: 0; box-shadow: none; }
+.player-controls :is(.quality-control, .player-rate-control) .g-select-trigger:is(:hover, :focus-visible, [aria-expanded='true']) { border-bottom-color: var(--g-gold); background: transparent; }
+.quality-control .g-select-trigger:focus-visible { outline: var(--g-focus-width) solid var(--g-overlay-focus); outline-offset: -2px; }
 .player-rate-control .g-select-listbox, .quality-control .g-select-listbox, .player-panel .g-select-listbox { background: var(--g-overlay-panel); color: var(--g-overlay-ink); }
 .player-rate-control .g-select-option, .quality-control .g-select-option, .player-panel .g-select-option { color: var(--g-overlay-ink); }
 .player-rate-control .g-select-option:is(.is-active, .is-selected), .quality-control .g-select-option:is(.is-active, .is-selected), .player-panel .g-select-option:is(.is-active, .is-selected) { background: var(--g-overlay-hover); }

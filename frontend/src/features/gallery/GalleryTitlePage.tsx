@@ -57,7 +57,7 @@ export type GalleryTitlePageProps = {
   onBack: (type: TitleType | null, category?: TitleCategory | null) => void;
   onPlay: (itemId: string, startSeconds?: number) => void;
   onOpenTitle: (title: TitleSummary) => void;
-  onSearch: (query: string) => void;
+  onSearch: (query: string, title: TitleSummary) => void;
   onSeason: (season: number) => void;
   onPlayArtist?: (id: string, shuffle: boolean) => void;
   onWatchVideo?: (url: string, itemId?: string) => void;
@@ -307,7 +307,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
           {data.type === 'movie' || data.type === 'series' ? <KeyScenes onPlay={onPlay} title={data} /> : null}
           {data.type === 'boxset'
             ? <PosterRow heading="In this collection" headingId="t-collection-heading" onOpenTitle={onOpenTitle} titles={data.children} />
-            : <Cast onSearch={onSearch} people={castOf(data.people)} />}
+            : <Cast onSearch={(query) => onSearch(query, data)} people={castOf(data.people)} />}
           <Extras extras={data.extras.filter((extra) => extra !== trailer)} onPlay={onPlay} />
           <PosterRow heading="More like this" headingId="t-similar-heading" onOpenTitle={onOpenTitle} titles={similar.data ?? []} />
         </>

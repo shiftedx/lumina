@@ -481,3 +481,34 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   }
 }
+
+for (const [lens, options] of [['movies', movieOptions], ['shows', showOptions], ['anime', { ...showOptions, detail: { ...showOptions.detail, category: 'anime' as const } }]] as const) {
+  test(`cast click opens matching ${lens} library content with Streaming disabled`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockApi(page, {});
+    await mockTitles(page);
+    await mockGalleryTitle(page, options);
+    await page.route('**/api/navigation', (route) => route.fulfill({ json: { categories: ['movies', 'tv', 'anime'], features: { streaming: false, requests: false } } }));
+    const query = 'Mara Quill';
+    const match = lens === 'movies' ? movieSummary('actor-match', { name: 'Another lighthouse film' }) : seriesSummary('actor-match', { name: 'Another lighthouse show', category: lens === 'anime' ? 'anime' : 'shows' });
+    await page.route('**/api/titles/actor-match', (route) => route.fulfill({ json: titleDetail(match) }));
+    const searches: URL[] = [];
+    await page.route('**/api/search?*', (route) => {
+      searches.push(new URL(route.request().url()));
+      return route.fulfill({ json: { query, mode: 'lexical', matches: [{ kind: 'title', id: match.id, title: match.name, score: 1, lexical_score: 1, semantic_score: 0, match_mode: 'lexical', title_id: match.id, media_title: match }], items: [], index_generation: 1 } });
+    });
+    await page.goto(`/video/title/${options.detail.id}`);
+    await signIn(page);
+    await page.getByRole('region', { name: 'Cast' }).getByRole('button', { name: /Mara Quill/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/video/${lens}\\?q=Mara(?:\\+|%20)Quill$`));
+    await expect(page.getByRole('heading', { name: `Results for “${query}”` })).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(`^${match.name}`) })).toBeVisible();
+    expect(searches.some((url) => url.searchParams.get('q') === query && url.searchParams.get('scope') === lens)).toBe(true);
+    await expect(page.getByText("This library or feature isn't available right now")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: `Results for “${query}”` })).toBeVisible();
+    await page.getByRole('button', { name: new RegExp(`^${match.name}`) }).click();
+    await expect(page).toHaveURL(/\/video\/title\/actor-match$/);
+    await expect(page.getByRole('heading', { level: 1, name: match.name })).toBeVisible();
+  });
+}

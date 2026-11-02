@@ -137,6 +137,7 @@ def test_native_streaming_capability_requires_admin_opt_in_and_member_provider_a
         user.role = "admin"
     assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": True, "youtube_session_enabled": True}
     set_native_streaming_enabled(False)
+    assert call(native, "GET", "/navigation").json()["features"]["streaming"] is False
     assert streaming_capabilities(call(native, "GET", "/capabilities")) == {"streaming_enabled": False, "youtube_session_enabled": False}
 
 

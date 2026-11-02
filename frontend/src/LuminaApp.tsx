@@ -12,7 +12,7 @@ import { RecoFeedbackProvider } from './features/reco/recoFeedback';
 import { ArtActionsProvider } from './features/gallery/ArtMenu';
 import { followHadSuppression, type RecoFeedback, type RecoTarget, relatedDropPredicate } from './features/reco/recoModel';
 import { classifySessionLoadProblem, type CollectionLoadProblem, type CollectionLoadState, type PlaybackPrefs, useAuthenticatedWorkspace } from './workspace';
-import { isUrl, readString, withHistoryEntry } from './luminaModel';
+import { canDeleteLibraryFile, isUrl, readString, withHistoryEntry } from './luminaModel';
 import { createSessionGuardedChannelSubscriptionCommands, findChannelBySource, normalizeChannelAddress, resolveChannelAddressCandidate } from './channelSubscriptions';
 import { LibraryCurationControls } from './LibraryCurationControls';
 import { SourceSettings } from './SourceSettings';
@@ -106,6 +106,7 @@ if (typeof window !== 'undefined' && window.location.pathname.startsWith('/watch
 // Home remains the common landing route; preloading it preserves that path while other direct routes avoid its gallery code.
 if (typeof window !== 'undefined' && window.location.pathname === '/') HomeSurface.preload();
 const SettingsSurface = preloadableSurface(() => import('./features/settings/SettingsSurface').then((module) => module.SettingsSurface));
+const StillWall = lazy(() => import('./features/gallery/StillWall').then((module) => ({ default: module.StillWall })));
 const WelcomeSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.WelcomeSurface })));
 const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.OnboardingSurface })));
 const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.ChannelDiscoveryStep })));
@@ -150,6 +151,7 @@ const CommandPalette = preloadableSurface(() => import('./features/palette/Comma
 /** Where inside Library the member is: a lens with its wall query (none: All), or one title page. */
 type LibraryLocation = { view?: LibraryLens; wall?: string; titleId?: string; season?: number; edit?: boolean; tab?: EditorTab; collections?: 'list' | 'detail'; collectionId?: string; create?: 'collection' | 'smart' };
 function libraryLocationOf(route: AppRoute): LibraryLocation {
+  if (route.surface === 'streaming' && route.view === 'library') return { view: 'youtube', wall: route.wall };
   if (route.surface !== 'library' && route.surface !== 'video' && route.surface !== 'audio') return {};
   if ('titleId' in route && 'edit' in route) return route.tab ? { titleId: route.titleId, edit: true, tab: route.tab } : { titleId: route.titleId, edit: true };
   if ('titleId' in route) return route.season === undefined ? { titleId: route.titleId } : { titleId: route.titleId, season: route.season };
@@ -903,7 +905,7 @@ export default function LuminaApp() {
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
   function navigate(next: Surface, confirmed = false, resetScroll = true) { choiceRequestRef.current += 1; setResumeChoice(null); navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else if (resetScroll) window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
-  function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
+  function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); setLibraryLocation(location); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
   function restoreBrowsingAddress() {
     const path = currentPath ?? '/';
@@ -934,6 +936,7 @@ export default function LuminaApp() {
       if ('youtubeChannelId' in route) setChannelPage({ id: route.youtubeChannelId, tab: route.tab ?? 'videos' });
       if ('channelUrl' in route) setChannelPage({ url: route.channelUrl });
       if (route.surface === 'streaming') {
+        if (route.view === 'library') setLibraryLocation({ view: 'youtube', wall: route.wall });
         setStreamingView(route.view === 'search' ? 'home' : route.view); setStreamingProvider(route.provider ?? 'youtube');
         if (route.rail) (route.view === 'live' ? setLiveRail : setExploreRail)(route.rail);
       }
@@ -1204,7 +1207,7 @@ export default function LuminaApp() {
   const streamingRoute: AppRoute = (() => {
     const view = streamingView === 'search' && !exploreQuery ? 'home' : streamingView;
     const rail = view === 'live' ? liveRail : view === 'home' ? exploreRail : null;
-    return { surface: 'streaming', view, ...(streamingProvider !== 'youtube' ? { provider: streamingProvider } : {}), ...(view === 'search' ? { query: exploreQuery } : {}), ...(rail ? { rail } : {}) };
+    return { surface: 'streaming', view, ...(view === 'library' && libraryLocation.wall ? { wall: libraryLocation.wall } : {}), ...(streamingProvider !== 'youtube' ? { provider: streamingProvider } : {}), ...(view === 'search' ? { query: exploreQuery } : {}), ...(rail ? { rail } : {}) };
   })();
   const currentRoute: AppRoute | null = surface === 'watch'
     ? watchSelection?.kind === 'library' ? { surface: 'watch', libraryId: watchSelection.item.id }
@@ -1730,7 +1733,7 @@ export default function LuminaApp() {
   const upNextExclusions = recentRemoteSources();
   const channelsElement = <ChannelsSurface channelId={channelId} channels={channelAutomations} commands={subscriptionCommands} isQueueing={acquisition.isQueueing} library={state.library} onAutomationChange={handleAutomationChange} onAutomationRemoved={handleAutomationRemoved} onExplore={() => openRoute({ surface: 'streaming', view: 'home' })} onOpen={openRemoteStable} onOpenChannel={(id) => { setChannelId(id); setSurface(id ? 'subscriptions' : 'streaming'); setStreamingView('channels'); window.scrollTo({ top: 0 }); }} onQueue={queueRemoteStable} onRecover={recoverSubscription} onRetry={() => { subscriptionRetryFocusRequestedRef.current = true; setSubscriptionRefreshGeneration((generation) => generation + 1); }} outcomes={subscriptionOutcomes} live={liveDiscovery} refreshing={subscriptionRefreshing} />;
   // Twitch on / Kick off until the member's choices resolver supplies the list.
-  const streamingElement = <StreamingSurface channels={channelsElement} fromChannels={subscriptionVideos} explore={{ error: exploreError, isQueueing: acquisition.isQueueing, library: state.library, loading: exploreLoading, onOpen: openRemoteStable, onOpenTitle: openTitleStable, onQueue: queueRemoteStable, onSearch: runExploreStable, popular: popularDiscovery, popularError: popularDiscoveryError, libraryResults: exploreResults.library, onLoadMore: exploreResults.limit < EXPLORE_MAX && exploreResults.items.length >= exploreResults.limit ? loadMoreExploreStable : undefined, onOpenLibrary: openLibraryStable, query: exploreQuery, results: exploreResults.items, sourceErrors: exploreResults.errors, titleResults: exploreResults.titles, rail: exploreRail, onRailChange: setExploreRail }} live={{ channels: channelAutomations, error: liveDiscoveryError, isQueueing: acquisition.isQueueing, library: state.library, onOpen: openRemoteStable, onQueue: queueRemoteStable, onRailChange: setLiveRail, onRetry: () => setLiveGeneration((value) => value + 1), rail: liveRail, settings: { commands: subscriptionCommands, onChange: handleAutomationChange, onRecover: recoverSubscription, onRemoved: handleAutomationRemoved }, snapshot: liveDiscovery }} onNavigate={(next) => openRouteStable({ surface: 'streaming', ...next })} provider={streamingProvider} providers={(['youtube', ...state.preferences.streamingProviders] as StreamingProvider[]).filter((kind) => !providerBlocked(access, kind))} query={exploreQuery} rail={(streamingView === 'live' ? liveRail : exploreRail) ?? undefined} view={streamingView} />;
+  const streamingElement = <StreamingSurface discoveryEnabled={streamingEnabled} library={<StillWall embedded kind="video" shape="still" wall={libraryLocation.wall} onWallChange={(wall) => openRouteStable({ surface: 'streaming', view: 'library', wall })} count={null} header={<h2>Saved videos</h2>} canDelete={(item) => canDeleteLibraryFile(item, state.currentUser!)} onItemChanged={libraryItemChangedStable} onPlay={openLibraryStable} />} channels={channelsElement} fromChannels={subscriptionVideos} explore={{ error: exploreError, isQueueing: acquisition.isQueueing, library: state.library, loading: exploreLoading, onOpen: openRemoteStable, onOpenTitle: openTitleStable, onQueue: queueRemoteStable, onSearch: runExploreStable, popular: popularDiscovery, popularError: popularDiscoveryError, libraryResults: exploreResults.library, onLoadMore: exploreResults.limit < EXPLORE_MAX && exploreResults.items.length >= exploreResults.limit ? loadMoreExploreStable : undefined, onOpenLibrary: openLibraryStable, query: exploreQuery, results: exploreResults.items, sourceErrors: exploreResults.errors, titleResults: exploreResults.titles, rail: exploreRail, onRailChange: setExploreRail }} live={{ channels: channelAutomations, error: liveDiscoveryError, isQueueing: acquisition.isQueueing, library: state.library, onOpen: openRemoteStable, onQueue: queueRemoteStable, onRailChange: setLiveRail, onRetry: () => setLiveGeneration((value) => value + 1), rail: liveRail, settings: { commands: subscriptionCommands, onChange: handleAutomationChange, onRecover: recoverSubscription, onRemoved: handleAutomationRemoved }, snapshot: liveDiscovery }} onNavigate={(next) => openRouteStable({ surface: 'streaming', ...next })} provider={streamingProvider} providers={(['youtube', ...state.preferences.streamingProviders] as StreamingProvider[]).filter((kind) => !providerBlocked(access, kind))} query={exploreQuery} rail={(streamingView === 'live' ? liveRail : exploreRail) ?? undefined} view={streamingView} />;
   const gate = watchGate(accessValue);
   const surfaceContent = surface === 'home' ? <HomeSurface navigation={navigation} channels={channelAutomations} continueWatching={state.continueWatching} homeShelves={state.preferences.homeShelves} interests={memberInterests} isQueueing={acquisition.isQueueing} library={state.library} libraryProblem={state.libraryProblem} libraryRetrying={state.libraryRetrying} libraryState={state.libraryState} onHideContinueWatching={hideContinueWatchingStable} onHomeShelvesChange={homeShelvesChangeStable} onNavigate={(next) => { if (next === 'settings') openRoute({ surface: 'settings' }); else navigateStable(next); }} onOpenLibrary={openLibraryStable} onOpenQueued={openQueuedStable} onOpenRemote={openRemoteStable} onOpenRoute={openRouteStable} onOpenTitle={openTitleStable} onPersonalize={openInterestSettingsStable} onPlay={openLibraryIdStable} onQueueRemote={queueRemoteStable} onRestoreContinueWatching={restoreContinueWatchingStable} onRetryLibrary={retryLibrary} onRetryRecommendations={retryRecommendations} onSignIn={returnToSignIn} recentLibrary={state.libraryRecent} recommendationError={homeRecommendationsError} recommendations={homeRecommendations} recommendationsLoading={homeRecommendationsLoading} subscriptionOutcomes={subscriptionOutcomes} subscriptionVideos={subscriptionVideos} user={state.currentUser} />
     : surface === 'streaming' ? streamingElement
@@ -1757,7 +1760,7 @@ export default function LuminaApp() {
   const categoryUnavailable = ['video', 'library'].includes(surface) && !libraryDetail && ['movies', 'tv', 'anime', 'youtube', 'recordings'].includes(categoryKey ?? '') && !navigation?.categories.some((category) => category === categoryKey);
   const content = surface === 'watch' && gate ? <WatchStopState gate={gate} onHome={() => navigate('home')} until={access?.until ?? null} />
     : (!isNavigationSurfaceAvailable(navigation, surface) || categoryUnavailable) && !libraryDetail && !(surface === 'books' && booksRoute.view === 'read') ? (navigation ? <BlockedSurface what="This library or feature" /> : surfaceLoading)
-    : (surface === 'streaming' || surface === 'subscriptions') && allStreamingBlocked(access) ? <BlockedSurface what="Streaming" />
+    : (surface === 'streaming' || surface === 'subscriptions') && !(surface === 'streaming' && (streamingView === 'library' || !streamingEnabled)) && allStreamingBlocked(access) ? <BlockedSurface what="Streaming" />
       : surfaceContent;
 
   return (

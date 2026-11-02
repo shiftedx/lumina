@@ -10,7 +10,8 @@ export function videoLibraryViews(navigation: ServerNavigation | null | undefine
 }
 
 export function isNavigationSurfaceAvailable(navigation: ServerNavigation | null | undefined, surface: Surface): boolean {
-  if (surface === 'streaming' || surface === 'subscriptions') return Boolean(navigation?.features.streaming);
+  if (surface === 'streaming') return Boolean(navigation?.features.streaming || navigation?.categories.includes('youtube'));
+  if (surface === 'subscriptions') return Boolean(navigation?.features.streaming);
   if (surface === 'requests') return Boolean(navigation?.features.requests);
   if (surface === 'video' || surface === 'library') return Boolean(navigation?.categories.some((category) => ['movies', 'tv', 'anime', 'youtube', 'recordings'].includes(category)));
   if (surface === 'audio') return Boolean(navigation?.categories.includes('music'));

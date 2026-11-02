@@ -65,7 +65,8 @@ def navigation(db: Session, user: User) -> dict:
         categories.add("photos")
     settings = db.get(AppSettings, 1)
     access = member_access.for_user(db, user) or member_access.EffectiveAccess()
-    streaming = bool(settings and settings.native_streaming_enabled) and any(
+    # Native streaming is an independent opt-in; browser discovery remains available.
+    streaming = any(
         access.streaming.get(provider, True) for provider in ("youtube", "twitch", "kick")
     )
     requests = bool(settings and settings.requests_enabled) and (

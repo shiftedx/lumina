@@ -24,3 +24,5 @@
   .gallery .g-streaming-choice { width: 100%; }
   .gallery.g-streaming .g-streaming-bar .g-segmented:last-child:not(:first-child) { padding-inline-start: 0; border: 0; }
 }
+
+.gallery.g-streaming > .g-still-wall { padding: 0; }

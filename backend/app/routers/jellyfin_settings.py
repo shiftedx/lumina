@@ -307,11 +307,14 @@ def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, An
 
 @router.get("/navigation")
 def get_navigation(response: Response, caller: Caller, db: Db) -> dict:
-    """Native and browser menus share the same member-visible destinations."""
+    """Share member-visible libraries while retaining the native streaming opt-in."""
     from app.services.navigation import navigation
 
     _no_store(response)
-    return navigation(db, _live_user(db, caller))
+    user = _live_user(db, caller)
+    result = navigation(db, user)
+    result["features"]["streaming"] = native_streaming_enabled(db, user)
+    return result
 
 
 def _resource_jobs(db: Session, user: User) -> list[dict[str, str]]:

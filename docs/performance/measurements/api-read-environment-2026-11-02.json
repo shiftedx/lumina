@@ -1,0 +1,82 @@
+{
+  "broad": {
+    "name": "api-read-audit-2026-11-02",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "machine": "arm64",
+      "logical_cpus": 16,
+      "cpu": "Apple M4 Max",
+      "memory_bytes": "68719476736",
+      "python": "3.12.15",
+      "sqlite": "3.53.1",
+      "node": "v22.23.4",
+      "ffmpeg": "ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers",
+      "source": {
+        "commit": "a5e9329f32b9c6f1fb91f7a42b023dcd035a9be4",
+        "production_source_sha256": "f7302b8c1e6266fae6ff2cc36c720fb26a2380905065b8016db02ee8e3eb6230",
+        "benchmark_source_sha256": "1c8d7e2e152dc3416816cc381da98c9418388b240e3cc334f8c826fcae1b4e52",
+        "dirty": false
+      },
+      "filesystem_cache": "not flushed; warm/unknown",
+      "load_average_before": [
+        69.91845703125,
+        51.9033203125,
+        30.466796875
+      ]
+    },
+    "quiet_baseline": false,
+    "external_busy_process_counts": [
+      4,
+      17,
+      16
+    ],
+    "sample_count": 35,
+    "sampled_process_tree_peak_rss_bytes": 371818496,
+    "sampling_errors": [],
+    "notes": [
+      "RSS is an observed process-tree sum, not a GPU allocation metric or an exact peak.",
+      "ps CPU percentages are operating-system observations, not integrated CPU seconds.",
+      "Process names omit arguments; no environment values or credentials are recorded."
+    ]
+  },
+  "native_exact": {
+    "name": "api-native-exact-2026-11-02",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "machine": "arm64",
+      "logical_cpus": 16,
+      "cpu": "Apple M4 Max",
+      "memory_bytes": "68719476736",
+      "python": "3.12.15",
+      "sqlite": "3.53.1",
+      "node": "v22.23.4",
+      "ffmpeg": "ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers",
+      "source": {
+        "commit": "a5e9329f32b9c6f1fb91f7a42b023dcd035a9be4",
+        "production_source_sha256": "f7302b8c1e6266fae6ff2cc36c720fb26a2380905065b8016db02ee8e3eb6230",
+        "benchmark_source_sha256": "1c8d7e2e152dc3416816cc381da98c9418388b240e3cc334f8c826fcae1b4e52",
+        "dirty": true
+      },
+      "filesystem_cache": "not flushed; warm/unknown",
+      "load_average_before": [
+        35.9501953125,
+        49.6943359375,
+        34.49658203125
+      ]
+    },
+    "quiet_baseline": false,
+    "external_busy_process_counts": [
+      3,
+      3,
+      3
+    ],
+    "sample_count": 20,
+    "sampled_process_tree_peak_rss_bytes": 303808512,
+    "sampling_errors": [],
+    "notes": [
+      "RSS is an observed process-tree sum, not a GPU allocation metric or an exact peak.",
+      "ps CPU percentages are operating-system observations, not integrated CPU seconds.",
+      "Process names omit arguments; no environment values or credentials are recorded."
+    ]
+  }
+}

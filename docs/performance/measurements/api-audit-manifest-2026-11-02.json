@@ -1,0 +1,22 @@
+{
+  "audited_application_commit": "a5e9329f32b9c6f1fb91f7a42b023dcd035a9be4",
+  "note": "Hashes identify frozen audit documentation, inventories and measurement artifacts; no operator data or production traffic.",
+  "artifacts": {
+    "docs/performance/api-measurements-2026-11-02.md": "4ccfe847596a1023bc96f95e79c03c55f25adccc0623d42e5170955b25a89076",
+    "docs/performance/api-performance-audit-2026-11-02.md": "aaabb93350b4d00174190b5f4047b3387564f3e331f8b51913c62592a1f77ba9",
+    "docs/performance/backend-api-map-2026-11-02.md": "cdd6161833e85d79db4922351911380dd7a313a5bc74fc3714bc42cd9c79ed77",
+    "docs/performance/backend-route-inventory-2026-11-02.json": "6895d17cbb402db4ed851feb38e33a83c1ac75bb6d55a53ab5502ca29df24094",
+    "docs/performance/measurements/api-native-exact-2026-11-02.json": "ff7fc851b9780df77e392dd509a73657cd28d783bf761dee0b3302ad70477dbe",
+    "docs/performance/measurements/api-native-exact-driver-2026-11-02.py": "c752843b1d36e41240343d06b55d8e40fe3a4a76909f4468883c47929d2a1925",
+    "docs/performance/measurements/api-read-driver-2026-11-02.py": "89523400e432102431b36d12ddb6fff89952e21c4090df1a3f52f49f230a131d",
+    "docs/performance/measurements/api-read-environment-2026-11-02.json": "56f4da9414b7134fdb5ff0004b0cf6e2ed414a5037d6b25a2c9c40f9a651aead",
+    "docs/performance/measurements/api-read-server-2026-11-02.py": "425d2fb833981154c010fb25037bafb282156ee1efee9247c76809c0800b10cc",
+    "docs/performance/measurements/api-reads-2026-11-02.json": "4706dbaf6edafc727490777e2acca3a5bfb8ec8e6f798dd26726410db536717a",
+    "docs/performance/measurements/backend-route-inventory-extract-2026-11-02.py": "e9cd129297a7dd5f999205130efafeb04db45dbc86639bd35384f64c7edef493",
+    "docs/performance/measurements/web-api-inventory-extract-2026-11-02.mjs": "943cb8534cceae02b98183a6fc839e2566c5a78f1a2c50f67a8ca01650914c84",
+    "docs/performance/native-api-inventory-2026-11-02.json": "cf6b9044bc81d894b204566ede552fdff15dc5b0633caf0be78aeb5105693915",
+    "docs/performance/native-api-map-2026-11-02.md": "8c8727f30fad739b4fbb0cce096a466f0692cc833336c3822183eac56185af0c",
+    "docs/performance/web-api-inventory-2026-11-02.json": "f72c24c17f86b58eec18ceaea39da6f19d552fcf3dd47ae69ecbe3071ce4ac29",
+    "docs/performance/web-api-map-2026-11-02.md": "4ff0bf88e5011f6ba48370a241c77e490755322b3941b6a4479d12f365ceb10f"
+  }
+}

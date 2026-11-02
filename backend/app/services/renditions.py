@@ -35,7 +35,7 @@ from app.db import SessionLocal
 from app.media_schemas import ArtServing, ArtworkProgress
 from app.models import LibraryItem, MediaTitle, NfoPerson, PlaybackProgress, StorageRoot, TitleArtwork, utcnow
 from app.persistence import read_regular_file, write_transaction
-from app.services import art_urls, cast_photos, episode_stills, library_import, raster_images
+from app.services import art_urls, cast_photos, episode_stills, library_import, raster_images, tmdb
 from app.services.artwork import ArtworkCacheMissError, ArtworkService
 from app.services.local_playback_sessions import sessions
 from app.services.media_probe import media_tool
@@ -402,6 +402,7 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
     # last.
     buckets: list[list[tuple[tuple, tuple[str, str]]]] = [[], [], [], [], [], []]
     retry_before = utcnow() - timedelta(hours=1)
+    artwork = offline_artwork()
     last = ""
     while batch := db.execute(
         select(MediaTitle.id, MediaTitle.type, MediaTitle.images, MediaTitle.created_at, MediaTitle.parent_id, MediaTitle.root_id)
@@ -434,6 +435,14 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
                     found.failure_reasons["no_storage_root"] = found.failure_reasons.get("no_storage_root", 0) + 1
                 if key in skipped:
                     continue
+                entry = images[image_type]
+                if not art_urls.local(entry):
+                    if isinstance(entry.get("tmdb"), str):
+                        url = tmdb.image_url(entry["tmdb"], tmdb.IMAGE_SIZES[image_type])
+                        if url is None or not artwork.has_pinned(url):
+                            continue
+                    elif isinstance(entry.get("music"), str) and not artwork.has_pinned(entry["music"], bucket="music"):
+                        continue
                 newest = -(created_at.timestamp() if created_at else 0.0)
                 pair = (title_id, image_type)
                 if title_type in ("movie", "series"):

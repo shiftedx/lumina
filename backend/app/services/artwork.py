@@ -487,6 +487,23 @@ class ArtworkService:
             before_upstream_fetch=before_upstream_fetch,
         )
 
+    def has_pinned(self, url: str, *, bucket: str = "") -> bool:
+        """Whether an ordinary, bounded source file is cached; never fetch or read image bytes."""
+        if self._pinned_root is None:
+            return False
+        root = self._pinned_root / bucket if bucket else self._pinned_root
+        if self._pinned_root.is_symlink() or root.is_symlink():
+            return False
+        key = self._source_cache_key(url)
+        for extension, _ in LOCAL_ARTWORK_TYPES:
+            try:
+                info = (root / f"{key}{extension}").lstat()
+                if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= self._max_artwork_bytes:
+                    return True
+            except OSError:
+                continue
+        return False
+
     def load_pinned(
         self,
         url: str,
@@ -536,6 +553,9 @@ class ArtworkService:
                 atomic_write(root / f"{key}{extension}", result.content)
                 if max_bytes is not None:
                     _evict_oldest(root, max_bytes)
+                from app.services import art_urls
+
+                art_urls.wake()
         except OSError:
             pass  # still served; the next request fetches again
         return result

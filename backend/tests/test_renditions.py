@@ -364,7 +364,11 @@ def test_the_lifespan_starts_the_pass_off_the_event_loop(library, monkeypatch) -
 
 @pytest.mark.parametrize('provider', ['tmdb', 'music', 'music-artist'])
 def test_provider_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tmp_path, monkeypatch, caplog, provider) -> None:  # noqa: ANN001
+    from app.services.artwork import ArtworkResponse
+    from app.services.titles import title_image_bytes
+
     log = use_fake_ffmpeg(tmp_path, monkeypatch)
+    monkeypatch.setattr(renditions, "PROGRESS_MAX_AGE_SECONDS", 0)
     url = tmdb.image_url('/abc123.jpg', tmdb.IMAGE_SIZES['Primary']) if provider == 'tmdb' else 'https://coverartarchive.org/release/12345678-1234-4678-9234-123456789012/front-1200'
     if provider == 'music-artist':
         url = 'https://cdn-images.dzcdn.net/images/artist/abc123/1000x1000-000000-80-0-0.jpg'
@@ -375,14 +379,40 @@ def test_provider_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tm
         }
         session.commit()
     worker = renditions.ArtworkRenditions()
-    assert worker.run_once() is True and _row(A) is None and fake_calls(log) == []  # never fetched from the network
+    monkeypatch.setattr(art_urls, "on_enqueue", worker._wake.set)
+    assert worker.run_once() is False and _row(A) is None and fake_calls(log) == []  # never fetched from the network
+    assert worker.progress(refresh=False).pending == 0
     assert not [record for record in caplog.records if record.name == "lumina.artwork"]
     root = settings.data_dir / 'metadata-art'
     pinned = (root if provider == 'tmdb' else root / 'music') / (hashlib.sha256(url.encode()).hexdigest() + '.jpg')
     pinned.parent.mkdir(parents=True)
-    pinned.write_bytes(png_header(500, 750))
-    worker._skipped.clear()
+    # A malformed cache entry must not advertise actionable work or follow a symlink.
+    for shape in ("empty", "oversize", "symlink"):
+        if shape == "symlink":
+            target = tmp_path / "outside.png"
+            target.write_bytes(png_header(500, 750))
+            pinned.symlink_to(target)
+        else:
+            with pinned.open("wb") as file:
+                file.truncate(0 if shape == "empty" else 8 * 1024**2 + 1)
+        assert not worker.run_once() and worker.progress(refresh=False).pending == 0
+        pinned.unlink()
+
+    artwork = ArtworkService(remote_fetcher=renditions._Offline(), pinned_root=root)
+    fetches = []
+    monkeypatch.setattr(artwork, "_fetch_remote", lambda url, validate_redirect: (
+        fetches.append(url) or ArtworkResponse("image/png", png_header(500, 750))
+    ))
+    with db_module.SessionLocal() as session:
+        title_image_bytes(session, session.get(MediaTitle, A), "Primary", artwork)
+    assert fetches == [url] and worker._wake.is_set()
+    assert worker.progress().pending == 1
     assert worker.run_once() is True and _row(A).state == "ready"
+    assert not worker.run_once() and worker.progress(refresh=False).pending == 0
+    worker._wake.clear()
+    with db_module.SessionLocal() as session:
+        title_image_bytes(session, session.get(MediaTitle, A), "Primary", artwork)
+    assert fetches == [url] and not worker._wake.is_set()  # a cache hit does not wake idle work
 
 
 def test_start_wires_the_hooks_clears_staging_and_uses_jpeg_without_libwebp(media, tmp_path, monkeypatch) -> None:  # noqa: ANN001

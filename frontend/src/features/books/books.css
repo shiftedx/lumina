@@ -355,8 +355,8 @@
 
 /* Approved A composition: real cover art makes the library feel like a place to read,
    while all catalog controls and actions remain in the ordinary content flow. */
-.books-overview { gap: 48px; }
-.books-overview.is-sparse.has-reading { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
+.books-overview { gap: 28px; }
+.books-overview.is-sparse.has-reading { grid-template-areas: 'hero hero' 'reading reading' 'additions shelves' 'additions discover'; }
 .books-overview-hero, .books-series-hero, .books-title-hero { position: relative; isolation: isolate; overflow: hidden; color: var(--g-overlay-ink); background: var(--g-reader-dark-paper); }
 .books-overview-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); min-height: 500px; align-items: center; gap: clamp(32px, 7vw, 120px); padding: clamp(40px, 6vw, 80px); margin: -8px calc(var(--g-gutter) * -1) 0; }
 .books-overview-hero-art, .books-series-hero-art, .books-title-hero-art { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .88; }
@@ -462,4 +462,21 @@
   .books-overview.is-sparse:has(> .books-overview-hero) { grid-template-areas: 'hero hero' 'additions shelves' 'additions discover'; }
   .books-overview.is-sparse:has(> .books-overview-hero):has(> .books-overview-reading) { grid-template-areas: 'hero hero' 'reading reading' 'additions shelves' 'additions discover'; }
   .books-overview.is-sparse > .books-overview-hero { grid-area: hero; }
+}
+
+/* Compact browsing below the full-width reading hero. */
+.books-overview .books-section > header { margin-bottom: 12px; }
+.books-overview .books-section h2 { font-size: 24px; }
+.books-overview .books-continue-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 20px; }
+.books-overview .books-continue { grid-template-columns: 76px minmax(0, 1fr); gap: 16px; align-items: start; }
+.books-overview .books-continue > div { min-height: 114px; justify-content: flex-start; }
+.books-overview .books-continue h3 { font: 400 20px / 1.2 var(--g-serif); margin-bottom: 4px; }
+.books-overview .books-continue p { margin-bottom: 4px; font: var(--g-type-small); }
+.books-overview .books-continue progress { margin-bottom: 8px; }
+.books-overview .books-continue .g-button { min-height: 44px; padding-block: 8px; }
+.books-overview .books-cover-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 152px)); gap: 20px 16px; }
+.books-overview .books-card-caption { padding-top: 8px; }
+.books-overview .books-card-title { font-size: 16px; }
+@media (max-width: 499px) {
+  .books-overview .books-cover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

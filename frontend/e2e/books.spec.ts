@@ -329,3 +329,31 @@ test('Books uses the viewport width and shows three continuing stories on wide s
     await page.screenshot({ path: `../output/playwright/books/reading-width-${viewport.width}.png` });
   }
 });
+
+test('Books overview packs recent volumes and reading actions into compact shelves', async ({ page }) => {
+  await openRichBooks(page, '/books', { width: 1920, height: 1080 });
+  await page.route('**/api/books/overview', (route) => json(route, {
+    ...richOverview, recently_added: richManga.map((book) => ({ ...book, series_id: 'series-2' })), discover: [],
+  }));
+  await page.reload();
+  const recent = page.locator('.books-overview-additions');
+  await expect(recent.getByRole('article')).toHaveCount(richManga.length);
+  for (const width of [1920, 1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 1080 });
+    const cards = page.locator('.books-overview-reading .books-continue');
+    const first = (await cards.first().boundingBox())!;
+    const second = (await cards.nth(1).boundingBox())!;
+    expect(first.height).toBeLessThan(200);
+    if (width >= 1440) expect(second.x - first.x).toBeLessThan(450);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await recent.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `../output/playwright/books/dense-overview-${width}.png` });
+  }
+  await assertAccessibleAndNoOverflow(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await recent.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: '../output/playwright/books/dense-overview-dark-1920.png' });
+  await recent.getByRole('button', { name: `Open ${richManga[1].title}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/title/${richManga[1].id}`));
+});

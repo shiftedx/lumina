@@ -38,9 +38,9 @@ export function readingPosition(book: Book): string {
   return (file?.format ?? book.format) !== 'epub' ? `Page ${book.progress.unit_index + 1} of ${file?.page_count ?? book.page_count}` : `Chapter ${book.progress.unit_index + 1} · ${Math.round(book.progress.percent)}% read`;
 }
 
-export function BookCard({ book, onOpen, onRead, onState, onShelf, selecting = false, selected = false, onSelect, extra = [] }: {
+export function BookCard({ book, onOpen, onRead, onState, onShelf, selecting = false, selected = false, onSelect, extra = [], compact = false }: {
   book: Book; onOpen: (book: Book) => void; onRead: (book: Book) => void; onState: (book: Book, update: BookStateUpdate) => void;
-  onShelf: (ids: string[]) => void; selecting?: boolean; selected?: boolean; onSelect?: (id: string) => void; extra?: MenuEntry[];
+  onShelf: (ids: string[]) => void; selecting?: boolean; selected?: boolean; onSelect?: (id: string) => void; extra?: MenuEntry[]; compact?: boolean;
 }) {
   const manga = book.kind === 'manga';
   return <article className={`books-card${selected ? ' is-selected' : ''}`}>
@@ -52,9 +52,9 @@ export function BookCard({ book, onOpen, onRead, onState, onShelf, selecting = f
     </div>
     <div className="books-card-caption">
       <button className="books-card-title" onClick={() => onOpen(book)} type="button">{manga && book.series_name ? book.series_name : book.title}</button>
-      <span className="books-card-author">{book.author || 'Unknown author'}</span>
+      {book.author || !compact ? <span className="books-card-author">{book.author || 'Unknown author'}</span> : null}
       <span className="books-card-format">{manga ? `Manga${book.volume_number !== null ? ` · Volume ${book.volume_number}` : ''}` : `Ebook · ${(book.files?.map((file) => file.format).filter((format, index, all) => all.indexOf(format) === index) ?? [book.format]).join(' + ').toUpperCase()}`}{book.progress.completed ? ' · Read' : !book.available ? ' · File unavailable' : ''}</span>
-      {book.filename ? <span className="books-card-filename" title={book.files?.map((file) => file.filename).join(' · ') || book.filename}>{book.filename}{book.files && book.files.length > 1 ? ` · ${book.files.length} files` : ''}</span> : null}
+      {book.filename && !compact ? <span className="books-card-filename" title={book.files?.map((file) => file.filename).join(' · ') || book.filename}>{book.filename}{book.files && book.files.length > 1 ? ` · ${book.files.length} files` : ''}</span> : null}
       {!selecting ? <Menu align="end" items={[
         { kind: 'item', label: book.progress.completed ? 'Read again' : book.progress.updated_at ? 'Continue reading' : 'Start reading', icon: <BookOpen />, disabled: !book.available, onSelect: () => onRead(book) },
         { kind: 'item', label: book.favorite ? 'Remove from favorites' : 'Add to favorites', icon: <Heart />, onSelect: () => onState(book, { favorite: !book.favorite }) },

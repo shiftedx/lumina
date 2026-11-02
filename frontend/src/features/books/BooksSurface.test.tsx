@@ -137,7 +137,7 @@ describe('BooksSurface', () => {
 
   it('continues the featured story and three further stories in their saved files without changing checkpoints while browsing', async () => {
     const continuing = book({ reading_file_id: 'saved-format', progress: { unit_index: 2, offset: 0.4, percent: 45, completed: false, updated_at: '2026-10-02T00:00:00Z' } });
-    const further = Array.from({ length: 3 }, (_, index) => book({ id: `further-${index}`, title: `Further story ${index}`, reading_file_id: `saved-${index}`, progress: continuing.progress }));
+    const further = Array.from({ length: 6 }, (_, index) => book({ id: `further-${index}`, title: `Further story ${index}`, reading_file_id: `saved-${index}`, progress: continuing.progress }));
     api.getBooksOverview.mockResolvedValue(overview({ continue_reading: [continuing, ...further] }));
     const onRoute = vi.fn();
     render(<AccessProvider value={permitted}><BooksSurface onRoute={onRoute} route={{ surface: 'books', view: 'overview' }} user={booksUser} /></AccessProvider>);
@@ -146,11 +146,22 @@ describe('BooksSurface', () => {
     expect(onRoute).toHaveBeenCalledWith({ surface: 'books', view: 'read', bookId: 'saved-format' }, false);
     const reading = screen.getByRole('heading', { name: 'Keep reading' }).closest('section')!;
     const resume = within(reading).getAllByRole('button', { name: 'Continue reading' });
-    expect(resume).toHaveLength(3);
+    expect(resume).toHaveLength(6);
     expect(within(reading).queryByRole('button', { name: 'Open Northbound' })).toBeNull();
     await userEvent.click(resume[2]);
     expect(onRoute).toHaveBeenLastCalledWith({ surface: 'books', view: 'read', bookId: 'saved-2' }, false);
     expect(api.updateBookState).not.toHaveBeenCalled();
+  });
+
+  it('shows recent manga volumes individually and opens the selected volume details', async () => {
+    const volumes = Array.from({ length: 12 }, (_, index) => mangaVolume({ id: `volume-${index}`, title: `Skybound ${index + 1}`, volume_number: index + 1 }));
+    api.getBooksOverview.mockResolvedValue(overview({ recently_added: volumes, continue_reading: [], discover: [] }));
+    const onRoute = vi.fn();
+    render(<AccessProvider value={permitted}><BooksSurface onRoute={onRoute} route={{ surface: 'books', view: 'overview' }} user={booksUser} /></AccessProvider>);
+    const recent = (await screen.findByRole('heading', { name: 'Recently added', level: 2 })).closest('section')!;
+    expect(within(recent).getAllByRole('article')).toHaveLength(12);
+    await userEvent.click(within(recent).getByRole('button', { name: 'Open Skybound 6' }));
+    expect(onRoute).toHaveBeenCalledWith({ surface: 'books', view: 'title', bookId: 'volume-5' }, false);
   });
 
   it('combines selected catalog entries through a reviewable file-preserving dialog', async () => {

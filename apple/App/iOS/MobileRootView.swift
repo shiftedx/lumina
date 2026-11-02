@@ -24,6 +24,8 @@ struct MobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var incomingPairingLink: URL?
     @State private var pairingLinkMessage: String?
+    @State private var pendingTVApproval: TVApprovalRequest?
+    @State private var tvPairingPresented = false
 
     var body: some View {
         Group {
@@ -36,7 +38,10 @@ struct MobileRootView: View {
             } else {
                 ZStack {
                     if !store.isOffline || hasShownOnlineShell {
-                        LibraryShellView(store: store)
+                        LibraryShellView(store: store) {
+                            pendingTVApproval = nil
+                            tvPairingPresented = true
+                        }
                             .allowsHitTesting(!store.isOffline)
                             .accessibilityHidden(store.isOffline)
                             .environment(\.luminaArtworkMotionEnabled, !store.isOffline)
@@ -72,7 +77,11 @@ struct MobileRootView: View {
         .modifier(NativeMetadataPresentation(store: store))
         .preferredColorScheme(effectiveAppearance == "system" ? nil : effectiveAppearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
-            if token == nil { audioSession.stop(); videoSession.dismiss() }
+            if token == nil {
+                audioSession.stop(); videoSession.dismiss()
+            } else if pendingTVApproval != nil {
+                tvPairingPresented = true
+            }
         }
         .onChange(of: MobileHomeSessionScope(store.session)) { _, _ in
             cancelForegroundRefresh()
@@ -114,6 +123,12 @@ struct MobileRootView: View {
             artworkReclamationGeneration &+= 1
         }
         .onOpenURL { link in
+            if let approval = try? TVPairingApprovalLink(deepLink: link) {
+                pendingTVApproval = TVApprovalRequest(code: approval.code, expectedServerID: approval.serverID)
+                if store.session != nil { tvPairingPresented = true }
+                else { pairingLinkMessage = "Sign in before approving this TV request." }
+                return
+            }
             guard store.session == nil else {
                 pairingLinkMessage = "Sign out before connecting another server."
                 return
@@ -121,9 +136,11 @@ struct MobileRootView: View {
             incomingPairingLink = link
         }
         .onChange(of: isRestoring) { _, restoring in
-            guard !restoring, incomingPairingLink != nil, store.session != nil else { return }
-            incomingPairingLink = nil
-            pairingLinkMessage = "Sign out before connecting another server."
+            guard !restoring, store.session != nil else { return }
+            if incomingPairingLink != nil {
+                incomingPairingLink = nil
+                pairingLinkMessage = "Sign out before connecting another server."
+            }
         }
         .onDisappear { cancelForegroundRefresh() }
         .alert("Mobile connect", isPresented: Binding(
@@ -133,6 +150,15 @@ struct MobileRootView: View {
             Button("OK") { pairingLinkMessage = nil }
         } message: {
             Text(pairingLinkMessage ?? "")
+        }
+        .sheet(isPresented: $tvPairingPresented) {
+            if let request = pendingTVApproval {
+                TVPairingApprovalView(store: store, request: request)
+            } else {
+                TVPairingEntryView { request in
+                    pendingTVApproval = request
+                }
+            }
         }
     }
 
@@ -783,6 +809,12 @@ private enum LibraryDestination: Hashable, CaseIterable {
     case home, library, requests, account
 }
 
+struct TVApprovalRequest: Identifiable, Hashable {
+    let code: String
+    let expectedServerID: String?
+    var id: String { "\(expectedServerID ?? "manual"):\(code)" }
+}
+
 private enum LibraryCategory: String, CaseIterable {
     case movies, tv, anime, music, books
 
@@ -808,6 +840,7 @@ private enum LibraryCategory: String, CaseIterable {
 @MainActor
 private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
+    let onConnectTV: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var destination: LibraryDestination = .home
     @State private var homeNavigationID = UUID()
@@ -970,7 +1003,7 @@ private struct LibraryShellView: View {
                 destinationStack(owner: .account, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation && store.requestsAvailable ? {
                         destination = .requests
-                    } : nil)
+                    } : nil, onConnectTV: onConnectTV)
                 }
             }
         }

@@ -43,6 +43,11 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     "account_token_redeem": RateLimitRule(max_requests=10, window_seconds=300),
     "mobile_pair_claim": RateLimitRule(max_requests=10, window_seconds=300),
     "mobile_pair_create": RateLimitRule(max_requests=20, window_seconds=300),
+    # TV enrollment starts and polling are unauthenticated but bound to a client DeviceId and a short-lived secret.
+    "device_pair_start": RateLimitRule(max_requests=10, window_seconds=300),
+    "device_pair_status": RateLimitRule(max_requests=120, window_seconds=300),
+    "device_pair_claim": RateLimitRule(max_requests=10, window_seconds=300),
+    "device_pair_manage": RateLimitRule(max_requests=30, window_seconds=300),
     "preview": RateLimitRule(max_requests=20, window_seconds=60),
     # Intent prefetch: a card hovered 300 ms; the prefetcher also dedupes and caps running extractions.
     "remote_prefetch": RateLimitRule(max_requests=30, window_seconds=60),

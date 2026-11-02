@@ -221,6 +221,67 @@ let tickScale = 10_000_000.0
         await refresh()
     }
 
+    /// Begins an unauthenticated, short-lived pairing exchange for a TV. The device secret is
+    /// deliberately retained only by the TV caller and is never stored in this phone's session.
+    public func beginTVPairing(server: String, deviceName: String) async throws -> TVPairingRequest {
+        guard session == nil else { throw LuminaError.notSignedIn }
+        let origin = try ServerOrigin(server).url
+        let deviceID = try credentials.deviceID()
+        return try await client.startTVPairing(origin: origin, deviceID: deviceID, deviceName: deviceName)
+    }
+
+    public func tvPairingStatus(server: String, request: TVPairingRequest) async throws -> TVPairingStatus {
+        let origin = try ServerOrigin(server).url
+        let deviceID = try credentials.deviceID()
+        return try await client.tvPairingStatus(origin: origin, deviceID: deviceID, request: request)
+    }
+
+    /// Claims approved TV credentials only after normal server validation. A failed claim is not
+    /// retried here: claims are single-use and the TV must begin a fresh exchange when consumed.
+    public func completeTVPairing(server: String, request: TVPairingRequest) async throws {
+        guard session == nil else { throw LuminaError.notSignedIn }
+        try Task.checkCancellation()
+        let origin = try ServerOrigin(server).url
+        let deviceID = try credentials.deviceID()
+        let claim = try await client.claimTVPairing(origin: origin, deviceID: deviceID, request: request)
+        try Task.checkCancellation()
+        _ = try await client.publicInfo(origin: origin)
+        try Task.checkCancellation()
+        let signedIn = try await client.authenticate(origin: origin, username: claim.username,
+                                                     password: claim.password, deviceID: deviceID)
+        try Task.checkCancellation()
+        let checked = try await client.me(origin: origin, token: signedIn.token, deviceID: deviceID)
+        try Task.checkCancellation()
+        guard session == nil else { throw LuminaError.notSignedIn }
+        let saved = LuminaSession(serverURL: origin, accessToken: signedIn.token, userID: checked.id,
+                                  username: checked.name, serverName: signedIn.serverName, deviceID: deviceID)
+        try credentials.save(session: saved)
+        session = saved
+        await refresh()
+    }
+
+    public func inspectTVPairing(code: String) async throws -> TVPairingInspection {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        let inspection = try await client.inspectTVPairing(origin: active.serverURL, token: active.accessToken,
+                                                           deviceID: active.deviceID, code: code)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return inspection
+    }
+
+    public func approveTVPairing(code: String) async throws {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        try await client.approveTVPairing(origin: active.serverURL, token: active.accessToken,
+                                          deviceID: active.deviceID, code: code)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+    }
+
+    public func denyTVPairing(code: String) async throws {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        try await client.denyTVPairing(origin: active.serverURL, token: active.accessToken,
+                                       deviceID: active.deviceID, code: code)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+    }
+
     /// Starts the platform monitor once. `restore()` also calls this so a cold offline
     /// launch obtains a durable local library without relying on a view lifetime.
     public func startConnectivityMonitoring() {

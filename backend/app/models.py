@@ -1023,6 +1023,31 @@ class MobilePairing(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class DevicePairing(Base):
+    """A short-lived TV enrollment request approved from an authenticated native app.
+
+    The display code and TV secret are both stored only as digests.  An approval
+    records the specific phone's connected-app row so revoking that phone (or
+    changing the member's password) invalidates an unclaimed TV grant.
+    """
+
+    __tablename__ = "device_pairings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    code_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    device_secret_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    device_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    approved_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    approver_app_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approver_credential_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    denied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class ImportRun(Base):
     """One resumable scan of an external root; its id is the scan generation."""
 

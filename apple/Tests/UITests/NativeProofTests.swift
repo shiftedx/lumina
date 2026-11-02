@@ -35,6 +35,22 @@ final class NativeActorLibraryTests: NativeProofJourney {
 #endif
 
 @MainActor
+final class NativeTVPhoneEnrollmentTests: NativeProofJourney {
+    #if os(tvOS)
+    func testTVSignsInAfterAnEnrolledPhoneApprovesItsCode() async throws {
+        try await journeyTVPhoneEnrollment()
+    }
+    #else
+    func testEnrolledPhoneApprovesTVFromAccountWithoutSigningOut() async throws {
+        try await journeyPhoneApprovesTV(useDeepLink: false)
+    }
+    func testEnrolledPhoneOpensTVQRLinkAndCanDenyIt() async throws {
+        try await journeyPhoneApprovesTV(useDeepLink: true)
+    }
+    #endif
+}
+
+@MainActor
 final class NativeCollectionsTests: NativeProofJourney {
     #if os(iOS)
     func testCollectionsFilterTheExistingMovieLibrary() throws {
@@ -560,6 +576,107 @@ class NativeProofJourney: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
     }
+
+    #if os(tvOS)
+    func journeyTVPhoneEnrollment() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let api = ProofAPI(origin: origin, session: makeTestAPISession(origin: origin))
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password,
+                                                  deviceID: "proof-enrolled-phone-\(isolationID)")
+        try launchAndResetSession()
+        try enter(fixture.serverURL, into: element("serverURLField"))
+        try activate(element("tvPairingStartButton"))
+        try waitForExistence(element("tvPairingQRCode"), timeout: 30, named: "Apple TV pairing QR")
+        let code = element("tvPairingCode").label.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "")
+        XCTAssertEqual(code.count, 8)
+        try attachFrame(named: "Apple TV displays phone approval QR and code")
+        let preview = try await api.devicePairing("Inspect", identity: identity, body: ["code": code])
+        XCTAssertEqual(preview["code"] as? String, code)
+        XCTAssertEqual(preview["status"] as? String, "pending")
+        let approved = try await api.devicePairing("Approve", identity: identity, body: ["code": code])
+        XCTAssertEqual(approved["status"] as? String, "approved")
+        try waitForExistence(element("homeScreen"), timeout: 40, named: "TV automatically signed in")
+        let stillPhone = try await api.settingsJSON(identity: identity)
+        XCTAssertFalse(stillPhone.isEmpty, "Approving the TV must leave the enrolled phone credential usable.")
+        application!.terminate()
+        application!.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "TV enrollment persists after relaunch")
+        completed = true
+    }
+    #else
+    func journeyPhoneApprovesTV(useDeepLink: Bool) async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let api = ProofAPI(origin: origin, session: makeTestAPISession(origin: origin))
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        let pending = try await api.devicePairing("Start", body: ["device_name": "Proof Living Room Apple TV"])
+        guard let code = pending["code"] as? String,
+              let id = pending["id"] as? String,
+              let secret = pending["device_secret"] as? String,
+              let serverID = pending["server_id"] as? String else { throw ProofAPIError.malformedResponse }
+        if useDeepLink {
+            let payload: [String: Any] = ["type": "lumina-tv-pair", "version": 1,
+                                        "server_url": origin.absoluteString, "server_id": serverID, "code": code]
+            var components = URLComponents()
+            components.scheme = "lumina"
+            components.host = "approve-tv"
+            components.fragment = String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8)
+            guard let link = components.url else { throw ProofAPIError.malformedResponse }
+            application!.open(link)
+        } else {
+            let account = destinationControl("Account")
+            try waitForExistence(account, timeout: 20, named: "Account destination")
+            guard hasVisibleFrame(account) else { throw ProofFailure.ui("Account must be visible before navigating.") }
+            account.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            try waitForExistence(element("accountScreen"), timeout: 20, named: "Account settings")
+            let search = element("settingsSearchField")
+            try waitForExistence(search, timeout: 15, named: "Account settings search")
+            let searchFrame = search.frame
+            let window = try applicationWindow()
+            guard hasVisibleFrame(search), !searchFrame.isEmpty else {
+                throw ProofFailure.ui("Account settings search must be visible before filtering for TV.")
+            }
+            window.coordinate(withNormalizedOffset: CGVector(
+                dx: (searchFrame.midX - window.frame.minX) / window.frame.width,
+                dy: (searchFrame.midY - window.frame.minY) / window.frame.height
+            )).tap()
+            application!.typeText("tv\n")
+            let connectTV = element("connectTVButton")
+            try waitForExistence(connectTV, timeout: 15, named: "Connect a TV action")
+            let connectTVFrame = connectTV.frame
+            guard hasVisibleFrame(connectTV), !connectTVFrame.isEmpty, connectTV.isEnabled else {
+                throw ProofFailure.ui("Connect a TV must be visible after filtering Account settings.")
+            }
+            window.coordinate(withNormalizedOffset: CGVector(
+                dx: (connectTVFrame.midX - window.frame.minX) / window.frame.width,
+                dy: (connectTVFrame.midY - window.frame.minY) / window.frame.height
+            )).tap()
+            try waitForExistence(element("tvPairingCodeField"), timeout: 15, named: "manual TV pairing code")
+            try enter(code, into: element("tvPairingCodeField"))
+            element("tvPairingCodeField").typeText("\n")
+        }
+        try waitForExistence(element("tvPairingApprovalScreen"), timeout: 25, named: "explicit TV approval")
+        try waitForExistence(application!.staticTexts["Proof Living Room Apple TV"], timeout: 15, named: "TV identity before approval")
+        try attachFrame(named: useDeepLink ? "Signed-in phone opens TV QR approval link" : "Signed-in phone approves Apple TV")
+        try activate(element(useDeepLink ? "tvPairingDenyButton" : "tvPairingApproveButton"))
+        guard waitUntil(timeout: 20, condition: {
+            self.element("tvPairingApprovalStatus").label == (useDeepLink ? "Denied" : "Approved")
+        }) else { throw ProofFailure.timeout("The explicit phone decision did not complete.") }
+        try waitForExistence(element("tvPairingDoneButton"), timeout: 20, named: "pairing decision complete")
+        let result = try await api.devicePairing("Status", body: ["id": id, "device_secret": secret])
+        XCTAssertEqual(result["status"] as? String, useDeepLink ? "denied" : "approved")
+        try activate(element("tvPairingDoneButton"))
+        try selectDestination("Home", screen: "homeScreen")
+        XCTAssertFalse(element("qrPairingLanding").exists, "The existing phone enrollment must stay signed in.")
+        completed = true
+    }
+    #endif
 
     #if os(iOS)
     func journeyActorLibrary() throws {
@@ -11498,6 +11615,19 @@ private struct ProofAPI {
     let origin: URL
     let session: URLSession
 
+    @MainActor func devicePairing(_ action: String, identity: APIIdentity? = nil, body: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/DevicePairing/\(action)"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let deviceID = identity?.deviceID ?? "proof-pending-apple-tv"
+        var authorization = "MediaBrowser Client=\"Lumina enrollment proof\",Device=\"Proof Apple TV\",DeviceId=\"\(deviceID)\",Version=\"0.1\""
+        if let identity { authorization += ",Token=\"\(identity.token)\"" }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        guard let object = try JSONSerialization.jsonObject(with: await send(request)) as? [String: Any] else { throw ProofAPIError.malformedResponse }
+        return object
+    }
+
     @MainActor func metadataDocument(identity: APIIdentity, id: String) async throws -> [String: Any] {
         var request = URLRequest(url: origin.appendingPathComponent("Lumina/Metadata/titles").appendingPathComponent(id))
         request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
@@ -11606,10 +11736,10 @@ private struct ProofAPI {
         _ = try JSONDecoder().decode(MetadataRefreshMetrics.self, from: await send(request))
     }
 
-    func authenticate(username: String, password: String) async throws -> APIIdentity {
+    func authenticate(username: String, password: String, deviceID: String = "native-proof-verifier") async throws -> APIIdentity {
         var request = URLRequest(url: origin.appendingPathComponent("Users").appendingPathComponent("AuthenticateByName"))
         request.httpMethod = "POST"
-        request.setValue("MediaBrowser Client=\"Lumina proof tests\",Device=\"Simulator\",DeviceId=\"native-proof-verifier\",Version=\"0.1\"", forHTTPHeaderField: "Authorization")
+        request.setValue("MediaBrowser Client=\"Lumina proof tests\",Device=\"Simulator\",DeviceId=\"\(deviceID)\",Version=\"0.1\"", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["Username": username, "Pw": password])
@@ -11618,7 +11748,7 @@ private struct ProofAPI {
         do {
             let response = try JSONDecoder().decode(AuthenticationResponse.self, from: data)
             guard !response.token.isEmpty, !response.user.id.isEmpty else { throw ProofAPIError.malformedResponse }
-            return APIIdentity(token: response.token, userID: response.user.id)
+            return APIIdentity(token: response.token, userID: response.user.id, deviceID: deviceID)
         } catch let error as ProofAPIError {
             throw error
         } catch {
@@ -11782,6 +11912,13 @@ private struct ProofAPI {
 private struct APIIdentity {
     let token: String
     let userID: String
+    let deviceID: String
+
+    init(token: String, userID: String, deviceID: String = "native-proof-verifier") {
+        self.token = token
+        self.userID = userID
+        self.deviceID = deviceID
+    }
 }
 
 private struct VideoFormatRecoveryEvidence: Decodable {

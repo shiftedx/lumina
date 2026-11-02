@@ -345,6 +345,21 @@
    "token_digest",
    "user_id"
   ],
+  "device_pairings": [
+   "approved_at",
+   "approved_user_id",
+   "approver_app_id",
+   "approver_credential_digest",
+   "claimed_at",
+   "code_digest",
+   "created_at",
+   "denied_at",
+   "device_id",
+   "device_name",
+   "device_secret_digest",
+   "expires_at",
+   "id"
+  ],
   "download_jobs": [
    "acquisition_batch_id",
    "acquisition_entry_id",
@@ -1366,5 +1381,5 @@
    "user_id"
   ]
  },
- "version": 43
+ "version": 44
 }

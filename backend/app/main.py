@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.config import APP_VERSION, settings
 from app.routers import books, admin_invites, admin_ai, admin_backups, admin_activity, admin_updates, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
 from app.routers import enrichment as enrichment_routes
-from app.routers import admin_media_server, connected_apps, jellyfin_auth, mobile_connect, oauth as oauth_routes
+from app.routers import admin_media_server, connected_apps, device_pairing, jellyfin_auth, mobile_connect, oauth as oauth_routes
 from app.routers import two_factor as two_factor_routes
 from app.routers import household_transfer, jellyfin_history, plex_history, member_activity
 from app.services import omdb_ratings, title_metadata  # metadata workers
@@ -1112,6 +1112,7 @@ member_activity.register(app)
 household_transfer.register(app)
 oauth_routes.register(app)
 jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its catch-all
+device_pairing.register(app)  # native TV enrollment; root /Lumina paths are bridged by JellyfinPathMiddleware
 admin_media_server.register(app)
 navigation.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below

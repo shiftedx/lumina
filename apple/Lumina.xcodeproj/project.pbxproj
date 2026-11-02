@@ -32,6 +32,7 @@
 		44B3DE7ED8C2887D70AEA2CC /* VideoGestureSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FC1EF4717AEEA9B6B9327B /* VideoGestureSurface.swift */; };
 		45DB9B713333B1F5EE006402 /* Newsreader-Italic-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */; };
 		46B007A197D186FA5272B6B6 /* TVRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA03108E3BD9293FA9BADA4F /* TVRequestsView.swift */; };
+		4A307EEC1A0B9B2346E3B13D /* TVPairingApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53F162BFFC29618DD177F40 /* TVPairingApprovalView.swift */; };
 		4B8F25640E1A63BED8BE7A8C /* LuminaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F9C4C01E99E28F24D06063 /* LuminaIcon.swift */; };
 		4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579E2238336BCFC991DB98C2 /* MobileRootView.swift */; };
 		5013B17FF57D5CE82C72C57A /* iOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 819800A042573CF485DA0430 /* iOS.xcassets */; };
@@ -160,6 +161,7 @@
 		941181C235A2128516EAE516 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaTheme.swift; sourceTree = "<group>"; };
 		A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = PrismCoreLicense.txt; sourceTree = "<group>"; };
+		A53F162BFFC29618DD177F40 /* TVPairingApprovalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPairingApprovalView.swift; sourceTree = "<group>"; };
 		C12B74A2009E288A90BCA744 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
 		C4C2BCCD8AD7583AD47A8A64 /* NativeRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRequestsView.swift; sourceTree = "<group>"; };
 		C6EEE783084CB51997809B12 /* VideoGestureHelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGestureHelpView.swift; sourceTree = "<group>"; };
@@ -336,6 +338,7 @@
 				2D59285B6F891C3044052D36 /* NativeMusicCasting.swift */,
 				C4C2BCCD8AD7583AD47A8A64 /* NativeRequestsView.swift */,
 				8B2B7C590CDB87E6A7405D5F /* NativeVideoCasting.swift */,
+				A53F162BFFC29618DD177F40 /* TVPairingApprovalView.swift */,
 				C6EEE783084CB51997809B12 /* VideoGestureHelpView.swift */,
 				D50608E85B15677ADE34D2EB /* VideoGesturePresentation.swift */,
 				52FC1EF4717AEEA9B6B9327B /* VideoGestureSurface.swift */,
@@ -663,6 +666,7 @@
 				6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */,
 				7AADFE0CF515C62B11270709 /* QueuePresentation.swift in Sources */,
 				BB88685BF33A07687C25E1ED /* SubjectAwareArtwork.swift in Sources */,
+				4A307EEC1A0B9B2346E3B13D /* TVPairingApprovalView.swift in Sources */,
 				CB8C86487D339277C4B44C8C /* VideoGestureHelpView.swift in Sources */,
 				AA394110C437FDAD03FB8E79 /* VideoGesturePresentation.swift in Sources */,
 				44B3DE7ED8C2887D70AEA2CC /* VideoGestureSurface.swift in Sources */,

@@ -16,7 +16,7 @@
 		11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		17E1BC6B6D28688D68D12D3B /* LuminaMediaIcons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FFD5E1F5785018A9E72B1FC6 /* LuminaMediaIcons.xcassets */; };
 		1B021205E272789120A7F7E0 /* NativeAccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */; };
-		1EB98AF08823BCF473D39EBE /* GoogleCastStatic in Frameworks */ = {isa = PBXBuildFile; productRef = 63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */; };
+		1EB98AF08823BCF473D39EBE /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F42B82B7E13F3BE43675BF4A /* LuminaCore */; };
 		24ACFE374AEA071A921A873F /* GoogleCastStatic in Frameworks */ = {isa = PBXBuildFile; productRef = 243D31D683EE1BCA676283D8 /* GoogleCastStatic */; };
 		256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
@@ -63,10 +63,12 @@
 		98458D825FAF973FA3AFA876 /* Welcome.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63E82E4F101C1A735C456278 /* Welcome.xcassets */; };
 		A2C2E391EFBB697349ADB09E /* NativeMediaAbout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC06E868B79D3D0A996963C8 /* NativeMediaAbout.swift */; };
 		A7C80413AEF1649CBA55A8C1 /* NativeRemotePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */; };
+		A8A172513BB1D4858ACF202C /* GoogleCastStatic in Frameworks */ = {isa = PBXBuildFile; productRef = 63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */; };
 		AA394110C437FDAD03FB8E79 /* VideoGesturePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50608E85B15677ADE34D2EB /* VideoGesturePresentation.swift */; };
 		ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
 		AFF6A2818284C95BE80C1660 /* PlaybackDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */; };
 		B533AFA094362744AEAA1AA7 /* LuminaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F9C4C01E99E28F24D06063 /* LuminaIcon.swift */; };
+		B57C9AD696FA3A8247736036 /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0201AD70FFA044DF75E59DE1 /* LuminaCore */; };
 		B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 132B0C8FC5C18B467CE10EEE /* LuminaCore */; };
 		B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
 		B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
@@ -204,11 +206,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		540E3EEB2B731EDAC58B5530 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B57C9AD696FA3A8247736036 /* LuminaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F33AF3B98298410BBA61C006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1EB98AF08823BCF473D39EBE /* GoogleCastStatic in Frameworks */,
+				1EB98AF08823BCF473D39EBE /* LuminaCore in Frameworks */,
+				A8A172513BB1D4858ACF202C /* GoogleCastStatic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,6 +408,7 @@
 			);
 			name = "Lumina-iOS-UITests";
 			packageProductDependencies = (
+				F42B82B7E13F3BE43675BF4A /* LuminaCore */,
 				63A90BE86309EA4DCB8051F4 /* GoogleCastStatic */,
 			);
 			productName = "Lumina-iOS-UITests";
@@ -449,6 +461,7 @@
 			buildConfigurationList = A83CC0446114FD5451578E9E /* Build configuration list for PBXNativeTarget "Lumina-tvOS-UITests" */;
 			buildPhases = (
 				EE87B9760FC9EFC5021F173B /* Sources */,
+				540E3EEB2B731EDAC58B5530 /* Frameworks */,
 				64792ADEC8E89D9D92E95237 /* Include optional disposable test fixture */,
 			);
 			buildRules = (
@@ -458,6 +471,7 @@
 			);
 			name = "Lumina-tvOS-UITests";
 			packageProductDependencies = (
+				0201AD70FFA044DF75E59DE1 /* LuminaCore */,
 			);
 			productName = "Lumina-tvOS-UITests";
 			productReference = 59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */;
@@ -1051,6 +1065,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0201AD70FFA044DF75E59DE1 /* LuminaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuminaCore;
+		};
 		132B0C8FC5C18B467CE10EEE /* LuminaCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LuminaCore;
@@ -1066,6 +1084,10 @@
 			productName = GoogleCastStatic;
 		};
 		91193C60B39E98FA6332ED6A /* LuminaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuminaCore;
+		};
+		F42B82B7E13F3BE43675BF4A /* LuminaCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LuminaCore;
 		};

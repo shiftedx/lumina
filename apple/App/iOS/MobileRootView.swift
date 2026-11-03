@@ -30,6 +30,7 @@ struct MobileRootView: View {
     @State private var incomingPairingLink: URL?
     @State private var pairingLinkMessage: String?
     @State private var pendingTVApproval: TVApprovalRequest?
+    @State private var pendingTVHandoff: TVPairingHandoff?
     @State private var tvPairingPresented = false
 
     var body: some View {
@@ -132,7 +133,12 @@ struct MobileRootView: View {
             artworkReclamationGeneration &+= 1
         }
         .onOpenURL { link in
+            if let handoff = try? TVPairingHandoff(link: link) {
+                beginTVHandoff(handoff)
+                return
+            }
             if let approval = try? TVPairingApprovalLink(deepLink: link) {
+                pendingTVHandoff = nil
                 pendingTVApproval = TVApprovalRequest(code: approval.code, expectedServerID: approval.serverID)
                 if store.session != nil { tvPairingPresented = true }
                 else { pairingLinkMessage = "Sign in before approving this TV request." }
@@ -160,14 +166,54 @@ struct MobileRootView: View {
         } message: {
             Text(pairingLinkMessage ?? "")
         }
-        .sheet(isPresented: $tvPairingPresented) {
-            if let request = pendingTVApproval {
+        .sheet(isPresented: $tvPairingPresented, onDismiss: { pendingTVHandoff = nil }) {
+            if let handoff = pendingTVHandoff {
+                NavigationStack {
+                    ProgressView("Connecting to Apple TV…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(LuminaTheme.paper)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { tvPairingPresented = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium])
+                .task(id: isRestoring ? nil : handoff) {
+                    if !isRestoring { await finishTVHandoff(handoff) }
+                }
+            } else if let request = pendingTVApproval {
                 TVPairingApprovalView(store: store, request: request)
             } else {
-                TVPairingEntryView { request in
-                    pendingTVApproval = request
-                }
+                TVPairingEntryView(onSelect: { pendingTVApproval = $0 }, onHandoff: beginTVHandoff)
             }
+        }
+    }
+
+    private func beginTVHandoff(_ handoff: TVPairingHandoff) {
+        guard store.session != nil || isRestoring else {
+            pairingLinkMessage = "Sign in to Lumina on your phone, then scan the TV code again."
+            return
+        }
+        pendingTVApproval = nil
+        pendingTVHandoff = handoff
+        tvPairingPresented = true
+    }
+
+    private func finishTVHandoff(_ handoff: TVPairingHandoff) async {
+        do {
+            guard let session = store.session else { throw LuminaError.malformedResponse }
+            let approval = try await handoff.requestApproval(serverURL: session.serverURL)
+            guard !Task.isCancelled, pendingTVHandoff == handoff,
+                  store.session?.accessToken == session.accessToken,
+                  store.session?.serverURL == session.serverURL else { return }
+            pendingTVApproval = TVApprovalRequest(code: approval.code, expectedServerID: approval.serverID)
+            pendingTVHandoff = nil
+        } catch {
+            guard !Task.isCancelled, pendingTVHandoff == handoff else { return }
+            pendingTVHandoff = nil
+            tvPairingPresented = false
+            pairingLinkMessage = "Couldn't reach Apple TV. Make sure both devices are on the same network and Lumina has Local Network access, then scan again."
         }
     }
 

@@ -392,7 +392,7 @@ areaTest('shell', async ({ page, uiPrefs, width, visit }) => {
   await settle(page);
   await visit('sidebar-collapsed');
   if (width <= 390) {
-    await page.getByRole('button', { name: /^More(,|$)/ }).click();
+    await page.getByRole('button', { name: /^Browse(,|$)/ }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await visit('more-drawer');
     await page.keyboard.press('Escape');
@@ -510,7 +510,10 @@ areaTest('palette', async ({ page, width, found, visit }) => {
   await page.route('**/api/youtube-search', (route) => route.fulfill({ status: 503, json: { detail: 'down' } }));
   await open(); await field().fill('alp'); await expect(page.getByRole('alert').first()).toBeVisible(); await visit('error');
   await close();
-  await page.getByRole('button', { name: 'Add a link' }).first().click();
+  if (width <= 390) {
+    await page.getByRole('button', { name: /^Browse(,|$)/ }).click();
+    await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Add a link' }).click();
+  } else await page.getByRole('button', { name: 'Add a link' }).click();
   await expect(page.getByRole('dialog', { name: 'Add a link' })).toBeVisible();
   await field().fill('not a link'); await page.keyboard.press('Enter'); await expect(page.getByRole('alert').first()).toBeVisible(); await visit('invalid-link');
   if (width <= 390) { await close(); await page.getByRole('button', { name: /^Search Lumina, / }).click(); await expect(page.locator('dialog.g-palette')).toBeVisible(); await visit('phone-sheet'); }

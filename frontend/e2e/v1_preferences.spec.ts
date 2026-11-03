@@ -7,7 +7,7 @@ async function openSettings(page: Page) {
   await mockApi(page, { sidebar_collapsed: false });
   await page.goto('/settings/account');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^My settings$/ })).toBeVisible();
 }
 
 test('test_profile_display_name_edit: renaming updates the profile everywhere it is shown', async ({ page }) => {
@@ -16,7 +16,7 @@ test('test_profile_display_name_edit: renaming updates the profile everywhere it
 
   const nameInput = page.getByLabel('Display name');
   await nameInput.fill('Alexandria the Second');
-  await page.getByRole('button', { name: 'Save name' }).click();
+  await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Display name updated.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Alexandria the Second, account menu' })).toBeVisible();
 });

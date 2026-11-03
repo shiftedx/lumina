@@ -1,4 +1,4 @@
-import { navigateApp } from './lumina-mock';
+import { DEFAULT_NAVIGATION, navigateApp } from './lumina-mock';
 /**
  * The saved sign-in surface is absent and the credential / generic
  * live-chat API family is never requested, end to end.
@@ -110,6 +110,9 @@ function installApi(page: Page, requested: string[], state: { loggedIn: boolean 
     }
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', data_dir: '/tmp/lumina-test' });
+    // Streaming visibility is controlled by the server-owned navigation
+    // capability. This scenario exercises a permitted live source.
+    if (path === '/api/navigation') return json(DEFAULT_NAVIGATION);
     if (path === '/api/library') return json({ items: [], next_cursor: null });
     if (path === '/api/automations') return json([]);
     if (path === '/api/admin/users') return json([]);
@@ -166,7 +169,7 @@ async function login(page: Page) {
 
 async function openSettings(page: Page) {
   await navigateApp(page, 'My Settings');
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^My settings$/ })).toBeVisible();
 }
 
 const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile/i, /credential/i, /cookie file/i, /browser sign-in/i, /netrc/i] as const;
@@ -174,7 +177,7 @@ const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile
 async function assertSettingsSurfaceHasNoSignInControls(page: Page) {
   // The surface itself renders (positive control) and the surviving local
   // session control stays.
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^My settings$/ })).toBeVisible();
   // Sign out lives on Profile now (the landing is a card grid; the top-bar menu has one too).
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Profile & security' }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();

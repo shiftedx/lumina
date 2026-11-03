@@ -100,6 +100,7 @@ def main(argv: list[str] | None = None) -> None:
     from app.db import engine, init_db, session_scope
     from app.security import hash_password
     from app.services.library import EXTERNAL_LIBRARY_ORIGIN
+    from app.services.member_onboarding import MemberOnboardingService
     from app.services.user_settings import UserSettingsService
     from app.services.yt_dlp_service import YtDlpService
 
@@ -114,7 +115,7 @@ def main(argv: list[str] | None = None) -> None:
         YtDlpService(db).ensure_app_settings()
         password_hash = hash_password(PASSWORD)
         users = [m.User(id=new_id(), username=name, display_name=name.title(), password_hash=password_hash,
-                        role="admin" if index == 0 else "viewer", onboarding_status="complete") for index, name in enumerate(USERS)]
+                        role="admin" if index == 0 else "viewer", onboarding_status=MemberOnboardingService.COMPLETED) for index, name in enumerate(USERS)]
         db.add_all(users)
         db.flush()
         UserSettingsService(db).ensure_for_all_users()

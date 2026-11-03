@@ -118,7 +118,7 @@ test('local-only auth: no provider buttons, local login boots, Settings has no T
 
   // Settings surface has NO Twitch connection card (label absence).
   await navigateApp(page, 'My Settings');
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^My settings$/ })).toBeVisible();
   await expect(page.getByText('Twitch chat identity')).toHaveCount(0);
   await expect(page.locator('.twitch-connection-card')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Twitch/i })).toHaveCount(0);

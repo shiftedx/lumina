@@ -1,10 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { remoteEntry } from '../src/test/remoteFixtures';
 import { LIST_ID, pickedSnapshot, recoTitle, suppressionList } from '../src/test/recoFixtures';
 import { homeMovie, mockHome } from './home-mock';
 import { mockApi, signIn } from './lumina-mock';
-import { mockPopular, mockPreview, mockReco, type RecoMock } from './reco-mock';
+import { mockPopular, mockPreview, mockReco, popularWithForYou, type RecoMock } from './reco-mock';
 
 /** The surfaces over the mocked API (reco-mock.ts). */
 
@@ -36,18 +37,23 @@ test.describe('Show fewer and Settings', () => {
 });
 
 test.describe('Explore', () => {
-  test('For you sits under the live teaser with reasons, categories follow the member\'s order, and a rail card has a menu without a reason', async ({ page }) => {
+  test('For you and featured videos are present, categories follow the member\'s order, and a rail card has a menu without a reason', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mockApi(page, { sidebar_collapsed: false });
     await mockHome(page);
-    await mockPopular(page);
+    const snapshot = popularWithForYou();
+    await mockPopular(page, { ...snapshot, items: [
+      remoteEntry('feature1', { title: 'Featured music', category_keys: ['music'] }),
+      remoteEntry('feature2', { title: 'Featured gaming', category_keys: ['gaming'] }),
+      ...snapshot.items,
+    ] });
     await mockReco(page);
     await page.goto('/streaming');
     await signIn(page);
     await expect(page.getByRole('heading', { name: 'For you' })).toBeVisible();
     await expect(page.getByText('Because you finished Harbor walk at dawn')).toHaveCount(0);
-    const headings = await page.getByRole('heading', { level: 2 }).allTextContents();
-    expect(headings.findIndex((text) => text.startsWith('Music'))).toBeLessThan(headings.findIndex((text) => text.startsWith('Gaming')));
+    await expect(page.getByRole('heading', { name: 'Featured', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /^(Music|Gaming)/ })).toHaveText([/^Music/, /^Gaming/]);
     await page.getByRole('button', { name: 'More options for Music video one' }).click();
     await expect(page.getByRole('menuitem')).toHaveCount(7);
     await expect(page.locator('.reco-reason')).toHaveCount(0);

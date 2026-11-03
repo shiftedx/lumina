@@ -39,7 +39,7 @@ for (const width of [1280, 390]) {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.getByRole('button', { name: 'Playback settings' }).click();
       const panel = page.getByRole('group', { name: 'Playback settings' });
-      const section = (name: string) => panel.getByText(name, { exact: true, selector: 'summary > span' });
+      const section = (name: string) => panel.locator('summary').getByText(name, { exact: true });
       await expect(section('Version')).toBeVisible();
       await expect(panel.locator('details[open]')).toHaveCount(0);
       if (scheme === 'dark') await page.screenshot({ path: `../output/playwright/playback-settings-${width}.png` });
@@ -160,7 +160,7 @@ test('audio choices request the selected stream on the first restart', async ({ 
   const settings = page.getByRole('button', { name: 'Playback settings' });
   await settings.click();
   const panel = page.getByRole('group', { name: 'Playback settings' });
-  const section = (name: string) => panel.getByText(name, { exact: true, selector: 'summary > span' });
+  const section = (name: string) => panel.locator('summary').getByText(name, { exact: true });
   await section('Audio').click();
   const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/library/item-movie-4k/playback-sessions');
   await page.route('**/api/library/item-movie-4k/playback-sessions*', (route) => route.fulfill({ status: 201, json: { session_id: 'audio-choice', mode: 'remux', playback_url: '/api/playback-sessions/audio-choice/index.m3u8', start: 0 } }));
@@ -172,7 +172,7 @@ test('the player opens the selected version as its own library file', async ({ p
   await openWatch(page, 1280, true);
   await page.getByRole('button', { name: 'Playback settings' }).click();
   const panel = page.getByRole('group', { name: 'Playback settings' });
-  await panel.getByText('Version', { exact: true, selector: 'summary > span' }).click();
+  await panel.locator('summary').getByText('Version', { exact: true }).click();
   await panel.getByRole('radio', { name: /Director’s Cut · 1080p/ }).click();
   await expect(page).toHaveURL(/\/watch\/library\/item-movie-1080$/);
   await expect(page.locator('video')).toHaveAttribute('src', '/api/library/item-movie-1080/media');
@@ -191,7 +191,7 @@ test('phone playback settings remain inside the visible player and every section
   expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(382);
   expect(panelBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
   expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(frameBox!.y + frameBox!.height);
-  await panel.getByText('Sound and skipping', { exact: true, selector: 'summary > span' }).click();
+  await panel.locator('summary').getByText('Sound and skipping', { exact: true }).click();
   await page.getByRole('checkbox', { name: 'Skip intros automatically' }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('checkbox', { name: 'Skip intros automatically' })).toBeVisible();
 });
@@ -225,7 +225,7 @@ test('phone playback facts keep full technical text without colliding with time 
 test('desktop Caption style is a single-line control', async ({ page }) => {
   await openWatch(page, 1440);
   await page.getByRole('button', { name: 'Playback settings' }).click();
-  await page.getByText('Subtitles', { exact: true, selector: 'summary > span' }).click();
+  await page.locator('summary').getByText('Subtitles', { exact: true }).click();
   const button = page.getByRole('button', { name: 'Caption style…' });
   await expect(button).toBeVisible();
   expect(await button.evaluate((element) => {

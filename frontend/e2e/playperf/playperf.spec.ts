@@ -40,7 +40,7 @@ for (const title of TITLES) {
     for (const [choice, expectedHeight] of [['720p', 720], ['480p', 480], [/^(Original|Auto)$/, 1080]] as const) {
       await video.hover();
       await page.getByRole('button', { name: 'Playback settings' }).click();
-      await page.getByText('Quality', { exact: true, selector: 'summary > span' }).click();
+      await page.locator('summary').getByText('Quality', { exact: true }).click();
       const radio = page.getByRole('radio', { name: choice });
       const from = await time();
       const clicked = Date.now();

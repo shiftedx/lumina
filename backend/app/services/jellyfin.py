@@ -737,8 +737,11 @@ class JellyfinMapper:
                     dto["Container"] = dto["MediaSources"][0].get("Container")
         return dtos
 
-    def music_title_dto(self, title: MediaTitle) -> dict:
-        artist = self.titles.get_visible(title.parent_id, self.user) if title.parent_id else None
+    def music_title_dto(self, title: MediaTitle, *, artists: Mapping[str, MediaTitle] | None = None) -> dict:
+        artist = (
+            artists.get(title.parent_id) if artists is not None and title.parent_id else
+            self.titles.get_visible(title.parent_id, self.user) if title.parent_id else None
+        )
         tag = title_tag(self.key, title, "Primary", self.scope)
         return compact({
             "Id": jid(title.id), "ServerId": self.server_id, "Name": title.name,
@@ -748,6 +751,21 @@ class JellyfinMapper:
             "AlbumArtist": artist.name if artist else None, "ImageTags": {"Primary": tag} if tag else {},
             "BackdropImageTags": [], "UserData": user_data_dto(title.id, TitleUserData()),
         })
+
+    def music_title_dtos(self, titles: list[MediaTitle]) -> list[dict]:
+        """Resolve ordinary artist parents in one batch, retaining alias fallback."""
+        parent_ids = {title.parent_id for title in titles if title.parent_id}
+        artists = {
+            artist.id: artist for artist in self.db.scalars(select(MediaTitle).where(
+                MediaTitle.id.in_(parent_ids), TitleService.visible(self.user),
+            ))
+        } if parent_ids else {}
+        # Direct parents cover the usual case in one query.  Keep TitleService's
+        # consolidated-artist alias behavior for the exceptional invisible parent.
+        for parent_id in parent_ids - artists.keys():
+            if artist := self.titles.get_visible(parent_id, self.user):
+                artists[parent_id] = artist
+        return [self.music_title_dto(title, artists=artists) for title in titles]
 
     def music_items(self, q: ItemsQuery) -> dict | None:
         asked = {value.lower() for value in q.csv("includeitemtypes")}
@@ -785,7 +803,7 @@ class JellyfinMapper:
             stmt = stmt.where(MediaTitle.name.ilike(f"%{term}%", escape="\\"))
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery()))
         rows = list(self.db.scalars(stmt.order_by(*self.order(q, None)).offset(start).limit(limit)))
-        return query_result([self.music_title_dto(title) for title in rows], total, start)
+        return query_result(self.music_title_dtos(rows), total, start)
 
     # ---- /Items ------------------------------------------------------------------------
 
@@ -806,6 +824,13 @@ class JellyfinMapper:
         stmt = self.title_filter(parent, q)
         if stmt is None:
             return query_result([], 0, start)
+        if "datecreated" in {value.casefold() for value in q.csv("sortby")}:
+            # A recency count window forces SQLite to materialize every visible
+            # title before page one. Keep its exact total separate so the page
+            # query can stop after the requested rows.
+            rows = list(self.db.scalars(stmt.order_by(*self.order(q, parent)).offset(start).limit(limit)))
+            total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+            return query_result(self.title_dtos(rows), total, start)
         rows = self.db.execute(stmt.add_columns(func.count().over()).order_by(*self.order(q, parent)).offset(start).limit(limit)).all()
         total = rows[0][1] if rows else self.db.scalar(select(func.count()).select_from(stmt.subquery()))
         return query_result(self.title_dtos([row[0] for row in rows]), total, start)

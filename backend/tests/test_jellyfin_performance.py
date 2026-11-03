@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from fastapi import Depends, FastAPI, Response
 from fastapi.testclient import TestClient
 
-from app.models import User
+from app.models import MediaTitle, User
 from app.routers import jellyfin, jellyfin_integration
 from app.services import jellyfin as jf
 from app.services import semantic_discovery
@@ -93,7 +93,7 @@ def test_jellyfin_title_batch_skips_unused_artwork_loading(monkeypatch) -> None:
     mapper.sources = False
     mapper.people = False
     mapper.catalog = False
-    mapper.db = None
+    mapper.db = SimpleNamespace(scalars=lambda _statement: [])
     calls: list[dict] = []
 
     class Titles:
@@ -102,12 +102,43 @@ def test_jellyfin_title_batch_skips_unused_artwork_loading(monkeypatch) -> None:
             return object()
 
     mapper.titles = Titles()
-    mapper.user = SimpleNamespace(id="member")
+    mapper.user = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
     monkeypatch.setattr(mapper, "title_dto", lambda *_args, **_kwargs: {})
     title = SimpleNamespace(id="title", type="boxset", metadata_json={}, field_sources={}, locked=False)
 
     assert mapper.title_dtos([title]) == [{"LockData": False, "LockedFields": []}]
     assert calls == [{"with_artifacts": False, "with_metadata": False, "with_artwork": False}]
+
+
+def test_jellyfin_music_title_dtos_load_visible_parents_once() -> None:
+    mapper = object.__new__(jf.JellyfinMapper)
+    artist = MediaTitle(id="00000000-0000-0000-0000-000000000001", type="artist", name="Artist")
+    calls: list[object] = []
+    mapper.db = SimpleNamespace(scalars=lambda statement: calls.append(statement) or [artist])
+    mapper.user = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
+    mapper.key, mapper.scope, mapper.server_id = b"key", "", "server"
+    albums = [
+        MediaTitle(id="00000000-0000-0000-0000-000000000002", type="album", parent_id=artist.id, name="Album One"),
+        MediaTitle(id="00000000-0000-0000-0000-000000000003", type="album", parent_id=artist.id, name="Album Two"),
+    ]
+
+    rows = mapper.music_title_dtos(albums)
+
+    assert len(calls) == 1
+    assert [row["AlbumArtist"] for row in rows] == ["Artist", "Artist"]
+
+
+def test_jellyfin_music_title_dtos_resolve_an_invisible_artist_alias() -> None:
+    mapper = object.__new__(jf.JellyfinMapper)
+    old_artist = MediaTitle(id="00000000-0000-0000-0000-000000000001", type="artist", name="Old Artist")
+    replacement = MediaTitle(id="00000000-0000-0000-0000-000000000002", type="artist", name="Visible Artist")
+    mapper.db = SimpleNamespace(scalars=lambda _statement: [])  # Old artist is not directly visible.
+    mapper.titles = SimpleNamespace(get_visible=lambda title_id, user: replacement if title_id == old_artist.id else None)
+    mapper.user = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
+    mapper.key, mapper.scope, mapper.server_id = b"key", "", "server"
+    album = MediaTitle(id="00000000-0000-0000-0000-000000000003", type="album", parent_id=old_artist.id, name="Album")
+
+    assert mapper.music_title_dtos([album])[0]["AlbumArtist"] == "Visible Artist"
 
 
 def test_item_requests_admit_at_most_two_database_workers() -> None:

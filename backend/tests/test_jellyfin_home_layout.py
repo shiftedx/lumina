@@ -133,7 +133,9 @@ def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(nativ
 
     response = native.get(ROWS, headers=mediabrowser(ALICE_TOKEN))
     assert response.status_code == 200, response.text
-    rows = response.json()["rows"]
+    body = response.json()
+    rows = body["rows"]
+    assert {"continue", "next_up", "new_in_library"}.issubset(body["completed_shelf_ids"])
     assert [row["shelf_id"] for row in rows[:4]] == ["watchlist", "new_anime", "recent_music", "continue_listening"]
     assert rows[0]["shape"] == "still"
     assert rows[0]["items"][0]["Name"].startswith("Movie")

@@ -4,7 +4,7 @@ import pytest
 
 from sqlalchemy import event
 
-from app.models import LibraryItem
+from app.models import LibraryItem, MediaTitle, MemberAccess
 from app.services.library import LibraryService
 from support import make_user
 
@@ -156,6 +156,35 @@ def test_visibility_rules_hold_on_every_page_for_each_role(library_api) -> None:
     assert collect_all_pages(client, {"limit": 1}) == ["shared-item", "friend-private"]
     active_user["value"] = admin
     assert collect_all_pages(client, {"limit": 1}) == ["shared-item", "ownerless-private"]
+
+
+def test_restricted_members_keep_their_own_shared_items_outside_library_limits(library_api) -> None:
+    client, _engine, session_factory, _active, member, *_ = library_api
+    item = _item("member-shared-outside-limit", user_id=member.id, visibility="shared", downloaded_at=datetime(2026, 3, 1))
+    item.title_id = "restricted-title"
+    with session_factory.begin() as session:
+        session.add_all([
+            MediaTitle(id="restricted-title", type="movie", key="restricted-title", name="Restricted", category="anime"),
+            MemberAccess(user_id=member.id, sections=["movies"], unrated="allow"),
+            item,
+        ])
+
+    assert collect_all_pages(client) == ["member-shared-outside-limit"]
+
+
+def test_admin_ownerless_visibility_branches_are_disjoint_and_complete(library_api) -> None:
+    client, _engine, session_factory, active_user, _member, _friend, admin = library_api
+    null_visibility = _item("ownerless-null", user_id=None, visibility="private", downloaded_at=datetime(2026, 3, 1))
+    null_visibility.visibility = None
+    with session_factory.begin() as session:
+        session.add_all([
+            _item("ownerless-shared", user_id=None, visibility="shared", downloaded_at=datetime(2026, 3, 3)),
+            _item("ownerless-private", user_id=None, visibility="private", downloaded_at=datetime(2026, 3, 2)),
+            null_visibility,
+        ])
+
+    active_user["value"] = admin
+    assert collect_all_pages(client, {"limit": 1}) == ["ownerless-shared", "ownerless-private", "ownerless-null"]
 
 
 def test_list_pages_serve_stored_summaries_and_never_load_full_metadata(library_api) -> None:

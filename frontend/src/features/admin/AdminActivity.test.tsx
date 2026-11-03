@@ -66,6 +66,30 @@ describe('Activity: now playing', () => {
     expect(api.getAdminActivity).toHaveBeenCalledTimes(2);
   });
 
+  it('waits for one fresh snapshot when a stop races the activity poll', async () => {
+    vi.useFakeTimers();
+    let finishPoll!: (value: AdminActivity) => void;
+    api.getAdminActivity
+      .mockResolvedValueOnce(snapshot())
+      .mockReturnValueOnce(new Promise((resolve) => { finishPoll = resolve; }))
+      .mockResolvedValueOnce(snapshot({ sessions: [] }));
+    api.stopActivitySession.mockResolvedValue(undefined);
+    render(ui(<ActivityNowPlaying />));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText('Dune')).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(api.getAdminActivity).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Dune' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop stream' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(api.stopActivitySession).toHaveBeenCalledWith('s1');
+    expect(api.getAdminActivity).toHaveBeenCalledTimes(2);
+    await act(async () => { finishPoll(snapshot()); });
+    expect(api.getAdminActivity).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('Nothing is playing right now.')).toBeTruthy();
+  });
+
   it('shows the empty state', async () => {
     api.getAdminActivity.mockResolvedValue(snapshot({ sessions: [] }));
     render(ui(<ActivityNowPlaying />));

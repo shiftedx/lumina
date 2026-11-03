@@ -1594,23 +1594,28 @@ private struct TVHomeView<Header: View>: View {
                             .foregroundStyle(LuminaTheme.muted)
                             .padding(.horizontal, 80)
                             .padding(.top, geometry.safeAreaInsets.top + 112)
-                    } else if store.isHomeBusy {
+                    } else if store.isHomeBusy || (!feed.hasLoaded && feed.isLoading) {
                         ProgressView("Loading Home…").frame(maxWidth: .infinity, minHeight: 650)
                     } else {
                         TVMessageView(title: "Your next great watch starts here", message: store.errorMessage ?? "Add media to Lumina to fill Home with your household library.", actionTitle: "Refresh") {
-                            Task { await store.loadHome() }
+                            Task { await reloadHome() }
                         }
                         .padding(.top, geometry.safeAreaInsets.top + 112)
                     }
                     if feed.hasLoaded {
                         ForEach(shelves.filter(\.visible)) { shelf in
-                        ForEach(snapshot.rows.filter { $0.shelfID == shelf.id }) { row in
+                        let richRows = snapshot.rows.filter { $0.shelfID == shelf.id }
+                        if !richRows.isEmpty {
+                        ForEach(richRows) { row in
                             TVRail(title: row.displayTitle, items: row.items, store: store,
                                    poster: row.shape == .poster,
                                    identifierPrefix: row.shelfID == .continueWatching ? "resumeItem" : row.shelfID == .nextUp ? "nextUpItem" : "homeRow-\(row.id)",
                                    onOpen: onOpen, feed: feed,
                                    onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                                 .focusSection()
+                        }
+                        } else if feed.completedShelfIDs?.contains(shelf.id) != true {
+                            homeShelf(shelf.id)
                         }
                         }
                     } else {
@@ -1620,7 +1625,7 @@ private struct TVHomeView<Header: View>: View {
                     }
                     if let error = feed.errorMessage {
                         TVMessageView(title: "Some Home shelves could not load", message: error, actionTitle: "Try again") {
-                            Task { await feed.load() }
+                            Task { await reloadHome() }
                         }
                     }
                 }
@@ -1649,15 +1654,7 @@ private struct TVHomeView<Header: View>: View {
             let needsInitialLibraryLoad = !layout.hasLoaded || !feed.hasLoaded
             loadingInitialLibrary = needsInitialLibraryLoad
             defer { loadingInitialLibrary = false }
-            async let savedLayout: Void = layout.load()
-            async let rows: Void = feed.load()
-            if needsInitialLibraryLoad {
-                async let library: Void = store.loadHome()
-                _ = await (library, savedLayout, rows)
-            } else {
-                async let navigation: Void = store.refreshNavigationCategories()
-                _ = await (savedLayout, rows, navigation)
-            }
+            await reloadHome()
             guard !Task.isCancelled, TVHomeSessionScope(store.session) == owner else { return }
             initialHomeLoadOwner = owner
             refreshAfterForegrounding()
@@ -1671,7 +1668,12 @@ private struct TVHomeView<Header: View>: View {
             }
         }
         .onChange(of: store.resumeItems) { _, _ in
-            if feed.hasLoaded, !loadingInitialLibrary { Task { await feed.load() } }
+            let richResume = feed.rows.first(where: { $0.shelfID == .continueWatching })?.items
+                .filter { $0.isPlayable && !$0.isAudio } ?? []
+            let isFreshRichResumePublication = feed.lastLoadSucceeded
+                && feed.completedShelfIDs?.contains(.continueWatching) == true
+                && store.resumeItems == richResume
+            if feed.hasLoaded, !loadingInitialLibrary, !isFreshRichResumePublication { Task { await feed.load() } }
         }
         .onDisappear { cancelHomeRefresh(preservingAdmission: true) }
     }
@@ -1692,10 +1694,7 @@ private struct TVHomeView<Header: View>: View {
                     homeRefreshID = nil
                 }
             }
-            async let savedLayout: Void = layout.load()
-            async let rows: Void = feed.load()
-            async let activity: Void = store.loadHome()
-            _ = await (savedLayout, rows, activity)
+            await reloadHome(refreshingLegacyRecent: true)
         }
     }
 
@@ -1704,6 +1703,39 @@ private struct TVHomeView<Header: View>: View {
         homeRefreshTask?.cancel()
         homeRefreshTask = nil
         homeRefreshID = nil
+    }
+
+    private var expectedCompatibilityShelves: Set<HomeShelfID> {
+        Set(shelves.lazy.filter(\.visible).map(\.id)).intersection([.continueWatching, .nextUp, .newInLibrary])
+    }
+
+    private func reloadHome(refreshingLegacyRecent: Bool = false) async {
+        let coldCompatibility = !layout.hasLoaded || !feed.hasLoaded
+        let expected = expectedCompatibilityShelves
+        let legacyRecent = refreshingLegacyRecent ? expected.intersection([.newInLibrary]) : []
+        let richCompatibility = expected.subtracting(legacyRecent)
+        async let savedLayout: Void = layout.load()
+        async let rows: Void = feed.load()
+        async let navigation: Void = store.refreshNavigationCategories()
+        if coldCompatibility {
+            // Keep the established cold remote focus path. After a rich snapshot
+            // exists, foreground refreshes use its completed shelf facts.
+            async let legacy: Void = store.loadHomeFallback(for: expected)
+            _ = await (savedLayout, rows, navigation, legacy)
+        } else {
+            _ = await (savedLayout, rows, navigation)
+        }
+        guard !Task.isCancelled else { return }
+        let missing = await store.reconcileRichHomeRows(
+            feed.rows,
+            completedShelfIDs: feed.completedShelfIDs,
+            loadSucceeded: feed.lastLoadSucceeded,
+            expectedCompatibilityShelves: richCompatibility
+        )
+        let fallback = missing.union(legacyRecent)
+        if !coldCompatibility, !fallback.isEmpty {
+            await store.loadHomeFallback(for: fallback)
+        }
     }
 
     @ViewBuilder private func homeShelf(_ id: HomeShelfID) -> some View {

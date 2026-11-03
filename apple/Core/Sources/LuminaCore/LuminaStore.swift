@@ -138,6 +138,7 @@ let tickScale = 10_000_000.0
     private var audioGeneration = 0
     private var homeGeneration = 0
     private var homeTask: Task<Void, Never>?
+    private var homeTaskCoverage = Set<HomeShelfID>()
     private var libraryTask: Task<Void, Never>?
     private var libraryTaskQuery: LibraryQuery?
     private var libraryAlphabetTask: Task<Void, Never>?
@@ -438,6 +439,7 @@ let tickScale = 10_000_000.0
     private func clearSession() {
         homeTask?.cancel()
         homeTask = nil
+        homeTaskCoverage = []
         cancelCatalogPreload()
         libraryTask?.cancel()
         libraryTask = nil
@@ -953,6 +955,75 @@ let tickScale = 10_000_000.0
         await loadHome(clearsError: true)
     }
 
+    /// Returns compatibility shelves that still need their legacy endpoint after
+    /// a rich Home request. Retained rich rows are intentionally not treated as
+    /// fresh completion facts when that request failed.
+    @discardableResult public func reconcileRichHomeRows(_ rows: [HomeFeedRow], completedShelfIDs: Set<HomeShelfID>?,
+                                                         loadSucceeded: Bool, expectedCompatibilityShelves: Set<HomeShelfID>) async -> Set<HomeShelfID> {
+        let expected = expectedCompatibilityShelves.intersection(Self.compatibilityHomeShelves)
+        guard loadSucceeded else { return expected }
+        return await adoptRichHomeRows(rows, completedShelfIDs: completedShelfIDs,
+                                       expectedCompatibilityShelves: expected)
+    }
+
+    /// Accepts compatibility shelves the rich, member-scoped Home response has
+    /// explicitly completed. The balanced rich `new_in_library` title row is
+    /// deliberately not substituted for legacy `recentItems`.
+    @discardableResult public func adoptRichHomeRows(_ rows: [HomeFeedRow], completedShelfIDs: Set<HomeShelfID>?,
+                                                     expectedCompatibilityShelves: Set<HomeShelfID>) async -> Set<HomeShelfID> {
+        let expected = expectedCompatibilityShelves.intersection(Self.compatibilityHomeShelves)
+        guard !Task.isCancelled, let active = session, !isOffline else { return expected }
+        homeGeneration += 1
+        let generation = homeGeneration
+        homeTask?.cancel()
+        homeTask = nil
+        homeTaskCoverage = []
+        isHomeBusy = false
+
+        // Servers without completion facts retain legacy fallback rather than
+        // guessing whether an omitted row is empty or incomplete.
+        let completed = (completedShelfIDs ?? []).intersection(expected)
+        let rowsByShelf = Dictionary(grouping: rows, by: \.shelfID)
+        var missing = expected.subtracting(completed)
+
+        if completed.contains(.continueWatching) {
+            resumeItems = (rowsByShelf[.continueWatching]?.first?.items ?? []).filter { $0.isPlayable && !$0.isAudio }
+            missing.remove(.continueWatching)
+            await metadataCache?.store(resumeItems, for: MediaMetadataCache.key("home/resumeItems", session: active), lifetime: 24 * 60 * 60)
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return expected }
+        }
+        if completed.contains(.nextUp) {
+            nextUpItems = (rowsByShelf[.nextUp]?.first?.items ?? []).filter { $0.type == "Episode" }
+            missing.remove(.nextUp)
+            await metadataCache?.store(nextUpItems, for: MediaMetadataCache.key("home/nextUpItems", session: active), lifetime: 24 * 60 * 60)
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return expected }
+        }
+        if completed.contains(.newInLibrary) { missing.remove(.newInLibrary) }
+
+        guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return expected }
+        return missing
+    }
+
+    /// Fetches only legacy shelves not supplied by a completed rich Home response.
+    /// Navigation remains independently fresh through the Home presentation.
+    public func loadHomeFallback(for missingShelves: Set<HomeShelfID>) async {
+        let compatible = missingShelves.intersection(Self.compatibilityHomeShelves)
+        guard !compatible.isEmpty else { return }
+        // Store restoration and connectivity refresh already load every
+        // compatibility shelf. Joining that in-flight work prevents a Home view
+        // admission race from cancelling and reissuing the same three requests.
+        if let homeTask {
+            let covered = homeTaskCoverage
+            await homeTask.value
+            guard !Task.isCancelled else { return }
+            let remaining = compatible.subtracting(covered)
+            guard !remaining.isEmpty else { return }
+            await loadHome(clearsError: false, compatibilityShelves: remaining, includesNavigation: false)
+            return
+        }
+        await loadHome(clearsError: false, compatibilityShelves: compatible, includesNavigation: false)
+    }
+
     private func presentOfflineItems() {
         librarySnapshots.removeAll()
         loadedLibraryQuery = nil
@@ -969,21 +1040,27 @@ let tickScale = 10_000_000.0
         errorMessage = nil
     }
 
-    private func loadHome(clearsError: Bool) async {
+    private static let compatibilityHomeShelves: Set<HomeShelfID> = [.continueWatching, .nextUp, .newInLibrary]
+
+    private func loadHome(clearsError: Bool, compatibilityShelves: Set<HomeShelfID> = [.continueWatching, .nextUp, .newInLibrary],
+                          includesNavigation: Bool = true) async {
         guard !Task.isCancelled else { return }
         if homeGeneration > 0 { metadataCache?.clear() }
         homeGeneration += 1
         let generation = homeGeneration
         homeTask?.cancel()
+        homeTaskCoverage = compatibilityShelves.intersection(Self.compatibilityHomeShelves)
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.performHomeLoad(generation: generation, clearsError: clearsError)
+            await self.performHomeLoad(generation: generation, clearsError: clearsError,
+                                       compatibilityShelves: compatibilityShelves, includesNavigation: includesNavigation)
         }
         homeTask = task
         defer {
             if generation == homeGeneration {
                 isHomeBusy = false
                 homeTask = nil
+                homeTaskCoverage = []
             }
         }
         await withTaskCancellationHandler(operation: {
@@ -993,19 +1070,24 @@ let tickScale = 10_000_000.0
         })
     }
 
-    private func performHomeLoad(generation: Int, clearsError: Bool) async {
+    private func performHomeLoad(generation: Int, clearsError: Bool, compatibilityShelves: Set<HomeShelfID>,
+                                 includesNavigation: Bool) async {
         guard !Task.isCancelled, let active = session, generation == homeGeneration else { return }
         guard !isOffline else { presentOfflineItems(); return }
         isHomeBusy = true
         if clearsError { errorMessage = nil }
-        async let recent: Void = loadHomeRecent(active, generation: generation)
-        async let resume: Void = loadHomeResume(active, generation: generation)
-        async let nextUp: Void = loadHomeNextUp(active, generation: generation)
-        async let navigation: Void = loadNavigationCategories(active, generation: generation)
+        async let recent: Void = loadHomeRecent(active, generation: generation,
+                                                 isNeeded: compatibilityShelves.contains(.newInLibrary))
+        async let resume: Void = loadHomeResume(active, generation: generation,
+                                                 isNeeded: compatibilityShelves.contains(.continueWatching))
+        async let nextUp: Void = loadHomeNextUp(active, generation: generation,
+                                                 isNeeded: compatibilityShelves.contains(.nextUp))
+        async let navigation: Void = loadNavigationCategories(active, generation: generation, isNeeded: includesNavigation)
         _ = await (recent, resume, nextUp, navigation)
     }
 
-    private func loadNavigationCategories(_ active: LuminaSession, generation: Int) async {
+    private func loadNavigationCategories(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {
+        guard isNeeded else { return }
         navigationGeneration += 1
         let requestGeneration = navigationGeneration
         do {
@@ -1027,7 +1109,8 @@ let tickScale = 10_000_000.0
         await loadNavigationCategories(active, generation: homeGeneration)
     }
 
-    private func loadHomeRecent(_ active: LuminaSession, generation: Int) async {
+    private func loadHomeRecent(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {
+        guard isNeeded else { return }
         let cacheKey = MediaMetadataCache.key("home/recentItems", session: active)
         if recentItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
            !Task.isCancelled, generation == homeGeneration, isCurrent(active) { recentItems = cached }
@@ -1042,7 +1125,8 @@ let tickScale = 10_000_000.0
         }
     }
 
-    private func loadHomeResume(_ active: LuminaSession, generation: Int) async {
+    private func loadHomeResume(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {
+        guard isNeeded else { return }
         let cacheKey = MediaMetadataCache.key("home/resumeItems", session: active)
         if resumeItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
            !Task.isCancelled, generation == homeGeneration, isCurrent(active) { resumeItems = cached }
@@ -1057,7 +1141,8 @@ let tickScale = 10_000_000.0
         }
     }
 
-    private func loadHomeNextUp(_ active: LuminaSession, generation: Int) async {
+    private func loadHomeNextUp(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {
+        guard isNeeded else { return }
         let cacheKey = MediaMetadataCache.key("home/nextUpItems", session: active)
         if nextUpItems.isEmpty, let cached = await metadataCache?.items(for: cacheKey),
            !Task.isCancelled, generation == homeGeneration, isCurrent(active) { nextUpItems = cached }

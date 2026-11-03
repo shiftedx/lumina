@@ -5,11 +5,9 @@ database — production shape, since the app never runs ANALYZE — captures the
 exact SQL and parameters the service executed, and asserts SQLite's plan for
 that statement seeks the composite indexes instead of scanning the table.
 
-The accepted production plan for the library page is MULTI-INDEX OR over the
-two composites plus a top-K temp b-tree sort; its O(visible-count) per-page
-cost is a Stage 3 soak measurement item with a UNION-ALL keyset escape hatch
-on record. Do not add ANALYZE here: with statistics SQLite abandons the
-multi-index plan for a full scan, which is not what deployments run.
+The library page bounds each disjoint visibility branch before merging them,
+so its final sort is bounded by the page size rather than all visible rows.
+Do not add ANALYZE here: deployments do not run it.
 """
 
 import re
@@ -148,6 +146,7 @@ def test_library_page_seeks_the_grid_and_owner_indexes(plan_env) -> None:  # noq
 
     assert "ix_library_items_visibility_downloaded_created_id" in first_page
     assert "ix_library_items_user_downloaded" in first_page
+    assert "MULTI-INDEX OR" not in first_page
     assert_no_unindexed_scan(first_page, "library_items")
 
     cursor_row = LibraryItem(id="cursor-row", downloaded_at=datetime(2026, 3, 1), created_at=datetime(2026, 1, 1))
@@ -155,6 +154,7 @@ def test_library_page_seeks_the_grid_and_owner_indexes(plan_env) -> None:  # noq
     later_page = explain_plan(engine, session, lambda: service.list_items_page(user, cursor=cursor, limit=60))
 
     assert "ix_library_items_visibility_downloaded_created_id" in later_page
+    assert "MULTI-INDEX OR" not in later_page
     assert_no_unindexed_scan(later_page, "library_items")
 
 

@@ -98,13 +98,13 @@ export function LiveRecordingActivity({ session, onOpenItem, api = recordingApi 
   const [pages, setPages] = useState(1);
   const [attempt, setAttempt] = useState(0);
 
-  usePolledSnapshot(`${pages}:${attempt}`, session, async (isCurrent) => {
+  usePolledSnapshot(`${pages}:${attempt}`, session, async (isCurrent, signal) => {
     try {
       // Re-read every page already shown so paging never loses rows on refresh.
       let next: string | null = null;
       const items: LiveRecording[] = [];
       for (let page = 0; page < pages; page += 1) {
-        const result = await api.listLiveRecordings(next ? { cursor: next } : {});
+        const result = await api.listLiveRecordings(next ? { cursor: next } : {}, signal);
         items.push(...result.items);
         next = result.next_cursor;
         if (!next) break;

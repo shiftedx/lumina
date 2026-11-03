@@ -25,18 +25,16 @@ const useActivity = () => {
 export function ActivityProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AdminActivity | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const live = useRef(true);
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
-  const load = useCallback(async (isCurrent: () => boolean = () => live.current) => {
+  const load = useCallback(async (isCurrent: () => boolean, signal: AbortSignal) => {
     try {
-      const next = await getAdminActivity();
+      const next = await getAdminActivity(signal);
       if (isCurrent()) { setData(next); setError(null); }
     } catch (failure) {
       if (isCurrent()) setError(errorMessage(failure, 'Unable to load activity.'));
     }
   }, []);
-  usePolledSnapshot('activity', GATE, load, POLL_MS);
-  return <ActivityContext.Provider value={{ data, error, refresh: () => load() }}>{children}</ActivityContext.Provider>;
+  const refresh = usePolledSnapshot('activity', GATE, load, POLL_MS);
+  return <ActivityContext.Provider value={{ data, error, refresh }}>{children}</ActivityContext.Provider>;
 }
 
 const Badge = ({ children }: { children: ReactNode }) => <span className="activity-badge">{children}</span>;

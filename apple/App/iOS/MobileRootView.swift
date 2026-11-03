@@ -1430,6 +1430,10 @@ private struct HomeLibraryView<Header: View>: View {
         homeLayout.shelves
     }
 
+    private var expectedCompatibilityShelves: Set<HomeShelfID> {
+        Set(shelves.lazy.filter(\.visible).map(\.id)).intersection([.continueWatching, .nextUp, .newInLibrary])
+    }
+
     var body: some View {
         let snapshot = refinement
         GeometryReader { geometry in
@@ -1458,16 +1462,16 @@ private struct HomeLibraryView<Header: View>: View {
                     }
                     .frame(minHeight: max(0, geometry.size.height - emptyHeaderClearance - 20))
                 }
-                if store.isHomeBusy || store.isBusy {
+                if store.isHomeBusy || store.isBusy || (!feed.hasLoaded && feed.isLoading) {
                     ProgressView("Loading your library…")
                 } else if store.featuredItems.isEmpty && store.errorMessage == nil && !feed.rows.contains(where: \.hasItems) {
-                    EmptyLibraryView { Task { await store.loadHome() } }
+                    EmptyLibraryView { Task { await reloadHome() } }
                 }
                 if let error = feed.errorMessage {
-                    InlineErrorView(message: error) { Task { await feed.load() } }
+                    InlineErrorView(message: error) { Task { await reloadHome() } }
                 }
                 if let message = store.errorMessage {
-                    InlineErrorView(message: message) { Task { await store.loadHome() } }
+                    InlineErrorView(message: message) { Task { await reloadHome() } }
                 }
             }
             .padding(.horizontal, 20)
@@ -1491,7 +1495,7 @@ private struct HomeLibraryView<Header: View>: View {
             #if LUMINA_UI_TESTING
             uiTestingHomeRefreshCount += 1
             #endif
-            await store.loadHome(); await homeLayout.load(); await feed.load()
+            await reloadHome(refreshingLegacyRecent: true)
         }
         }
 
@@ -1553,16 +1557,7 @@ private struct HomeLibraryView<Header: View>: View {
             needsHomeRowsRefresh = scenePhase == .background
             initialHomeLoadOwner = nil
             guard let owner = MobileHomeSessionScope(store.session) else { return }
-            let needsInitialLibraryLoad = !homeLayout.hasLoaded || !feed.hasLoaded
-            async let savedLayout: Void = homeLayout.load()
-            async let rows: Void = feed.load()
-            if needsInitialLibraryLoad, store.recentItems.isEmpty {
-                async let library: Void = store.loadHome()
-                _ = await (savedLayout, rows, library)
-            } else {
-                async let navigation: Void = store.refreshNavigationCategories()
-                _ = await (savedLayout, rows, navigation)
-            }
+            await reloadHome()
             guard !Task.isCancelled, MobileHomeSessionScope(store.session) == owner else { return }
             initialHomeLoadOwner = owner
             refreshHomeRowsAfterInitialLoad()
@@ -1595,10 +1590,7 @@ private struct HomeLibraryView<Header: View>: View {
                     homeRowsRefreshID = nil
                 }
             }
-            async let layout: Void = homeLayout.load()
-            async let rows: Void = feed.load()
-            async let navigation: Void = store.refreshNavigationCategories()
-            _ = await (layout, rows, navigation)
+            await reloadHome()
         }
     }
 
@@ -1608,11 +1600,44 @@ private struct HomeLibraryView<Header: View>: View {
         homeRowsRefreshID = nil
     }
 
+    private func reloadHome(refreshingLegacyRecent: Bool = false) async {
+        // Match the established bootstrap behavior: a persisted recent shelf
+        // admits layout, rich rows, and navigation without a second legacy Home
+        // load. A truly empty first visit still starts all shelves in parallel.
+        let coldCompatibility = (!homeLayout.hasLoaded || !feed.hasLoaded) && store.recentItems.isEmpty
+        let expected = expectedCompatibilityShelves
+        let legacyRecent = refreshingLegacyRecent ? expected.intersection([.newInLibrary]) : []
+        let richCompatibility = expected.subtracting(legacyRecent)
+        async let layout: Void = homeLayout.load()
+        async let rows: Void = feed.load()
+        async let navigation: Void = store.refreshNavigationCategories()
+        if coldCompatibility {
+            // Preserve the current cold first-shelf behavior. Once this member's
+            // rich Home snapshot is loaded, warm refreshes avoid these requests.
+            async let legacy: Void = store.loadHomeFallback(for: expected)
+            _ = await (layout, rows, navigation, legacy)
+        } else {
+            _ = await (layout, rows, navigation)
+        }
+        guard !Task.isCancelled else { return }
+        let missing = await store.reconcileRichHomeRows(
+            feed.rows,
+            completedShelfIDs: feed.completedShelfIDs,
+            loadSucceeded: feed.lastLoadSucceeded,
+            expectedCompatibilityShelves: richCompatibility
+        )
+        let fallback = missing.union(legacyRecent)
+        if !coldCompatibility, !fallback.isEmpty {
+            await store.loadHomeFallback(for: fallback)
+        }
+    }
+
     @ViewBuilder
     private func homeShelf(_ id: HomeShelfID, rows: [HomeFeedRow]) -> some View {
         Group {
-            if feed.hasLoaded {
-                ForEach(rows.filter { $0.shelfID == id }) { row in
+            let richRows = rows.filter { $0.shelfID == id }
+            if !richRows.isEmpty {
+                ForEach(richRows) { row in
                     if !row.items.isEmpty {
                     MediaRail(title: row.displayTitle, items: row.items, store: store,
                               identifierPrefix: id == .continueWatching ? "resumeItem" : id == .nextUp ? "nextUpItem" : id == .newInLibrary ? "recentItem" : "homeRow-\(row.id)",
@@ -1621,7 +1646,7 @@ private struct HomeLibraryView<Header: View>: View {
                     }
                     if store.streamingAvailable && !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row, store: store) }
                 }
-            } else {
+            } else if !feed.hasLoaded || feed.completedShelfIDs?.contains(id) != true {
             switch id.rawValue {
             case "continue":
                 if !store.resumeItems.isEmpty {

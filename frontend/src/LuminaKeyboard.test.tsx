@@ -418,6 +418,23 @@ describe('pending-member interest loading', () => {
 });
 
 describe('browser routes', () => {
+  it('does not re-read member navigation for ordinary route changes', async () => {
+    const api = await import('./api');
+    const navigation = vi.spyOn(api, 'getServerNavigation').mockResolvedValue({ categories: ['movies', 'tv', 'music', 'youtube'], features: { streaming: true, requests: false } });
+    try {
+      render(<LuminaApp />);
+      await waitFor(() => expect(navigation).toHaveBeenCalledTimes(1));
+      const go = (path: string) => act(() => { window.history.pushState(null, '', path); window.dispatchEvent(new PopStateEvent('popstate')); });
+      go('/library/movies');
+      await screen.findByRole('heading', { level: 1, name: 'Movies' });
+      go('/streaming');
+      await screen.findByRole('heading', { level: 1, name: 'Streaming' });
+      go('/');
+      await screen.findByRole('heading', { level: 1, name: 'Home' });
+      expect(navigation).toHaveBeenCalledTimes(1);
+    } finally { navigation.mockRestore(); }
+  });
+
   it('keeps a Library watch route closed when its authenticated speaker output cannot be checked', async () => {
     mocks.getMusicSharedSession.mockRejectedValue(new Error('Speaker output unavailable'));
     window.history.replaceState(null, '', '/watch/library/library-1');

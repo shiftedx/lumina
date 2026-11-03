@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable, Literal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, union_all
 from sqlalchemy.orm import Session, aliased, defer
 
 from app.events import EventBus
@@ -170,6 +170,7 @@ class LibraryService:
     ) -> tuple[list[LibraryItem], str | None]:
         """One bounded, index-ordered page; summaries only, metadata_json stays unloaded."""
         bounded_limit = max(1, min(LIBRARY_PAGE_MAX_LIMIT, limit))
+        filters = self.view_filters(kind=kind, source=source, group=group, status=status)
         if sort == "title":
             query = (
                 self._visible_items_query(user)
@@ -178,10 +179,10 @@ class LibraryService:
             )
             if cursor is not None:
                 query = query.filter(self._after_title_cursor(cursor))
+            query = query.filter(*filters).limit(bounded_limit + 1)
         else:
-            query = self.page_query(user, cursor=cursor)
-        query = query.filter(*self.view_filters(kind=kind, source=source, group=group, status=status))
-        rows = query.limit(bounded_limit + 1).all()
+            query = self.page_query(user, cursor=cursor, filters=filters, limit=bounded_limit + 1)
+        rows = query.all()
         items = rows[:bounded_limit]
         next_cursor = None
         if len(rows) > bounded_limit:
@@ -293,19 +294,49 @@ class LibraryService:
             ))
         return channels
 
-    def page_query(self, user: User, *, cursor: str | None = None):
-        query = (
-            self._visible_items_query(user)
-            .options(defer(LibraryItem.metadata_json))
-            .order_by(
-                LibraryItem.downloaded_at.desc().nullslast(),
-                LibraryItem.created_at.desc(),
-                LibraryItem.id.desc(),
-            )
+    def page_query(self, user: User, *, cursor: str | None = None, filters: list | None = None, limit: int):
+        """Bound a recent page before its visibility alternatives are merged.
+
+        A page's top rows can contain no more than ``limit`` rows from each
+        disjoint visibility branch.  Letting SQLite merge every shared, owned
+        and admin-ownerless row first defeats the existing recency indexes and
+        makes the final sort proportional to the whole visible library.
+        """
+        filters = filters or []
+        order = (
+            LibraryItem.downloaded_at.desc().nullslast(),
+            LibraryItem.created_at.desc(),
+            LibraryItem.id.desc(),
         )
+        common = [*filters]
         if cursor is not None:
-            query = query.filter(self._after_page_cursor(cursor))
-        return query
+            common.append(self._after_page_cursor(cursor))
+
+        shared = and_(
+            LibraryItem.visibility == "shared",
+            or_(LibraryItem.user_id != user.id, LibraryItem.user_id.is_(None)),
+        )
+        if (limits := member_access.item_clause(user)) is not None:
+            shared = and_(shared, limits)
+        # Own items are always visible, even when the member's shared-library
+        # section/rating limits would hide the same item from others.
+        branches = [shared, LibraryItem.user_id == user.id]
+        if user.role == "admin":
+            branches.append(and_(LibraryItem.user_id.is_(None), LibraryItem.visibility.is_not("shared")))
+
+        candidates = union_all(*(
+            select(LibraryItem.id, LibraryItem.downloaded_at, LibraryItem.created_at)
+            .where(*common, branch).order_by(*order).limit(limit).cte(f"library_page_{index}")
+            .select()
+            for index, branch in enumerate(branches)
+        )).subquery()
+        return (
+            self.db.query(LibraryItem)
+            .join(candidates, candidates.c.id == LibraryItem.id)
+            .options(defer(LibraryItem.metadata_json))
+            .order_by(candidates.c.downloaded_at.desc().nullslast(), candidates.c.created_at.desc(), candidates.c.id.desc())
+            .limit(limit)
+        )
 
     @staticmethod
     def _page_cursor_for(item: LibraryItem) -> str:

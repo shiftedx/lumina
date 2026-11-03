@@ -816,7 +816,7 @@ struct TVApprovalRequest: Identifiable, Hashable {
 }
 
 private enum LibraryCategory: String, CaseIterable {
-    case movies, tv, anime, music, books
+    case movies, tv, anime, music, books, streaming
 
     var title: String {
         switch self {
@@ -825,6 +825,7 @@ private enum LibraryCategory: String, CaseIterable {
         case .anime: "Anime"
         case .music: "Music"
         case .books: "Books"
+        case .streaming: "Streaming"
         }
     }
 
@@ -934,7 +935,7 @@ private struct LibraryShellView: View {
                 .onAppear { recordHomeNavigationDiagnostic("root") }
                 #endif
             }
-            if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
+            if LibraryCategory.allCases.contains(where: isLibraryCategoryAvailable) {
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
                                  usesPortraitRail: stacksCategoryHeader, path: $libraryPath) {
@@ -987,12 +988,14 @@ private struct LibraryShellView: View {
                 }
             }
             }
-            Tab("Streaming", image: LuminaGlyph.video.assetName(for: destination == .streaming ? .solid : .outline), value: .streaming) {
-                destinationStack(owner: .streaming, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                 usesPortraitRail: stacksCategoryHeader) {
-                    NativeStreamingView(store: store, isActive: destination == .streaming)
+            if store.streamingAvailable {
+                Tab("Streaming", image: LuminaGlyph.video.assetName(for: destination == .streaming ? .solid : .outline), value: .streaming) {
+                    destinationStack(owner: .streaming, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                     usesPortraitRail: stacksCategoryHeader) {
+                        NativeStreamingView(store: store, isActive: destination == .streaming)
+                    }
+                    .accessibilityIdentifier("streamingTab")
                 }
-                .accessibilityIdentifier("streamingTab")
             }
             if store.requestsAvailable {
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
@@ -1031,6 +1034,13 @@ private struct LibraryShellView: View {
         .onChange(of: destination) { previous, next in
             if previous == .account && next != .account { Task { await store.refreshNavigationCategories() } }
         }
+        .onChange(of: store.streamingAvailable) { _, available in
+            if !available && destination == .streaming { destination = .home }
+            if available && category == .streaming {
+                category = LibraryCategory.allCases.first(where: isLibraryCategoryAvailable) ?? .movies
+                libraryPath = NavigationPath()
+            }
+        }
         .onChange(of: store.requestsAvailable) { _, available in
             if !available && destination == .requests { destination = .home }
         }
@@ -1056,6 +1066,8 @@ private struct LibraryShellView: View {
                     .id(category)
             case .music:
                 AudioLibraryView(store: store, usesPortraitNavigationRail: usesPortraitRail)
+            case .streaming:
+                NativeStreamingView(store: store, isActive: destination == .library, savedOnly: true)
             case .books:
                 if let session = store.session {
                     NativeBooksView(store: store, session: session, isActive: destination == .library,
@@ -1069,7 +1081,10 @@ private struct LibraryShellView: View {
     }
 
     private func isLibraryCategoryAvailable(_ category: LibraryCategory) -> Bool {
-        store.availableLibraryCategories.contains(category.rawValue)
+        if category == .streaming {
+            return !store.streamingAvailable && store.availableLibraryCategories.contains("youtube")
+        }
+        return store.availableLibraryCategories.contains(category.rawValue)
     }
 
     private func libraryCategories(centersContent: Bool = true) -> some View {
@@ -1099,7 +1114,7 @@ private struct LibraryShellView: View {
                     .accessibilityIdentifier("homeMenu-home")
                 Button("Watchlist") { homeCategory = .watchlist }
                     .accessibilityIdentifier("homeMenu-watchlist")
-                if LibraryCategory.allCases.contains(where: { store.availableLibraryCategories.contains($0.rawValue) }) {
+                if LibraryCategory.allCases.contains(where: isLibraryCategoryAvailable) {
                 Button("Library") {
                     var transaction = Transaction(animation: nil)
                     transaction.disablesAnimations = true
@@ -1167,8 +1182,10 @@ private struct LibraryShellView: View {
                     openLibrary(value, fromHome: destination == .home)
                 }
             }
-            unifiedCategoryButton("Streaming", id: "streaming", selected: destination == .streaming) {
-                destination = .streaming
+            if store.streamingAvailable {
+                unifiedCategoryButton("Streaming", id: "streaming", selected: destination == .streaming) {
+                    destination = .streaming
+                }
             }
             unifiedCategoryButton("Watchlist", id: HomeBrowsingDestination.watchlist.rawValue,
                                   selected: destination == .home && homeCategory == .watchlist) {
@@ -1883,6 +1900,7 @@ private struct HomeExternalRail: View {
 private struct NativeStreamingView: View {
     @Bindable var store: LuminaStore
     let isActive: Bool
+    var savedOnly = false
 
     private enum Section: Hashable {
         case recommendations, live, saved
@@ -1911,7 +1929,7 @@ private struct NativeStreamingView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var remoteAvailable: Bool {
-        store.nativeStreamingCapabilities?.remote.available == true
+        !savedOnly && store.nativeStreamingCapabilities?.remote.available == true
     }
 
     private var liveAvailable: Bool {
@@ -1934,23 +1952,27 @@ private struct NativeStreamingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Streaming").font(.largeTitle.weight(.semibold))
-                    Text(remoteAvailable ? "Recommended and live from your connected services." : "Videos saved to your Lumina library.")
-                        .font(.subheadline).foregroundStyle(LuminaTheme.muted)
-                }
-
-                sectionTabs
-
-                switch section {
-                case .recommendations:
-                    remoteRowsView(recommendationRows, emptyTitle: "Nothing recommended yet",
-                                   emptyDetail: "Recommendations will appear when your connected services have something new.")
-                case .live:
-                    remoteRowsView(liveRows, emptyTitle: "Nothing live right now",
-                                   emptyDetail: "Live streams from connected services will appear here.")
-                case .saved:
+                if savedOnly {
                     savedLibraryView
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Streaming").font(.largeTitle.weight(.semibold))
+                        Text(remoteAvailable ? "Recommended and live from your connected services." : "Videos saved to your Lumina library.")
+                            .font(.subheadline).foregroundStyle(LuminaTheme.muted)
+                    }
+
+                    sectionTabs
+
+                    switch section {
+                    case .recommendations:
+                        remoteRowsView(recommendationRows, emptyTitle: "Nothing recommended yet",
+                                       emptyDetail: "Recommendations will appear when your connected services have something new.")
+                    case .live:
+                        remoteRowsView(liveRows, emptyTitle: "Nothing live right now",
+                                       emptyDetail: "Live streams from connected services will appear here.")
+                    case .saved:
+                        savedLibraryView
+                    }
                 }
             }
             .padding(.horizontal, LuminaTheme.contentGutter)
@@ -1958,7 +1980,7 @@ private struct NativeStreamingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(LuminaTheme.paper)
-        .accessibilityIdentifier("streamingScreen")
+        .accessibilityIdentifier(savedOnly ? "savedStreamingLibrary" : "streamingScreen")
         .task(id: TaskScope(owner: MobileHomeSessionScope(store.session), isActive: isActive)) {
             guard isActive else { return }
             await load()
@@ -2061,11 +2083,13 @@ private struct NativeStreamingView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Saved").font(.title3.weight(.bold))
-                    Spacer()
-                    if !savedProviders.isEmpty {
-                        Text(savedProviders).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+                if !savedOnly {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Saved").font(.title3.weight(.bold))
+                        Spacer()
+                        if !savedProviders.isEmpty {
+                            Text(savedProviders).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+                        }
                     }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 220 : 150), spacing: 14)], spacing: 18) {
@@ -2092,6 +2116,10 @@ private struct NativeStreamingView: View {
     private func load() async {
         let owner = MobileHomeSessionScope(store.session)
         savedLibrary.configure(session: store.session)
+        if savedOnly {
+            await savedLibrary.load()
+            return
+        }
         remoteFeed.configure(session: store.session)
         async let capabilities: NativeStreamingCapabilities? = store.loadNativeStreamingCapabilities()
         async let saved: Void = savedLibrary.load()

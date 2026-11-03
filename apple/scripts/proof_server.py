@@ -1511,6 +1511,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         owner = db.query(User).filter_by(username=username).one()
         streaming_fixture: dict[str, str] = {}
         if os.environ.get("LUMINA_NATIVE_STREAMING_PROOF") == "1":
+            owner.onboarding_status = "completed"
             from app.models import LibraryItemArtifact
             source = db.get(LibraryItem, items[DIRECT_TITLE])
             artifact = db.get(LibraryItemArtifact, source.id)

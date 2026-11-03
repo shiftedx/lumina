@@ -54,7 +54,8 @@ test('a movie plays the chosen version', async ({ page }) => {
   await open(page, '/title/movie-1');
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeVisible();
   await expect(page.getByRole('radio', { name: '4K HDR · 58 GB' })).toBeChecked();
-  await page.getByRole('radio', { name: '1080p · 8.0 GB' }).check();
+  await expect(page.getByRole('group', { name: 'Versions · 2' })).toBeVisible();
+  await page.getByRole('radio', { name: /Director’s Cut · 1080p/ }).check();
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page).toHaveURL(/\/watch\/library\/item-movie-1080$/);
 });

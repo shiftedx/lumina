@@ -26,6 +26,7 @@ describe('caption style in the watch menu', () => {
     const onCaptionsChange = vi.fn();
     render(watchSurface({ selection: { kind: 'library', item }, captions: { size: 'medium', background: 'shadow' }, onCaptionsChange }));
     await userEvent.click(await screen.findByRole('button', { name: 'Playback settings' }));
+    await userEvent.click(screen.getByText('Subtitles', { selector: 'summary > span' }));
     await userEvent.click(screen.getByRole('button', { name: 'Caption style…' }));
     await userEvent.click(screen.getByRole('radio', { name: 'Large' }));
     expect(onCaptionsChange).toHaveBeenCalledWith({ size: 'large', background: 'shadow' });

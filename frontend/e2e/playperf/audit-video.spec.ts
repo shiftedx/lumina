@@ -170,6 +170,8 @@ async function select480(page: Page): Promise<{ available: boolean; elapsed: num
   const video = page.locator('video');
   await video.hover();
   await page.getByRole('button', { name: 'Playback settings' }).click();
+  const quality = page.getByText('Quality', { exact: true, selector: 'summary > span' });
+  if (await quality.count()) await quality.click();
   const option = page.getByRole('radio', { name: '480p', exact: true });
   if (await option.count() === 0) {
     await page.keyboard.press('Escape');
@@ -590,11 +592,13 @@ test('multi-audio and text subtitles preserve a seek after selection', async ({ 
       && response.ok(), { timeout: 5_000 }).catch(() => null);
     const audioAt = await page.evaluate(() => performance.now());
     const audioResponse = awaitSuccessfulAudioSession();
+    await page.getByText('Audio', { exact: true, selector: 'summary > span' }).click();
     await audio.last().check({ force: true });
     const audioSession = await audioResponse;
     const audioFrame = audioSession ? await waitFrameAfter(page, audioAt) : null;
     expect(audioSession, 'audio selection must acknowledge a playback session within five seconds').not.toBeNull();
     expect(audioFrame, 'audio selection must emit a new decoded frame').not.toBeNull();
+    await page.getByText('Subtitles', { exact: true, selector: 'summary > span' }).click();
     await subtitles.last().check({ force: true });
     // VTT selection is browser-local and may not change the playback session.
     // It qualifies only after the selected text track is showing with a cue.

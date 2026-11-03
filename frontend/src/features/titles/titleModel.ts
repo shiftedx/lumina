@@ -51,11 +51,15 @@ export function versionQuality(version: Pick<TitleVersion, 'hdr'> & Partial<Pick
 }
 
 export function versionLabel(version: TitleVersion): string {
-  return [versionQuality(version), version.file_size ? formatBytes(version.file_size) : null].filter(Boolean).join(' · ');
+  const quality = versionQuality({ ...version, label: null });
+  const label = version.label;
+  const technical = version.height && label && !label.toLowerCase().includes(quality.toLowerCase()) ? quality : null;
+  return [label || quality, technical, version.file_size ? formatBytes(version.file_size) : null, versionAvailable(version) ? null : 'Unavailable'].filter(Boolean).join(' · ');
 }
 
 export type TitleAction = { label: string; itemId: string | null; reason: string | null };
 const UNPLAYABLE = new Set(['offline', 'missing', 'quarantined']);
+export const versionAvailable = (version: TitleVersion) => !UNPLAYABLE.has(version.media_state ?? '');
 const isFirstEpisode = (episode: TitleSummary) => (episode.season_number ?? 1) <= 1 && (episode.index_number ?? 1) <= 1;
 
 /** The title page's one primary button: what it says, which Library item it opens, and why it cannot. */

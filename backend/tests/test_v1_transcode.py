@@ -182,6 +182,29 @@ def test_mkv_ac3_copies_video_and_encodes_audio(household: None, tmp_path: Path)
     assert "progress=end" in (directory / "progress").read_text()
 
 
+def test_commentary_choice_maps_the_selected_audio(household: None, tmp_path: Path) -> None:
+    main = make_media(settings.library_root / "alice" / "main.mp4")
+    dual = main.with_name("dual.mkv")
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-i", str(main), "-i", str(main),
+        "-map", "0:v", "-map", "0:a", "-map", "1:a", "-c", "copy",
+        "-c:a:1", "aac", "-ac:a:1", "2",
+        "-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng",
+        "-metadata:s:a:1", "title=Director's commentary", "-disposition:a:0", "default",
+        "-disposition:a:1", "0", str(dual),
+    ], check=True, timeout=30)
+    item_id = _download("alice", dual)
+    with _client("alice") as client:
+        tracks = client.get(f"/api/library/{item_id}/playback-options").json()["audio_tracks"]
+        assert len(tracks) == 2
+        assert tracks[0]["default"] and tracks[0]["label"].startswith("Japanese")
+        assert tracks[1]["label"].startswith("Director's commentary · English")
+        session = client.post(f"/api/library/{item_id}/playback-sessions", json={"audio_index": tracks[1]["index"]})
+        assert session.status_code == 201
+    streams = _probe_concat(_finished(session.json()["session_id"]), tmp_path)["streams"]
+    assert [stream["channels"] for stream in streams if stream["codec_type"] == "audio"] == [2]
+
+
 def test_quality_choice_encodes_at_that_height(household: None, tmp_path: Path) -> None:
     item_id = _download("alice", make_media(settings.library_root / "alice" / "hd.mp4", size="1280x720", seconds=4))
     with _client("alice") as client:

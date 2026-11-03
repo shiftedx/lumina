@@ -348,7 +348,7 @@ const titleDetails: Record<string, unknown> = {
   'movie-1': detailOf(movieTitle, {
     versions: [
       { item_id: 'item-movie-4k', label: null, container: 'mkv', video_codec: 'hevc', audio_codec: 'truehd', width: 3840, height: 2160, hdr: true, file_size: 58 * 1024 ** 3, duration_seconds: 6720, media_state: 'available' },
-      { item_id: 'item-movie-1080', label: null, container: 'mp4', video_codec: 'h264', audio_codec: 'aac', width: 1920, height: 1080, hdr: false, file_size: 8 * 1024 ** 3, duration_seconds: 6720, media_state: 'available' },
+      { item_id: 'item-movie-1080', label: 'Director’s Cut', container: 'mp4', video_codec: 'h264', audio_codec: 'aac', width: 1920, height: 1080, hdr: false, file_size: 8 * 1024 ** 3, duration_seconds: 6720, media_state: 'available' },
     ],
     extras: [{ item_id: 'item-trailer', extra_type: 'trailer', name: 'Trailer', duration_seconds: 90, artwork_url: null }],
     match: { method: 'search', score: 0.71, at },

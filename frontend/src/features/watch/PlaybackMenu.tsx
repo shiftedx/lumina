@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { PlayerSettingsMenu } from './PlayerSettingsMenu';
 
 import { apiBaseUrl, ApiRequestError, type EnrichmentCapabilities, getEnrichmentJob, listSubtitleTracks, requestSubtitleJob, type SubtitleJobRequest } from '../../api';
@@ -8,7 +8,7 @@ import type { EnrichmentJob, LocalPlaybackOptions, PlaybackSessionRequest, Subti
 import { errorMessage } from '../../utils';
 import type { PlaybackPrefs } from '../../workspace';
 import { Button, Select, TextButton } from '../../ui';
-import { useFetched, versionLabel } from '../titles/titleModel';
+import { useFetched, versionAvailable, versionLabel } from '../titles/titleModel';
 import type { CaptionPrefs } from './captionPrefs';
 import { CaptionStyleRows } from './CaptionStyleRows';
 import { usePollJob } from './usePollJob';
@@ -40,6 +40,13 @@ export function useSubtitleTracks(itemId: string | null) {
 /** Text tracks become <track> elements; image tracks are burned in by the session instead. */
 export function subtitleTrackSources(tracks: SubtitleTrack[]): LuminaPlayerTrack[] {
   return tracks.filter((track) => track.format === 'text' && track.url).map((track) => ({ id: track.id, label: track.label, language: track.language ?? null, src: `${apiBaseUrl}${track.url}` }));
+}
+
+function PlaybackSection({ title, value, group, children }: { title: string; value?: string; group?: string; children: ReactNode }) {
+  return <details className="playback-section" name={group}>
+    <summary><span>{title}</span>{value ? <small title={value}>{value}</small> : null}</summary>
+    {children}
+  </details>;
 }
 
 /** Drives LocalLibraryPlayer `request`: it restarts where the member is, only when a session is needed. */
@@ -91,6 +98,8 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
   ];
   const audio = options?.audio_tracks ?? [];
   const defaultAudio = audio.find((entry) => entry.default)?.index ?? audio[0]?.index ?? null;
+  const selectedAudio = audio.find((entry) => entry.index === (request.audio_index ?? defaultAudio));
+  const selectedVersion = versions.find((version) => version.item_id === (request.version_id ?? currentVersionId));
   const playbackFacts = playbackFactsLabel(options);
 
   async function start(request: SubtitleJobRequest) {
@@ -119,41 +128,53 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
         </>
       ) : <>
       {playbackFacts ? <div className="playback-menu-actions"><p className="playback-menu-status">Playing: {playbackFacts}</p></div> : null}
-      {quality.length > 1 ? (
-        <fieldset><legend className="g-label">Quality</legend>
-          {quality.map((entry) => <label key={entry.label}><input checked={(request.max_height ?? null) === entry.value} name={`${id}-quality`} onChange={() => onRequestChange({ ...request, max_height: entry.value })} type="radio" /> {entry.label}</label>)}
+      {audio.length > 1 ? (
+        <PlaybackSection group={id} title="Audio" value={selectedAudio?.label}>
+          <fieldset aria-label="Audio tracks">
+            {audio.map((entry) => <label key={entry.index}><input checked={selectedAudio?.index === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index })} type="radio" /> <span>{entry.label}</span></label>)}
+          </fieldset>
+        </PlaybackSection>
+      ) : null}
+      <PlaybackSection group={id} title="Subtitles" value={selected?.label ?? 'Off'}>
+        <fieldset aria-label="Subtitle tracks">
+          <label><input checked={subtitle === null} name={`${id}-subtitles`} onChange={() => onSubtitle(null)} type="radio" /> <span>Off</span></label>
+          {tracks.map((track) => <label key={track.id}><input checked={subtitle === track.id} name={`${id}-subtitles`} onChange={() => onSubtitle(track)} type="radio" /> <span>{track.label}{track.format === 'image' && !/burned in/i.test(track.label) ? ' · Burned in' : ''}{track.origin !== 'embedded' ? <small>{ORIGIN_LABELS[track.origin]}</small> : null}</span></label>)}
         </fieldset>
+        {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
+        <PlaybackSection title="Subtitle tools">
+          <div className="playback-menu-actions">
+            {action('generate', 'Generate subtitles', { kind: 'generate' })}
+            {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}
+            <div className="playback-menu-translate"><span>Translate to</span>
+              <Select aria-label="Translate to" disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</Select>
+            </div>
+            {action('translate', 'Translate', textTrack ? { kind: 'translate', trackId: textTrack.id, targetLanguage: language } : null)}
+            {job ? <p aria-live="polite" className="playback-menu-status" role="status">{job.state === 'failed' ? job.error || 'That did not work.' : JOB_STATUS[job.state] ?? job.state}</p> : null}
+            {jobError ? <p className="playback-menu-status" role="alert">{jobError}</p> : null}
+          </div>
+        </PlaybackSection>
+      </PlaybackSection>
+      {quality.length > 1 ? (
+        <PlaybackSection group={id} title="Quality" value={quality.find((entry) => entry.value === (request.max_height ?? null))?.label}>
+          <fieldset aria-label="Quality options">
+            {quality.map((entry) => <label key={entry.label}><input checked={(request.max_height ?? null) === entry.value} name={`${id}-quality`} onChange={() => onRequestChange({ ...request, max_height: entry.value })} type="radio" /> <span>{entry.label}</span></label>)}
+          </fieldset>
+        </PlaybackSection>
       ) : null}
       {versions.length > 1 ? (
-        <fieldset><legend className="g-label">Version</legend>
-          {versions.map((version) => <label key={version.item_id}><input checked={version.item_id === (request.version_id ?? currentVersionId)} name={`${id}-version`} onChange={() => onRequestChange({ ...request, version_id: version.item_id === currentVersionId ? null : version.item_id })} type="radio" /> {versionLabel(version)}</label>)}
-        </fieldset>
+        <PlaybackSection group={id} title="Version" value={selectedVersion ? versionLabel(selectedVersion) : `${versions.length} files`}>
+          <fieldset aria-label="Available versions">
+            {versions.map((version) => <label key={version.item_id}><input checked={selectedVersion?.item_id === version.item_id} disabled={!versionAvailable(version)} name={`${id}-version`} onChange={() => onRequestChange({ ...request, version_id: version.item_id === currentVersionId ? null : version.item_id })} type="radio" /> <span>{versionLabel(version)}</span></label>)}
+          </fieldset>
+        </PlaybackSection>
       ) : null}
-      {audio.length > 1 ? (
-        <fieldset><legend className="g-label">Audio</legend>
-          {audio.map((entry) => <label key={entry.index}><input checked={(request.audio_index ?? defaultAudio) === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index })} type="radio" /> {entry.label}</label>)}
+      <PlaybackSection group={id} title="Sound and skipping">
+        <fieldset aria-label="Sound and skipping">
+          <label><input checked={prefs.normalizeLoudness} onChange={(event) => onPrefs({ normalizeLoudness: event.currentTarget.checked })} type="checkbox" /> Even out loudness</label>
+          <label><input checked={prefs.profanity.enabled} onChange={(event) => onPrefs({ profanity: { ...prefs.profanity, enabled: event.currentTarget.checked } })} type="checkbox" /> Mute strong language<small>Web player only · may miss a word</small></label>
+          <label><input checked={prefs.autoSkip.intro} onChange={(event) => onPrefs({ autoSkip: { ...prefs.autoSkip, intro: event.currentTarget.checked } })} type="checkbox" /> Skip intros automatically</label>
         </fieldset>
-      ) : null}
-      <fieldset><legend className="g-label">Subtitles</legend>
-        <label><input checked={subtitle === null} name={`${id}-subtitles`} onChange={() => onSubtitle(null)} type="radio" /> Off</label>
-        {tracks.map((track) => <label key={track.id}><input checked={subtitle === track.id} name={`${id}-subtitles`} onChange={() => onSubtitle(track)} type="radio" /> {track.format === 'image' ? `${track.label} (burned in)` : track.label}<small>{ORIGIN_LABELS[track.origin]}</small></label>)}
-      </fieldset>
-      {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
-      <div className="playback-menu-actions">
-        {action('generate', 'Generate subtitles', { kind: 'generate' })}
-        {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}
-        <div className="playback-menu-translate"><span>Translate to</span>
-          <Select aria-label="Translate to" disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</Select>
-        </div>
-        {action('translate', 'Translate', textTrack ? { kind: 'translate', trackId: textTrack.id, targetLanguage: language } : null)}
-        {job ? <p aria-live="polite" className="playback-menu-status" role="status">{job.state === 'failed' ? job.error || 'That did not work.' : JOB_STATUS[job.state] ?? job.state}</p> : null}
-        {jobError ? <p className="playback-menu-status" role="alert">{jobError}</p> : null}
-      </div>
-      <fieldset><legend className="g-label">Sound and skipping</legend>
-        <label><input checked={prefs.normalizeLoudness} onChange={(event) => onPrefs({ normalizeLoudness: event.currentTarget.checked })} type="checkbox" /> Even out loudness</label>
-        <label><input checked={prefs.profanity.enabled} onChange={(event) => onPrefs({ profanity: { ...prefs.profanity, enabled: event.currentTarget.checked } })} type="checkbox" /> Mute strong language<small>Web player only · may miss a word</small></label>
-        <label><input checked={prefs.autoSkip.intro} onChange={(event) => onPrefs({ autoSkip: { ...prefs.autoSkip, intro: event.currentTarget.checked } })} type="checkbox" /> Skip intros automatically</label>
-      </fieldset>
+      </PlaybackSection>
       </>}
     </PlayerSettingsMenu>
   );

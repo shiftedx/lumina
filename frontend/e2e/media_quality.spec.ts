@@ -39,25 +39,27 @@ for (const width of [1280, 390]) {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.getByRole('button', { name: 'Playback settings' }).click();
       const panel = page.getByRole('group', { name: 'Playback settings' });
-      await expect(panel.getByRole('radio', { name: /Français \(Canada\)/ })).toBeAttached();
-      expect(await panel.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(await panel.evaluate(el => el.clientWidth));
-      expect(await panel.evaluate(el => el.scrollHeight)).toBeGreaterThan(await panel.evaluate(el => el.clientHeight));
-
-      const panelBox = await panel.boundingBox();
-      for (const name of ['Quality', 'Version', 'Audio', 'Subtitles', 'Sound and skipping']) {
-        const box = await panel.locator('legend', { hasText: name }).boundingBox();
-        expect(box).not.toBeNull();
-        expect(box!.x).toBeGreaterThanOrEqual(panelBox!.x);
-        expect(box!.x + box!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+      const section = (name: string) => panel.getByText(name, { exact: true, selector: 'summary > span' });
+      await expect(section('Version')).toBeVisible();
+      await expect(panel.locator('details[open]')).toHaveCount(0);
+      if (scheme === 'dark') await page.screenshot({ path: `../output/playwright/playback-settings-${width}.png` });
+      let panelBox = (await panel.boundingBox())!;
+      const frameBox = (await page.locator('.player-frame').boundingBox())!;
+      expect(panelBox.y).toBeGreaterThanOrEqual(frameBox.y);
+      expect(panelBox.x).toBeGreaterThanOrEqual(frameBox.x);
+      expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(frameBox.x + frameBox.width);
+      for (const [name, track] of [['Quality', /^Original$/], ['Version', /4K HDR/], ['Audio', /English 5\.1/], ['Subtitles', /Français \(Canada\)/]] as const) {
+        await section(name).click();
+        const label = panel.getByRole('radio', { name: track }).locator('..');
+        await label.scrollIntoViewIfNeeded();
+        const box = (await label.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        const currentPanel = (await panel.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(currentPanel.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(currentPanel.x + currentPanel.width);
       }
-      for (const name of [/^Original$/, /4K HDR/, /English 5\.1/, /Français \(Canada\)/]) {
-        const label = panel.getByRole('radio', { name }).locator('..');
-        const box = await label.boundingBox();
-        expect(box).not.toBeNull();
-        expect(box!.height).toBeGreaterThanOrEqual(44);
-        expect(box!.x).toBeGreaterThanOrEqual(panelBox!.x);
-        expect(box!.x + box!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
-      }
+      await section('Subtitle tools').click();
+      panelBox = (await panel.boundingBox())!;
       for (const name of ['Generate subtitles', 'Sync to audio', 'Translate']) {
         const button = panel.getByRole('button', { name, exact: true });
         await button.scrollIntoViewIfNeeded();
@@ -85,13 +87,7 @@ for (const width of [1280, 390]) {
         const label = element.querySelector(':scope > span')!;
         return label.getBoundingClientRect().right <= element.querySelector('.g-select-trigger')!.getBoundingClientRect().left;
       })).toBe(true);
-      const origin = panel.getByRole('radio', { name: /Français \(Canada\)/ }).locator('..');
-      expect(await origin.evaluate((element) => {
-        const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes('Français'));
-        const range = document.createRange();
-        range.selectNode(text!);
-        return element.querySelector('small')!.getBoundingClientRect().top >= range.getBoundingClientRect().bottom;
-      })).toBe(true);
+      await section('Sound and skipping').click();
       const mute = panel.getByRole('checkbox', { name: /Mute strong language/ }).locator('..');
       await mute.scrollIntoViewIfNeeded();
       expect(await mute.evaluate((element) => {
@@ -101,6 +97,7 @@ for (const width of [1280, 390]) {
         return element.querySelector('small')!.getBoundingClientRect().top >= range.getBoundingClientRect().bottom;
       })).toBe(true);
       await expect(panel.getByRole('checkbox', { name: 'Skip intros automatically' })).toBeVisible();
+      await section('Subtitles').click();
       const captionStyle = panel.getByRole('button', { name: 'Caption style…' });
       await captionStyle.scrollIntoViewIfNeeded();
       await captionStyle.click();
@@ -158,6 +155,29 @@ for (const width of [1280, 390]) {
   }
 }
 
+test('audio choices request the selected stream on the first restart', async ({ page }) => {
+  await openWatch(page, 1280, true);
+  const settings = page.getByRole('button', { name: 'Playback settings' });
+  await settings.click();
+  const panel = page.getByRole('group', { name: 'Playback settings' });
+  const section = (name: string) => panel.getByText(name, { exact: true, selector: 'summary > span' });
+  await section('Audio').click();
+  const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/library/item-movie-4k/playback-sessions');
+  await page.route('**/api/library/item-movie-4k/playback-sessions*', (route) => route.fulfill({ status: 201, json: { session_id: 'audio-choice', mode: 'remux', playback_url: '/api/playback-sessions/audio-choice/index.m3u8', start: 0 } }));
+  await panel.getByRole('radio', { name: /Audiodescripción/ }).check();
+  expect((await request).postDataJSON()).toMatchObject({ audio_index: 1 });
+});
+
+test('the player opens the selected version as its own library file', async ({ page }) => {
+  await openWatch(page, 1280, true);
+  await page.getByRole('button', { name: 'Playback settings' }).click();
+  const panel = page.getByRole('group', { name: 'Playback settings' });
+  await panel.getByText('Version', { exact: true, selector: 'summary > span' }).click();
+  await panel.getByRole('radio', { name: /Director’s Cut · 1080p/ }).click();
+  await expect(page).toHaveURL(/\/watch\/library\/item-movie-1080$/);
+  await expect(page.locator('video')).toHaveAttribute('src', '/api/library/item-movie-1080/media');
+});
+
 test('phone playback settings remain inside the visible player and every section is reachable', async ({ page }) => {
   await openWatch(page, 390);
   await page.getByRole('button', { name: 'Playback settings' }).click();
@@ -171,6 +191,7 @@ test('phone playback settings remain inside the visible player and every section
   expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(382);
   expect(panelBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
   expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(frameBox!.y + frameBox!.height);
+  await panel.getByText('Sound and skipping', { exact: true, selector: 'summary > span' }).click();
   await page.getByRole('checkbox', { name: 'Skip intros automatically' }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('checkbox', { name: 'Skip intros automatically' })).toBeVisible();
 });
@@ -204,6 +225,7 @@ test('phone playback facts keep full technical text without colliding with time 
 test('desktop Caption style is a single-line control', async ({ page }) => {
   await openWatch(page, 1440);
   await page.getByRole('button', { name: 'Playback settings' }).click();
+  await page.getByText('Subtitles', { exact: true, selector: 'summary > span' }).click();
   const button = page.getByRole('button', { name: 'Caption style…' });
   await expect(button).toBeVisible();
   expect(await button.evaluate((element) => {

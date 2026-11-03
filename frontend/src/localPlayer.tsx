@@ -218,6 +218,9 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   useEffect(() => {
     // Back to direct play: drop the stopped session so hls.js is torn down and the direct file resumes.
     if (!converts) { setSession(null); return; }
+    // A newly selected track can require conversion before the restart target
+    // has captured that choice and the current position.
+    if (target.key !== key) return;
     let active = true;
     let started: string | null = null;
     // Held from before the request, so no tab starts a conversion early that would replace this one.
@@ -250,7 +253,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       release();
       if (started) void stopLocalPlaybackSession(started).catch(() => undefined);
     };
-  }, [decisionBandwidthBps, converts, itemId, target]);
+  }, [decisionBandwidthBps, converts, itemId, key, target]);
 
   // A layout effect: hls.js detaches before the player hands its element on (picture-in-picture into the next item)
   // or loads the next source into it, so it never empties the element under the next item.

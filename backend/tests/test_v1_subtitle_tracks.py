@@ -47,7 +47,7 @@ def test_embedded_and_sidecar_tracks_list_and_convert(household: None, monkeypat
     with _client("alice") as client:
         tracks = client.get(f"/api/library/{item_id}/subtitle-tracks").json()
         assert [(t["id"], t["origin"], t["format"], t["language"], t["label"]) for t in tracks] == [
-            ("e:2", "embedded", "text", "eng", "ENG"), ("s:0", "sidecar", "text", "eng", "ENG · SDH")]
+            ("e:2", "embedded", "text", "eng", "English"), ("s:0", "sidecar", "text", "eng", "English · SDH")]
         embedded = client.get(tracks[0]["url"])
         assert embedded.status_code == 200 and embedded.headers["content-type"].startswith("text/vtt")
         assert embedded.text.startswith("WEBVTT") and CUE_TIME.search(embedded.text) and "Hello there" in embedded.text
@@ -87,7 +87,7 @@ def test_image_tracks_are_listed_as_burn_in_only() -> None:
         {"index": 4, "type": "subtitle", "codec": "eia_608", "language": None, "title": None, "forced": False, "default": False, "hearing_impaired": False},
     ]}
     (track,) = list_tracks(facts, LibraryItem(id="i1", metadata_json={}))
-    assert (track.id, track.format, track.url, track.forced, track.label) == ("i:3", "image", None, True, "ENG · Forced · Burned in")
+    assert (track.id, track.format, track.url, track.forced, track.label) == ("i:3", "image", None, True, "English · Forced · Burned in")
 
 
 def test_cr_prefix_track_titles_are_clean_display_labels_without_touching_custom_titles() -> None:

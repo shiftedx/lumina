@@ -215,7 +215,8 @@
 }
 @media (max-width: 520px) {
   .player-controls .playback-menu { position: static; }
-  .playback-menu-panel { inset-inline: 8px; bottom: 4px; width: auto; max-height: calc(100cqh - 8px); }
+  .playback-menu-panel { inset-inline: 8px; bottom: 52px; width: auto; max-height: calc(100cqh - 56px); }
+  .lumina-player:has(.playback-menu [aria-expanded='true']) .player-progress-stack { visibility: hidden; }
 }
 
 .playback-section > summary { min-height: 44px; padding: 12px 16px; cursor: pointer; }

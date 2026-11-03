@@ -22,6 +22,7 @@ test('invited member is isolated from private items, keeps own search history, a
     await expect.poll(async () => (await (await page.request.get('/api/search/history')).json()).map((entry: { query: string }) => entry.query)).toEqual(['realstack lantern']);
     await page.goto('/settings/privacy');
     await expect(page.locator('[data-setting-id="privacy.search-history"]').getByRole('button', { name: 'Clear search history' })).toBeVisible();
+    await page.goto('/');
     await page.getByRole('button', { name: /^Search Lumina, / }).click();
     await expect(page.getByRole('option', { name: /realstack lantern/ })).toBeVisible();
     await member.goto('/settings/privacy');

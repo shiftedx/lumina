@@ -79,8 +79,8 @@ test('music imports into albums and artists, an album plays on, and the anime fo
 
   await test.step('with no anime folders, Show A is back in Shows; then the default returns', async () => {
     await page.goto('/settings/library?page=organization');
-    await page.locator('summary').filter({ hasText: 'Advanced settings' }).click();
     const row = page.locator('[data-setting-id="library.anime"]');
+    if (!await row.isVisible()) await page.getByLabel('Organization').getByText('Advanced settings', { exact: true }).click();
     await row.getByRole('button', { name: 'Remove Anime' }).click();
     await row.getByRole('button', { name: 'Save' }).click();
     await expect(row.getByText('Titles re-sorted.')).toBeVisible({ timeout: 30_000 });
@@ -90,6 +90,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
       return page.getByRole('button', { name: /^Show A,/ }).count();
     }, { timeout: 60_000 }).toBeGreaterThan(0);
     await page.goto('/settings/library?page=organization');
+    if (!await row.isVisible()) await page.getByLabel('Organization').getByText('Advanced settings', { exact: true }).click();
     await row.getByLabel('Folder name').fill('Anime');
     await row.getByRole('button', { name: 'Add' }).click();
     await row.getByRole('button', { name: 'Save' }).click();

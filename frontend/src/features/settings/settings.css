@@ -440,6 +440,7 @@
 .g-save-bar.is-pending { background: var(--g-paper); }
 .g-save-mode { color: var(--g-ink-3); }
 .g-setting-form > .g-save-mode { margin: 0 0 12px; font: var(--g-type-small); }
+@media (min-width: 1600px) { .g-settings-link { min-height: 48px; } }
 @media (max-width: 800px) {
   .g-settings { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'side' 'pane'; gap: 12px; padding-top: 20px; }
   .g-settings-section-head h2 { font-size: 25px; }

@@ -7,9 +7,20 @@ async function resumeSavedPlayback(page: Page) {
   await choice.getByRole('button', { name: 'Resume', exact: true }).click();
 }
 
+async function savePlaybackProgress(page: Page, itemId: string, positionSeconds: number) {
+  const session = await (await page.request.get('/api/session/me')).json();
+  const response = await page.request.put(`/api/library/${itemId}/playback`, {
+    data: { position_seconds: positionSeconds, duration_seconds: 4, completed: false },
+    headers: { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrf_token as string },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
 test('a timestamped note persists and seeks the player', async ({ page }) => {
   const noteBody = `Lantern appears on the left (${test.info().repeatEachIndex})`;
   await page.goto('/library/movies');
+  const id = await libraryItemId(page, 'Realstack Direct');
+  await savePlaybackProgress(page, id, 0);
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
   await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   await expect.poll(() => videoTime(page)).toBeGreaterThan(1.2);
@@ -56,13 +67,17 @@ async function queueLibraryItem(page: Page, title: string) {
 
 test('watch queue adds, reorders across reload, and autoplays the next entry', async ({ page }) => {
   await page.goto('/library');
+  const directId = await libraryItemId(page, 'Realstack Direct');
+  await savePlaybackProgress(page, directId, 0);
   for (const title of ['Realstack Show S01E01', 'Realstack Show S01E02', 'Realstack Remux']) await queueLibraryItem(page, title);
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
   await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   // Hold the four-second fixture while exercising queue editing; autoplay is tested explicitly below.
-  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Realstack Direct', level: 1 })).toBeVisible();
+  await expect.poll(() => videoTime(page)).toBeGreaterThan(0.2);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await savePlaybackProgress(page, directId, 1);
   const queue = page.getByRole('region', { name: 'Your queue' });
   const order = () => queue.getByRole('listitem').locator('strong').allTextContents();
   await expect.poll(order).toEqual(['Realstack Show S01E01', 'Realstack Show S01E02', 'Realstack Remux']);
@@ -84,7 +99,9 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
 });
 
 test('Resume on Home\'s hero starts playback at the saved position', async ({ page }) => {
+  await page.goto('/');
   const id = await libraryItemId(page, 'Realstack Direct');
+  await savePlaybackProgress(page, id, 0);
   await page.goto(`/watch/library/${id}`);
   await expect.poll(() => videoTime(page)).toBeGreaterThan(0.5);
   const saved = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/library/${id}/playback`);

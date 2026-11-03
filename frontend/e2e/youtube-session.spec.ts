@@ -16,12 +16,15 @@ for (const width of [1440, 900, 390]) test(`personal YouTube session connects an
   await page.goto('/'); await signIn(page);
   await page.goto('/settings/apps?page=youtube');
   await expect(page.getByText('Not connected', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Privacy & apps', exact: true })).toBeVisible();
-  for (const label of await page.locator('.g-settings-link > span').all()) {
-    expect(await label.evaluate((element) => {
-      const range = document.createRange(); range.selectNodeContents(element);
-      return range.getClientRects().length === 1 && range.getBoundingClientRect().right <= element.closest('a')!.getBoundingClientRect().right;
-    })).toBe(true);
+  if (width === 390) await expect(page.getByRole('combobox', { name: 'Choose settings section' })).toHaveValue('privacy');
+  else await expect(page.getByRole('link', { name: 'Privacy & apps', exact: true })).toBeVisible();
+  if (width >= 600) {
+    for (const label of await page.locator('.g-settings-link > span').all()) {
+      expect(await label.evaluate((element) => {
+        const range = document.createRange(); range.selectNodeContents(element);
+        return range.getClientRects().length === 1 && range.getBoundingClientRect().right <= element.closest('a')!.getBoundingClientRect().right;
+      })).toBe(true);
+    }
   }
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); window.scrollTo(0, 0); });
   await page.screenshot({ path: `../output/youtube-session-picker-${width}.png`, fullPage: true });

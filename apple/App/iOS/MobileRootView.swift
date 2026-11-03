@@ -875,6 +875,7 @@ private struct LibraryShellView: View {
             // Standard phones use their bottom tabs; Duo's larger display keeps its category header.
             let showsCategoryHeader = usesIPadHeaderNavigation || min(displayWidth, displayHeight) >= 450
             let usesClosedCategoryRow = !usesIPadHeaderNavigation && showsCategoryHeader && displayWidth < 600
+            let usesLandscapeHomeHeader = !usesIPadHeaderNavigation && displayHeight >= 600 && displayWidth > displayHeight
             // The system has already removed its camera/status region from this width.
             let closedHeaderInsets = LuminaTheme.contentGutter + 44 + 12 + 12 // Logo and its two gaps.
             let categoryBarWidth = min(560, max(100, geometry.size.width - (usesClosedCategoryRow ? closedHeaderInsets : 180)))
@@ -882,7 +883,8 @@ private struct LibraryShellView: View {
                          protectedHeaderCategoryWidth: headerCategoryWidth(for: geometry.size.width),
                          showsCategoryHeader: showsCategoryHeader,
                          usesClosedCategoryRow: usesClosedCategoryRow,
-                         stacksCategoryHeader: !usesIPadHeaderNavigation && displayWidth >= 600 && displayWidth < displayHeight)
+                         stacksCategoryHeader: !usesIPadHeaderNavigation && displayWidth >= 600 && displayWidth < displayHeight,
+                         usesLandscapeHomeHeader: usesLandscapeHomeHeader)
             #if LUMINA_UI_TESTING
             .overlay {
                 Color.clear.accessibilityElement()
@@ -913,7 +915,8 @@ private struct LibraryShellView: View {
     #endif
 
     private func destinations(categoryBarWidth: CGFloat, protectedHeaderCategoryWidth: CGFloat,
-                              showsCategoryHeader: Bool, usesClosedCategoryRow: Bool, stacksCategoryHeader: Bool) -> some View {
+                              showsCategoryHeader: Bool, usesClosedCategoryRow: Bool, stacksCategoryHeader: Bool,
+                              usesLandscapeHomeHeader: Bool) -> some View {
         TabView(selection: Binding(get: { destination }, set: { selected in
             if selected == .home {
                 homeCategory = .all
@@ -927,10 +930,11 @@ private struct LibraryShellView: View {
         })) {
             Tab("Home", image: LuminaGlyph.home.assetName(for: destination == .home ? .solid : .outline), value: .home) {
                 destinationStack(owner: .home, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                 usesPortraitRail: stacksCategoryHeader) {
+                                 usesCustomHeader: stacksCategoryHeader || usesLandscapeHomeHeader) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
                                         category: $homeCategory, stacksCategoryHeader: stacksCategoryHeader,
+                                        usesLandscapeHeader: usesLandscapeHomeHeader,
                                         uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue,
                                         scrollsHeader: usesIPadHeaderNavigation,
                                         header: { if usesIPadHeaderNavigation { iPadHomeHeader } }
@@ -947,7 +951,7 @@ private struct LibraryShellView: View {
             if LibraryCategory.allCases.contains(where: isLibraryCategoryAvailable) {
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                 usesPortraitRail: stacksCategoryHeader, path: $libraryPath) {
+                                 usesCustomHeader: stacksCategoryHeader, path: $libraryPath) {
                     libraryContent(usesPortraitRail: stacksCategoryHeader)
                         .environment(\.luminaRetainsArtworkWhileHidden, !libraryPath.isEmpty)
                         .safeAreaInset(edge: .top, spacing: 0) {
@@ -1000,7 +1004,7 @@ private struct LibraryShellView: View {
             if store.streamingAvailable {
                 Tab("Streaming", image: LuminaGlyph.video.assetName(for: destination == .streaming ? .solid : .outline), value: .streaming) {
                     destinationStack(owner: .streaming, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                     usesPortraitRail: stacksCategoryHeader) {
+                                     usesCustomHeader: stacksCategoryHeader) {
                         NativeStreamingView(store: store, isActive: destination == .streaming)
                     }
                     .accessibilityIdentifier("streamingTab")
@@ -1009,7 +1013,7 @@ private struct LibraryShellView: View {
             if store.requestsAvailable {
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
                 destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                 usesPortraitRail: stacksCategoryHeader) {
+                                 usesCustomHeader: stacksCategoryHeader) {
                     if let session = store.session {
                         NativeRequestsView(store: store, session: session, isActive: destination == .requests,
                                            usesPortraitNavigationRail: stacksCategoryHeader)
@@ -1222,25 +1226,25 @@ private struct LibraryShellView: View {
 
     @ViewBuilder
     private func destinationStack<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
-                                                  usesPortraitRail: Bool = false,
+                                                  usesCustomHeader: Bool = false,
                                                   path: Binding<NavigationPath>? = nil,
                                                   @ViewBuilder content: () -> Content) -> some View {
         if let path {
             NavigationStack(path: path) {
                 destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                        usesPortraitRail: usesPortraitRail, content: content)
+                                        usesCustomHeader: usesCustomHeader, content: content)
             }
         } else {
             NavigationStack {
                 destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
-                                        usesPortraitRail: usesPortraitRail, content: content)
+                                        usesCustomHeader: usesCustomHeader, content: content)
             }
         }
     }
 
     @ViewBuilder
     private func destinationStackContent<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
-                                                         usesPortraitRail: Bool,
+                                                         usesCustomHeader: Bool,
                                                          @ViewBuilder content: () -> Content) -> some View {
             content()
                 .toolbar {
@@ -1249,7 +1253,7 @@ private struct LibraryShellView: View {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
                     }
-                    if owner == destination, (owner == .home && !usesPortraitRail && !usesIPadHeaderNavigation || owner == .library && !showsCategoryHeader) {
+                    if owner == destination, (owner == .home && !usesCustomHeader && !usesIPadHeaderNavigation || owner == .library && !showsCategoryHeader) {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
                                 if owner == .library {
@@ -1281,7 +1285,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("compactBrowseMenu")
                         }
                     }
-                    if owner == .home, destination == .home, !usesPortraitRail, !usesIPadHeaderNavigation {
+                    if owner == .home, destination == .home, !usesCustomHeader, !usesIPadHeaderNavigation {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
@@ -1298,7 +1302,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("homeSearchButton")
                         }
                     }
-                    if !usesPortraitRail, owner != .home || !usesIPadHeaderNavigation { NativeNowPlayingToolbar(store: store) }
+                    if !usesCustomHeader, owner != .home || !usesIPadHeaderNavigation { NativeNowPlayingToolbar(store: store) }
                 }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
@@ -1426,6 +1430,7 @@ private struct HomeLibraryView<Header: View>: View {
     let feed: LuminaHomeFeed
     @Binding var category: HomeBrowseCategory
     let stacksCategoryHeader: Bool
+    let usesLandscapeHeader: Bool
     let uiTestingNavigationDiagnostics: String?
     let scrollsHeader: Bool
     @ViewBuilder let header: Header
@@ -1441,6 +1446,7 @@ private struct HomeLibraryView<Header: View>: View {
     @State private var uiTestingHomeRefreshCount = 0
     @State private var uiTestingHomeLifecycleRefreshCount = 0
     #endif
+    @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -1467,7 +1473,7 @@ private struct HomeLibraryView<Header: View>: View {
     var body: some View {
         let snapshot = refinement
         GeometryReader { geometry in
-        let emptyHeaderClearance = scrollsHeader || stacksCategoryHeader ? geometry.safeAreaInsets.top + 76 : 0
+        let emptyHeaderClearance = scrollsHeader || stacksCategoryHeader || usesLandscapeHeader ? geometry.safeAreaInsets.top + 76 : 0
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if !snapshot.items.isEmpty {
@@ -1562,11 +1568,11 @@ private struct HomeLibraryView<Header: View>: View {
 
         .navigationBarTitleDisplayMode(.inline)
         .background(LuminaTheme.paper)
-        .toolbarVisibility(scrollsHeader ? .hidden : .visible, for: .navigationBar)
+        .toolbarVisibility(scrollsHeader || usesLandscapeHeader ? .hidden : .visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if !stacksCategoryHeader && !scrollsHeader {
+            if !stacksCategoryHeader && !scrollsHeader && !usesLandscapeHeader {
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .topBarLeading) { HomeHeroChrome().fixedSize() }
                         .sharedBackgroundVisibility(.hidden)
@@ -1579,29 +1585,30 @@ private struct HomeLibraryView<Header: View>: View {
             if stacksCategoryHeader {
                 PortraitNavigationHeader { EmptyView() }
                     .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
+            } else if usesLandscapeHeader {
+                // The system stacks its status and tab controls on the right in
+                // this posture. Keep Home actions beside the masthead.
+                HStack(spacing: 12) {
+                    HomeHeroChrome().fixedSize()
+                    HStack(spacing: 4) {
+                        homeUtilityActions
+                        NativeNowPlayingControls(store: store)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(NavigationUtilityButtonStyle())
+                    .padding(4)
+                    .background(.regularMaterial, in: .capsule)
+                }
+                .environment(\.layoutDirection, layoutDirection)
+                .padding(.leading, 20)
+                .padding(.top, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .environment(\.layoutDirection, .leftToRight)
+                .environment(\.colorScheme, snapshot.items.isEmpty ? colorScheme : .dark)
             }
         }
         .portraitNavigationRail(isEnabled: stacksCategoryHeader, store: store) {
-            NavigationLink {
-                HomeSearchView(store: store)
-                    .toolbarVisibility(.visible, for: .navigationBar)
-                    .toolbar { NativeNowPlayingToolbar(store: store) }
-            } label: { Label("Search", glyph: .search) }
-            .accessibilityIdentifier("homeSearchButton")
-            Menu {
-                Button("Home") { category = .all }
-                    .accessibilityIdentifier("homeMenu-home")
-                Button("Watchlist") { category = .watchlist }
-                    .accessibilityIdentifier("homeMenu-watchlist")
-            } label: { Label("Browse", glyph: .moreHorizontal) }
-            .accessibilityIdentifier("homeBrowseMenu")
-            if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
-                NavigationLink {
-                    NativeOfflineLibraryView(store: store)
-                        .toolbarVisibility(.visible, for: .navigationBar)
-                } label: { Label("Downloads", glyph: .download) }
-                .accessibilityIdentifier("homeDownloadsButton")
-            }
+            homeUtilityActions
         }
         .ignoresSafeArea(.container, edges: stacksCategoryHeader ? .top : [])
         .accessibilityElement(children: .contain)
@@ -1632,6 +1639,29 @@ private struct HomeLibraryView<Header: View>: View {
             }
         }
         .onDisappear { cancelHomeRowsRefresh() }
+    }
+
+    @ViewBuilder private var homeUtilityActions: some View {
+        NavigationLink {
+            HomeSearchView(store: store)
+                .toolbarVisibility(.visible, for: .navigationBar)
+                .toolbar { NativeNowPlayingToolbar(store: store) }
+        } label: { Label("Search", glyph: .search) }
+        .accessibilityIdentifier("homeSearchButton")
+        Menu {
+            Button("Home") { category = .all }
+                .accessibilityIdentifier("homeMenu-home")
+            Button("Watchlist") { category = .watchlist }
+                .accessibilityIdentifier("homeMenu-watchlist")
+        } label: { Label("Browse", glyph: .moreHorizontal) }
+        .accessibilityIdentifier("homeBrowseMenu")
+        if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+            NavigationLink {
+                NativeOfflineLibraryView(store: store)
+                    .toolbarVisibility(.visible, for: .navigationBar)
+            } label: { Label("Downloads", glyph: .download) }
+            .accessibilityIdentifier("homeDownloadsButton")
+        }
     }
 
     private func refreshHomeRowsAfterInitialLoad() {
@@ -2428,7 +2458,7 @@ private struct PortraitNavigationHeader<Categories: View>: View {
     }
 }
 
-private struct PortraitRailButtonStyle: ButtonStyle {
+private struct NavigationUtilityButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: 44, height: 44)
@@ -2454,7 +2484,7 @@ private struct PortraitNavigationRail<Actions: View>: ViewModifier {
                             NativeNowPlayingControls(store: store)
                         }
                         .labelStyle(.iconOnly)
-                        .buttonStyle(PortraitRailButtonStyle())
+                        .buttonStyle(NavigationUtilityButtonStyle())
                         .padding(4)
                         .background(.regularMaterial, in: .capsule)
                         .environment(\.layoutDirection, layoutDirection)

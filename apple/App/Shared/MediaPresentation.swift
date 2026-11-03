@@ -299,7 +299,7 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 + bottomContentClearance : artworkFirst ? 44 : 24)
+                    .padding(.bottom, featured ? 68 + bottomContentClearance : artworkFirst ? 44 + bottomContentClearance : 24)
                     .frame(minHeight: compactArtworkMinimumHeight,
                            maxHeight: artworkFirst ? .infinity : nil,
                            alignment: artworkFirst ? .bottomLeading : .topLeading)

@@ -82,6 +82,7 @@ struct NativeRequestsView: View {
         return source.filter { (!query.isEmpty || kind == nil || $0.kind == kind) && seen.insert($0.id).inserted }
     }
     private var featured: RequestCatalogItem? { items.first }
+    private var showsFullBleedHero: Bool { featured != nil && !browsingResults && !searchVisible }
     private var compact: Bool { widthClass != .regular }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var browsingResults: Bool { !query.isEmpty || kind != nil }
@@ -176,9 +177,9 @@ struct NativeRequestsView: View {
                             }
                         }.padding(.bottom, 32)
                     }
-                    .ignoresSafeArea(.container, edges: usesPortraitNavigationRail && !browsingResults && !searchVisible ? .top : [])
+                    .ignoresSafeArea(.container, edges: showsFullBleedHero ? .top : [])
                     .scrollClipDisabled()
-                    .modifier(HomeHeroScrollEdge(isEnabled: usesPortraitNavigationRail && !browsingResults))
+                    .modifier(HomeHeroScrollEdge(isEnabled: showsFullBleedHero))
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable {
                         if browsingResults { await loadResults(reset: true) } else { await catalog.loadHome() }
@@ -207,7 +208,7 @@ struct NativeRequestsView: View {
         .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible,
             prompt: "Search all films, series, and anime", usesInlineSearch: usesPortraitNavigationRail))
         .accessibilityElement(children: .contain)
-        .ignoresSafeArea(.container, edges: usesPortraitNavigationRail && !browsingResults && !searchVisible ? [.top, .horizontal] : .horizontal)
+        .ignoresSafeArea(.container, edges: showsFullBleedHero ? [.top, .horizontal] : .horizontal)
         .accessibilityIdentifier("requestsScreen")
         .sheet(item: $selected) { RequestDetailSheet(item: $0, store: store, catalog: catalog) }
         .sheet(isPresented: $myRequestsPresented) { RequestHistorySheet(catalog: catalog) }

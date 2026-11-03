@@ -1534,6 +1534,14 @@ private struct HomeLibraryView<Header: View>: View {
                 homePullArmed = pastThreshold
             }
         }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top < -2
+        } action: { _, isBeyondTop in
+            // UIKit's status tap can settle above SwiftUI's full-bleed origin
+            // without reporting a scroll phase. Leave touch-driven pulls alone.
+            guard isBeyondTop, homeScrollPhase == .idle, !snapshot.items.isEmpty else { return }
+            scrollPosition.scrollTo(edge: .top)
+        }
         .onScrollPhaseChange { previous, phase, context in
             homeScrollPhase = phase
             let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top

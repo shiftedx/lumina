@@ -235,6 +235,7 @@ def test_external_home_sources_are_opt_in_member_scoped_and_bounded(native: Test
     assert all("external_items" not in row for row in native.get(ROWS, headers=mediabrowser(ALICE_TOKEN)).json()["rows"])
     disabled = native.get(ROWS, params={"include_external": True}, headers=mediabrowser(ALICE_TOKEN))
     assert not any(row.get("external_items") for row in disabled.json()["rows"])
+    assert native.get(ROWS, params={"streaming_only": True}, headers=mediabrowser(ALICE_TOKEN)).json()["rows"] == []
     with db_module.SessionLocal.begin() as db:
         settings = db.get(AppSettings, 1)
         assert settings is not None

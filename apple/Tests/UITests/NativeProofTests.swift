@@ -621,12 +621,24 @@ class NativeProofJourney: XCTestCase {
         if !remoteEnabled {
             try waitForExistence(destinationControl("Home"), timeout: 20, named: "Home destination")
             XCTAssertFalse(streaming.exists, "The dedicated Streaming tab requires server opt-in.")
+            XCTAssertEqual(application!.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "homeExternal-")
+            ).count, 0, "Disabled streaming must not appear on Home.")
             try selectLibraryCategory("streaming", screen: "savedStreamingLibrary")
         } else {
             try waitForExistence(streaming, timeout: 20, named: "Streaming destination")
             guard hasVisibleFrame(streaming) else { throw ProofFailure.ui("Streaming destination must be visible.") }
-            streaming.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            try waitForExistence(element("streamingScreen"), timeout: 25, named: "Streaming destination")
+            try activate(streaming)
+            let screen = element("streamingScreen")
+            if !waitUntil(timeout: 4, condition: { screen.exists }) {
+                let viewport = try applicationViewport()
+                let frame = streaming.frame
+                try applicationWindow().coordinate(withNormalizedOffset: CGVector(
+                    dx: (frame.midX - viewport.minX) / viewport.width,
+                    dy: (frame.midY - viewport.minY) / viewport.height
+                )).tap()
+            }
+            try waitForExistence(screen, timeout: 25, named: "Streaming destination")
         }
         #else
         if remoteEnabled {

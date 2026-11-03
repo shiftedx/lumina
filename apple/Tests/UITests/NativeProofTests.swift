@@ -360,6 +360,9 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
     func testHomeKeepsCategoriesInLibrary() throws { try journeyMobileHomeLibraryNavigation() }
     func testIPadHomeHeaderScrollsAwayAndLibraryCategoriesStayPinned() throws { try journeyHomeHeaderScrolling() }
+    func testIPadHomeRefreshRequiresIntentionalPull() throws {
+        try journeyHomeHeaderScrolling(checksRefresh: true)
+    }
     func testCompleteCatalogSupportsFastPosterScrolling() throws {
         try journeyCompleteCatalogSupportsFastPosterScrolling()
     }
@@ -10738,7 +10741,7 @@ class NativeProofJourney: XCTestCase {
         #endif
     }
 
-    func journeyHomeHeaderScrolling() throws {
+    func journeyHomeHeaderScrolling(checksRefresh: Bool = false) throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
@@ -10777,6 +10780,18 @@ class NativeProofJourney: XCTestCase {
         try activate(homeHeader)
         #else
         for _ in 0..<8 where !hasVisibleFrame(homeHeader) { home.swipeDown() }
+        if checksRefresh {
+            XCTAssertEqual(try homeRefreshCount(), 0, "Scrolling back to the hero must not refresh Home.")
+            let window = application!.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.25))
+                .press(forDuration: 0.1,
+                       thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.8)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+            XCTAssertTrue(waitUntil(timeout: 5) { (try? self.homeRefreshCount()) == 1 },
+                          "An intentional pull from the top must still refresh Home.")
+            completed = true
+            return
+        }
         try selectDestination("Library", screen: "libraryScreen")
         #endif
         let library = element("libraryScreen")

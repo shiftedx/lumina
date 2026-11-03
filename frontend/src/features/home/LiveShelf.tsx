@@ -82,7 +82,7 @@ export function LiveShelf({ userId, onOpenRemote, onSeeAll, onStatus }: LiveShel
   /** The focused card's key and index when a refresh was applied; the layout effect below recovers focus if it moved or went. */
   const focusedBefore = useRef<{ key: string | null; index: number | null }>({ key: null, index: null });
 
-  usePolledSnapshot(`home-live:${userId}:${attempt}`, MOUNTED_SESSION, (isCurrent) => getLiveDiscovery().then((next) => {
+  usePolledSnapshot(`home-live:${userId}:${attempt}`, MOUNTED_SESSION, (isCurrent, signal) => getLiveDiscovery({ signal }).then((next) => {
     if (!isCurrent()) return;
     focusedBefore.current = focusedCard(liveShelfEntries(snapshot));
     rememberShelf(userId, SECTION, next);

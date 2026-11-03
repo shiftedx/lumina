@@ -183,7 +183,7 @@ def _recent_music(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session
     titles, _start, _following = TitleService(db).page(
         caller.user, types=("album",), sort="created", limit=_ROW_LIMIT,
     )
-    return [mapper.music_title_dto(title) for title in titles]
+    return mapper.music_title_dtos(titles)
 
 
 def _recently_saved(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session) -> list[dict]:
@@ -211,7 +211,10 @@ def _collections(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session)
             items = mapper.item_dtos([item for item in matches if isinstance(item, LibraryItem)])
             shape = "still"
         elif rule.type in {"album", "artist"}:
-            items = [mapper.music_title_dto(title) for title in matches if isinstance(title, MediaTitle) and title.type in {"album", "artist"}]
+            items = mapper.music_title_dtos([
+                title for title in matches
+                if isinstance(title, MediaTitle) and title.type in {"album", "artist"}
+            ])
             shape = "square"
         else:
             # TV navigation only supports playable video title cards. A smart rule
@@ -379,7 +382,7 @@ def _external_rows(request: Request, caller: JellyfinCaller, db: Session, visibl
 
 
 @router.get("/rows")
-def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = False) -> dict[str, list[dict]]:
+def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = False) -> dict[str, object]:
     """The shared Home sources: local playback DTOs plus read-only external source links."""
     settings = UserSettingsService(db).snapshot_for_user(caller.user)
     layout = _layout_from_prefs(settings.ui_prefs) or _normalize_shelves([])
@@ -407,10 +410,14 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
         "collections": lambda: _collections(mapper, caller, db),
     }
     rows: list[dict] = []
+    completed_shelf_ids: list[str] = []
     for preference in layout:
         if not preference["visible"]:
             continue
-        built = [row for row in build() if row is not None] if (build := builders.get(preference["id"])) else []
+        builder = builders.get(preference["id"])
+        built = [row for row in builder() if row is not None] if builder else []
+        if builder is not None:
+            completed_shelf_ids.append(preference["id"])
         if remote := external.get(preference["id"]):
             if built:
                 built[0]["external_items"] = remote["external_items"]
@@ -418,7 +425,7 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
                 built.append(remote)
         rows.extend(built)
     _attach_home_metadata(rows, mapper, db)
-    return {"rows": rows}
+    return {"rows": rows, "completed_shelf_ids": completed_shelf_ids}
 
 
 @router.post("/reco/events", status_code=204)

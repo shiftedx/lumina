@@ -54,7 +54,7 @@ function usePolledRequests(key: string | null, params: Parameters<typeof listReq
   const [page, setPage] = useState<RequestsPage | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [generation, setGeneration] = useState(0);
-  usePolledSnapshot(key === null ? null : `${key}:${generation}`, session, (isCurrent) => listRequests(params).then((next) => {
+  usePolledSnapshot(key === null ? null : `${key}:${generation}`, session, (isCurrent, signal) => listRequests(params, signal).then((next) => {
     if (!isCurrent()) return true;
     setPage(next); setError(null);
     return !next.items.some((request) => isActive(request.status));

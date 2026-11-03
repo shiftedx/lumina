@@ -30,6 +30,7 @@
 - [`adr/0027-record-external-acquisition-before-dispatch.md`](adr/0027-record-external-acquisition-before-dispatch.md): durable external operation ownership and uncertain outcomes.
 - [`adr/0028-member-owned-listening-export-ledger.md`](adr/0028-member-owned-listening-export-ledger.md): opt-in export, play identity and provider replay policy.
 - [`adr/0029-check-published-releases-without-installing-updates.md`](adr/0029-check-published-releases-without-installing-updates.md): stable release checks, cached admin notices and optional best-effort email without automatic installation.
+- [First API optimization pass](performance/api-optimization-first-pass-2026-11-02.md): native Home request coalescing, bounded Library/Recent queries, web polling, and measured limits.
 - [Web, iOS and tvOS API performance audit](performance/api-performance-audit-2026-11-02.md): complete source maps/inventories, fresh synthetic read measurements and prioritized performance/reliability opportunities.
 - [Photo pipeline optimization](performance/photo-pipeline-optimization-2026-10-24.md): full HEIC import/preview/face-processing comparison and reproduction commands.
 - [Photo library validation](performance/photo-library-2026-10-24.md): synthetic 100,000-photo catalog timings and photo workflow coverage.

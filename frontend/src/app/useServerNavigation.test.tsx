@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as api from '../api';
 import type { ServerNavigation } from '../types';
@@ -7,7 +7,8 @@ import { MobileTabs, NavigationPopover } from './Navigation';
 import { useServerNavigation } from './useServerNavigation';
 
 const available: ServerNavigation = { categories: ['movies', 'books', 'recordings'], features: { streaming: false, requests: true } };
-afterEach(() => vi.restoreAllMocks());
+const setHidden = (hidden: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, value: hidden });
+afterEach(() => { Reflect.deleteProperty(document, 'hidden'); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 it('uses server capabilities across desktop, mobile and library navigation, even with stale section counts', () => {
   const sections = { movies: 0, shows: 5, anime: 0, albums: 4, artists: 1, saved_audio: 0, youtube: 0, recordings: 1, deleted: 0 };
@@ -28,7 +29,7 @@ it('uses server capabilities across desktop, mobile and library navigation, even
   expect(library.getByRole('link', { name: 'Recordings' })).toBeTruthy();
 });
 
-it('fails closed for a new member and refreshes on foreground', async () => {
+it('fails closed for a new member', async () => {
   let resolveSecond: (value: ServerNavigation) => void = () => undefined;
   const fetch = vi.spyOn(api, 'getServerNavigation').mockResolvedValueOnce(available).mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; })).mockResolvedValueOnce(available);
   function Harness({ member }: { member: string }) {
@@ -40,10 +41,8 @@ it('fails closed for a new member and refreshes on foreground', async () => {
   view.rerender(<Harness member="two" />);
   expect(screen.getByText('hidden')).toBeTruthy();
   resolveSecond({ categories: [], features: { streaming: false, requests: false } });
-  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-  fireEvent(document, new Event('visibilitychange'));
-  await screen.findByText('enabled');
-  expect(fetch).toHaveBeenCalledTimes(3);
+  await screen.findByText('hidden');
+  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it('does not fetch a signed-out session and recognizes a recordings-only library', async () => {
@@ -54,4 +53,68 @@ it('does not fetch a signed-out session and recognizes a recordings-only library
   expect(fetch).not.toHaveBeenCalled();
   const { isNavigationSurfaceAvailable } = await import('./useServerNavigation');
   expect(isNavigationSurfaceAvailable({ categories: ['recordings'], features: { streaming: false, requests: false } }, 'video')).toBe(true);
+});
+
+it('aborts the navigation request when the member changes', async () => {
+  const pending: { signal: AbortSignal | undefined; resolve: (value: ServerNavigation) => void }[] = [];
+  const fetch = vi.spyOn(api, 'getServerNavigation').mockImplementation(({ signal } = {}) => new Promise((resolve) => {
+    pending.push({ signal, resolve });
+  }));
+  function Harness({ member }: { member: string }) {
+    const { navigation } = useServerNavigation(member);
+    return <span>{navigation?.features.requests ? 'enabled' : 'hidden'}</span>;
+  }
+  const view = render(<Harness member="one" />);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  view.rerender(<Harness member="two" />);
+  expect(pending[0].signal?.aborted).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  pending[0].resolve(available);
+  expect(screen.getByText('hidden')).toBeTruthy();
+  pending[1].resolve(available);
+  await screen.findByText('enabled');
+});
+
+it('runs one navigation catch-up after a hidden interval', async () => {
+  vi.useFakeTimers();
+  setHidden(false);
+  const pending: ((value: ServerNavigation) => void)[] = [];
+  const fetch = vi.spyOn(api, 'getServerNavigation').mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+  function Harness() {
+    const { navigation } = useServerNavigation('one');
+    return <span>{navigation?.features.requests ? 'enabled' : 'hidden'}</span>;
+  }
+  render(<Harness />);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await act(async () => { pending[0](available); });
+  expect(screen.getByText('enabled')).toBeTruthy();
+
+  setHidden(true);
+  await act(() => vi.advanceTimersByTimeAsync(30_000));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  setHidden(false);
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await act(async () => { pending[1](available); });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('runs one navigation refresh after a short background visit', async () => {
+  const pending: ((value: ServerNavigation) => void)[] = [];
+  const fetch = vi.spyOn(api, 'getServerNavigation').mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+  function Harness() {
+    const { navigation } = useServerNavigation('one');
+    return <span>{navigation?.features.requests ? 'enabled' : 'hidden'}</span>;
+  }
+  render(<Harness />);
+  await act(async () => { pending[0](available); });
+  expect(screen.getByText('enabled')).toBeTruthy();
+
+  setHidden(true);
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  setHidden(false);
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await act(async () => { pending[1](available); });
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

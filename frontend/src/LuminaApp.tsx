@@ -277,7 +277,6 @@ export default function LuminaApp() {
   const [exploreRail, setExploreRail] = useState<string | null>(initialRoute.surface === 'streaming' && initialRoute.view === 'home' ? initialRoute.rail ?? null : null);
   const [liveGeneration, setLiveGeneration] = useState(0);
   const [liveRail, setLiveRail] = useState<string | null>(initialRoute.surface === 'streaming' && initialRoute.view === 'live' ? initialRoute.rail ?? null : null);
-  useEffect(() => { refreshNavigation(); }, [surface, refreshNavigation]);
   const [previousSurface, setPreviousSurface] = useState<Surface>('home');
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(initialRoute.surface === 'settings' ? initialRoute.section ?? null : null);
   const [settingsSpace, setSettingsSpace] = useState(initialRoute.surface === 'settings' ? initialRoute.space : undefined);
@@ -635,7 +634,7 @@ export default function LuminaApp() {
     return () => window.removeEventListener('keydown', handler);
   }, [closeNavigation, closePalette, navigationOpen, openPaletteMode, state.authStage, state.currentUser]);
 
-  usePolledSnapshot(streamingEnabled && surface === 'streaming' && !exploreQuery && state.currentUser ? `explore:${state.currentUser.id}` : null, workspace, (isCurrent) => getPopularDiscovery().then((snapshot) => {
+  usePolledSnapshot(streamingEnabled && surface === 'streaming' && !exploreQuery && state.currentUser ? `explore:${state.currentUser.id}` : null, workspace, (isCurrent, signal) => getPopularDiscovery({ signal }).then((snapshot) => {
     if (!isCurrent()) return;
     setPopularDiscovery(snapshot);
     setPopularDiscoveryError(null);
@@ -643,7 +642,7 @@ export default function LuminaApp() {
     if (isCurrent()) setPopularDiscoveryError(loadError instanceof Error ? loadError.message : 'Popular discovery is temporarily unavailable.');
   }));
 
-  usePolledSnapshot(streamingEnabled && (surface === 'streaming' || (surface === 'subscriptions' && !channelPage)) ? `live:${state.currentUser?.id}:${liveGeneration}` : null, workspace, (isCurrent) => getLiveDiscovery().then((snapshot) => {
+  usePolledSnapshot(streamingEnabled && (surface === 'streaming' || (surface === 'subscriptions' && !channelPage)) ? `live:${state.currentUser?.id}:${liveGeneration}` : null, workspace, (isCurrent, signal) => getLiveDiscovery({ signal }).then((snapshot) => {
     if (!isCurrent()) return;
     setLiveDiscovery(snapshot);
     setLiveDiscoveryError(null);
@@ -727,9 +726,9 @@ export default function LuminaApp() {
   // Picks stay cached while away from Home, so returning shows them at once.
   // A hidden Picked for you shelf never asks for (or polls) picks; showing it again starts the fetch.
   const pickedHidden = normalizeHomeShelves(state.preferences.homeShelves).some((shelf) => shelf.id === 'picked_for_you' && !shelf.visible);
-  usePolledSnapshot(streamingEnabled && surface === 'home' && state.authStage === 'ready' && !pickedHidden ? `${homeRecommendationRefreshGeneration}:${homeInterestKeys}` : null, workspace, (isCurrent) => {
+  usePolledSnapshot(streamingEnabled && surface === 'home' && state.authStage === 'ready' && !pickedHidden ? `${state.currentUser?.id}:${homeRecommendationRefreshGeneration}:${homeInterestKeys}` : null, workspace, (isCurrent, signal) => {
     setHomeRecommendationsLoading(true);
-    return getHomeRecommendations().then((snapshot) => {
+    return getHomeRecommendations({ signal }).then((snapshot) => {
       if (!isCurrent()) return false;
       setHomeRecommendations(snapshot);
       setHomeRecommendationsError(null);
@@ -1040,7 +1039,7 @@ export default function LuminaApp() {
   const booksRouteStable = useStableCallback((route: BooksRoute, replace?: boolean) => { if (replace) replaceHistoryRef.current = true; setBooksRoute(route); });
   const requestsQueueChangedStable = useStableCallback(() => setRequestsQueueGeneration((value) => value + 1));
   // The admin's Requests badge: how many requests wait for a decision, every 30 s while signed in as an admin.
-  usePolledSnapshot(state.currentUser?.role === 'admin' ? `requests-pending:${state.currentUser.id}:${requestsQueueGeneration}` : null, workspace, (isCurrent) => listRequests({ scope: 'all', status: 'pending' }).then((page) => {
+  usePolledSnapshot(state.currentUser?.role === 'admin' ? `requests-pending:${state.currentUser.id}:${requestsQueueGeneration}` : null, workspace, (isCurrent, signal) => listRequests({ scope: 'all', status: 'pending' }, signal).then((page) => {
     if (isCurrent()) setPendingRequests(page.counts.pending ?? page.items.length);
   }, () => undefined));
   function startForegroundMusic(owner: string, playback: Promise<void>): void {

@@ -1,0 +1,381 @@
+{
+  "baseline_commit": "69e7ca0f97a814cd99bcb9acaa1e248918fea509",
+  "fixture": "synthetic audit fixture; 1735 movies, 850 shows, 37500 show episodes, 60 anime series, 30 albums, 300 tracks",
+  "method": "ABBA; 20 sequential and 20 six-worker requests per endpoint per round; two rounds per variant. CPU follow-up ABBA, 20 sequential requests only. Lifespan disabled; external providers canned and network loopback guarded. Same synthetic admin, not six users. Filesystem caches not flushed.",
+  "wall": {
+    "before": {
+      "web_library_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 113.23,
+          "sql": 6.0,
+          "bytes": 39709.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 680.798,
+          "sql": 6.0,
+          "bytes": 39709.0
+        }
+      },
+      "web_library_title_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 69.032,
+          "sql": 6.0,
+          "bytes": 39740.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 160.024,
+          "sql": 6.0,
+          "bytes": 39740.0
+        }
+      },
+      "native_home_recent": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 167.267,
+          "sql": 7.0,
+          "bytes": 54569.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 948.866,
+          "sql": 7.0,
+          "bytes": 54569.0
+        }
+      },
+      "native_catalog_movies_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 19.914,
+          "sql": 6.0,
+          "bytes": 22307.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 96.59,
+          "sql": 6.0,
+          "bytes": 22307.0
+        }
+      },
+      "native_home": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 163.661,
+          "sql": 72.0,
+          "bytes": 129958.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 1023.732,
+          "sql": 72.0,
+          "bytes": 129958.0
+        }
+      },
+      "web_navigation": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 13.764,
+          "sql": 11.0,
+          "bytes": 93.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 47.245,
+          "sql": 11.0,
+          "bytes": 93.0
+        }
+      }
+    },
+    "after": {
+      "web_library_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 74.84,
+          "sql": 6.0,
+          "bytes": 39709.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 224.348,
+          "sql": 6.0,
+          "bytes": 39709.0
+        }
+      },
+      "web_library_title_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 81.524,
+          "sql": 6.0,
+          "bytes": 39740.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 197.452,
+          "sql": 6.0,
+          "bytes": 39740.0
+        }
+      },
+      "native_home_recent": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 106.7,
+          "sql": 8.0,
+          "bytes": 54569.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 456.26,
+          "sql": 8.0,
+          "bytes": 54569.0
+        }
+      },
+      "native_catalog_movies_50": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 23.566,
+          "sql": 6.0,
+          "bytes": 22307.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 96.029,
+          "sql": 6.0,
+          "bytes": 22307.0
+        }
+      },
+      "native_home": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 205.431,
+          "sql": 53.0,
+          "bytes": 130147.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 1066.807,
+          "sql": 53.0,
+          "bytes": 130147.0
+        }
+      },
+      "web_navigation": {
+        "c1": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 16.418,
+          "sql": 11.0,
+          "bytes": 93.0
+        },
+        "c6": {
+          "n": 40,
+          "successes": 40,
+          "p50_ms": 62.121,
+          "sql": 11.0,
+          "bytes": 93.0
+        }
+      }
+    }
+  },
+  "cpu": {
+    "web_library_50": {
+      "before": {
+        "median_process_cpu_ms": 99.437,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 61.214,
+        "n": 40,
+        "successes": 40
+      }
+    },
+    "web_library_title_50": {
+      "before": {
+        "median_process_cpu_ms": 55.841,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 56.743,
+        "n": 40,
+        "successes": 40
+      }
+    },
+    "native_home_recent": {
+      "before": {
+        "median_process_cpu_ms": 166.953,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 89.61,
+        "n": 40,
+        "successes": 40
+      }
+    },
+    "native_catalog_movies_50": {
+      "before": {
+        "median_process_cpu_ms": 18.576,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 19.378,
+        "n": 40,
+        "successes": 40
+      }
+    },
+    "native_home": {
+      "before": {
+        "median_process_cpu_ms": 159.902,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 192.832,
+        "n": 40,
+        "successes": 40
+      }
+    },
+    "web_navigation": {
+      "before": {
+        "median_process_cpu_ms": 11.107,
+        "n": 40,
+        "successes": 40
+      },
+      "after": {
+        "median_process_cpu_ms": 13.123,
+        "n": 40,
+        "successes": 40
+      }
+    }
+  },
+  "client_probes": {
+    "polling-before": {
+      "snapshot": {
+        "beforeRelease": 3,
+        "totalAfterRelease": 3,
+        "peak": 3
+      },
+      "navigation": {
+        "beforeRelease": 3,
+        "totalAfterRelease": 3,
+        "aborted": 2
+      }
+    },
+    "polling-after": {
+      "snapshot": {
+        "beforeRelease": 1,
+        "totalAfterRelease": 2,
+        "peak": 1
+      },
+      "navigation": {
+        "beforeRelease": 1,
+        "totalAfterRelease": 2,
+        "aborted": 0
+      }
+    },
+    "routes-before": {
+      "navigationRequests": 5
+    },
+    "routes-after": {
+      "navigationRequests": 1
+    }
+  },
+  "host_limit": "All windows were contended (load averages in hundreds); wall-clock values are observations, not production SLAs. Unchanged controls slowed too. CPU is process time to response headers, meaningful only for sequential follow-up.",
+  "home_followup": {
+    "after": {
+      "order": "after then before; separate 12-sample check, not ABBA",
+      "host_load_before": [
+        24.06396484375,
+        239.4501953125,
+        268.8544921875
+      ],
+      "n": 12,
+      "p50_ms": 136.915,
+      "median_cpu_ms": 135.874,
+      "sql": 53.0
+    },
+    "before": {
+      "order": "after then before; separate 12-sample check, not ABBA",
+      "host_load_before": [
+        20.78857421875,
+        228.17724609375,
+        264.318359375
+      ],
+      "n": 12,
+      "p50_ms": 166.577,
+      "median_cpu_ms": 163.901,
+      "sql": 72.0
+    }
+  },
+  "source_sha256": {
+    "backend/app/services/library.py": {
+      "before": "675f64e0611cb343e571c77d79a1310ac2e8acd182ff6834d51a827fffe9e14a",
+      "after": "55f6b3d8171fc905a3692037ddf72e1329effe94fb4c1a9e2be8a144d6251527"
+    },
+    "backend/app/services/jellyfin.py": {
+      "before": "bb94a81d8fdce685eea1b25dc8e42de3da67d2c3f5de6e7491f19d98ffca8416",
+      "after": "66bb6fb05fca1e315c10c5d0720336ac879fda4e2072ba682dcdd6b401f20713"
+    },
+    "backend/app/routers/jellyfin_home.py": {
+      "before": "1275e22b48509b71222ad521d907ee541ea49cb5c0d5594e735162ee9fd7c0e0",
+      "after": "2c5db2c4b2af2481d0abf46348f18421ea7625bc12441bf61d8c62631d7bafa2"
+    },
+    "apple/Core/Sources/LuminaCore/LuminaStore.swift": {
+      "before": "ff4575099f58c1b48e75a96c09c8456b416ff772bd76752e5e421e22103a3dd8",
+      "after": "469729bdac3092a34dd7cfa42843aa25c0c4dc2cfb89ec1a90a98a2b76759171"
+    },
+    "apple/App/iOS/MobileRootView.swift": {
+      "before": "d3dc9d792f94eb16ccf1f8e2d9efa85fceb4389d60d9838120bf67796ad5f5b4",
+      "after": "35d4307c3d65d7672949a98f6f56d619172f9b568d2f079b7cde08eb197a2783"
+    },
+    "apple/App/tvOS/TVRootView.swift": {
+      "before": "5b591204124c8c4f71cc945f6b622d8feecf55ed1824a9cae3d6bf58b8497c29",
+      "after": "22e9ce86d76e854a3450612f68946993f378dbaf9c61d0218d49021114075fe5"
+    },
+    "frontend/src/app/usePolledSnapshot.ts": {
+      "after": "162201032e34a8b9a5e377c27115195f10872888f795e9cc32b15c1485c70b7c"
+    },
+    "frontend/src/app/useServerNavigation.ts": {
+      "after": "93bc1a5f8000312f6642ef20e954ad27b8acc82fbc81c62a689420e1d05a0906"
+    },
+    "frontend/src/LuminaApp.tsx": {
+      "after": "9ac45611ffd2bb226cca88aa1b2c78c884f1614d69e91b421551b18fdeb5f2eb"
+    }
+  },
+  "status_counts": {
+    "r": {
+      "total": 984,
+      "http_200": 984
+    },
+    "cpu-r": {
+      "total": 504,
+      "http_200": 504
+    }
+  }
+}

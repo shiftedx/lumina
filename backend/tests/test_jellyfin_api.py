@@ -347,6 +347,20 @@ def test_paging_edges_keep_the_true_total(jf: TestClient, monkeypatch: pytest.Mo
     assert get(jf, "/Items", StartIndex=-1, **query).status_code == 400
 
 
+def test_date_created_pages_keep_order_and_true_total(jf: TestClient) -> None:
+    query = {"ParentId": HEX(SERIES), "IncludeItemTypes": "Episode", "Recursive": "true", "SortBy": "DateCreated", "SortOrder": "Descending"}
+    full = get(jf, "/Items", Limit=4, **query).json()
+    first = get(jf, "/Items", StartIndex=0, Limit=2, **query).json()
+    second = get(jf, "/Items", StartIndex=2, Limit=2, **query).json()
+    count_only = get(jf, "/Items", Limit=0, **query).json()
+    past_end = get(jf, "/Items", StartIndex=50, **query).json()
+
+    assert [row["Id"] for row in [*first["Items"], *second["Items"]]] == [row["Id"] for row in full["Items"]]
+    assert [page["TotalRecordCount"] for page in (full, first, second, count_only, past_end)] == [4] * 5
+    assert count_only["Items"] == []
+    assert (past_end["Items"], past_end["StartIndex"]) == ([], 50)
+
+
 def test_emitted_keys_are_jellyfin_property_names(jf: TestClient) -> None:
     listing = get(jf, "/Items", Recursive="true", IncludeItemTypes="Movie,Series,Season,Episode,BoxSet", Fields="MediaSources").json()
     assert_known(listing, "BaseItemDtoQueryResult")

@@ -1076,6 +1076,129 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.nextUpItems.map(\.id), ["next"])
     }
 
+    func testCompletedRichHomeRowsAvoidCompatibilityReadsAndKeepLegacyRecentOwnership() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [["Id": "legacy-recent", "Name": "Legacy recent", "Type": "Movie"]]))
+            case "/UserItems/Resume": return response(request, json: page(items: [["Id": "legacy-resume", "Name": "Legacy resume", "Type": "Movie"]]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": "legacy-next", "Name": "Legacy next", "Type": "Episode"]]))
+            case "/Lumina/Settings/navigation": return response(request, json: ["categories": ["movies"]])
+            default: return response(request, status: 404)
+            }
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        await store.restore()
+
+        let richRows = try JSONDecoder().decode([HomeFeedRow].self, from: json([
+            ["id": "continue", "shelf_id": "continue", "title": "Continue watching", "shape": "still",
+             "items": [["Id": "rich-resume", "Name": "Rich resume", "Type": "Movie"]]],
+            ["id": "next", "shelf_id": "next_up", "title": "Next up", "shape": "still",
+             "items": [["Id": "rich-next", "Name": "Rich next", "Type": "Episode"]]],
+            ["id": "arrivals", "shelf_id": "new_in_library", "title": "New in your library", "shape": "poster",
+             "items": [["Id": "rich-arrival", "Name": "Rich arrival", "Type": "Series"]]],
+        ]))
+        let expected: Set<HomeShelfID> = [.continueWatching, .nextUp]
+        let beforeAdoption = requests.all.count
+        let missing = await store.adoptRichHomeRows(richRows, completedShelfIDs: expected,
+                                                    expectedCompatibilityShelves: expected)
+
+        XCTAssertTrue(missing.isEmpty)
+        XCTAssertEqual(store.resumeItems.map(\.id), ["rich-resume"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["rich-next"])
+        XCTAssertEqual(store.recentItems.map(\.id), ["legacy-recent"],
+                       "Balanced rich arrivals must not replace the legacy playable-version recent shelf.")
+        await store.loadHomeFallback(for: missing)
+        XCTAssertEqual(requests.all.count, beforeAdoption,
+                       "A completed warm rich Home response must not reissue compatibility reads.")
+
+        let missingNext = await store.adoptRichHomeRows(
+            [richRows[0]], completedShelfIDs: [.continueWatching], expectedCompatibilityShelves: expected
+        )
+        XCTAssertEqual(missingNext, [.nextUp])
+        let beforeFallback = requests.all.count
+        await store.loadHomeFallback(for: missingNext)
+        let fallbackPaths = requests.all.dropFirst(beforeFallback).compactMap(\.url?.path).filter {
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp", "/Lumina/Settings/navigation"].contains($0)
+        }
+        XCTAssertEqual(Set(fallbackPaths), ["/Shows/NextUp"])
+        XCTAssertFalse(fallbackPaths.contains("/Lumina/Settings/navigation"), "Home owns the single navigation refresh.")
+
+        let beforeFailedRefreshFallback = requests.all.count
+        let missingAfterFailedRichRefresh = await store.reconcileRichHomeRows(
+            richRows, completedShelfIDs: expected, loadSucceeded: false, expectedCompatibilityShelves: expected
+        )
+        XCTAssertEqual(missingAfterFailedRichRefresh, expected,
+                       "A retained rich snapshot must not suppress warm compatibility refresh after its request failed.")
+        XCTAssertEqual(store.resumeItems.map(\.id), ["rich-resume"], "Failed reconciliation preserves the visible cached shelf.")
+        await store.loadHomeFallback(for: missingAfterFailedRichRefresh)
+        let failedRefreshPaths = requests.all.dropFirst(beforeFailedRefreshFallback).compactMap(\.url?.path).filter {
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp", "/Lumina/Settings/navigation"].contains($0)
+        }
+        XCTAssertEqual(Set(failedRefreshPaths), ["/UserItems/Resume", "/Shows/NextUp"])
+        XCTAssertFalse(failedRefreshPaths.contains("/Lumina/Settings/navigation"))
+    }
+
+    func testHomeFallbackJoinsAnInFlightHomeLoadInsteadOfRestartingIt() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        HomeDelayedURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+
+        let started = expectation(description: "complete Home load starts every compatibility request")
+        started.expectedFulfillmentCount = 3
+        let startsByPath = PathCounter()
+        HomeDelayedURLProtocol.delay = { request in
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.12 : 0
+        }
+        HomeDelayedURLProtocol.onStart = { request in
+            if ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) {
+                _ = startsByPath.next(request.url!.path)
+                started.fulfill()
+            }
+        }
+        let home = Task { await store.loadHome() }
+        await fulfillment(of: [started], timeout: 1)
+        await store.loadHomeFallback(for: [.continueWatching, .nextUp])
+        await home.value
+        XCTAssertEqual(startsByPath.count(for: "/Items"), 1)
+        XCTAssertEqual(startsByPath.count(for: "/UserItems/Resume"), 1)
+        XCTAssertEqual(startsByPath.count(for: "/Shows/NextUp"), 1,
+                       "Fallback joins the active complete Home load rather than cancelling and duplicating its shelves.")
+
+        let subsetStarted = expectation(description: "subset Home load starts its sole requested shelf")
+        let subsetStartsByPath = PathCounter()
+        HomeDelayedURLProtocol.onStart = { request in
+            if ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) {
+                _ = subsetStartsByPath.next(request.url!.path)
+                if request.url?.path == "/Items" { subsetStarted.fulfill() }
+            }
+        }
+        let recentOnly = Task { await store.loadHomeFallback(for: [.newInLibrary]) }
+        await fulfillment(of: [subsetStarted], timeout: 1)
+        await store.loadHomeFallback(for: [.continueWatching])
+        await recentOnly.value
+        XCTAssertEqual(subsetStartsByPath.count(for: "/Items"), 1)
+        XCTAssertEqual(subsetStartsByPath.count(for: "/UserItems/Resume"), 1,
+                       "Joining a subset load still requests compatibility shelves it did not cover.")
+        XCTAssertEqual(subsetStartsByPath.count(for: "/Shows/NextUp"), 0)
+        HomeDelayedURLProtocol.delay = { _ in 0 }
+        HomeDelayedURLProtocol.onStart = nil
+    }
+
     func testHomePublishesAnAvailableShelfWhileAnotherShelfIsStillLoading() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
@@ -4171,6 +4294,10 @@ private final class PathCounter: @unchecked Sendable {
             return counts[path]!
         }
     }
+
+    func count(for path: String) -> Int {
+        lock.withLock { counts[path, default: 0] }
+    }
 }
 
 private final class RequestStartRecorder: @unchecked Sendable {
@@ -4189,9 +4316,13 @@ private final class RequestStartRecorder: @unchecked Sendable {
     }
 
     func waitForThree() async {
+        await wait(for: 3)
+    }
+
+    func wait(for target: Int) async {
         await withCheckedContinuation { continuation in
             let resume = lock.withLock { () -> Bool in
-                guard count < 3 else { return true }
+                guard count < target else { return true }
                 waiter = continuation
                 return false
             }

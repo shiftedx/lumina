@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getServerNavigation } from '../api';
 import type { ServerNavigation } from '../types';
 import type { Surface, VideoLibraryView } from './routes';
+import { usePolledSnapshot } from './usePolledSnapshot';
 
 /** The server's enabled, member-visible video libraries in navigation order. */
 export function videoLibraryViews(navigation: ServerNavigation | null | undefined): VideoLibraryView[] {
@@ -21,21 +22,17 @@ export function isNavigationSurfaceAvailable(navigation: ServerNavigation | null
 
 export function useServerNavigation(member: string): { navigation: ServerNavigation | null; refresh: () => void } {
   const [state, setState] = useState<{ member: string; navigation: ServerNavigation | null }>({ member, navigation: null });
-  const [revision, setRevision] = useState(0);
-  const refresh = useCallback(() => setRevision((value) => value + 1), []);
-  useEffect(() => {
-    if (!member) { setState({ member, navigation: null }); return; }
-    const controller = new AbortController();
-    getServerNavigation({ signal: controller.signal }).then((navigation) => { if (!controller.signal.aborted) setState({ member, navigation }); }, () => {
-      if (!controller.signal.aborted) setState({ member, navigation: null });
-    });
-    return () => controller.abort();
-  }, [member, revision]);
-  useEffect(() => {
-    const foreground = () => { if (document.visibilityState === 'visible') refresh(); };
-    const timer = member ? window.setInterval(foreground, 30_000) : null;
-    document.addEventListener('visibilitychange', foreground);
-    return () => { if (timer !== null) window.clearInterval(timer); document.removeEventListener('visibilitychange', foreground); };
-  }, [member, refresh]);
+  const session = useCallback(() => 0, []);
+  const isSessionCurrent = useCallback(() => Boolean(member), [member]);
+  const refreshSnapshot = usePolledSnapshot(member || null, {
+    captureSessionToken: session,
+    isSessionTokenCurrent: isSessionCurrent,
+  }, (isCurrent, signal) => getServerNavigation({ signal }).then((navigation) => {
+    if (isCurrent()) setState({ member, navigation });
+  }, () => {
+    if (isCurrent()) setState({ member, navigation: null });
+  }), 30_000, true);
+  useEffect(() => { if (!member) setState({ member, navigation: null }); }, [member]);
+  const refresh = useCallback(() => refreshSnapshot(), [refreshSnapshot]);
   return { navigation: member && state.member === member ? state.navigation : null, refresh };
 }

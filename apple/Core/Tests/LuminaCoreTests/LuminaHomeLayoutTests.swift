@@ -19,7 +19,10 @@ final class LuminaHomeLayoutTests: XCTestCase {
              "external_items": [["id": "source", "title": "Example video", "subtitle": "Example channel",
                                  "url": "https://www.youtube.com/watch?v=example", "artwork_url": "https://i.ytimg.com/vi/example/default.jpg"]]]
         }
-        let payload = try JSONSerialization.data(withJSONObject: ["rows": rows])
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "rows": rows,
+            "completed_shelf_ids": ["continue", "next_up", "new_in_library"],
+        ])
         HomeLayoutProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/Lumina/Home/rows")
             XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems,
@@ -38,6 +41,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertEqual(recommendations.title, "Because you watched Example")
         XCTAssertTrue(feed.rows.allSatisfy(\.hasItems))
         XCTAssertEqual(feed.rows.first?.externalItems?.first?.sourceURL?.host, "www.youtube.com")
+        XCTAssertEqual(feed.completedShelfIDs, [.continueWatching, .nextUp, .newInLibrary])
     }
 
     func testHomeRefinementUsesLoadedCategoryGenreAndWatchlistFactsWithoutMutatingRows() async throws {
@@ -70,6 +74,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
             client: LuminaClient(configuration: configuration)
         )
         await feed.load()
+        XCTAssertNil(feed.completedShelfIDs, "Older servers omit completion facts and retain compatibility fallback.")
         XCTAssertEqual(feed.rows.last?.items.first?.luminaReco?.reason, "Shared subject")
         XCTAssertEqual(feed.rows.last?.items.first?.luminaReco?.position, 2)
         let heroes = try JSONDecoder().decode([MediaItem].self, from: JSONSerialization.data(withJSONObject: [
@@ -187,11 +192,13 @@ final class LuminaHomeLayoutTests: XCTestCase {
         await feed.load()
         let displayedRows = feed.rows
         XCTAssertTrue(feed.hasLoaded)
+        XCTAssertTrue(feed.lastLoadSucceeded)
         XCTAssertEqual(displayedRows.map(\.id), ["continue"])
 
         await feed.load()
         XCTAssertTrue(feed.hasLoaded)
         XCTAssertEqual(feed.rows.map(\.id), displayedRows.map(\.id))
+        XCTAssertFalse(feed.lastLoadSucceeded, "A retained snapshot is renderable but cannot prove this refresh completed its shelves.")
         XCTAssertNil(feed.errorMessage, "One failed refresh must not add a warning over an already loaded Home.")
 
         feed.configure(session: LuminaSession(
@@ -199,6 +206,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
             username: "Member two", serverName: session.serverName, deviceID: session.deviceID
         ))
         XCTAssertFalse(feed.hasLoaded)
+        XCTAssertFalse(feed.lastLoadSucceeded)
         XCTAssertTrue(feed.rows.isEmpty)
         XCTAssertNil(feed.errorMessage)
     }

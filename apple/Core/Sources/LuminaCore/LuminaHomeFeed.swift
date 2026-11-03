@@ -114,6 +114,13 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
 /// across the web, iPhone, and Apple TV without coupling presentation to data.
 @MainActor @Observable public final class LuminaHomeFeed {
     public private(set) var rows = [HomeFeedRow]()
+    /// `nil` denotes an older server which does not distinguish an intentionally
+    /// empty shelf from one it could not populate.
+    public private(set) var completedShelfIDs: Set<HomeShelfID>?
+    /// Whether the immediately preceding request produced the current rich-row
+    /// response. A retained snapshot remains renderable after a refresh failure,
+    /// but must not suppress compatibility fallback for that failed refresh.
+    public private(set) var lastLoadSucceeded = false
     public private(set) var isLoading = false
     public private(set) var hasLoaded = false
     public private(set) var errorMessage: String?
@@ -146,6 +153,8 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         operationGeneration += 1
         self.session = session
         rows = []
+        completedShelfIDs = nil
+        lastLoadSucceeded = false
         isLoading = false
         hasLoaded = false
         errorMessage = nil
@@ -199,9 +208,13 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         let operation = operationGeneration
         let currentSession = sessionGeneration
         guard let session else {
-            if operation == operationGeneration { errorMessage = "Sign in to load Home." }
+            if operation == operationGeneration {
+                lastLoadSucceeded = false
+                errorMessage = "Sign in to load Home."
+            }
             return
         }
+        lastLoadSucceeded = false
         isLoading = true
         errorMessage = nil
         defer { if operation == operationGeneration, currentSession == sessionGeneration { isLoading = false } }
@@ -209,12 +222,18 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
             let response: Response = try await request(session: session)
             guard !Task.isCancelled, operation == operationGeneration, currentSession == sessionGeneration else { return }
             rows = withoutHiddenTitles(response.rows)
+            completedShelfIDs = response.completedShelfIDs.map { ids in
+                Set(ids.compactMap(HomeShelfID.init(rawValue:)))
+            }
             hasLoaded = true
+            lastLoadSucceeded = true
         } catch {
             guard !Task.isCancelled, operation == operationGeneration, currentSession == sessionGeneration else { return }
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            lastLoadSucceeded = false
             if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
                 rows = []
+                completedShelfIDs = nil
                 hasLoaded = false
             }
             // A failed background refresh does not invalidate the last successful Home.
@@ -313,6 +332,12 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
 
     private struct Response: Decodable {
         let rows: [HomeFeedRow]
+        let completedShelfIDs: [String]?
+
+        private enum CodingKeys: String, CodingKey {
+            case rows
+            case completedShelfIDs = "completed_shelf_ids"
+        }
     }
 }
 

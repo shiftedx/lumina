@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Stable Home shelf identifiers shared with the website's member preference contract.
-public enum HomeShelfID: String, Codable, CaseIterable, Sendable {
+public enum HomeShelfID: String, Codable, CaseIterable, Hashable, Sendable {
     case continueWatching = "continue"
     case nextUp = "next_up"
     case live

@@ -26,7 +26,7 @@ from app.services.playback_decision import MODERN_RUNGS, RUNGS, ClientCaps, Limi
 from app.services.playback_resources import Admission, playback_resources
 from app.services.playback_log import log_playback
 from app.services.probe_warming import probe_warming
-from app.services.transcripts import TranscriptService
+from app.services.transcripts import TranscriptService, language_name
 from app.services.user_settings import playback_ceiling
 
 # Fixed text: an OSError raised mid-probe can name a server path.
@@ -79,13 +79,22 @@ def session_cap(record: AppSettings | None) -> int:
 def audio_tracks(facts: dict[str, Any]) -> list[AudioTrack]:
     audios = [s for s in facts.get("streams") or [] if s.get("type") == "audio"]
     default = next((s["index"] for s in audios if s.get("default")), audios[0]["index"] if audios else None)
-    return [
-        AudioTrack(
-            index=s["index"], language=s.get("language"), codec=s.get("codec"), channels=s.get("channels"), default=s["index"] == default,
-            label=" · ".join(filter(None, [s.get("title") or (s.get("language") or "").upper() or f"Track {n}", s.get("channel_layout"), (s.get("codec") or "").upper()])),
-        )
-        for n, s in enumerate(audios, 1)
-    ]
+    tracks = []
+    for number, stream in enumerate(audios, 1):
+        code = stream.get("language")
+        language = language_name(code) or (code or "").upper()
+        title = stream.get("title")
+        name = title or language or f"Track {number}"
+        details = [name]
+        if title and language and language.casefold() not in title.casefold():
+            details.append(language)
+        details.extend(filter(None, [stream.get("channel_layout"), (stream.get("codec") or "").upper()]))
+        tracks.append(AudioTrack(
+            index=stream["index"], language=code, codec=stream.get("codec"),
+            channels=stream.get("channels"), default=stream["index"] == default,
+            label=" · ".join(details),
+        ))
+    return tracks
 
 
 def quality_heights(facts: dict[str, Any], ceiling: int | None, *, modern: bool = False) -> list[int]:

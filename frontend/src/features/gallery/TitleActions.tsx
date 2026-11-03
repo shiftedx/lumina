@@ -11,7 +11,7 @@ import { cancelSpeculativeStart, prefetchPlaybackOptions, speculativeStart } fro
 import type { TitleDetail } from '../../types';
 import { Button } from '../../ui';
 import { IdentifyDialog } from '../titles/IdentifyDialog';
-import { primaryAction, versionLabel } from '../titles/titleModel';
+import { primaryAction, versionAvailable, versionLabel } from '../titles/titleModel';
 import { queueMedia } from '../watch/WatchQueue';
 import { forgetTitle } from './titleCache';
 
@@ -80,10 +80,10 @@ export function TitleActions({ detail, user, onPlay, onPatch, onReload, onEdit }
 
   return (
     <>
-      {detail.type === 'movie' && detail.versions.length > 1 ? (
+      {(detail.type === 'movie' || detail.type === 'episode') && detail.versions.length > 1 ? (
         <fieldset className="t-versions" data-focus-row>
-          <legend className="g-label">Version</legend>
-          {detail.versions.map((version) => <label key={version.item_id}><input checked={chosenVersion === version.item_id} data-focus-item name={`title-version-${detail.id}`} onChange={() => setVersionId(version.item_id)} type="radio" /> <span>{versionLabel(version)}</span></label>)}
+          <legend className="g-label">Versions · {detail.versions.length}</legend>
+          {detail.versions.map((version) => <label key={version.item_id}><input checked={chosenVersion === version.item_id} disabled={!versionAvailable(version)} data-focus-item name={`title-version-${detail.id}`} onChange={() => setVersionId(version.item_id)} type="radio" /> <span>{versionLabel(version)}</span></label>)}
         </fieldset>
       ) : null}
       <div className="t-actions" data-focus-row>

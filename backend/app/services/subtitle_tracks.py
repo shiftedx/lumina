@@ -60,7 +60,7 @@ def _display_name(name: str | None) -> str | None:
 
 
 def _label(name: str | None, language: str | None, *, forced: bool = False, hearing_impaired: bool = False, image: bool = False) -> str:
-    parts = [_display_name(name) or (language.upper() if language else "Unknown")]
+    parts = [_display_name(name) or (language_name(language) or language.upper() if language else "Unknown")]
     parts += ["Forced"] * forced + ["SDH"] * hearing_impaired + ["Burned in"] * image
     return " · ".join(parts)
 

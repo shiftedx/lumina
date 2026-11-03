@@ -28,22 +28,27 @@ function menu(overrides: Partial<Parameters<typeof PlaybackMenu>[0]> = {}) {
   return { ...props, view };
 }
 
+async function expand(name: string, user: Pick<typeof userEvent, 'click'> = userEvent) {
+  await user.click(screen.getByText(name, { selector: 'summary > span' }));
+}
+
 describe('PlaybackMenu', () => {
   it('lists quality rungs, audio tracks and subtitles with their origin, and reports choices', async () => {
     const props = menu({ versions: [{ item_id: 'i1', height: 2160, hdr: true }, { item_id: 'i9', height: 1080, hdr: false }] });
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
-    expect(screen.getAllByRole('radio').map((radio) => radio.closest('label')?.textContent?.trim())).toEqual([
-      'Original', '1080p', '720p', '4K HDR', '1080p', 'English 5.1', 'Français stéréo', 'Off', 'EnglishSubtitle file', 'English (burned in)In the file',
-    ]);
+    await expand('Quality');
     await userEvent.click(screen.getByRole('radio', { name: '720p' }));
     expect(props.onRequestChange).toHaveBeenLastCalledWith({ max_height: 720 });
+    await expand('Audio');
     await userEvent.click(screen.getByRole('radio', { name: 'Français stéréo' }));
     expect(props.onRequestChange).toHaveBeenLastCalledWith({ audio_index: 2 });
-    await userEvent.click(screen.getByRole('radio', { name: /burned in/ }));
+    await expand('Subtitles');
+    await userEvent.click(screen.getByRole('radio', { name: /burned in/i }));
     expect(props.onSubtitle).toHaveBeenLastCalledWith(props.tracks[1]);
-    // Quality and Version both offer "1080p"; the Version group's radio is the second.
-    await userEvent.click(screen.getAllByRole('radio', { name: '1080p' })[1]);
+    await expand('Version');
+    await userEvent.click(screen.getByRole('group', { name: 'Available versions' }).querySelectorAll('input')[1]);
     expect(props.onRequestChange).toHaveBeenLastCalledWith({ version_id: 'i9' });
+    await expand('Sound and skipping');
     await userEvent.click(screen.getByRole('checkbox', { name: 'Even out loudness' }));
     expect(props.onPrefs).toHaveBeenLastCalledWith({ normalizeLoudness: false });
     await userEvent.click(screen.getByRole('checkbox', { name: /Mute strong language/ }));
@@ -63,6 +68,7 @@ describe('PlaybackMenu', () => {
     };
     const props = menu({ options: capped });
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+    await expand('Quality');
     expect(screen.getAllByRole('radio', { name: /Auto|Original|720p|480p/ }).map((radio) => radio.closest('label')?.textContent?.trim())).toEqual(['Auto', 'Original', '720p', '480p']);
     await userEvent.click(screen.getByRole('radio', { name: 'Original' }));
     expect(props.onRequestChange).toHaveBeenLastCalledWith({ max_height: 1080 });
@@ -76,6 +82,8 @@ describe('PlaybackMenu', () => {
   it('shows unavailable subtitle actions disabled with the reason', async () => {
     menu();
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+    await expand('Subtitles');
+    await expand('Subtitle tools');
     const generate = screen.getByRole('button', { name: 'Generate subtitles' });
     expect((generate as HTMLButtonElement).disabled).toBe(true);
     expect(document.getElementById(generate.getAttribute('aria-describedby') as string)?.textContent).toBe('Needs speech recognition. Ask an admin to turn this on.');
@@ -88,6 +96,8 @@ describe('PlaybackMenu', () => {
   it('shows actions the vault owner switched off as turned off', async () => {
     menu({ capabilities: { ai_summaries: true, asr: true, disabled_features: ['subtitles_from_speech', 'sync', 'translate'] }, subtitle: 's:0' });
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+    await expand('Subtitles');
+    await expand('Subtitle tools');
     for (const name of ['Generate subtitles', 'Sync to audio', 'Translate']) {
       const button = screen.getByRole('button', { name });
       expect((button as HTMLButtonElement).disabled).toBe(true);
@@ -100,6 +110,8 @@ describe('PlaybackMenu', () => {
     api.requestSubtitleJob.mockRejectedValue(new ApiRequestError('ai_feature_disabled', 409));
     menu({ capabilities: { ai_summaries: true, asr: true }, subtitle: 's:0' });
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+    await expand('Subtitles');
+    await expand('Subtitle tools');
     await userEvent.click(screen.getByRole('button', { name: 'Generate subtitles' }));
     expect(await screen.findByText('Turned off by the vault owner.')).toBeTruthy();
   });
@@ -112,6 +124,8 @@ describe('PlaybackMenu', () => {
     const props = menu({ capabilities: { ai_summaries: true, asr: true }, subtitle: 's:0' });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await user.click(screen.getByRole('button', { name: 'Playback settings' }));
+    await expand('Subtitles', user);
+    await expand('Subtitle tools', user);
     await user.click(screen.getByRole('button', { name: 'Generate subtitles' }));
     expect(api.requestSubtitleJob).toHaveBeenCalledWith('i1', { kind: 'generate' });
     expect(await screen.findByText('Waiting to start…')).toBeTruthy();
@@ -125,19 +139,18 @@ describe('PlaybackMenu', () => {
     expect(api.requestSubtitleJob).toHaveBeenLastCalledWith('i1', { kind: 'translate', trackId: 's:0', targetLanguage: 'es' });
   });
 
-  it('styles the panel as an overlay panel with label group heads and a Caption style sub-panel', async () => {
+  it('opens with compact sections and keeps caption styling in its own panel', async () => {
     const onCaptionsChange = vi.fn();
     menu({ captions: { size: 'medium', background: 'shadow' }, onCaptionsChange });
     await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
     const panel = screen.getByRole('group', { name: 'Playback settings' });
-    expect(panel.classList.contains('player-panel')).toBe(true);
-    expect([...panel.querySelectorAll('.g-label')].map((node) => node.textContent)).toEqual(expect.arrayContaining(['Quality', 'Audio', 'Subtitles']));
-    expect((screen.getByRole('radio', { name: 'Original' }) as HTMLInputElement).checked).toBe(true);
+    expect(panel.querySelector('details[open]')).toBeNull();
+    await expand('Subtitles');
     await userEvent.click(screen.getByRole('button', { name: 'Caption style…' }));
     await userEvent.click(screen.getByRole('radio', { name: 'Large' }));
     expect(onCaptionsChange).toHaveBeenLastCalledWith({ size: 'large', background: 'shadow' });
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(screen.getByRole('button', { name: 'Caption style…' })).toBeTruthy();
+    expect(screen.getByText('Subtitles', { selector: 'summary > span' })).toBeTruthy();
   });
 
   it('turns text tracks into player tracks and leaves image tracks to the session', () => {

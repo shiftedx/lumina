@@ -36,6 +36,7 @@ test('local text subtitles settle on exactly the chosen track and Off disables e
 
   await page.getByRole('button', { name: 'Playback settings' }).click();
   const menu = page.getByRole('group', { name: 'Playback settings' });
+  await menu.locator('summary').getByText('Subtitles', { exact: true }).click();
   await menu.getByRole('radio', { name: /Portuguese/ }).check();
   await expect.poll(() => video.evaluate((media: HTMLVideoElement) => media.querySelector<HTMLTrackElement>('#embedded\\:3')?.readyState)).toBe(2);
   await expect.poll(() => modes(video)).toEqual([['embedded:2', 'disabled'], ['embedded:3', 'showing']]);

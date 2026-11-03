@@ -54,8 +54,10 @@ test('subtitle menu: choose a track, generate one, see it arrive', async ({ page
   const toggle = page.getByRole('button', { name: 'Playback settings' });
   await toggle.click();
   const menu = page.getByRole('group', { name: 'Playback settings' });
+  await menu.locator('summary').getByText('Subtitles', { exact: true }).click();
   await menu.getByRole('radio', { name: /^English\s*Subtitle file/ }).check();
   await expect.poll(() => video.evaluate((media: HTMLVideoElement) => media.textTracks[0]?.mode)).toBe('showing');
+  await menu.locator('summary').getByText('Subtitle tools', { exact: true }).click();
   await menu.getByRole('button', { name: 'Generate subtitles' }).click();
   await expect(menu.getByRole('status')).toHaveText('Done. The new subtitles are in the list.', { timeout: 10_000 });
   await expect(menu.getByRole('radio', { name: /English \(generated\)/ })).toBeVisible();

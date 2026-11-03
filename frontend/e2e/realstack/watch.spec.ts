@@ -1,6 +1,12 @@
 import type { Page } from '@playwright/test';
 import { expect, libraryItemId, test, videoTime } from './realstack';
 
+async function resumeSavedPlayback(page: Page) {
+  const choice = page.getByRole('dialog', { name: 'Resume playback?' });
+  await expect(choice).toBeVisible();
+  await choice.getByRole('button', { name: 'Resume', exact: true }).click();
+}
+
 test('a timestamped note persists and seeks the player', async ({ page }) => {
   const noteBody = `Lantern appears on the left (${test.info().repeatEachIndex})`;
   await page.goto('/library/movies');
@@ -18,8 +24,9 @@ test('a timestamped note persists and seeks the player', async ({ page }) => {
   await expect(seek).toBeVisible();
 
   await page.reload();
+  await resumeSavedPlayback(page);
   // Title metadata replaces the initial player layout; choose the tool after that layout is ready.
-  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Realstack Direct', level: 1 })).toBeVisible();
   await page.getByRole('tab', { name: 'Notes' }).click();
   await expect(page.getByRole('tabpanel', { name: 'Notes', exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Notes on this item' })).toContainText(noteBody);
@@ -63,7 +70,8 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
   await queue.getByRole('button', { name: 'Move Realstack Show S01E02 up' }).click();
   await expect.poll(order).toEqual(['Realstack Show S01E02', 'Realstack Show S01E01', 'Realstack Remux']);
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
+  await resumeSavedPlayback(page);
+  await expect(page.getByRole('heading', { name: 'Realstack Direct', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect.poll(order).toEqual(['Realstack Show S01E02', 'Realstack Show S01E01', 'Realstack Remux']);
   await expect(queue.getByRole('button', { name: 'Play Realstack Show S01E02, plays next automatically' })).toBeVisible();
@@ -88,6 +96,7 @@ test('Resume on Home\'s hero starts playback at the saved position', async ({ pa
   await expect(page.locator('.h-hero-kicker')).toHaveText(/continue watching/i);
   await expect(page.locator('.h-hero-title')).toHaveText('Realstack Direct');
   await page.getByRole('button', { name: 'Resume' }).click();
+  await resumeSavedPlayback(page);
   await expect(page).toHaveURL(new RegExp(`/watch/library/${id}$`));
   await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(2.3);
 });

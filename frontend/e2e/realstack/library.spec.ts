@@ -79,6 +79,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
 
   await test.step('with no anime folders, Show A is back in Shows; then the default returns', async () => {
     await page.goto('/settings/library?page=organization');
+    await page.locator('summary').filter({ hasText: 'Advanced settings' }).click();
     const row = page.locator('[data-setting-id="library.anime"]');
     await row.getByRole('button', { name: 'Remove Anime' }).click();
     await row.getByRole('button', { name: 'Save' }).click();

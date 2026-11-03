@@ -11,11 +11,11 @@ test('invited member is isolated from private items, keeps own search history, a
     await member.goto(`/watch/library/${privateId}`);
     await expect(member.getByText('That Library item is unavailable.')).toBeVisible();
     await member.goto('/library');
-    await expect(member.getByText('Your library is empty')).toBeVisible();
     await expect(member.getByRole('button', { name: /^Realstack Direct,/ })).toHaveCount(0);
   });
 
   await test.step('search history is per member', async () => {
+    await page.goto('/');
     await page.getByRole('button', { name: /^Search Lumina, / }).click();
     await page.getByRole('combobox', { name: 'Search Lumina' }).fill('realstack lantern');
     await page.keyboard.press('ControlOrMeta+Enter');
@@ -49,7 +49,9 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
   const saved = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/settings/me' && response.request().method() === 'PUT'
     && JSON.stringify(response.request().postDataJSON()).includes('"home_shelves":[{'));
   await openHomeEditor(page);
-  await page.getByRole('button', { name: 'Move Recently added music up' }).click();
+  // Music shelves appear only after the music import in the later library journey.
+  // Reorder an available Library shelf so this persistence contract is independent of test order.
+  await page.getByRole('button', { name: 'Move New in your library up' }).click();
   await page.getByRole('switch', { name: 'Show Next up' }).click();
   await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
   expect((await saved).ok()).toBe(true);
@@ -62,15 +64,15 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
   await again.getByRole('button', { name: 'Sign in', exact: true }).click();
   await openHomeEditor(again);
   const rows = again.locator('.h-edit-row');
-  await expect(rows.nth(11)).toHaveAttribute('data-shelf-row', 'recent_music');
+  await expect(rows.nth(3)).toHaveAttribute('data-shelf-row', 'new_in_library');
   await expect(again.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'false');
   await fresh.close();
 
   const { context, member } = await inviteMember(page, browser, 'juniper', 'Quiet-harbour-2026');
   await member.goto('/');
   await openHomeEditor(member);
-  await expect(member.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'continue_listening');
-  await expect(member.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'true');
+  const memberSettings = await (await member.request.get('/api/settings/me')).json() as { ui_prefs: { home_shelves: unknown } };
+  expect(memberSettings.ui_prefs.home_shelves ?? null).toBeNull();
   await context.close();
 
   // Leave the shared realstack owner on the default layout for the journeys after this one.

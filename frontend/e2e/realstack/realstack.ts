@@ -48,7 +48,6 @@ export async function inviteMember(owner: Page, browser: Browser, username: stri
   await member.getByLabel('Display name').fill(username[0].toUpperCase() + username.slice(1));
   await member.getByLabel('Password', { exact: true }).fill(password);
   await member.getByRole('button', { name: 'Create my account' }).click();
-  await member.getByRole('button', { name: 'Explore without setup' }).click();
   await expect(member.getByRole('main', { name: 'Main content' })).toBeVisible();
   return { context, member, problems };
 }

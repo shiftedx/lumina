@@ -1,5 +1,15 @@
 # Release notes
 
+## Lumina 0.6.0
+
+- **Apple TV preview:** Browse available libraries from a dedicated hub, reach media requests from labeled navigation, and approve TV sign-in from an already authenticated phone without retyping the server address.
+- **iPhone and iPad preview:** When enabled by the server administrator, Streaming appears on Home and in navigation, with independent recommendations, a live grid, and saved videos. When disabled, remote streaming disappears and saved local videos remain in Library. This release also improves Home scroll-to-top, landscape controls, and playback during rotation.
+- **Web:** Browse movie collections, find streaming recommendations and saved videos more easily, and use a compact chapter and moments timeline and simpler playback settings.
+- **Server:** Reduce Home and polling reads, recover missing artwork, and surface more useful language availability on media requests.
+
+**Upgrade:** Schema 44. Lumina creates an automatic pre-upgrade backup. See the [operator guide](docker/README.md#upgrades) for upgrade and rollback instructions.
+
+
 ## Lumina 0.5.1
 
 - Cap OMDb at 950 requests in any rolling 24 hours, including failed lookups and connection tests. Persist the allowance, cached IMDb results and unfinished work across restarts.

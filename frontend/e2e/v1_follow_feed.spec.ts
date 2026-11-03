@@ -1,4 +1,4 @@
-import { navigateApp } from './lumina-mock';
+import { DEFAULT_NAVIGATION, navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 
 /** Mixed-source follows (YouTube, Twitch, Kick) from the server's single refresh path. */
@@ -53,6 +53,7 @@ async function mockApi(page: Page) {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/navigation') return json(DEFAULT_NAVIGATION);
     if (path === '/api/session/me') return json({ user });
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });

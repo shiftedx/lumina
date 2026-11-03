@@ -1432,6 +1432,10 @@ private struct HomeLibraryView<Header: View>: View {
     @State private var initialHomeLoadOwner: MobileHomeSessionScope?
     @State private var homeRowsRefreshTask: Task<Void, Never>?
     @State private var homeRowsRefreshID: UUID?
+    @State private var homeScrollPhase: ScrollPhase = .idle
+    @State private var homePullStartedAtTop = false
+    @State private var homePullArmed = false
+    @State private var isHomePullRefreshing = false
     @State private var needsHomeRowsRefresh = false
     #if LUMINA_UI_TESTING
     @State private var uiTestingHomeRefreshCount = 0
@@ -1517,7 +1521,38 @@ private struct HomeLibraryView<Header: View>: View {
         .onChange(of: category) { _, _ in
             scrollPosition.scrollTo(edge: .top)
         }
-        .refreshable {
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top <= -80
+        } action: { _, pastThreshold in
+            if homeScrollPhase == .interacting && homePullStartedAtTop {
+                homePullArmed = pastThreshold
+            }
+        }
+        .onScrollPhaseChange { previous, phase, context in
+            homeScrollPhase = phase
+            let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top
+            if phase == .tracking || (phase == .interacting && previous != .tracking) {
+                homePullStartedAtTop = abs(offset) <= 2
+                homePullArmed = false
+            } else if previous == .interacting {
+                if homePullArmed { isHomePullRefreshing = true }
+                homePullStartedAtTop = false
+                homePullArmed = false
+            }
+        }
+        // Keep refresh feedback out of the scroll content so it cannot hold the hero down.
+        .overlay(alignment: .top) {
+            if homePullArmed || isHomePullRefreshing {
+                ProgressView()
+                    .tint(snapshot.items.isEmpty ? LuminaTheme.ink : .white)
+                    .padding(.top, snapshot.items.isEmpty ? 8 : geometry.safeAreaInsets.top + 8)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityAction(named: "Refresh Home") { isHomePullRefreshing = true }
+        .task(id: isHomePullRefreshing) {
+            guard isHomePullRefreshing else { return }
+            defer { isHomePullRefreshing = false }
             #if LUMINA_UI_TESTING
             uiTestingHomeRefreshCount += 1
             #endif

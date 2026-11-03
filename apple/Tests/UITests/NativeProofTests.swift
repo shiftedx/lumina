@@ -451,6 +451,9 @@ final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourn
     func testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu() async throws {
         try await journeyStandardPhoneNavigation()
     }
+    func testClosedDuoStatusTapReturnsHomeHeroToTop() async throws {
+        try await journeyClosedDisplayCategoryWidth(checksStatusTap: true)
+    }
     func testClosedDisplayFitsThreeCategoriesBesideLogo() async throws {
         try await journeyClosedDisplayCategoryWidth()
     }
@@ -5869,7 +5872,7 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
-    func journeyClosedDisplayCategoryWidth() async throws {
+    func journeyClosedDisplayCategoryWidth(checksStatusTap: Bool = false) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -5886,6 +5889,30 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThanOrEqual(heroArtwork.frame.minY, viewport.minY + 2)
         XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5)
         try attachFrame(named: "Closed Duo Home without category tabs")
+        if checksStatusTap {
+            let window = try applicationWindow()
+            let content = window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.75))
+            content.press(forDuration: 0.1,
+                          thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25)))
+            XCTAssertTrue(waitUntil(timeout: 5) { !heroArtwork.exists || heroArtwork.frame.minY < viewport.minY - 60 },
+                          "Home must scroll away from the hero before testing the status tap.")
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.015)).tap()
+            let reachesTop = waitUntil(timeout: 8) {
+                heroArtwork.exists && abs(heroArtwork.frame.minY - viewport.minY) <= 2
+                    && heroArtwork.frame.maxY >= viewport.maxY - 0.5
+            }
+            XCTAssertTrue(reachesTop, "After the status tap, Home artwork must cover the top edge. Artwork: \(heroArtwork.exists ? heroArtwork.frame : .null).")
+            try attachFrame(named: "Closed Duo Home after status tap")
+            XCTAssertEqual(try homeRefreshCount(), 0, "The status tap must not refresh Home.")
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25))
+                .press(forDuration: 0.1,
+                       thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.8)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+            XCTAssertTrue(waitUntil(timeout: 5) { (try? self.homeRefreshCount()) == 1 },
+                          "An intentional pull from the top must still refresh Home.")
+            completed = true
+            return
+        }
         try selectTourLibraryCategory("movies", screen: "libraryScreen")
         let row = element("libraryCategories")
         let third = element("libraryCategory-music")

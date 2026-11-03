@@ -298,7 +298,9 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
 
   const featured = videoBrowse && !query.q && !selecting && !wallFiltered(query) ? store.itemAt(0) : undefined;
   const hero = featured;
-  const stagePending = videoBrowse && store.total === null && !store.failed;
+  const stageSettled = useRef(false);
+  useEffect(() => { if (store.total !== null || store.failed) stageSettled.current = true; }, [store.total, store.failed]);
+  const stagePending = videoBrowse && !stageSettled.current && store.total === null && !store.failed;
   return (
     <div aria-busy={stagePending || undefined} className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
       {stagePending ? <p className="g-stage-loading" role="status">Loading {def.heading.toLowerCase()}…</p> : null}

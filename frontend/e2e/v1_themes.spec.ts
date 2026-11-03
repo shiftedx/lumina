@@ -1,7 +1,6 @@
-import { navigateApp } from './lumina-mock';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { item, mockApi, signIn, user } from './lumina-mock';
+import { item, mockApi, navigateApp, openSettingsArea, signIn } from './lumina-mock';
 
 /** Light/dark/system themes on the real app shell (mocked API, synthetic media). */
 
@@ -25,14 +24,12 @@ for (const scheme of ['light', 'dark'] as const) {
     await signIn(page);
     await page.waitForTimeout(300);
     await expectReadable(page);
-    await page.getByRole('button', { name: /, account menu$/ }).click();
-    await page.getByRole('button', { name: 'My Settings' }).click();
-    await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display' }).click();
+    await navigateApp(page, 'My Settings');
+    await openSettingsArea(page, 'Display');
     await expect(page.getByRole('radio', { name: 'System' })).toBeChecked();
     await page.waitForTimeout(300);
     await expectReadable(page);
-    await navigateApp(page, 'Video');
-    await page.getByRole('button', { name: new RegExp(`^${item.title}, `) }).first().click();
+    await page.goto(`/watch/library/${item.id}`);
     await expect(page.locator('video').first()).toBeVisible();
     await page.waitForTimeout(500);
     await expectReadable(page);
@@ -51,9 +48,8 @@ test('test_theme_system_changes: explicit choice ignores the OS, system follows 
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-  await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('button', { name: 'My Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display' }).click();
+  await navigateApp(page, 'My Settings');
+  await openSettingsArea(page, 'Display');
   await page.getByRole('radio', { name: 'System' }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -73,13 +69,18 @@ for (const width of [1536, 390]) test(`OLED stays pure black, readable and persi
   const saved = await mockApi(page, { sidebar_collapsed: false, theme: 'light' });
   await page.goto('/settings/appearance?page=display');
   await signIn(page);
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display', exact: true }).click();
+  await openSettingsArea(page, 'Display');
   await page.getByRole('radio', { name: 'OLED', exact: true }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled');
   await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.theme === 'oled')).toBe(true);
-  for (const surface of [page.locator('body'), page.locator('.g-settings-rows').first()]) {
-    await expect(surface).toHaveCSS('background-color', 'rgb(0, 0, 0)');
-  }
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+  expect(await page.locator('.g-settings-rows').first().evaluate((row) => {
+    for (let node: Element | null = row; node; node = node.parentElement) {
+      const fill = getComputedStyle(node).backgroundColor;
+      if (fill !== 'rgba(0, 0, 0, 0)') return fill;
+    }
+    return null;
+  })).toBe('rgb(0, 0, 0)');
   await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#000');
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth));
   await expectReadable(page);

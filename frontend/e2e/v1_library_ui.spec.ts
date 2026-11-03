@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { item as baseItem, mockApi, mockTitles, movieTitle, signIn, user } from './lumina-mock';
 import { answerCategoriesByType } from './library-mock';
@@ -87,18 +88,16 @@ test('test_library_visual', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await openLibrary(page, '/library', { width: 1536, height: 960 }, 'dark');
-  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Low Tide/ })).toHaveCount(0); // All lists titles by chapter, never single episodes
-  await tabs(page).getByRole('link', { name: 'Movies' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Northern Lantern,/ })).toBeVisible();
   await expect(page).toHaveURL(/\/video\/movies$/);
-  await tabs(page).getByRole('link', { name: 'Shows' }).click();
-  await page.getByRole('button', { name: /^Harbor Lights,/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Northern Lantern' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Low Tide/ })).toHaveCount(0);
+  await navigateApp(page, 'Shows');
+  await page.getByRole('region', { name: 'Harbor Lights' }).getByRole('button', { name: 'Details' }).click();
   await expect(page.getByRole('tab', { name: 'Season 2' })).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(/\/video\/shows$/);
-  await tabs(page).getByRole('link', { name: 'YouTube' }).click();
+  await page.goto('/video/youtube');
   await expect(page.getByRole('heading', { level: 1, name: 'YouTube' })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -127,7 +126,7 @@ async function openGallery(page: Page, path: string, viewport = { width: 1536, h
 
 test('the wall keeps its sort and filters in the address across a reload', async ({ page }) => {
   await openGallery(page, '/library/movies');
-  await expect(page.getByRole('button', { name: /^Gallery 000,/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Gallery 000' })).toBeVisible();
   await page.getByRole('combobox', { name: 'Sort' }).focus();
   await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
   await expect(page.getByRole('combobox', { name: 'Sort' })).toBeFocused();

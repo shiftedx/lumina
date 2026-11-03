@@ -16,12 +16,8 @@ async function open(page: Page, path: string, uiPrefs: Record<string, unknown> =
 test('Next up → series → Season 2 → play', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await open(page, '/');
-  // The hero carousel pushes the last shelves below the lazy-load margin; visit the bottom so the empty ones resolve and drop out.
-  // Do not hold a shelf locator here: an empty lazy shelf legitimately unmounts as soon as its request settles.
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect(page.locator('.h-shelf h2')).toHaveText(['Next up', 'More for you', 'Recently saved']);
-  await page.getByRole('button', { name: 'Harbor Lights, S2 · E2' }).click();
+  await open(page, '/', { autoplay_up_next: false });
+  await page.getByRole('region', { name: 'Next up', exact: true }).getByRole('button', { name: /Harbor Lights.*S2 · E2/ }).click();
   await expect(page).toHaveURL(/\/video\/title\/series-1\?season=2$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Harbor Lights' })).toBeVisible();
   await expect(page.getByRole('tab')).toHaveText(['Season 1', 'Season 2', 'Specials']);
@@ -72,15 +68,20 @@ test('an admin fixes a match from the title page', async ({ page }) => {
 
 test('keyboard only: arrows move between Home rows, Enter opens, Escape goes back', async ({ page }) => {
   await open(page, '/');
-  await page.getByRole('button', { name: 'Harbor Lights, S2 · E2' }).first().focus();
+  await page.getByRole('region', { name: 'Next up', exact: true }).getByRole('button', { name: /Harbor Lights.*S2 · E2/ }).focus();
+  const library = page.getByRole('region', { name: 'New in your library' });
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('button', { name: /^Northern Lantern,/ }).first()).toBeFocused();
+  await expect(library.getByRole('button', { name: 'See all', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(library.getByRole('button', { name: /^Harbor Lights,/ })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(library.getByRole('button', { name: /^Northern Lantern,/ })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/video\/title\/movie-1$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/\/video\/movies$/);
-  await expect(page.getByRole('button', { name: /^Northern Lantern,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Northern Lantern', exact: true })).toBeVisible();
 });
 
 // The 10-foot step is for touch screens and TV remotes; a mouse gets the 36px desktop control (tokens.css).

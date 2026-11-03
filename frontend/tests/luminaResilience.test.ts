@@ -20,11 +20,10 @@ function rule(selector: string) {
 }
 
 describe('Lumina interaction resilience contracts', () => {
-  // Targets follow --g-control: 44px (48px at the 10-foot step) for touch and remotes, 36px only for a mouse or trackpad.
-  it('keeps the 44 pixel control by default and shrinks it only for a fine pointer', () => {
+  it('keeps a 44 pixel control for touch and fine pointers', () => {
     expect(css).toMatch(/:root\s*\{[^}]*--g-control:\s*44px/);
-    expect(css).toMatch(/@media \(pointer: fine\) and \(min-width: 600px\) \{\s*:root \{[^}]*--g-control: 36px/);
-    expect(css.match(/--g-control:\s*36px/g)).toHaveLength(1);
+    expect(css).toMatch(/@media \(pointer: fine\) and \(min-width: 600px\) \{\s*:root \{[^}]*--g-control: 44px/);
+    expect(css).not.toMatch(/--g-control:\s*36px/);
   });
 
   it.each([

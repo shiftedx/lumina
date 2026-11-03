@@ -283,6 +283,7 @@ test('phone book detail keeps a missing-cover title on one line', async ({ page 
 test('book overview and details keep one contextual search that opens real catalog results', async ({ page }) => {
   await openBooks(page, '/books/title/ebook-1', PHONE);
   const search = page.getByRole('searchbox', { name: 'Search books, authors, and series' });
+  await page.getByRole('button', { name: 'Search books, authors, and series' }).click();
   await expect(search).toBeVisible();
   await expect(page.getByRole('searchbox')).toHaveCount(1);
   await expect(page.getByRole('button', { name: /^Search Lumina/ })).toHaveCount(0);

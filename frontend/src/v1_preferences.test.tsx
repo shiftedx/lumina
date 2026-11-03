@@ -37,7 +37,7 @@ describe('Settings surface: grouped sections', () => {
       expect(within(nav).getByRole('link', { name: label })).toBeTruthy();
     }
     expect(within(nav).getAllByRole('link')).toHaveLength(7); // six categories plus About
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'My settings' })).toBeTruthy();
   });
 
   it('test_profile_display_name_edit: saves a trimmed display name through the callback prop', async () => {
@@ -48,7 +48,7 @@ describe('Settings surface: grouped sections', () => {
     const input = screen.getByLabelText('Display name');
     await browser.clear(input);
     await browser.type(input, '  New Name  ');
-    await browser.click(screen.getByRole('button', { name: 'Save name' }));
+    await browser.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() => expect(onUpdateDisplayName).toHaveBeenCalledWith('New Name'));
     await waitFor(() => expect(screen.getByText('Display name updated.')).toBeTruthy());

@@ -85,8 +85,10 @@ export function ChannelsView({ state, onWallChange, lenses, viewSwitch, streamin
   const hero = !failed && !search ? filteredChannels?.[0] : undefined;
   const heroArt = hero ? `/api/library/${encodeURIComponent(hero.newest_item_id)}/artwork` : null;
   const channelCount = filteredChannels?.length;
+  const stagePending = !filteredChannels && !failed;
   return (
-    <div className={`surface gallery g-wall g-library-channels is-video-browse g-youtube-browse${hero ? ' has-browse-hero' : ''}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
+    <div aria-busy={stagePending || undefined} className={`surface gallery g-wall g-library-channels is-video-browse g-youtube-browse${hero ? ' has-browse-hero' : ''}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
+      {stagePending ? <p className="g-stage-loading" role="status">Loading saved channels…</p> : null}
       <div className="g-browse-context">{lenses}<ContextualSearch label="Search saved channels"><form className="g-search" onSubmit={submitSearch} role="search"><Search aria-hidden="true" /><input aria-label="Search saved channels" className="g-input" maxLength={200} onChange={(event) => setSearchDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setSearchDraft(''); onRoute({ nextSearch: '' }); } }} placeholder="Search saved channels" type="search" value={searchDraft} /></form></ContextualSearch></div>
       {hero && heroArt ? <section aria-label={hero.name} className="g-browse-hero">
         <HeroFrame className="g-browse-hero-art" placement="home" src={heroArt}><GalleryArt alt="" art={remoteArt(heroArt)} card={null} colour={{ colour: fallbackColour(hero.key), fromPalette: true }} kind="still" priority={1} sizes="100vw" /></HeroFrame>

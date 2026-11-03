@@ -47,9 +47,11 @@ for (const viewport of [{ width: 1536, height: 960 }, { width: 390, height: 844 
       page.on('pageerror', (error) => errors.push(error.message));
       await openHome(page, fresh, viewport);
       await expect(page.getByRole(fresh ? 'heading' : 'region', { name: fresh ? 'Make Home yours' : 'Recently saved' })).toBeVisible();
-      const heading = await page.locator('.surface h1').boundingBox();
-      const topbar = await page.locator('.g-topbar').boundingBox();
-      expect(heading!.y).toBeGreaterThanOrEqual(topbar!.y + topbar!.height);
+      await expect.poll(async () => {
+        const heading = await page.getByRole('heading', { name: fresh ? 'Make Home yours' : 'Recently saved', exact: true }).boundingBox();
+        const topbar = await page.locator('.g-topbar').boundingBox();
+        return Boolean(heading && topbar && heading.y >= topbar.y + topbar.height);
+      }).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       expect(errors).toEqual([]);
     });

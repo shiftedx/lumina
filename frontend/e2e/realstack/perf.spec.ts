@@ -253,75 +253,77 @@ for (const cpu of [4, 1] as const) {
   });
 }
 
-// ---- Library gallery: the All landing and the albums wall on the medium seed ----
+// ---- Library gallery: the Shows browse page and the albums wall on the medium seed ----
 
 const LIBRARY_BUDGET_MS = {
-  allFirstScreen: { 'lan cold': 1500, 'lan warm': 800, 'slow cold': 3000 },
-  twoChapters: { 'lan cold': 2000, 'lan warm': 1000, 'slow cold': 4000 },
+  showsFirstScreen: { 'lan cold': 1500, 'lan warm': 800, 'slow cold': 3000 },
+  spotlightAndGenres: { 'lan cold': 2000, 'lan warm': 1000, 'slow cold': 4000 },
   albumsFirstScreen: { 'lan cold': 1500, 'lan warm': 800, 'slow cold': 3000 },
 } as const;
-/** What the All landing itself asks for: sections, the spotlight and chapter slices. */
-const landingRequest = (url: URL) => url.pathname === '/api/library/sections' || url.pathname === '/api/titles' || (url.pathname === '/api/library' && url.searchParams.has('kind'));
+/** Catalog requests the Shows browse page starts before a scroll. */
+const landingRequest = (url: URL) => url.pathname === '/api/library/sections' || url.pathname === '/api/titles' || url.pathname === '/api/titles/facets';
 
-/** Page-clock time at which the first two chapters' first rows each show a preview, image, card or colour. */
-async function twoChaptersPaintedAt(page: Page): Promise<number> {
+/** Page-clock time at which the category spotlight and genre art have painted. */
+async function spotlightAndGenresPaintedAt(page: Page): Promise<number> {
   await page.waitForFunction(() => {
-    const rows = [...document.querySelectorAll('.g-all .g-chapter:not(.is-skeleton)')].slice(0, 2).map((chapter) => chapter.querySelector('.g-chapter-row'));
-    if (rows.length < 2 || rows.some((row) => !row?.querySelector('.g-art'))) return false;
-    return rows.every((row) => [...row!.querySelectorAll('.g-art')].every((art) => art.querySelector('.g-art-preview, .g-art-image, .g-card') || getComputedStyle(art).backgroundColor !== 'rgba(0, 0, 0, 0)'));
+    const spotlight = document.querySelector('.g-browse-hero .g-art');
+    const genres = [...document.querySelectorAll('.g-category-browse .g-genre-tile .g-art')];
+    if (!spotlight || !genres.length) return false;
+    return [spotlight, ...genres].every((art) =>
+      art.querySelector('.g-art-preview, .g-art-image, .g-card') || getComputedStyle(art).backgroundColor !== 'rgba(0, 0, 0, 0)');
   }, undefined, { timeout: 30_000, polling: 'raf' });
   return page.evaluate(() => performance.now());
 }
 
 for (const { profile, cache } of CASES) {
-  const name = `${profile} ${cache}` as keyof typeof LIBRARY_BUDGET_MS.allFirstScreen;
+  const name = `${profile} ${cache}` as keyof typeof LIBRARY_BUDGET_MS.showsFirstScreen;
 
-  test(`All landing first screen, first two chapters and requests before a scroll, ${name}`, async ({ browser }) => {
+  test(`Shows browse first screen, spotlight, genre art and request count, ${name}`, async ({ browser }) => {
     const first: number[] = [];
-    const chapters: number[] = [];
+    const artwork: number[] = [];
     const requests: number[] = [];
     for (let run = 0; run < RUNS; run += 1) {
       const page = await perfTitlesPage(browser, profile);
       if (cache === 'warm') {
-        await page.goto('/library');
-        await appMetric(page, 'wall_first_screen_ms', 'all');
-        await twoChaptersPaintedAt(page);
+        await page.goto('/video/shows');
+        await appMetric(page, 'wall_first_screen_ms', 'shows');
+        await spotlightAndGenresPaintedAt(page);
       }
       const asked: string[] = [];
       page.on('request', (request) => { const url = new URL(request.url()); if (landingRequest(url)) asked.push(`${url.pathname}${url.search}`); });
-      if (cache === 'warm') await page.reload(); else await page.goto('/library');
-      first.push(await appMetric(page, 'wall_first_screen_ms', 'all'));
-      chapters.push(await twoChaptersPaintedAt(page));
-      await page.waitForTimeout(1_000); // anything else the landing would ask for before a scroll
+      if (cache === 'warm') await page.reload(); else await page.goto('/video/shows');
+      first.push(await appMetric(page, 'wall_first_screen_ms', 'shows'));
+      artwork.push(await spotlightAndGenresPaintedAt(page));
+      await page.waitForTimeout(1_000); // anything else the browse page would ask for before a scroll
       requests.push(asked.length);
       await page.context().close();
     }
-    console.log(`All ${name}: first screen ${first.join(', ')} ms; two chapters ${chapters.map(Math.round).join(', ')} ms; requests ${requests.join(', ')}`);
-    expect(median(first), `first screen ${first.join(', ')}`).toBeLessThanOrEqual(LIBRARY_BUDGET_MS.allFirstScreen[name]);
-    expect(median(chapters), `two chapters ${chapters.join(', ')}`).toBeLessThanOrEqual(LIBRARY_BUDGET_MS.twoChapters[name]);
+    console.log(`Shows ${name}: first screen ${first.join(', ')} ms; spotlight and genres ${artwork.map(Math.round).join(', ')} ms; requests ${requests.join(', ')}`);
+    expect(median(first), `first screen ${first.join(', ')}`).toBeLessThanOrEqual(LIBRARY_BUDGET_MS.showsFirstScreen[name]);
+    expect(median(artwork), `spotlight and genres ${artwork.join(', ')}`).toBeLessThanOrEqual(LIBRARY_BUDGET_MS.spotlightAndGenres[name]);
     expect(Math.max(...requests), `requests ${requests.join(', ')}`).toBeLessThanOrEqual(4);
   });
 
   // Only lan cold runs in make check; the other two take minutes each and run on the reference host.
-  test(`long tasks while scrolling the All landing top to bottom, ${name}`, async ({ browser }) => {
+  test(`long tasks while scrolling Shows browse top to bottom, ${name}`, async ({ browser }) => {
     test.skip(!STRICT && name !== 'lan cold', 'reference host only (PERF_STRICT=1)');
     test.setTimeout(300_000);
     const counts: number[] = [];
     for (let run = 0; run < RUNS; run += 1) {
       const page = await perfTitlesPage(browser, profile);
-      await page.goto('/library');
-      if (cache === 'warm') { await appMetric(page, 'wall_first_screen_ms', 'all'); await page.reload(); }
-      await appMetric(page, 'wall_first_screen_ms', 'all');
+      await page.goto('/video/shows');
+      if (cache === 'warm') { await appMetric(page, 'wall_first_screen_ms', 'shows'); await page.reload(); }
+      await appMetric(page, 'wall_first_screen_ms', 'shows');
       await page.evaluate(() => {
         const w = window as Window & { __perfLong?: number };
         w.__perfLong = 0;
         new PerformanceObserver((list) => { w.__perfLong! += list.getEntries().filter((entry) => entry.duration > 50).length; }).observe({ type: 'longtask' });
       });
-      await scrollToEnd(page); // every chapter and Collections load on the way down
+      await scrollToEnd(page); // the title grid pages as it scrolls
       counts.push(await page.evaluate(() => (window as Window & { __perfLong?: number }).__perfLong ?? 0));
       await page.context().close();
     }
-    console.log(`All scroll ${name}: long tasks ${counts.join(', ')}`);
+    console.log(`Shows scroll ${name}: long tasks ${counts.join(', ')}`);
     expect(median(counts), `long tasks ${counts.join(', ')}`).toBeLessThanOrEqual(2);
   });
 
@@ -329,7 +331,7 @@ for (const { profile, cache } of CASES) {
     const first: number[] = [];
     for (let run = 0; run < RUNS; run += 1) {
       const page = await perfTitlesPage(browser, profile);
-      await page.goto('/library/music');
+      await page.goto('/audio?view=albums');
       if (cache === 'warm') {
         await appMetric(page, 'wall_first_screen_ms', 'albums');
         await page.reload();

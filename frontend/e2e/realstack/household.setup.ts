@@ -22,7 +22,6 @@ test('first owner connects and imports media during onboarding, then signs in ag
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
     await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
-    await page.getByRole('button', { name: 'Explore without setup' }).click();
     await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
   });
 

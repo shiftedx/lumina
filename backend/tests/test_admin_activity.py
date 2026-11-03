@@ -220,13 +220,20 @@ def test_stop_direct_play_refuses_media_for_120_seconds(client: TestClient, fact
 
 
 def test_library_media_route_answers_403_stopped_by_admin(client: TestClient, factory, library, tmp_path, monkeypatch) -> None:  # noqa: ANN001
-    from app.services.library import LibraryService
+    from app.models import StorageRoot
+    from app.services.media_artifacts import MediaArtifactService
+    from app.services.storage_roots import StorageRootService
 
     admin(client)
-    video = tmp_path / "v.mp4"
+    video = tmp_path.resolve() / "v.mp4"
     video.write_bytes(b"0" * 100)
     monkeypatch.setattr("app.main.SessionLocal", factory)
-    monkeypatch.setattr(LibraryService, "resolve_media_path", lambda self, item: video)
+    with factory.begin() as db:
+        root = StorageRoot(id="test-root", label="Test media", path=str(video.parent), mode="external")
+        db.add(root)
+        StorageRootService(db).probe(root)
+        db.flush()
+        assert MediaArtifactService(db).register_file(db.get(LibraryItem, "item-movie"), str(video)) is not None
     assert client.get("/api/library/item-movie/media").status_code == 200
     assert [s["title"] for s in client.get("/api/admin/activity").json()["sessions"]] == ["Dune"]  # the stream request is the report
     (session,) = client.get("/api/admin/activity").json()["sessions"]

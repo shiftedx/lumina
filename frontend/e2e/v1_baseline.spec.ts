@@ -1,4 +1,4 @@
-import { navigateApp } from './lumina-mock';
+import { DEFAULT_NAVIGATION, navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
 import { mockHome } from './home-mock';
 import { assertMediaPlaybackAdvances } from './release-evidence';
@@ -21,6 +21,7 @@ const fixtureItem = {
   id: 'library-1',
   user_id: user.id,
   visibility: 'private',
+  kind: 'video',
   remote_id: 'synthetic-1',
   source_url: 'https://example.test/watch/1',
   webpage_url: 'https://example.test/watch/1',
@@ -88,6 +89,7 @@ test('browser boots: local login, one synthetic playback, review surfaces render
       return json({ revision: musicSessionRevision, queue: [], current_index: null, position_seconds: 0,
         repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
     }
+    if (path === '/api/navigation') return json(DEFAULT_NAVIGATION);
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });
     if (path === '/api/library') return json({ items: [fixtureItem], next_cursor: null });
@@ -103,6 +105,7 @@ test('browser boots: local login, one synthetic playback, review surfaces render
     if (path === `/api/library/${fixtureItem.id}/media`) {
       return route.fulfill({ status: 200, contentType: SYNTHETIC_MEDIA_TYPE, body: Buffer.from(SYNTHETIC_MEDIA_BASE64, 'base64') });
     }
+    if (path === `/api/library/${fixtureItem.id}`) return json(fixtureItem);
     if (path === '/api/playback/continue') return json([]);
     if (path === '/api/settings/me') return json(settings);
     if (path === '/api/jobs') return json({ items: [], next_cursor: null });
@@ -132,8 +135,9 @@ test('browser boots: local login, one synthetic playback, review surfaces render
   await expect(authCard).toBeHidden();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 
-  // One synthetic playback through the real player: library item -> Watch. The new Home's Recently
-  // saved card names itself "{title}, {uploader}, {duration}" (StillCard) rather than "Play {title}".
+  // Start real playback from the saved-video library.
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('radio', { name: 'Library', exact: true }).check();
   await page.getByRole('button', { name: new RegExp(`^${fixtureItem.title}, `) }).click();
   const media = page.locator('video').first();
   await expect(assertMediaPlaybackAdvances(media, { timeoutMs: 15_000 })).resolves.toMatchObject({ readyState: expect.any(Number) });

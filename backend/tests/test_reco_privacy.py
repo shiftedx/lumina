@@ -57,6 +57,9 @@ class _Refresher:
     def __init__(self) -> None:
         self.warmed: list[str] = []
 
+    def warm_up_next(self, _member_id, _request):  # noqa: ANN001, ANN201
+        return False, None
+
     def warm_channel(self, channel_id: str) -> None:
         self.warmed.append(channel_id)
 

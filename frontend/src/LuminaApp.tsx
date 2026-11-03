@@ -375,18 +375,20 @@ export default function LuminaApp() {
         if (!heading) return false;
         heading.tabIndex = -1;
         heading.focus({ preventScroll: true });
-        return true;
+        return document.activeElement === heading;
       };
       if (focusHeading()) return;
       main.focus({ preventScroll: true });
-      // Lazy settings pages can briefly replace the masthead with the route skeleton.
+      // Lazy settings and loading galleries may delay the destination heading.
       // Finish the focus transfer when it resolves, unless the user has moved elsewhere.
-      if (!main.querySelector('.g-route-loading')) return;
+      if (!main.querySelector('.g-route-loading, .gallery[aria-busy=true]')) return;
       const observer = new MutationObserver(() => {
         if ((document.activeElement !== main && document.activeElement !== document.body) || focusHeading()) observer.disconnect();
       });
       pendingHeadingFocusRef.current = observer;
-      observer.observe(document.getElementById('g-header-search') ?? main, { childList: true, subtree: true });
+      observer.observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] });
+      const header = document.getElementById('g-header-search');
+      if (header && !main.contains(header)) observer.observe(header, { childList: true, subtree: true });
     });
   }, []);
 

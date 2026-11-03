@@ -19,6 +19,7 @@ import { takePlayIntent } from './perfMetrics';
 import { artistSummary, movieSummary, titleDetail, titlePage } from './test/galleryFixtures';
 import { docFixture } from './features/titles/editor/editorFixtures';
 import { forgetTitles } from './features/gallery/titleCache';
+import { forgetWallStores } from './features/gallery/wallPages';
 import { capabilities, CHANNEL_ID, channelPage, remoteEntry } from './test/remoteFixtures';
 import { recoEntry } from './test/recoFixtures';
 import { openAppPath } from './features/channels/channelMention';
@@ -64,6 +65,8 @@ const mocks = vi.hoisted(() => ({
   startLocalPlaybackSession: vi.fn(),
   stopLocalPlaybackSession: vi.fn(),
   listTitles: vi.fn(),
+  getServerNavigation: vi.fn(),
+  getHomeArrivals: vi.fn(),
   listLibrary: vi.fn(),
   getLibrarySections: vi.fn(),
   getHomeRecommendations: vi.fn(),
@@ -151,6 +154,8 @@ vi.mock('./api', async (importOriginal) => ({
   startLocalPlaybackSession: mocks.startLocalPlaybackSession,
   stopLocalPlaybackSession: mocks.stopLocalPlaybackSession,
   listTitles: mocks.listTitles,
+  getServerNavigation: mocks.getServerNavigation,
+  getHomeArrivals: mocks.getHomeArrivals,
   listLibrary: mocks.listLibrary,
   getLibrarySections: mocks.getLibrarySections,
   getHomeRecommendations: mocks.getHomeRecommendations,
@@ -176,6 +181,7 @@ const user: UserProfile = {
 const libraryItem: LibraryItem = {
   id: 'library-1',
   remote_id: 'remote-1',
+  kind: 'video',
   title: 'Film in the vault',
   uploader: 'Archive Channel',
   webpage_url: 'https://example.test/watch/film',
@@ -207,6 +213,7 @@ beforeEach(() => {
   mobile = false;
   drawerOnly = false;
   clearAlbumQueue();
+  forgetWallStores();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -221,6 +228,7 @@ beforeEach(() => {
     })),
   });
   Object.defineProperty(window, 'scrollTo', { configurable: true, value: vi.fn() });
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
   Object.defineProperty(window, 'requestAnimationFrame', {
     configurable: true,
     value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
@@ -273,7 +281,7 @@ beforeEach(() => {
     repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 };
   mocks.getMusicSharedSession.mockResolvedValue(musicSnapshot);
   mocks.putMusicSharedSession.mockImplementation(async (payload: { base_revision: number }) => ({ ...musicSnapshot, revision: payload.base_revision + 1 }));
-  mocks.getLibraryItem.mockImplementation(async (id: string) => ({ ...libraryItem, id }));
+  mocks.getLibraryItem.mockReset().mockImplementation(async (id: string) => ({ ...libraryItem, id }));
   mocks.getPlaybackProgress.mockResolvedValue(null);
   mocks.listUsers.mockResolvedValue([]);
   mocks.listLibraryTags.mockResolvedValue([]);
@@ -286,6 +294,8 @@ beforeEach(() => {
   mocks.stopLocalPlaybackSession.mockResolvedValue(undefined);
   // The Library's own requests (library gallery): an empty landing, the YouTube tab listing the workspace's items.
   window.localStorage.clear();
+  mocks.getServerNavigation.mockResolvedValue({ categories: ['movies', 'tv', 'anime', 'music', 'books', 'youtube', 'recordings', 'photos'], features: { streaming: true, requests: true } });
+  mocks.getHomeArrivals.mockResolvedValue([]);
   mocks.listTitles.mockResolvedValue(titlePage([]));
   mocks.listLibrary.mockImplementation(async () => ({ items: workspaceState.library, next_cursor: null }));
   mocks.getChannelPage.mockResolvedValue(channelPage());
@@ -310,6 +320,11 @@ async function openPalette(browser: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole('combobox', { name: 'Search Lumina' });
 }
 
+async function openLinkPalette(browser: ReturnType<typeof userEvent.setup>) {
+  await browser.click(await screen.findByRole('button', { name: 'Add a link' }));
+  return screen.findByRole('combobox', { name: 'Add a link' });
+}
+
 it('a failed search-history write never blocks the search or adds a recent item', async () => {
   const browser = userEvent.setup();
   mocks.recordSearchHistory.mockRejectedValue(new Error('history unavailable'));
@@ -319,8 +334,9 @@ it('a failed search-history write never blocks the search or adds a recent item'
   await browser.keyboard('{Meta>}{Enter}{/Meta}');
 
   expect(await screen.findByRole('heading', { name: 'Results for “film noir”' })).toBeTruthy();
-  expect(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /^Film in the vault/ })).toBeTruthy();
   await waitFor(() => expect(mocks.recordSearchHistory).toHaveBeenCalledWith('film noir'));
+  await navigateWithMenu(browser, 'Home');
   await openPalette(browser);
   expect(screen.queryByRole('group', { name: 'Recent searches' })).toBeNull();
 });
@@ -338,6 +354,7 @@ it('a late Explore response never replaces the newer query', async () => {
 
   await browser.type(await openPalette(browser), 'slow');
   await browser.keyboard('{Meta>}{Enter}{/Meta}');
+  await navigateWithMenu(browser, 'Home');
   await browser.type(await openPalette(browser), 'harbour');
   await browser.keyboard('{Meta>}{Enter}{/Meta}');
 
@@ -447,28 +464,30 @@ describe('browser routes', () => {
 
   it('reopens a Library watch deep link, and back/forward walk the route stack', async () => {
     const browser = userEvent.setup();
+    workspaceState.library = [];
     window.history.replaceState(null, '', '/watch/library/library-1');
     render(<LuminaApp />);
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
     expect(mocks.getLibraryItem).toHaveBeenCalledWith('library-1');
     expect(window.location.pathname).toBe('/watch/library/library-1');
 
-    await navigateWithMenu(browser, 'Video');
-    await screen.findByRole('heading', { level: 1, name: 'Video' });
-    expect(window.location.pathname).toBe('/video');
+    await navigateWithMenu(browser, 'Movies');
+    await screen.findByRole('heading', { level: 1, name: 'Movies' });
+    expect(window.location.pathname).toBe('/video/movies');
 
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
 
     window.history.forward();
-    await screen.findByRole('heading', { level: 1, name: 'Video' });
-    expect(window.location.pathname).toBe('/video');
+    await screen.findByRole('heading', { level: 1, name: 'Movies' });
+    expect(window.location.pathname).toBe('/video/movies');
   });
 
   it('asks for the resume point beside the item, not after it, and loads the item once', async () => {
     let resolveItem: ((item: LibraryItem) => void) | undefined;
     mocks.getLibraryItem.mockImplementationOnce(() => new Promise((resolve) => { resolveItem = resolve; }));
+    workspaceState.library = [];
     window.history.replaceState(null, '', '/watch/library/library-1');
     render(<LuminaApp />);
     await waitFor(() => expect(mocks.getLibraryItem).toHaveBeenCalledWith('library-1'));
@@ -518,8 +537,8 @@ describe('browser routes', () => {
     let position = 50;
     Object.defineProperty(player, 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
 
-    await navigateWithMenu(browser, 'Video');
-    await screen.findByRole('heading', { level: 1, name: 'Video' });
+    await navigateWithMenu(browser, 'Movies');
+    await screen.findByRole('heading', { level: 1, name: 'Movies' });
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
     await new Promise((resolve) => { setTimeout(resolve, 20); });
@@ -639,7 +658,8 @@ describe('browser routes', () => {
     mocks.listSimilarTitles.mockResolvedValue([]);
     window.history.replaceState(null, '', '/library/movies');
     render(<LuminaApp />);
-    const poster = await screen.findByRole('button', { name: /^Northern Lantern, 2019/ });
+    const spotlight = await screen.findByRole('region', { name: 'Northern Lantern' });
+    const poster = within(spotlight).getByRole('button', { name: 'Details' });
     const beforePage: boolean[] = [];
     mocks.markNavigation.mockClear();
     mocks.markNavigation.mockImplementation(() => { beforePage.push(document.querySelector('.g-route-loading, .t-page') === null); });
@@ -729,28 +749,23 @@ describe('browser routes', () => {
     confirm.mockRestore();
   });
 
-  it('asks once before a header search or a Library open leaves Settings with unsaved edits', async () => {
+  it('keeps contextual Settings search open and asks before leaving unsaved Settings', async () => {
     const browser = userEvent.setup();
     function DirtyAiForm() { useUnsavedChanges(true, 'AI & models'); return null; }
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    window.history.replaceState(null, '', '/settings/account');
-    render(<><LuminaApp /><DirtyAiForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    try {
+      window.history.replaceState(null, '', '/settings/account');
+      render(<><LuminaApp /><DirtyAiForm /></>);
+      await screen.findByRole('heading', { level: 1, name: 'My settings' });
 
-    const search = await openPalette(browser);
-    await browser.type(search, 'mars');
-    await browser.keyboard('{Meta>}{Enter}{/Meta}'); // search everything in Explore
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(mocks.youtubeSearch).not.toHaveBeenCalledWith(expect.objectContaining({ query: 'mars', limit: 30 }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+      await browser.click(screen.getByRole('button', { name: /^Search Lumina, / }));
+      expect(await screen.findByRole('searchbox', { name: 'Search settings' })).toBe(document.activeElement);
+      expect(confirm).not.toHaveBeenCalled();
 
-    mocks.searchLibrary.mockResolvedValue({ items: [libraryItem], matches: [{ kind: 'library', id: 'library-1', title: 'Film in the vault', subtitle: 'Archive Channel', score: 1, lexical_score: 1, semantic_score: 0, match_mode: 'lexical', item: libraryItem }] });
-    await browser.type(await openPalette(browser), 'vault');
-    await browser.click(await screen.findByRole('option', { name: /Film in the vault/ }));
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(mocks.getLibraryItem).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe('/settings/account');
-    confirm.mockRestore();
+      await navigateWithMenu(browser, 'Movies');
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(window.location.pathname).toBe('/settings/account');
+    } finally { confirm.mockRestore(); }
   });
 
   it('canonicalizes an unknown path to Home without adding a history entry', async () => {
@@ -769,7 +784,7 @@ describe('browser routes', () => {
     expect(window.location.pathname).toBe('/audio');
     expect(window.history.length).toBe(length);
     await openNavigationMenu();
-    expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Audio' }).getAttribute('aria-current')).toBe('page');
+    expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Music' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('resolves a timed music Library route back to Audio and starts at the explicit link time', async () => {
@@ -820,11 +835,11 @@ describe('browser routes', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/audio/title/artist-1'));
     expect(pushes).toEqual(['/video/title/artist-1']);
     act(() => { window.history.back(); });
-    await waitFor(() => expect(window.location.pathname).toBe('/video'));
+    await waitFor(() => expect(window.location.pathname).toBe('/video/movies'));
     spy.mockRestore();
   });
 
-  it('Back from a title opened on the All landing returns to All', async () => {
+  it('Back from a title opened through the legacy Library URL returns to Movies', async () => {
     const browser = userEvent.setup();
     mocks.getLibrarySections.mockResolvedValue({ movies: 1, shows: 0, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 0, recordings: 0, deleted: 0 });
     mocks.listTitles.mockResolvedValue(titlePage([movieSummary()]));
@@ -832,16 +847,12 @@ describe('browser routes', () => {
     mocks.listSimilarTitles.mockResolvedValue([]);
     window.history.replaceState(null, '', '/library');
     render(<LuminaApp />);
-    const chapter = await waitFor(() => {
-      const found = document.getElementById('g-chapter-movies');
-      if (!found) throw new Error('the Movies chapter is not rendered yet');
-      return found;
-    });
-    await browser.click(await within(chapter).findByRole('button', { name: /^Northern Lantern, 2019/ }));
+    const spotlight = await screen.findByRole('region', { name: 'Northern Lantern' });
+    await browser.click(within(spotlight).getByRole('button', { name: 'Details' }));
     await screen.findByRole('heading', { level: 1, name: 'Northern Lantern' });
     await browser.click(document.querySelector('.t-back') as HTMLElement);
-    await waitFor(() => expect(window.location.pathname).toBe('/video'));
-    await screen.findByRole('heading', { level: 1, name: 'Video' });
+    await waitFor(() => expect(window.location.pathname).toBe('/video/movies'));
+    await screen.findByRole('heading', { level: 1, name: 'Movies' });
   });
 
   it('sign-out forgets the member\'s stored Library tabs', async () => {
@@ -861,15 +872,16 @@ describe('keyboard navigation in the authenticated shell', () => {
     const keyboard = userEvent.setup();
     const { container } = render(<LuminaApp />);
     const trigger = screen.getByRole('button', { name: 'Open navigation' });
-    await keyboard.click(trigger);
+    trigger.focus();
+    await keyboard.keyboard('{Enter}');
     const dialog = screen.getByRole('dialog', { name: 'Navigation' });
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     await keyboard.click(trigger);
-    await keyboard.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Video' }));
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Video' });
+    await keyboard.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Movies' }));
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Movies' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     expect(container.querySelector('.g-mobile-tabs button:nth-child(2)')?.getAttribute('aria-current')).toBe('page');
@@ -906,8 +918,8 @@ describe('household and Library curation integration', () => {
   const openNotes = async (browser: ReturnType<typeof userEvent.setup>) => browser.click(await screen.findByRole('tab', { name: 'Sharing & tags' }));
   // Library items open from their own tab now that All is the chaptered landing.
   const openYouTube = async (browser: ReturnType<typeof userEvent.setup>) => {
-    await navigateWithMenu(browser, 'Video');
-    await browser.click(await within(screen.getByRole('navigation', { name: 'Library' })).findByRole('link', { name: 'YouTube' }));
+    act(() => { openAppPath('/video/youtube'); });
+    await screen.findByRole('heading', { level: 1, name: 'YouTube' });
   };
 
   it('loads and mutates owner-only item policy and private tags', async () => {
@@ -940,7 +952,7 @@ describe('household and Library curation integration', () => {
     const itemA = { ...libraryItem, id: 'item-a', title: 'Item A', user_id: user.id, visibility: 'private' as const };
     const itemB = { ...libraryItem, id: 'item-b', title: 'Item B', user_id: user.id, visibility: 'private' as const };
     workspaceState.library = [itemA, itemB];
-    mocks.getLibraryItem.mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
+    mocks.getLibraryItem.mockReset().mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
     mocks.listLibraryTags.mockImplementation(async (id: string) => [{ id: `tag-${id}`, item_id: id, user_id: user.id, tag: id === itemA.id ? 'alpha' : 'bravo' }]);
     let finishA: ((item: LibraryItem) => void) | undefined;
     let finishB: ((tag: UserTag) => void) | undefined;
@@ -978,7 +990,7 @@ describe('household and Library curation integration', () => {
     const itemA = { ...libraryItem, id: 'deferred-a', title: 'Deferred A', user_id: user.id, visibility: 'private' as const };
     const itemB = { ...libraryItem, id: 'deferred-b', title: 'Deferred B', user_id: user.id, visibility: 'private' as const };
     workspaceState.library = [itemA, itemB];
-    mocks.getLibraryItem.mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
+    mocks.getLibraryItem.mockReset().mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
     let finishBTags: ((tags: UserTag[]) => void) | undefined;
     mocks.listLibraryTags.mockImplementation((id: string) => id === itemA.id
       ? Promise.resolve([{ id: 'private-a-tag', item_id: itemA.id, user_id: user.id, tag: 'private-alpha' }])
@@ -1006,7 +1018,7 @@ describe('household and Library curation integration', () => {
     const itemA = { ...libraryItem, id: 'failed-a', title: 'Failed A', user_id: user.id, visibility: 'private' as const };
     const itemB = { ...libraryItem, id: 'failed-b', title: 'Failed B', user_id: user.id, visibility: 'private' as const };
     workspaceState.library = [itemA, itemB];
-    mocks.getLibraryItem.mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
+    mocks.getLibraryItem.mockReset().mockImplementation(async (id: string) => id === itemA.id ? itemA : itemB);
     mocks.listLibraryTags.mockImplementation((id: string) => id === itemA.id
       ? Promise.resolve([{ id: 'failed-private-tag', item_id: itemA.id, user_id: user.id, tag: 'secret-alpha' }])
       : Promise.reject(new Error('Item B notes are unavailable.')));
@@ -1144,7 +1156,7 @@ describe('Media acquisition shell integration', () => {
     mocks.getPlaybackProgress.mockImplementationOnce(() => new Promise((resolve) => { resolveProgress = resolve; }));
 
     render(<LuminaApp />);
-    await browser.click(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' }));
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault/ }));
     await vi.waitFor(() => expect(resolveItem).toBeTypeOf('function'));
     expect(document.querySelector('video')).toBeNull();
 
@@ -1165,7 +1177,7 @@ describe('Media acquisition shell integration', () => {
     mocks.getPlaybackProgress.mockRejectedValueOnce(new TypeError('history offline'));
 
     render(<LuminaApp />);
-    await browser.click(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' }));
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault/ }));
 
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
     expect(await screen.findByText('Playback history is unavailable. Starting from the beginning.')).not.toBeNull();
@@ -1218,18 +1230,18 @@ describe('Media acquisition shell integration', () => {
     await screen.findByRole('heading', { level: 1, name: 'Watch B' });
     await waitFor(() => expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
       source_url: b.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b'],
-    })));
+    }), { signal: expect.any(AbortSignal) }));
     await screen.findByRole('button', { name: /^Watch C/ });
     fireEvent.ended(document.querySelector('video')!);
     await screen.findByRole('heading', { level: 1, name: 'Watch C' });
     expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
       source_url: c.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b', 'youtube:chain-c'],
-    }));
+    }), { signal: expect.any(AbortSignal) });
     await browser.type(await openPalette(browser), `${a.webpage_url}{Enter}`);
     await screen.findByRole('heading', { level: 1, name: 'Watch A' });
     await waitFor(() => expect(mocks.getUpNext).toHaveBeenLastCalledWith(expect.objectContaining({
       source_url: a.webpage_url, excluded_sources: [],
-    })));
+    }), { signal: expect.any(AbortSignal) }));
   });
 
   it('preserves the recent chain when autoplay opens a saved YouTube copy', async () => {
@@ -1253,7 +1265,7 @@ describe('Media acquisition shell integration', () => {
     fireEvent.ended(document.querySelector('video')!);
     await waitFor(() => expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
       source_url: saved.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b'],
-    })));
+    }), { signal: expect.any(AbortSignal) }));
   });
 
   it.each([
@@ -1275,9 +1287,11 @@ describe('Media acquisition shell integration', () => {
     await browser.click(await screen.findByRole('button', { name: /^Saved follow-up/ }));
 
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
-    expect(mocks.getLibraryItem).toHaveBeenCalledWith('saved-follow-up');
+    if (annotated) expect(mocks.getLibraryItem).toHaveBeenCalledWith('saved-follow-up');
+    else expect(mocks.getLibraryItem).not.toHaveBeenCalled();
+    await waitFor(() => expect(window.location.pathname).toBe('/watch/library/saved-follow-up'));
     expect(mocks.previewUrl).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.g-watch-kicker')?.textContent).toBe('YouTube · In your library');
+    await waitFor(() => expect(document.querySelector('.g-watch-kicker')?.textContent).toBe('YouTube · In your library'));
   });
 
   it('drives format choices from inspection through queue submission', async () => {
@@ -1305,7 +1319,7 @@ describe('Media acquisition shell integration', () => {
     if (!(subtitles as HTMLInputElement).checked) await browser.click(subtitles);
     await browser.type(screen.getByRole('textbox', { name: 'Folder inside the Library' }), 'family/protected');
 
-    await browser.type(await openPalette(browser), 'https://example.test/video-acquisition{Enter}');
+    await browser.type(await openLinkPalette(browser), 'https://example.test/video-acquisition{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Inspected acquisition' })).not.toBeNull();
 
     await browser.click(screen.getByRole('button', { name: 'Save to library' }));
@@ -1335,13 +1349,13 @@ describe('Media acquisition shell integration', () => {
     mocks.createJob.mockImplementationOnce(() => new Promise((resolve) => { finishQueue = resolve; }));
 
     render(<LuminaApp />);
-    await browser.type(await openPalette(browser), `${sourceUrl}{Enter}`);
+    await browser.type(await openLinkPalette(browser), `${sourceUrl}{Enter}`);
     await screen.findByRole('heading', { level: 1, name: 'Navigation film' });
     await browser.click(screen.getByRole('button', { name: 'Save to library' }));
     await vi.waitFor(() => expect(finishQueue).toBeTypeOf('function'));
 
     await navigateWithMenu(browser, 'Streaming');
-    await browser.type(await openPalette(browser), `${sourceUrl}{Enter}`);
+    await browser.type(await openLinkPalette(browser), `${sourceUrl}{Enter}`);
     await screen.findByRole('heading', { level: 1, name: 'Navigation film' });
 
     const duplicate = screen.getByRole('button', { name: 'Save to library' });
@@ -1918,7 +1932,7 @@ describe('recommendation wiring', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     window.history.replaceState(null, '', '/settings/account');
     render(<><LuminaApp /><DirtyForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    await screen.findByRole('heading', { level: 1, name: 'My settings' });
     await waitFor(() => expect(mocks.getDeviceMembers).toHaveBeenCalled());
     const workspace = mocks.useAuthenticatedWorkspace.mock.results[0].value;
     act(() => openMemberPicker());
@@ -1926,7 +1940,7 @@ describe('recommendation wiring', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(mocks.switchMember).not.toHaveBeenCalled();
     expect(workspace.holdEvents).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'My settings' })).toBeTruthy();
     confirm.mockRestore();
   });
 

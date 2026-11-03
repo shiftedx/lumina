@@ -10,7 +10,7 @@ from app.services.navigation import navigation
 
 def get_navigation(response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
     response.headers["Cache-Control"] = "no-store"
-    return navigation(db, user)
+    return navigation(db, user, photo_import=True)
 
 
 def register(app: FastAPI) -> None:

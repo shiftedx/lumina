@@ -159,10 +159,12 @@ describe('Watch for a title', () => {
     api.stopLocalPlaybackSession.mockResolvedValue(undefined);
     render(watchSurface({ selection: { kind: 'library', item } }));
     await userEvent.click(await screen.findByRole('button', { name: 'Playback settings' }));
-    await userEvent.click(await screen.findByRole('radio', { name: /burned in/ }));
+    fireEvent.click((await screen.findByText('Subtitles', { selector: 'summary span' })).closest('summary')!);
+    await userEvent.click(await screen.findByRole('radio', { name: /burned in/i }));
     await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalledWith('i-e1', 0, { subtitle: 'i:3' }));
     Object.defineProperty(document.querySelector('video') as HTMLVideoElement, 'currentTime', { configurable: true, value: 312.4, writable: true });
-    await userEvent.click(await screen.findByRole('radio', { name: '480p' }));
+    fireEvent.click((await screen.findByText('Version', { selector: 'summary span' })).closest('summary')!);
+    await userEvent.click(await screen.findByRole('radio', { name: /480p/ }));
     // The player probes the chosen version and restarts its session where the member was.
     await waitFor(() => expect(api.getLocalPlaybackOptions).toHaveBeenLastCalledWith('i-e1-sd'));
     // The old file's burned-in stream does not carry over; the new version's own tracks load.
@@ -412,7 +414,8 @@ describe('Watch audio', () => {
     render(watchSurface({ selection: { kind: 'library', item }, playbackPrefs: on }));
     await waitFor(() => expect(api.getMuteRanges).toHaveBeenCalledWith('i-e1'));
     await userEvent.click(await screen.findByRole('button', { name: 'Playback settings' }));
-    await userEvent.click(await screen.findByRole('radio', { name: '480p' }));
+    fireEvent.click((await screen.findByText('Version', { selector: 'summary span' })).closest('summary')!);
+    await userEvent.click(await screen.findByRole('radio', { name: /480p/ }));
     // Mute ranges belong to the file actually playing, not the item that was opened.
     await waitFor(() => expect(api.getMuteRanges).toHaveBeenLastCalledWith('i-e1-sd'));
     await waitFor(() => expect(document.querySelector('video')?.getAttribute('src')).toBe('/api/library/i-e1-sd/media'));

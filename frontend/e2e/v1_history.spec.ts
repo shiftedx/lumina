@@ -25,6 +25,7 @@ async function search(page: Page, query: string) {
 }
 
 async function reopenSearchEmpty(page: Page) {
+  if (new URL(page.url()).pathname !== '/') await navigateApp(page, 'Home');
   await openPalette(page);
 }
 

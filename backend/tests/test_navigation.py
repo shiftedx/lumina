@@ -12,7 +12,7 @@ def test_navigation_reflects_sources_features_and_member_access(walls):  # noqa:
     assert first.status_code == 200
     assert first.headers["cache-control"] == "no-store"
     assert first.json() == {
-        "categories": ["movies", "tv", "anime", "music", "youtube"],
+        "categories": ["movies", "tv", "anime", "music", "youtube", "photos"],
         "features": {"streaming": True, "requests": False},
     }
     with walls.db() as db:
@@ -38,7 +38,7 @@ def test_navigation_reflects_sources_features_and_member_access(walls):  # noqa:
         db.get(BookItem, "book").available = False
         db.get(PhotoItem, "photo").missing_at = db.get(PhotoItem, "photo").created_at
         db.commit()
-    assert walls.get("/api/navigation").json() == {"categories": [], "features": {"streaming": True, "requests": True}}
+    assert walls.get("/api/navigation").json() == {"categories": ["photos"], "features": {"streaming": True, "requests": True}}
 
 
 def test_navigation_requires_authentication(api_client):  # noqa: ANN001

@@ -1,4 +1,4 @@
-"""Current member-visible, populated destinations shared by browser and native apps."""
+"""Current member-visible destinations shared by browser and native apps."""
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, aliased
 
@@ -9,7 +9,7 @@ from app.photo_root_models import PhotoImportSource
 from app.services import member_access, two_factor
 from app.services.books import BookService
 from app.services.library import LibraryService
-from app.services.photos import PhotoService
+from app.services.photos import PhotoService, photos_section_allowed
 from app.services.requests.engine import policy_for
 
 
@@ -24,7 +24,7 @@ def _usable_item():  # noqa: ANN202
     return and_(LibraryItem.status != "missing", or_(~links.exists(), active.exists()))
 
 
-def navigation(db: Session, user: User) -> dict:
+def navigation(db: Session, user: User, *, photo_import: bool = False) -> dict:
     # Follow indexed title-parent and item-title links from each wall title. A single
     # OR across all three levels prevents SQLite from using those indexes and scans
     # the whole catalog once per title on large libraries.
@@ -58,7 +58,8 @@ def navigation(db: Session, user: User) -> dict:
     external_photo = select(PhotoImportSource.id).join(StorageRoot, StorageRoot.id == PhotoImportSource.root_id).where(
         PhotoImportSource.id == PhotoItem.source_id, PhotoImportSource.enabled.is_(True), StorageRoot.enabled.is_(True),
     ).exists()
-    if db.scalar(select(PhotoItem.id).where(
+    # The browser imports its first photo from this destination.
+    if (photo_import and photos_section_allowed(db, user)) or db.scalar(select(PhotoItem.id).where(
         PhotoService(db).visible_predicate(user), PhotoItem.deleted_at.is_(None), PhotoItem.missing_at.is_(None),
         or_(PhotoItem.storage_kind == "managed", external_photo),
     ).limit(1)):

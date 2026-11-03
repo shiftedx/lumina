@@ -59,7 +59,7 @@ test('first render CLS ≤ 0.02 on /library with only saved videos (no spotlight
 test('opening the palette, a dialog, a menu, a toast, the reco menu and the mini player shifts nothing', async ({ page }) => {
   // [name, where to stand, what to open]: navigation resets the observer, so each overlay is measured after it has arrived.
   const opens: Array<[string, string, () => Promise<void>]> = [
-    ['palette', '/settings/members', async () => { await page.keyboard.press('ControlOrMeta+k'); await expect(page.locator('dialog.g-palette').getByRole('combobox')).toBeFocused(); await page.keyboard.press('Escape'); }],
+    ['palette', '/', async () => { await page.keyboard.press('ControlOrMeta+k'); await expect(page.locator('dialog.g-palette').getByRole('combobox')).toBeFocused(); await page.keyboard.press('Escape'); }],
     ['menu', '/settings/members', async () => { await page.getByRole('button', { name: /, account menu$/ }).click(); await page.keyboard.press('Escape'); }],
     ['dialog', '/manage/members?page=invitations', async () => { await page.getByRole('button', { name: 'Invite someone' }).click(); await page.keyboard.press('Escape'); }],
     ['toast', '/settings/playback', async () => { const toggle = page.getByRole('switch').first(); const checked = await toggle.isChecked(); await toggle.press('Space'); await expect(toggle).toBeChecked({ checked: !checked }); await page.waitForTimeout(300); }],

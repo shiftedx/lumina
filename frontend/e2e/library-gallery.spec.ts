@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { type LibraryItemsMock, mockLibraryItems, mockTitleDetails } from './library-mock';
-import { mockApi, signIn } from './lumina-mock';
+import { navigateApp, mockApi, signIn } from './lumina-mock';
 import { librarySections } from '../src/test/galleryFixtures';
 import { chooseSelect } from './select-helper';
 
@@ -26,8 +26,7 @@ async function openLibrary(page: Page, path = '/library', viewport: Viewport = D
   await expect(page.locator('.surface.gallery h1').first()).toBeVisible();
   return { titles, sections, library };
 }
-const tabs = (page: Page) => page.getByRole('navigation', { name: 'Library' });
-const focusedIn = (page: Page, selector: string) => page.evaluate((within) => Boolean(document.activeElement?.closest(within)), selector);
+const tabs = (page: Page) => page.getByRole('navigation', { name: 'Library tools' });
 
 for (const viewport of [DESKTOP, PHONE]) {
   test(`Library Refresh is visible and starts a rescan at ${viewport.width}px`, async ({ page }) => {
@@ -50,8 +49,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     const tabsBox = (await tabs(page).boundingBox())!;
     expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(viewport.width);
     expect(buttonBox.height).toBeGreaterThanOrEqual(44);
-    if (viewport === DESKTOP) expect(buttonBox.x).toBeGreaterThanOrEqual(tabsBox.x + tabsBox.width);
-    else expect(buttonBox.y).toBeGreaterThanOrEqual(tabsBox.y + tabsBox.height);
+    expect(buttonBox.x).toBeGreaterThanOrEqual(tabsBox.x + tabsBox.width);
     const before = titles.length;
     const countsBefore = sections.length;
     await refresh.click();
@@ -69,83 +67,48 @@ for (const viewport of [DESKTOP, PHONE]) {
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const viewport of [DESKTOP, PHONE, TEN_FOOT]) {
-    test(`All landing in ${scheme} at ${viewport.width}px: masthead, spotlight, chapters, four requests, no sideways scroll`, async ({ page }) => {
+    test(`Legacy Library opens Movies in ${scheme} at ${viewport.width}px without sideways scroll`, async ({ page }) => {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
-      const aborted: string[] = []; // React StrictMode (dev server) mounts twice and aborts the first round: not requests the landing made
-      page.on('requestfailed', (request) => aborted.push(request.url()));
-      const { titles, sections, library } = await openLibrary(page, '/library', viewport, scheme);
-      await expect(page.locator('.g-all .g-kicker')).toHaveText('1,735 movies · 812 shows · 29 anime · 318 videos · 12 recordings');
-      await expect(page.locator('.g-spotlight .g-feature')).toHaveCount(3);
-      for (const name of ['Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Collections']) await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeAttached();
-      await expect(page.locator('#g-chapter-movies .g-poster').first()).toBeVisible();
-      await expect(page.locator('#g-chapter-shows .g-poster').first()).toBeVisible();
-      await expect(page.locator('#g-chapter-movies .g-chapter-row')).toHaveCount(2);
-      if (viewport === PHONE) {
-        await expect(page.locator('#g-chapter-movies .g-chapter-row').first().locator('.g-poster')).toHaveCount(3);
-        await expect(page.locator('#g-chapter-movies .g-caption')).toHaveCount(0);
-      }
-      if (viewport === TEN_FOOT) await expect(page.locator('.g-all')).toHaveCSS('padding-left', '72px');
-      await page.waitForTimeout(500); // anything else the landing would ask for before a scroll
-      const landing = [...titles.filter((url) => url.pathname === '/api/titles'), ...sections, ...library.requests.filter((url) => url.searchParams.has('kind'))]
-        .filter((url) => { const index = aborted.indexOf(url.href); if (index >= 0) aborted.splice(index, 1); return index < 0; });
-      // On a phone the third chapter already sits within the one-viewport margin, so it loads too.
-      expect(landing.map((url) => `${url.pathname}${url.search}`), 'sections, spotlight and two chapter slices (criterion 2)').toHaveLength(viewport === PHONE ? 5 : 4);
+      const { titles } = await openLibrary(page, '/library', viewport, scheme);
+      await expect(page).toHaveURL(/\/video\/movies$/);
+      await expect(page.getByRole('heading', { name: 'Movies', level: 1 })).toBeVisible();
+      await expect(page.locator('.g-browse-hero')).toBeVisible();
+      await expect(tabs(page).getByRole('link')).toHaveText(['Collections', 'Deleted']);
+      const catalog = titles.filter((url) => url.pathname === '/api/titles' && url.searchParams.has('category'));
+      expect(catalog.length).toBeGreaterThan(0);
+      expect(catalog.every((url) => url.searchParams.get('category') === 'movies')).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
-      await page.screenshot({ path: `../output/playwright/library/all-${scheme}-${viewport.width}.png` });
-      const left = page.getByRole('button', { name: 'Scroll Library tabs left' });
-      const right = page.getByRole('button', { name: 'Scroll Library tabs right' });
-      if (viewport === PHONE) {
-        await expect(left).toBeDisabled();
-        await expect(right).toBeEnabled();
-      } else {
-        await expect(left).toHaveCount(0);
-        await expect(right).toHaveCount(0);
-      }
       expect(errors).toEqual([]);
     });
   }
 }
 
-test('lazy chapters load as they near the viewport; with reduced motion nothing animates', async ({ page }) => {
+test('saved videos are fetched when their library opens and reduced motion disables artwork transitions', async ({ page }) => {
   const { library } = await openLibrary(page);
   expect(library.requests.filter((url) => url.searchParams.get('kind') === 'video')).toHaveLength(0);
-  await page.locator('#g-chapter-youtube').scrollIntoViewIfNeeded();
-  await expect(page.locator('#g-chapter-youtube').getByRole('button', { name: /^Video 0, / })).toBeVisible();
-  await expect(page.locator('#g-chapter-youtube .g-still-caption').first()).toContainText('Video 0');
-  await expect(page.locator('.g-spotlight .g-art-image').first()).toHaveCSS('transition-duration', '0s');
+  await page.goto('/video/youtube');
+  await expect(page.getByRole('button', { name: /^Video 0, / })).toBeVisible();
+  await expect(page.locator('.g-still-card .g-art-image').first()).toHaveCSS('transition-duration', '0s');
 });
 
-test('tabs, See all, the /music address and Back to the All landing where it was left', async ({ page }) => {
+test('Library navigation and browser Back preserve the previous category', async ({ page }) => {
   await openLibrary(page);
   await mockTitleDetails(page);
-  await expect(tabs(page).getByRole('link')).toHaveText(['All', 'Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Collections', 'Deleted']);
-  await expect(tabs(page).getByRole('link', { name: 'All' })).toHaveAttribute('aria-current', 'page');
-  await tabs(page).getByRole('link', { name: 'Shows' }).click();
+  await navigateApp(page, 'Shows');
   await expect(page).toHaveURL(/\/video\/shows$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Shows' })).toBeVisible();
-  await page.goBack();
-  await expect(page).toHaveURL(/\/video$/);
-  await page.getByRole('link', { name: 'See all movies' }).click();
-  await expect(page).toHaveURL(/\/video\/movies$/);
-  await page.goBack();
-  await page.locator('#g-chapter-anime').scrollIntoViewIfNeeded();
-  const poster = page.locator('#g-chapter-anime .g-poster').first();
-  await expect(poster).toBeVisible();
-  await poster.focus();
-  const scrolled = await page.evaluate(() => window.scrollY);
-  expect(scrolled).toBeGreaterThan(300);
-  await page.keyboard.press('Enter');
+  const spotlight = page.locator('.g-browse-hero');
+  await expect(spotlight).toBeVisible();
+  await spotlight.getByRole('button', { name: 'Details' }).press('Enter');
   await expect(page).toHaveURL(/\/video\/title\//);
-  await expect(page.getByRole('button', { name: 'Back to Library' })).toBeVisible(); // Back names where it goes (G9)
   await page.goBack();
-  await expect(page).toHaveURL(/\/video$/);
-  await expect(poster).toBeFocused();
-  expect(Math.abs(await page.evaluate(() => window.scrollY) - scrolled)).toBeLessThanOrEqual(2);
+  await expect(page).toHaveURL(/\/video\/shows$/);
+  await expect(spotlight.getByRole('button', { name: 'Details' })).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await page.goto('/music');
   await expect(page).toHaveURL(/\/audio$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Music' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Audio' }).getByRole('link', { name: 'Music', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('YouTube: sort and source live in the address, pages load ahead, and a delete undoes', async ({ page }) => {
@@ -177,86 +140,61 @@ test('YouTube: sort and source live in the address, pages load ahead, and a dele
   expect(library.calls).toEqual(['delete-file:video-0000', 'restore-file:video-0000']);
 });
 
-test('Enter on a tab or See all keeps keyboard focus on the new active tab', async ({ page }) => {
+async function openNavigation(page: Page) {
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const menu = page.getByRole('dialog', { name: 'Navigation' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+test('Enter on a Library destination focuses the new category', async ({ page }) => {
   await openLibrary(page);
-  await tabs(page).getByRole('link', { name: 'Shows' }).focus();
-  await page.keyboard.press('Enter');
+  const menu = await openNavigation(page);
+  await menu.getByRole('button', { name: 'Shows', exact: true }).press('Enter');
   await expect(page).toHaveURL(/\/video\/shows$/);
-  await expect(tabs(page).getByRole('link', { name: 'Shows' })).toBeFocused();
-  await page.keyboard.press('ArrowRight');
-  await expect(tabs(page).getByRole('link', { name: 'Anime' })).toBeFocused();
-  await page.goto('/library');
-  await page.getByRole('link', { name: 'See all movies' }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/video\/movies$/);
-  await expect(tabs(page).getByRole('link', { name: 'Movies' })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Shows', level: 1 })).toBeFocused();
+  await expect((await openNavigation(page)).getByRole('button', { name: 'Shows', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
-test('phone: the active tab starts in view without scrolling the page', async ({ page }) => {
+test('phone: the active Library destination is visible without scrolling the page', async ({ page }) => {
   await openLibrary(page, '/library/recordings', PHONE);
-  const tab = tabs(page).getByRole('link', { name: 'Recordings' });
-  await expect.poll(async () => { const box = (await tab.boundingBox())!; return box.x >= 0 && box.x + box.width <= PHONE.width; }).toBe(true);
+  const menu = await openNavigation(page);
+  const active = menu.getByRole('button', { name: 'Recordings', exact: true });
+  await expect(active).toHaveAttribute('aria-current', 'page');
+  await expect(active).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test('the active Library tab stays visible when desktop shrinks to phone without moving the page', async ({ page }) => {
+test('the active Library destination remains visible when desktop shrinks to phone', async ({ page }) => {
   await openLibrary(page, '/library/recordings', DESKTOP);
-  await page.evaluate(() => {
-    document.documentElement.style.overflowAnchor = 'none';
-    document.body.style.overflowAnchor = 'none';
-    window.scrollTo(0, 400);
-  });
+  const menu = await openNavigation(page);
+  const active = menu.getByRole('button', { name: 'Recordings', exact: true });
+  await expect(active).toHaveAttribute('aria-current', 'page');
   await page.setViewportSize(PHONE);
-  const pageTop = await page.evaluate(() => window.scrollY);
-  const row = tabs(page);
-  const active = row.getByRole('link', { name: 'Recordings' });
-  await expect.poll(async () => {
-    const [rowBox, activeBox] = await Promise.all([row.boundingBox(), active.boundingBox()]);
-    return activeBox!.x >= rowBox!.x && activeBox!.x + activeBox!.width <= rowBox!.x + rowBox!.width;
-  }).toBe(true);
-  expect(await page.evaluate(() => window.scrollY)).toBe(pageTop);
+  await expect(active).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test('server tabs inserted before a cached active Library tab reveal it again', async ({ page }) => {
+test('server navigation remains authoritative over cached section counts', async ({ page }) => {
   const cached = librarySections({ movies: 0, shows: 0, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 0, recordings: 12 });
   await page.addInitScript((sections) => localStorage.setItem('lumina.sections.member-1', JSON.stringify(sections)), cached);
-  await page.setViewportSize(PHONE);
-  await mockApi(page, { sidebar_collapsed: true });
-  await mockGalleryWall(page);
-  await mockLibraryItems(page);
-  await page.route((url) => url.pathname === '/api/library/sections', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(librarySections()) });
-  });
-  await page.goto('/library/recordings');
-  await signIn(page);
-  const row = tabs(page);
-  const active = row.getByRole('link', { name: 'Recordings' });
-  await expect(active).toBeVisible();
-  await expect(row.getByRole('link', { name: 'Movies' })).toBeVisible();
-  await expect.poll(async () => {
-    const [rowBox, activeBox] = await Promise.all([row.boundingBox(), active.boundingBox()]);
-    return activeBox!.x >= rowBox!.x && activeBox!.x + activeBox!.width <= rowBox!.x + rowBox!.width;
-  }).toBe(true);
+  await openLibrary(page, '/library/recordings', PHONE);
+  const menu = await openNavigation(page);
+  await expect(menu.getByRole('button', { name: 'Recordings', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button', { name: 'Movies', exact: true })).toBeVisible();
 });
 
-test('phone: Library tab overflow controls expose both ends without clipping labels', async ({ page }) => {
+test('phone: the Library menu scrolls through its full set of destinations', async ({ page }) => {
   await openLibrary(page, '/library', PHONE);
-  const row = tabs(page);
-  const left = page.getByRole('button', { name: 'Scroll Library tabs left' });
-  const right = page.getByRole('button', { name: 'Scroll Library tabs right' });
-  await expect(left).toBeDisabled();
-  await expect(right).toBeEnabled();
-  expect((await left.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  expect((await right.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await right.click();
-  await expect.poll(() => row.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
-  await expect(left).toBeEnabled();
-  await row.evaluate((element) => { element.scrollLeft = element.scrollWidth; element.dispatchEvent(new Event('scroll')); });
-  await expect(right).toBeDisabled();
-  await expect(left).toBeEnabled();
-  await left.click();
-  await expect.poll(() => row.evaluate((element) => element.scrollLeft)).toBeLessThan(await row.evaluate((element) => element.scrollWidth - element.clientWidth));
+  const menu = await openNavigation(page);
+  const movies = menu.getByRole('button', { name: 'Movies', exact: true });
+  const downloads = menu.getByRole('button', { name: 'Downloads', exact: true });
+  await expect(movies).toBeInViewport({ ratio: 1 });
+  await downloads.scrollIntoViewIfNeeded();
+  await expect(downloads).toBeInViewport({ ratio: 1 });
+  expect((await downloads.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await movies.scrollIntoViewIfNeeded();
+  await expect(movies).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
 });
 
@@ -269,44 +207,24 @@ test('arrow keys walk the YouTube wall', async ({ page }) => {
   expect(await page.evaluate(() => document.activeElement?.closest('.g-still-wall') !== null && document.activeElement?.getAttribute('aria-label')?.startsWith('Video '))).toBe(true);
 });
 
-test('keyboard and D-pad walk through All', async ({ page }) => {
+test('keyboard and D-pad walk the Library destinations', async ({ page }) => {
   await openLibrary(page);
-  await expect(page.locator('#g-chapter-movies .g-poster').first()).toBeVisible();
-  const all = tabs(page).getByRole('link', { name: 'All' });
-  await all.focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(tabs(page).getByRole('link', { name: 'Movies' })).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await expect(all).toBeFocused();
+  const trigger = page.getByRole('button', { name: 'Open navigation' });
+  await trigger.press('Enter');
+  const menu = page.getByRole('dialog', { name: 'Navigation' });
+  await expect(menu.getByRole('button', { name: 'Home', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
+  await expect(menu.getByRole('button', { name: 'Movies', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  const tiles = page.locator('.g-spotlight .g-feature');
-  await expect(tiles.nth(1)).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await expect(tiles.nth(0)).toBeFocused();
-  await page.keyboard.press('ArrowRight');
-  await expect(tiles.nth(1)).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await expect(tiles.nth(2)).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('link', { name: 'See all movies' })).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  expect(await focusedIn(page, '#g-chapter-movies .g-chapter-row')).toBe(true);
-  await page.keyboard.press('Home');
-  await expect(page.locator('#g-chapter-movies .g-chapter-row').first().locator('.g-poster').first()).toBeFocused();
-  await page.keyboard.press('End');
-  const last = page.locator('#g-chapter-movies .g-chapter-row').first().locator('.g-poster').last();
-  await expect(last).toBeFocused();
-  await page.keyboard.press('ArrowRight');
-  await expect(last).toBeFocused();
-  await page.keyboard.press('Control+Home');
-  await expect(all).toBeFocused();
+  await expect(menu.getByRole('button', { name: 'Shows', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/video\/shows$/);
+  await expect(page.getByRole('heading', { name: 'Shows', level: 1 })).toBeFocused();
 });
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const viewport of [DESKTOP, PHONE]) {
-    test(`axe: All, YouTube, Recordings and Deleted in ${scheme} at ${viewport.width}px`, async ({ page }) => {
+    test(`axe: Movies, YouTube, Recordings and Deleted in ${scheme} at ${viewport.width}px`, async ({ page }) => {
       await openLibrary(page, '/library', viewport, scheme, { deleted: 3 });
       const found: string[] = [];
       for (const path of ['/library', '/library/youtube', '/library/recordings', '/library/deleted']) {
@@ -327,7 +245,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('Anime: a filtered wall survives a title and Back', async ({ page }) => {
   await openLibrary(page);
-  await tabs(page).getByRole('link', { name: 'Anime' }).click();
+  await navigateApp(page, 'Anime');
   await expect(page.getByRole('heading', { level: 1, name: 'Anime' })).toBeVisible();
   await expect(page.locator('.g-kicker')).toHaveText('24 titles · Sorted by recently added');
   await page.getByRole('button', { name: 'Filters' }).click();
@@ -366,7 +284,7 @@ test('Music: See all, the Artists view kept across a page, and an album opened o
 
 test('Music: saved audio in its own view, square', async ({ page }) => {
   await openLibrary(page, '/library/music');
-  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Saved audio' }).click();
+  await page.getByRole('button', { name: 'Saved audio', exact: true }).click();
   await expect(page).toHaveURL(/\/audio\?view=saved/);
   await expect(page.getByRole('button', { name: /^Track 0, / }).first()).toBeVisible();
   await expect(page.locator('.g-still-card.is-square .g-art-square').first()).toBeVisible();

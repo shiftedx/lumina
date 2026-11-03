@@ -134,9 +134,9 @@ export function ChromecastPanel({ itemId, audioIndex, subtitle, getMedia, onProg
   return <div className="player-cast-panel playback-menu-actions">
     {error ? <p className="g-warning" role="alert">{error}</p> : null}
     {!status ? <Button icon={<LuminaSpriteIcon name="cast" />} busy={busy} disabled={!available} onClick={() => { void cast(); }} variant="secondary">{busy ? 'Connecting…' : 'Cast to Chromecast'}</Button> : <>
-      <p className="g-setting-note" role="status">{status.playing ? 'Playing' : 'Paused'} on Chromecast · {formatDuration(status.position)}{status.duration ? ` / ${formatDuration(status.duration)}` : ''}</p>
+      <p className="playback-menu-status" role="status">{status.playing ? 'Playing' : 'Paused'} on Chromecast · {formatDuration(status.position)}{status.duration ? ` / ${formatDuration(status.duration)}` : ''}</p>
       <div className="g-actions"><Button disabled={busy} onClick={() => { void control((target) => status.playing ? target.pause() : target.play()); }} variant="secondary">{status.playing ? 'Pause Chromecast' : 'Resume Chromecast'}</Button><Button disabled={busy} onClick={() => { void returnHere(); }} variant="secondary">Return playback here</Button></div>
-      <Field label="Chromecast position in seconds">{(ids) => <Input {...fieldProps(ids)} defaultValue={Math.floor(status.position)} disabled={busy} max={status.duration || undefined} min={0} onBlur={(event) => { const position = Number(event.currentTarget.value); if (Number.isFinite(position) && position >= 0 && position <= (status.duration || 604800)) void control((target) => target.seek(position)); }} type="number" />}</Field>
+      <Field label={<span style={{ color: 'var(--g-overlay-ink)' }}>Chromecast position in seconds</span>}>{(ids) => <Input {...fieldProps(ids)} defaultValue={Math.floor(status.position)} disabled={busy} max={status.duration || undefined} min={0} onBlur={(event) => { const position = Number(event.currentTarget.value); if (Number.isFinite(position) && position >= 0 && position <= (status.duration || 604800)) void control((target) => target.seek(position)); }} style={{ color: 'var(--g-overlay-ink)' }} type="number" />}</Field>
     </>}
   </div>;
 }

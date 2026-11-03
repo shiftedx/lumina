@@ -49,7 +49,7 @@ async function mockFirstClassMusic(page: Page) {
   });
 }
 
-test('Video, Audio, and Books are direct destinations while the music queue keeps playing', async ({ page }) => {
+test('Movies, Music, and Books are direct destinations while the music queue keeps playing', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockApi(page, { sidebar_collapsed: false });
@@ -73,7 +73,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   }
 
   await navigateApp(page, 'Video');
-  await expect(page).toHaveURL(/\/video$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await expect(player).toBeVisible();
 
   await navigateApp(page, 'Books');
@@ -154,9 +154,10 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     await expect(soundstage.getByRole('button', { name: /C Title 1 by Artist 1/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'page overflow').toBeLessThanOrEqual(0);
     if (viewport.width === 390) {
-      await page.locator('.audio-tools > summary').click();
-      const nav = page.getByRole('navigation', { name: 'Audio' });
-      expect(await nav.evaluate((element) => element.scrollWidth >= element.clientWidth)).toBe(true);
+      await page.getByRole('button', { name: 'Music tools' }).click();
+      const menu = page.getByRole('menu', { name: 'Music tools' });
+      await expect(menu.getByRole('menuitem', { name: 'Playlists & mixes' })).toBeInViewport();
+      await page.keyboard.press('Escape');
     }
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
     expect(axe.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);

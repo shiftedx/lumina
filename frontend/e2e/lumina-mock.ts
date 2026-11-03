@@ -7,7 +7,7 @@ import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_LENGTH, SYNTHETIC_MEDIA_TYPE } 
 
 export const user = { id: 'member-1', username: 'alexandria', display_name: 'Alexandria', role: 'admin', is_active: true, bio: '', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', onboarding_status: 'completed' };
 export const item = {
-  id: 'library-1', user_id: user.id, visibility: 'private', remote_id: 'synthetic-1', source_url: 'https://example.test/watch/1', webpage_url: 'https://example.test/watch/1',
+  id: 'library-1', user_id: user.id, visibility: 'private', kind: 'video', remote_id: 'synthetic-1', source_url: 'https://example.test/watch/1', webpage_url: 'https://example.test/watch/1',
   title: 'A deliberately long synthetic fixture title that should wrap cleanly across two lines in both themes', uploader: 'Lumina fixture', duration: 90, extractor: 'youtube', status: 'available',
   file_path: '/tmp/lumina-test/synthetic-1.mp4', file_size: SYNTHETIC_MEDIA_LENGTH, metadata_json: { description: 'theme fixture', view_count: 1 }, chapters: [],
   downloaded_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',

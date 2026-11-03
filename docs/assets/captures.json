@@ -1,0 +1,49 @@
+{
+  "captured_on": "2026-11-01",
+  "app_version": "0.5.1",
+  "app_source_revision": "ae2d56e7f7b8c91e2de341d1075f017cf461c8be",
+  "method": "Fresh browser captures of the built web app and real FastAPI backend with an isolated SQLite database. No mocked API or private household data.",
+  "demo": "Exactly eight Blender Studio open-movie titles with the approved official posters and backdrops from docs/assets/blender-sources.json; tiny synthetic local video fixtures. Display name Alex is fictional. Live shelf disabled through the normal member Home preference API.",
+  "logo": {
+    "asset": "media-mark.svg",
+    "sha256": "69890bcdab75d2a593277dbc1c0d9cbca6f021a6811b5f591435be93db49b6d8"
+  },
+  "images": {
+    "home.jpg": {
+      "viewport": [
+        1280,
+        720
+      ],
+      "capture": "Top 960 pixels of the full page",
+      "sha256": "b80f1fd8df65a0a554cb412c13cc202e2e012d4197e2fb091118f6abb29bdd3a"
+    },
+    "library.jpg": {
+      "viewport": [
+        1280,
+        720
+      ],
+      "capture": "Full page",
+      "sha256": "c6ebed211a3ccaa3823d55f87260f98d707a17ebdfdef29bbf2a820adda8b125"
+    },
+    "home-mobile.jpg": {
+      "viewport": [
+        390,
+        844
+      ],
+      "capture": "Viewport",
+      "sha256": "a77322053f8f923b8164fed8f4b1d3f5b36543aab38ed4b63c983976122ecd27"
+    },
+    "library-mobile.jpg": {
+      "viewport": [
+        390,
+        844
+      ],
+      "capture": "Viewport",
+      "sha256": "f5e809afd3034bfefeee807bbad0db59c42024d888434b73a31a2f07321831ed"
+    }
+  },
+  "attribution": "Blender Studio / Blender Foundation; Creative Commons Attribution. Source URLs: https://github.com/shiftedx/lumina/blob/main/docs/assets/blender-sources.json",
+  "app_worktree_dirty": false,
+  "app_worktree_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "capture_command": "node scripts/capture-open-movie-demo.mjs --app-root /absolute/path/to/lumina"
+}

@@ -13,7 +13,7 @@
 .lumina-player > [role='status'] strong { color: var(--g-overlay-ink); font-size: 14px; }
 .lumina-player > [role='status'] button { min-height: var(--g-control); margin-top: 4px; padding: 0 14px; border: 0; border-radius: var(--g-radius); background: var(--g-overlay-panel); color: var(--g-overlay-ink); cursor: pointer; }
 .lumina-player:focus-visible, .lumina-player :focus-visible { outline: var(--g-focus-width) solid var(--g-overlay-focus); outline-offset: 2px; box-shadow: 0 0 0 1px var(--g-overlay-halo); }
-.player-controls { --player-control-size: max(44px, var(--g-control)); position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; display: grid; min-width: 0; min-height: 96px; padding: 36px 12px 7px; background: var(--g-scrim); color: var(--g-overlay-ink); opacity: 1; }
+.player-controls { --player-control-size: max(44px, var(--g-control)); position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; display: grid; min-width: 0; min-height: 100px; padding: 8px 12px 4px; background: var(--g-scrim); color: var(--g-overlay-ink); opacity: 1; }
 .lumina-player[data-controls-visible='false'] .player-controls { opacity: 0; pointer-events: none; }
 .player-control-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 .player-control-cluster { display: flex; min-width: 0; align-items: center; gap: 1px; }
@@ -29,21 +29,18 @@
 .player-controls button:not(.player-panel *):focus-visible { background: var(--g-overlay-hover); }
 .player-controls button:not(.player-panel *) svg { width: 22px; height: 22px; stroke-width: 2; }
 .player-controls button:not(.player-panel *):disabled { cursor: not-allowed; opacity: .42; }
-.player-progress-stack { position: relative; display: grid; height: 20px; align-items: center; margin-inline: 3px; }
-.player-seek-control { position: relative; z-index: 2; display: grid; width: 100%; height: 20px; align-items: center; cursor: pointer; }
-/* Seek bar: a 24px (44px on touch) hit area drawing a 4px track, 6px on hover or focus: gold played, ink buffered, overlay track; a 13px ink thumb (17px on focus). */
-.player-seek-control input { width: 100%; height: 24px; margin: 0; appearance: none; border-radius: 99px; outline: none; background: linear-gradient(to right, var(--g-gold) 0 var(--player-progress), var(--g-overlay-buffer) var(--player-progress) var(--player-buffered, var(--player-progress)), var(--g-overlay-track) var(--player-buffered, var(--player-progress)) 100%) center / 100% 4px no-repeat; cursor: pointer; transition: background-size .12s ease; }
+.player-progress-stack { position: relative; display: grid; height: 44px; align-items: center; margin-inline: 3px; }
+.player-seek-control { position: relative; z-index: 2; display: grid; width: 100%; height: 44px; align-items: center; cursor: pointer; }
+/* Seek bar: a 44px hit area drawing a 4px track, 6px on hover or focus: gold played, ink buffered, overlay track; a 13px ink thumb (17px on focus). */
+.player-seek-control input { width: 100%; height: 44px; margin: 0; appearance: none; border-radius: 99px; outline: none; background: linear-gradient(to right, var(--g-gold) 0 var(--player-progress), var(--g-overlay-buffer) var(--player-progress) var(--player-buffered, var(--player-progress)), var(--g-overlay-track) var(--player-buffered, var(--player-progress)) 100%) center / 100% 4px no-repeat; cursor: pointer; transition: background-size .12s ease; }
 .player-seek-control:hover input, .player-seek-control input:focus-visible { background-size: 100% 6px; }
 .player-seek-control input::-webkit-slider-thumb { width: 13px; height: 13px; appearance: none; border: 0; border-radius: var(--g-radius-round); background: var(--g-overlay-ink); box-shadow: 0 0 0 2px var(--g-overlay-halo); }
 .player-seek-control input::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: var(--g-radius-round); background: var(--g-overlay-ink); }
 .player-seek-control input:focus-visible::-webkit-slider-thumb { width: 17px; height: 17px; box-shadow: 0 0 0 2px var(--g-overlay-focus), 0 0 0 3px var(--g-overlay-halo); }
 .player-seek-control input:focus-visible::-moz-range-thumb { width: 17px; height: 17px; box-shadow: 0 0 0 2px var(--g-overlay-focus), 0 0 0 3px var(--g-overlay-halo); }
 .player-seek-control input:disabled { cursor: default; opacity: .55; }
-@media (pointer: coarse) {
-  .player-seek-control input { height: 44px; margin-block: -12px; }
-}
 /* Chapter and moment markers: 2px ink ticks, the active one gold; a moment's origin is not a colour (one brand identity). */
-.player-progress-stack > [data-player-extension='chapters'] { position: absolute; inset: 7px 0 auto; z-index: 3; height: 6px; pointer-events: none; }
+.player-progress-stack > [data-player-extension='chapters'] { position: absolute; inset: 19px 0 auto; z-index: 3; height: 6px; pointer-events: none; }
 .player-progress-stack [data-chapter-markers='true'] { position: relative; height: 6px; }
 .player-progress-stack [data-chapter-marker='true'] { position: absolute; top: 0; width: 2px; height: 6px; margin-left: -1px; border: 0; border-radius: 2px; background: var(--g-overlay-ink); box-shadow: 0 0 0 1px var(--g-overlay-halo); pointer-events: none; }
 .player-progress-stack [data-chapter-marker='true'].active { background: var(--g-gold); box-shadow: none; }
@@ -186,7 +183,7 @@
   .player-frame { width: calc(100% + 48px); max-width: calc(100% + 48px); margin-left: -24px; border-inline: 0; border-radius: 0; }
 }
 @media (max-width: 520px) {
-  .player-controls { padding: 26px 5px 2px; }
+  .player-controls { padding: 8px 5px 2px; }
   .player-control-row { gap: 0; }
   .player-controls button:not(.player-panel *) { width: 44px; min-width: 44px; height: 44px; }
   .player-volume-control label { display: none; }
@@ -207,6 +204,7 @@
 .playback-menu { position: relative; }
 .playback-menu[data-has-options='false']:has(.player-casting-options:empty) > button { display: none; }
 .playback-menu-panel[hidden], .player-casting-options:empty { display: none; }
+.lumina-player:has(.playback-menu [aria-expanded='true']) .player-skip { visibility: hidden; }
 .player-casting-options { display: grid; }
 .player-casting-options > button { margin-inline: 12px; justify-content: flex-start; }
 .player-casting-options .g-button { justify-content: flex-start; }
@@ -217,7 +215,8 @@
 }
 @media (max-width: 520px) {
   .player-controls .playback-menu { position: static; }
-  .playback-menu-panel { inset-inline: 8px; bottom: 56px; width: auto; }
+  .playback-menu-panel { inset-inline: 8px; bottom: 52px; width: auto; max-height: calc(100cqh - 56px); }
+  .lumina-player:has(.playback-menu [aria-expanded='true']) .player-progress-stack { visibility: hidden; }
 }
 
 .playback-section > summary { min-height: 44px; padding: 12px 16px; cursor: pointer; }

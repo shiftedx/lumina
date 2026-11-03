@@ -32,7 +32,7 @@ export default defineConfig({
       { ...webkit, testDir: realstack.testDir, use: { ...realstack.use, ...webkit.use }, dependencies: ['perf'], workers: 1, timeout: realstack.timeout, fullyParallel: false },
       { ...perf, testDir: realstack.testDir, use: { ...realstack.use, ...perf.use }, dependencies: ['journeys', 'mocked'], workers: 1, timeout: realstack.timeout, fullyParallel: false,
         // Four reference-host-only measurements remain in the opt-in PERF_STRICT benchmark.
-        grepInvert: /(?:no image fails across a full scroll|long tasks while scrolling the All landing).*, (?:lan warm|slow cold)$/ },
+        grepInvert: /(?:no image fails across a full scroll|long tasks while scrolling Shows browse).*, (?:lan warm|slow cold)$/ },
     ],
   ],
   webServer: [

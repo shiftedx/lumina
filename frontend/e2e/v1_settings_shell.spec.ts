@@ -213,6 +213,7 @@ test('settings search keeps placeholder and entered text comfortably inside its 
   await page.goto('/settings'); await signIn(page);
   for (const width of [1536, 975, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
+    if (width <= 680) await page.getByRole('button', { name: 'Search settings', exact: true }).click();
     const search = page.getByRole('searchbox', { name: 'Search settings' });
     await expect(search).toBeVisible();
     await expect(search).toHaveCount(1);
@@ -222,6 +223,7 @@ test('settings search keeps placeholder and entered text comfortably inside its 
     await search.fill('quality');
     await expect(page.getByRole('region', { name: 'Search results' })).toBeVisible();
     await search.fill('');
+    if (width <= 680) await page.getByRole('button', { name: 'Close search' }).click();
   }
 });
 
@@ -250,12 +252,16 @@ test('profile errors retain the draft and declined search, category, account and
   }
   const url = page.url();
   for (const action of [
-    () => page.getByRole('searchbox', { name: 'Search settings' }).fill('quality'),
+    async () => {
+      await page.getByRole('button', { name: 'Search settings', exact: true }).click();
+      await page.getByRole('searchbox', { name: 'Search settings' }).fill('quality');
+      await page.getByRole('button', { name: 'Close search' }).click();
+    },
     () => openSettingsArea(page, 'Playback'),
     () => navigateApp(page, 'Home'),
     async () => {
       await page.getByRole('button', { name: /account menu/ }).click();
-      await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Your activity' }).getByRole('button', { name: 'Sign out', exact: true }).click();
     },
   ]) {
     page.once('dialog', (dialog) => dialog.dismiss());
@@ -269,7 +275,7 @@ test('profile errors retain the draft and declined search, category, account and
   await name.fill('Leave this draft');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: /account menu/ }).click();
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Your activity' }).getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect.poll(() => logouts).toBe(1);
 });
 

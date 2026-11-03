@@ -1,4 +1,4 @@
-import { navigateApp } from './lumina-mock';
+import { DEFAULT_NAVIGATION, navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
 
 // The desktop product and host-launch surface are absent from the web UI.
@@ -21,6 +21,7 @@ const fixtureItem = {
   id: 'library-1',
   user_id: user.id,
   visibility: 'private',
+  kind: 'video',
   remote_id: 'synthetic-1',
   source_url: 'https://example.test/watch/1',
   webpage_url: 'https://example.test/watch/1',
@@ -81,6 +82,7 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
       return loggedIn ? json({ user }) : json({ detail: 'invalid credentials' }, 401);
     }
     if (path === '/api/session/logout') { loggedIn = false; return json({ ok: true }); }
+    if (path === '/api/navigation') return json(DEFAULT_NAVIGATION);
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     // Health has no desktop_dir once the desktop product is removed; the mock mirrors that.
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', data_dir: '/tmp/lumina-test' });
@@ -94,6 +96,7 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
     if (path === '/api/admin/settings') return json({ library_root: '/tmp/lumina-test-data/library', temp_root: '/tmp/lumina-test-data/temp', archive_path: '/tmp/lumina-test-data/archive.txt', concurrency: 2, yt_dlp_defaults: {}, ui_prefs: {}, oauth_auto_create_users: true, webhook_url: null, webhook_enabled: false, webhook_notify_new_videos: false, webhook_notify_failures: false, oauth_google_enabled: false, oauth_github_enabled: false, oauth_providers: [] });
     if (path === '/api/discovery/interests') return json({ categories: [], selected_keys: [] });
     if (path === '/api/discovery/suppressions') return json({ items: [], channels: [] });
+    if (path === `/api/library/${fixtureItem.id}`) return json(fixtureItem);
     if (path === '/api/playback/continue') return json([]);
     if (path === '/api/settings/me') return json(settings);
     if (path === '/api/jobs') return json({ items: [], next_cursor: null });
@@ -123,8 +126,8 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
   // "Open" also names ordinary in-app controls (for example the persistent
   // music dock's listening room and queue), so only match the concrete file
   // manager verbs that the removed host surface used.
-  await navigateApp(page, 'Video');
-  await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'YouTube' }).click();
+  await navigateApp(page, 'Streaming');
+  await page.getByRole('radio', { name: 'Library', exact: true }).check();
   await expect(page.getByRole('button', { name: new RegExp(`^${fixtureItem.title},`) })).toBeVisible();
   const main = page.locator('main[aria-label="Main content"]');
   const hostLaunchName = /^(?:open|reveal|open file|reveal file|open in finder|reveal in finder|show in finder)$/i;

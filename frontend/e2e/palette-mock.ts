@@ -10,8 +10,8 @@ export async function mockPaletteSearch(page: Page, { delayMs = 60, youtubeFails
     const matches = q.startsWith('zz') ? [] : [
       title('movie-1', 'Alpine Crossing', 'movies'), title('series-1', 'Alpine Rescue', 'shows', 'series'), title('anime-1', 'Alpine Spirits', 'anime', 'series'),
       { ...title('album-1', 'Alpine Songs', '', 'album'), media_title: { id: 'album-1', name: 'Alpine Songs', type: 'album', category: null, images: {}, user_data: { played: false, is_favorite: false, position_seconds: 0 } } },
-      { kind: 'moment', id: 'moment-1', title: 'Summit at dawn', subtitle: 'Alpine Crossing · 12:04', item: { id: 'library-1', title: 'Alpine Crossing' }, start_ms: 724000, score: 1 },
-      { kind: 'library', id: 'library-2', title: 'Alpine vlog', subtitle: 'YouTube', item: { id: 'library-2', title: 'Alpine vlog' }, score: 1 },
+      { kind: 'moment', id: 'moment-1', title: 'Summit at dawn', subtitle: 'Alpine Crossing · 12:04', item: { id: 'library-1', title: 'Alpine Crossing', kind: 'movie' }, start_ms: 724000, score: 1 },
+      { kind: 'library', id: 'library-2', title: 'Alpine vlog', subtitle: 'YouTube', item: { id: 'library-2', title: 'Alpine vlog', kind: 'video' }, score: 1 },
     ];
     await route.fulfill({ json: { query: q, mode: 'hybrid', matches, items: [], index_generation: 1 } });
   });

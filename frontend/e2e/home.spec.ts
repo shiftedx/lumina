@@ -27,6 +27,7 @@ test('default order with the hero from Continue; Resume opens the player at the 
   await openHome(page, {
     continueWatching: [continueEntry(lantern, { item_id: item.id, position_seconds: 0.9, duration_seconds: 1.5 })],
     nextUp: [episodeSummary(2, 5)], newest: [homeMovie(1), homeMovie(2)],
+    anime: [movieSummary('anime-home', { name: 'A new anime' })], albums: [albumSummary('album-home')],
   });
   await page.route(`**/api/library/${item.id}/playback`, (route) => route.fulfill({ json: { item_id: item.id, position_seconds: 0.9, duration_seconds: 1.5, completed: false } }));
   await expect(page.locator('.h-hero-kicker')).toHaveText('Continue watching');

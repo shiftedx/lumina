@@ -19,7 +19,9 @@ for (const width of [320, 390, 768, 1440]) {
       const expected = SETTINGS_PAGES.filter((entry) => entry.category === category.id && entry.id !== 'about').flatMap((entry) => entry.rows).sort();
 
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      if (width <= 680) await page.getByRole('button', { name: 'Search settings', exact: true }).click();
       await expect(page.getByRole('searchbox', { name: 'Search settings' })).toHaveCount(1);
+      if (width <= 680) await page.getByRole('button', { name: 'Close search', exact: true }).click();
       await expect(page.getByRole('navigation', { name: 'Mobile primary navigation' })).toHaveCount(0);
       if (width === 1440) {
         const [searchBox, firstLink] = await Promise.all([page.getByRole('searchbox', { name: 'Search settings' }).boundingBox(), page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link').first().boundingBox()]);

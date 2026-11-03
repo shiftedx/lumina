@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/favicon.svg" width="88" alt="">
+  <img src="frontend/public/media-mark.svg" width="88" alt="">
 </p>
 
 <h1 align="center">Lumina — Self-hosted media server</h1>
@@ -12,7 +12,7 @@
 <p align="center">
   <b>Your household's own streaming service.</b><br>
   Stream and save from YouTube and Twitch, then watch it next to your movies, TV and music,<br>
-  in the browser or compatible Jellyfin apps.
+  in the browser, native Apple app previews, or compatible Jellyfin apps.
 </p>
 
 **Lumina is an open-source, self-hosted media server for movies, TV, music, YouTube and Twitch.** It combines your local library with online video search, playback and saving through yt-dlp, in one household streaming service. Run it with Docker and watch in Lumina's browser player or compatible Jellyfin apps, including Infuse.
@@ -20,10 +20,10 @@
 Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you want creator videos and live streams alongside your own files. It runs its own server with an opt-in Jellyfin-compatible API; it does not require a Jellyfin server or connect to Plex apps. Start with the [Lumina vs Plex vs Jellyfin comparison](docs/lumina-vs-plex-vs-jellyfin.md), [client compatibility guide](docs/jellyfin-clients.md), or [FAQ](docs/faq.md).
 
 <p align="center">
-  <a href="https://github.com/shiftedx/lumina/releases/latest"><img src="https://img.shields.io/github/v/release/shiftedx/lumina?color=e5a00d&label=release" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-e5a00d" alt="AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/runs%20on-Docker-e5a00d" alt="Docker">
-  <img src="https://img.shields.io/badge/works%20with-Infuse%20%26%20Jellyfin%20apps-e5a00d" alt="Works with Infuse and Jellyfin apps">
+  <a href="https://github.com/shiftedx/lumina/releases/latest"><img src="https://img.shields.io/github/v/release/shiftedx/lumina?color=DBB688&label=release" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-DBB688" alt="AGPL-3.0"></a>
+  <img src="https://img.shields.io/badge/runs%20on-Docker-DBB688" alt="Docker">
+  <img src="https://img.shields.io/badge/works%20with-Infuse%20%26%20Jellyfin%20apps-DBB688" alt="Works with Infuse and Jellyfin apps">
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@ Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you 
 </p>
 
 <p align="center">
-  <img src="docs/assets/home.jpg" alt="Lumina 0.3.4 Home with the compact greeting, featured media, and Continue watching">
+  <img src="docs/assets/home.jpg" alt="Lumina Home featuring Blender open movies">
 </p>
 
 <table>
@@ -53,39 +53,35 @@ Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you 
 </table>
 
 <p align="center">
-  <img src="docs/assets/library.jpg" alt="Lumina 0.3.4 Movies library with sorting, filters, and rounded artwork">
+  <img src="docs/assets/library.jpg" alt="Lumina Movies library showing the Blender open-movie demo">
 </p>
 
-## In 0.5.1
+## In 0.6.0
 
-- Ratings: IMDb, Rotten Tomatoes and Metacritic scores, recognizable source logos, score-aware badges, and optional OMDb enrichment alongside local NFO ratings.
-- Metadata: durable 950-request rolling-24-hour provider budget, unscored titles first, IMDb cache de-duplication, and restart-safe retries for missing ratings independent of TMDB refreshes.
-- Security: bounded provider reads and native parsing, credential revocation on role changes, and isolated book/photo processing.
-- YouTube: opt-in personal sessions; encrypted per-user credentials; disconnect revocation; restricted-video fallback.
-- Playback: paused-music activity cleanup; Up next preparation; protected-stream handoff; persistent player dismissal.
-- Music: shared queues; listening export; artist/album identity; artwork recovery; responsive lyrics; floating mini player.
-- Integrations: Sonarr/Radarr inventory and acquisition controls; Lidarr requests; collected-data views; Chromecast handoff.
-- Library: bounded discovery and artwork I/O; accurate scan progress; faster Books/manga loading and page turns.
-- Interface: compact settings workspaces; branded dropdowns; square gold switches; subject-aware hero framing and motion.
-- Server: household/member resource budgets; GitHub release checks; owner update notifications.
+- **Apple TV preview:** A dedicated Library hub, labeled navigation, media requests, and QR sign-in approved from an already signed-in iPhone or iPad.
+- **iPhone and iPad preview:** Streaming recommendations and a live grid when the server admin enables streaming, plus fixes for Home scrolling, landscape controls, and playback through rotation.
+- **Web:** Collection filters, clearer playback settings, a compact chapter and moments timeline, and improved streaming discovery.
+- **Server:** Less work on Home and polling requests, better artwork recovery, and clearer language availability for media requests.
+
+Native Apple previews have [separate build instructions](apple/README.md). The screenshots show a public demo library; see [artwork credits](CREDITS.md).
 
 See the [release notes](RELEASE_NOTES.md) for changes and upgrade details.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.5.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.5.1`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.6.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.6.0`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.0/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.0/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.5.1/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.6.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

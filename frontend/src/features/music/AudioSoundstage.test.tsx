@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({ list: vi.fn(), title: vi.fn() }));
 vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), listTitles: mocks.list, getTitle: mocks.title }));
 vi.mock('../gallery/GalleryArt', () => ({ GalleryArt: ({ card, art, className }: { card: { name: string }; art?: { url: string }; className?: string }) => <span className={className} data-art-url={art?.url} data-testid={`art-${card.name}`}>{card.name}</span> }));
 vi.mock('../gallery/LibraryTabs', () => ({ useLibrarySections: () => ({ sections: null }) }));
-vi.mock('../gallery/MusicTab', () => ({ MusicTab: ({ state }: { state?: string }) => <div data-state={state} data-testid="music-browser">Music browser</div> }));
+vi.mock('../gallery/MusicTab', () => ({ MusicTab: ({ state, tools }: { state?: string; tools?: React.ReactNode }) => <div data-state={state} data-testid="music-browser">Music browser{tools}</div> }));
 vi.mock('./MusicCuration', () => ({ MusicCuration: () => <div>Music curation</div> }));
 vi.mock('./MusicPlaylists', () => ({ MusicPlaylists: () => <div>Playlist workspace</div> }));
 
@@ -144,18 +144,19 @@ describe('AudioSurface navigation', () => {
     mocks.list.mockResolvedValue(titlePage([]));
     const common = { wall: '', onWallChange: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(), onItemChanged: vi.fn() };
     const view = render(<AudioSurface {...common} user={{ id: 'viewer', role: 'member', can_edit_details: false }} />);
-    expect(screen.queryByRole('link', { name: 'Manage music' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Music tools' }));
+    expect(screen.queryByRole('menuitem', { name: 'Manage music' })).toBeNull();
     expect(screen.getByTestId('music-browser')).toBeTruthy();
     view.rerender(<AudioSurface {...common} user={{ id: 'editor', role: 'member', can_edit_details: true }} />);
-    expect(screen.getByRole('link', { name: 'Manage music' })).toBeTruthy();
-    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith({ type: 'album', limit: ALBUM_SOURCE_LIMIT, sort: 'created' }));
+    expect(screen.getByRole('menuitem', { name: 'Manage music' })).toBeTruthy();
+    expect(screen.getByTestId('music-browser')).toBeTruthy();
   });
 
   it('falls back to the music landing when a viewer follows a saved manage link', async () => {
     mocks.list.mockResolvedValue(titlePage([]));
     render(<AudioSurface onItemChanged={vi.fn()} onOpenTitle={vi.fn()} onPlay={vi.fn()} onWallChange={vi.fn()} user={{ id: 'viewer', role: 'member', can_edit_details: false }} wall="pane=manage" />);
     expect(screen.queryByText('Music curation')).toBeNull();
-    expect(screen.getByRole('link', { name: 'Music' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Music tools' })).toBeTruthy();
     expect(screen.getByTestId('music-browser').getAttribute('data-state')).toBe('');
   });
 });

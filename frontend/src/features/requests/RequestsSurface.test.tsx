@@ -227,7 +227,7 @@ describe('My requests', () => {
     api.cancelRequest.mockResolvedValue(undefined);
     renderSurface({ surface: 'requests', view: 'mine' });
     expect(await screen.findByText('Downloading 30%')).toBeTruthy();
-    expect(api.listRequests).toHaveBeenCalledWith({ scope: 'mine' });
+    expect(api.listRequests).toHaveBeenCalledWith({ scope: 'mine' }, expect.any(AbortSignal));
     await userEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
     expect(api.cancelRequest).toHaveBeenCalledWith('r-1');
   });
@@ -247,15 +247,15 @@ describe('My requests', () => {
     const view = render(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'discover' }} session={session} user={admin} />);
     const row = screen.getByRole('navigation', { name: 'Requests pages' });
     const manage = within(row).getByRole('button', { name: 'Manage' });
-    Object.defineProperties(row, { clientWidth: { configurable: true, value: 180 }, offsetLeft: { configurable: true, value: 0 } });
-    Object.defineProperties(manage, { offsetLeft: { configurable: true, value: 300 }, offsetWidth: { configurable: true, value: 80 } });
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 180, 44));
+    vi.spyOn(manage, 'getBoundingClientRect').mockImplementation(() => new DOMRect(300.5 - row.scrollLeft, 0, 80, 44));
     row.scrollLeft = 0;
 
     view.rerender(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'manage' }} session={session} user={admin} />);
-    expect(row.scrollLeft).toBe(200);
+    expect(row.scrollLeft).toBe(201);
 
     const discover = within(row).getByRole('button', { name: 'Discover' });
-    Object.defineProperties(discover, { offsetLeft: { configurable: true, value: 0 }, offsetWidth: { configurable: true, value: 80 } });
+    vi.spyOn(discover, 'getBoundingClientRect').mockImplementation(() => new DOMRect(-row.scrollLeft, 0, 80, 44));
     view.rerender(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'discover' }} session={session} user={admin} />);
     expect(row.scrollLeft).toBe(0);
   });
@@ -296,7 +296,7 @@ describe('Manage', () => {
       'All requests', 'Approved · 2', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1',
     ]);
     chooseSelect(status, 'Needs attention · 1');
-    await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }));
+    await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }, expect.any(AbortSignal)));
   });
 });
 

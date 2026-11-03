@@ -18,18 +18,18 @@ test('test_route_reload_back_forward', async ({ page }) => {
   await expect(page.locator('video').first()).toBeVisible();
 
   await navigateApp(page, 'Video');
-  await expect(page).toHaveURL(/\/video$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await navigateApp(page, 'Streaming');
   await expect(page).toHaveURL(/\/streaming$/);
 
   await page.goBack();
-  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
   await page.goBack();
   await expect(page.locator('video').first()).toBeVisible();
   await page.goForward();
-  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
 });
 
 test('the old Live, Explore and Subscriptions addresses land on Streaming', async ({ page }) => {
@@ -100,7 +100,9 @@ for (const viewport of [{ width: 1536, height: 960 }, { width: 390, height: 844 
       await page.waitForTimeout(300);
       // No page-level horizontal scroll, and the search field stays inside the viewport.
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${surface.name} overflow`).toBeLessThanOrEqual(0);
-      const trigger = await page.getByRole('button', { name: /^Search Lumina, / }).evaluate((element) => element.getBoundingClientRect().right);
+      const search = page.locator('#g-header-search').locator('input:visible, button:visible').first();
+      await expect(search).toBeVisible();
+      const trigger = await search.evaluate((element) => element.getBoundingClientRect().right);
       expect(trigger, `${surface.name} search trigger inside the viewport`).toBeLessThanOrEqual(viewport.width);
     }
     expect(errors).toEqual([]);

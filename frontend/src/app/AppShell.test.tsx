@@ -96,7 +96,7 @@ describe('anchored navigation', () => {
   });
 
   it('keeps the mobile category contextual and falls back to the first enabled video library', () => {
-    const navigation: ServerNavigation = { categories: ['anime', 'youtube'], features: { streaming: false, requests: false } };
+    const navigation: ServerNavigation = { categories: ['anime'], features: { streaming: false, requests: false } };
     render(<Host mobile navigation={navigation} surface="video" videoView="movies" />);
     const tabs = screen.getByRole('navigation', { name: 'Mobile primary navigation' });
     expect(within(tabs).getByRole('button', { name: 'Anime' }).getAttribute('aria-current')).toBe('page');

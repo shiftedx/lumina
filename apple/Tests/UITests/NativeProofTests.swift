@@ -722,7 +722,14 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(qr, timeout: 15, named: "Apple TV pairing QR before server entry")
         XCTAssertFalse(element("serverURLField").exists)
         try attachFrame(named: "Apple TV phone sign-in QR")
-        let link = try XCTUnwrap((qr.value as? String).flatMap { URL(string: $0) })
+        let image = try XCTUnwrap(qr.screenshot().image.cgImage)
+        let scan = VNDetectBarcodesRequest()
+        scan.symbologies = [.qr]
+        try VNImageRequestHandler(cgImage: image, orientation: .up).perform([scan])
+        let barcode = try XCTUnwrap(scan.results?.first, "The rendered TV code must be scannable.")
+        XCTAssertEqual(barcode.boundingBox.midX, 0.5, accuracy: 0.025, "The QR must be centered horizontally.")
+        XCTAssertEqual(barcode.boundingBox.midY, 0.5, accuracy: 0.025, "The QR must be centered vertically.")
+        let link = try XCTUnwrap(barcode.payloadStringValue.flatMap { URL(string: $0) })
         let approval = try await TVPairingHandoff(link: link).requestApproval(serverURL: origin)
         let code = approval.code
         try waitForExistence(element("tvPairingCode"), timeout: 15, named: "Apple TV confirmation code")

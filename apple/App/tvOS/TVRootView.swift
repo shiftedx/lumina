@@ -334,7 +334,7 @@ private struct TVConnectionView: View {
                         .accessibilityHidden(true)
 
                 connectionForm
-                    .frame(width: min(560, max(500, geometry.size.width * 0.34)))
+                    .frame(width: min(560, max(500, geometry.size.width * 0.34)), alignment: .leading)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding(.leading, max(80, geometry.size.width * 0.095))
                     .padding(.vertical, 64)
@@ -491,9 +491,6 @@ private struct TVConnectionView: View {
                     .frame(width: 256, height: 256)
                     .accessibilityIdentifier("tvPairingQRCode")
                     .accessibilityLabel("QR code for phone sign-in")
-                    #if LUMINA_UI_TESTING
-                    .accessibilityValue(Self.isAutomationRun ? handoff.link.absoluteString : "")
-                    #endif
                 Text("In Lumina on your phone, go to Account → Connect a TV and scan.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -974,7 +971,7 @@ private struct TVPairingQRCode: View {
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
-                    .background(.white, in: .rect(cornerRadius: 12))
+                    .clipShape(.rect(cornerRadius: 8))
             } else {
                 Image(systemName: "qrcode")
                     .font(.system(size: 88))
@@ -997,9 +994,7 @@ private struct TVPairingQRCode: View {
         let extent = output.extent
         let background = CIImage(color: CIColor.white)
             .cropped(to: extent.insetBy(dx: -quietZone, dy: -quietZone))
-        let padded = output
-            .transformed(by: CGAffineTransform(translationX: quietZone, y: quietZone))
-            .composited(over: background)
+        let padded = output.composited(over: background)
         let scale: CGFloat = 10
         let scaled = padded.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cgImage = Self.context.createCGImage(scaled, from: scaled.extent) else { return nil }

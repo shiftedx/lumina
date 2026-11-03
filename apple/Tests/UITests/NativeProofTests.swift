@@ -36,9 +36,15 @@ final class NativeActorLibraryTests: NativeProofJourney {
 
 @MainActor
 final class NativeStreamingTests: NativeProofJourney {
+#if os(iOS)
+    func testSavedStreamingUsesLibraryWhenRemoteStreamingIsDisabled() async throws {
+        try await journeyNativeStreaming(remoteEnabled: false)
+    }
+#else
     func testSavedProviderVideosRemainAvailableWhenRemoteStreamingIsDisabled() async throws {
         try await journeyNativeStreaming(remoteEnabled: false)
     }
+#endif
     func testConfiguredStreamingShowsRecommendationsLiveAndServerPlayback() async throws {
         try await journeyNativeStreaming(remoteEnabled: true)
     }
@@ -601,10 +607,16 @@ class NativeProofJourney: XCTestCase {
         try signIn(using: fixture, waitsForAccount: false)
         #if os(iOS)
         let streaming = destinationControl("Streaming")
-        try waitForExistence(streaming, timeout: 20, named: "Streaming destination")
-        guard hasVisibleFrame(streaming) else { throw ProofFailure.ui("Streaming destination must be visible.") }
-        streaming.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        try waitForExistence(element("streamingScreen"), timeout: 25, named: "Streaming destination")
+        if !remoteEnabled {
+            try waitForExistence(destinationControl("Home"), timeout: 20, named: "Home destination")
+            XCTAssertFalse(streaming.exists, "The dedicated Streaming tab requires server opt-in.")
+            try selectLibraryCategory("streaming", screen: "savedStreamingLibrary")
+        } else {
+            try waitForExistence(streaming, timeout: 20, named: "Streaming destination")
+            guard hasVisibleFrame(streaming) else { throw ProofFailure.ui("Streaming destination must be visible.") }
+            streaming.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            try waitForExistence(element("streamingScreen"), timeout: 25, named: "Streaming destination")
+        }
         #else
         try selectTVLibraryCategory("streaming", screen: "streamingScreen")
         #endif
@@ -648,7 +660,11 @@ class NativeProofJourney: XCTestCase {
             XCTAssertFalse(element("streamingRecommendationsTab").exists)
             XCTAssertFalse(element("streamingLiveTab").exists)
         }
+        #if os(iOS)
+        if remoteEnabled { try activateStreamingTab("streamingDownloadedTab") }
+        #else
         try activateStreamingTab("streamingDownloadedTab")
+        #endif
         try waitForExistence(element("streamingSaved-\(youtubeID)"), timeout: 25, named: "saved YouTube video")
         try waitForExistence(element("streamingSaved-\(twitchID)"), timeout: 25, named: "saved Twitch video")
         try attachFrame(named: remoteEnabled ? "Configured Streaming saved library" : "Saved Streaming without external opt-in")

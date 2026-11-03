@@ -640,6 +640,19 @@ class NativeProofJourney: XCTestCase {
             XCTAssertTrue(receivedBytes, "AVPlayer must request the server-relayed media bytes.")
             try attachFrame(named: "Native server streaming playback")
             #if os(iOS)
+            let remoteTime = element("nativeRemotePlaybackTime")
+            var position = try waitForPlaybackValue(remoteTime, timeout: 15) { $0 >= 3 }
+            defer { XCUIDevice.shared.orientation = .portrait }
+            for orientation: UIDeviceOrientation in [.landscapeLeft, .portrait] {
+                XCUIDevice.shared.orientation = orientation
+                let window = try applicationWindow()
+                XCTAssertTrue(waitUntil(timeout: 12) {
+                    (window.frame.width > window.frame.height) == orientation.isLandscape
+                }, "The player window must adopt the new orientation.")
+                let metrics = try await api.streamingMetrics()
+                XCTAssertEqual(metrics["sessions_released", default: 0], 0, "Rotation must keep the same server stream.")
+                position = try waitForPlaybackValue(remoteTime, timeout: 10) { $0 >= position + 1 }
+            }
             try activate(element("nativeRemoteCloseButton"))
             #else
             XCUIRemote.shared.press(.menu)

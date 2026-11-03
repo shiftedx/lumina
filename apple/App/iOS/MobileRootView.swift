@@ -4,12 +4,17 @@ import AVFoundation
 import VisionKit
 import LuminaCore
 
+private extension EnvironmentValues {
+    @Entry var playRemoteStream: (HomeExternalItem) -> Void = { _ in }
+}
+
 @MainActor
 struct MobileRootView: View {
     @Bindable var store: LuminaStore
     let isRestoring: Bool
     @State private var audioSession = NativeAudioSession()
     @State private var videoSession = NativeVideoSession()
+    @State private var remoteStream: HomeExternalItem?
     @State private var userSettings = LuminaUserSettings()
     @State private var hasShownOnlineShell = false
     @State private var artworkReclamationGeneration = 0
@@ -56,6 +61,10 @@ struct MobileRootView: View {
         .foregroundStyle(LuminaTheme.ink)
         .background(LuminaTheme.paper.ignoresSafeArea())
         .modifier(NativeVideoPlayerPresentation(session: videoSession, store: store))
+        .fullScreenCover(item: $remoteStream) { item in
+            NativeRemotePlayer(store: store, item: item)
+        }
+        .environment(\.playRemoteStream, { remoteStream = $0 })
         .environment(videoSession)
         .environment(audioSession)
         .environment(userSettings)
@@ -1841,7 +1850,7 @@ private struct HomeSearchView: View {
 private struct HomeExternalRail: View {
     let row: HomeFeedRow
     @Bindable var store: LuminaStore
-    @State private var selectedRemote: HomeExternalItem?
+    @Environment(\.playRemoteStream) private var playRemoteStream
 
     private var nativeRemoteAvailable: Bool {
         // Navigation is loaded with Home and reflects the same member-scoped
@@ -1858,7 +1867,7 @@ private struct HomeExternalRail: View {
                     ForEach(row.externalItems ?? []) { item in
                         if let destination = item.sourceURL {
                             if nativeRemoteAvailable {
-                                Button { selectedRemote = item } label: {
+                                Button { playRemoteStream(item) } label: {
                                     card(item, actionTitle: "Play", actionGlyph: .play)
                                 }
                                 .buttonStyle(.plain)
@@ -1879,9 +1888,6 @@ private struct HomeExternalRail: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .modifier(LuminaCarouselEdges())
-        }
-        .fullScreenCover(item: $selectedRemote) { item in
-            NativeRemotePlayer(store: store, item: item)
         }
     }
 
@@ -1921,7 +1927,7 @@ private struct NativeStreamingView: View {
     @State private var remoteFeed = LuminaHomeFeed(includesExternalSources: true)
     @State private var section: Section = .saved
     @State private var sectionOwner: MobileHomeSessionScope?
-    @State private var selectedRemote: HomeExternalItem?
+    @Environment(\.playRemoteStream) private var playRemoteStream
     @State private var playbackRequest: PlaybackRequest?
     @State private var preparingID: String?
     @State private var playbackError: String?
@@ -1955,12 +1961,6 @@ private struct NativeStreamingView: View {
                 if savedOnly {
                     savedLibraryView
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Streaming").font(.largeTitle.weight(.semibold))
-                        Text(remoteAvailable ? "Recommended and live from your connected services." : "Videos saved to your Lumina library.")
-                            .font(.subheadline).foregroundStyle(LuminaTheme.muted)
-                    }
-
                     sectionTabs
 
                     switch section {
@@ -1991,9 +1991,6 @@ private struct NativeStreamingView: View {
         }
         .refreshable { await load() }
         .nativePlayback(request: $playbackRequest, store: store) { Task { await savedLibrary.load() } }
-        .fullScreenCover(item: $selectedRemote) { item in
-            NativeRemotePlayer(store: store, item: item)
-        }
         .alert("Playback unavailable", isPresented: Binding(
             get: { playbackError != nil }, set: { if !$0 { playbackError = nil } }
         )) {
@@ -2042,7 +2039,7 @@ private struct NativeStreamingView: View {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(row.items) { item in
                                     if item.sourceURL != nil {
-                                        Button { selectedRemote = item } label: {
+                                        Button { playRemoteStream(item) } label: {
                                             StreamingRemoteCard(item: item)
                                                 .containerRelativeFrame(.horizontal) { width, _ in min(292, width * 0.76) }
                                         }

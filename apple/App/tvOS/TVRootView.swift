@@ -2092,15 +2092,6 @@ private struct TVStreamingView: View {
                 if savedOnly {
                     savedContent
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Streaming")
-                            .font(LuminaTheme.editorial(52, relativeTo: .title2, italic: true))
-                            .foregroundStyle(LuminaTheme.ink)
-                        Text(remoteAvailable ? "Recommendations, live streams, and saved videos." : "Videos saved from YouTube, Twitch, and other sources.")
-                            .font(.body)
-                            .foregroundStyle(LuminaTheme.muted)
-                    }
-
                     HStack(spacing: 22) {
                         streamingTab("Saved", tab: .saved, identifier: "streamingDownloadedTab")
                         if remoteAvailable {

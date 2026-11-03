@@ -16,6 +16,7 @@ struct NativeRemotePlayer: View {
     @State private var failure: String?
     @State private var attempt = UUID()
     @State private var observation: NSKeyValueObservation?
+    @State private var resumeAfterBackground = false
 
     var body: some View {
         ZStack {
@@ -56,6 +57,19 @@ struct NativeRemotePlayer: View {
             }.padding()
             #endif
         }
+        #if os(iOS) && LUMINA_UI_TESTING
+        .overlay(alignment: .bottomTrailing) {
+            if let player {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    Color.clear.frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityIdentifier("nativeRemotePlaybackTime")
+                        .accessibilityValue(String(player.currentTime().seconds))
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        #endif
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -63,7 +77,16 @@ struct NativeRemotePlayer: View {
         .task(id: attempt) { await prepare() }
         .onChange(of: store.session.map { [$0.serverURL.absoluteString, $0.userID, $0.accessToken] }) { _, _ in dismiss() }
         .onDisappear { tearDown() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { player?.pause() } }
+        .onChange(of: scenePhase) { _, phase in
+            // A layout or display transition can briefly make the scene inactive.
+            if phase == .background {
+                resumeAfterBackground = player.map { $0.timeControlStatus != .paused } ?? false
+                player?.pause()
+            } else if phase == .active && resumeAfterBackground {
+                resumeAfterBackground = false
+                player?.play()
+            }
+        }
         #if os(tvOS)
         .onExitCommand { dismiss() }
         #endif
@@ -104,7 +127,7 @@ struct NativeRemotePlayer: View {
                 }
             }
             activePlayer.play()
-        } catch is CancellationError { tearDown() }
+        } catch is CancellationError { return }
         catch {
             guard !Task.isCancelled else { return }
             tearDown()
@@ -113,6 +136,7 @@ struct NativeRemotePlayer: View {
     }
 
     private func tearDown() {
+        resumeAfterBackground = false
         observation?.invalidate()
         observation = nil
         player?.pause()
@@ -137,7 +161,7 @@ private struct RemotePlayerController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        controller.player = player
+        if controller.player !== player { controller.player = player }
     }
 
     static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {

@@ -299,6 +299,7 @@
 
 /* Direction A: the catalog opens on artwork, with browsing context over the stage. */
 .gallery.g-wall.has-browse-hero { position: relative; padding-top: 0; }
+.gallery.is-video-browse[aria-busy=true] > :not(.g-stage-loading) { visibility: hidden; }
 .gallery .g-browse-context { position: relative; margin-bottom: 24px; }
 .gallery.has-browse-hero .g-browse-context { position: absolute; margin-bottom: 0; top: calc(var(--g-topbar) + 16px); inset-inline: var(--g-gutter); z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; color: var(--g-on-art); }
 .gallery .g-browse-context .g-library-toolbar { margin: 0; min-width: 0; }

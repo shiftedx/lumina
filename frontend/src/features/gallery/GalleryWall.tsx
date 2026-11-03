@@ -298,8 +298,10 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
 
   const featured = videoBrowse && !query.q && !selecting && !wallFiltered(query) ? store.itemAt(0) : undefined;
   const hero = featured;
+  const stagePending = videoBrowse && store.total === null && !store.failed;
   return (
-    <div className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
+    <div aria-busy={stagePending || undefined} className={`surface gallery g-wall${showRail ? ' has-rail' : ''}${hero ? ' has-browse-hero' : ''}${videoBrowse ? ' is-video-browse' : ''}`}>
+      {stagePending ? <p className="g-stage-loading" role="status">Loading {def.heading.toLowerCase()}…</p> : null}
       {videoBrowse ? <div className="g-browse-context" onKeyDown={toolbarKeys}>{lenses}{def.search ? <ContextualSearch label={searchLabel}>{searchForm}</ContextualSearch> : null}</div> : lenses}
       {hero ? <section aria-label={hero.name} className="g-browse-hero">
         <HeroFrame className="g-browse-hero-art" src={hero.backdrop?.url ?? hero.poster?.url} placement="home"><GalleryArt alt="" art={hero.backdrop ?? hero.poster} card={null} colour={cardColour(hero, 'backdrop')} kind={hero.backdrop ? 'backdrop' : 'poster'} priority={1} sizes="100vw" /></HeroFrame>

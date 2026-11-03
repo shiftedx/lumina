@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signIn } from './lumina-mock';
+import { mockApi, mockDeviceRing, signIn } from './lumina-mock';
 import { mockPaletteSearch } from './palette-mock';
 
 test.beforeEach(async ({ page }) => {
@@ -66,6 +66,8 @@ test('the palette reaches Streaming, Live now, Your channels, saved channels and
   // Live, YouTube and 1.9.0 surfaces. Mocks: mockLive / mockLibraryChannels from live-youtube-mock.ts if the surface needs them.
   const cases: Array<[string, string, RegExp]> = [['streaming', 'Streaming', /\/streaming$/], ['live now', 'Live now', /\/streaming\/live$/], ['your channels', 'Your channels', /\/streaming\/channels$/], ['saved channels', 'Open saved channels', /\/video\/youtube\?view=channels$/], ['discovery', 'Home & discovery', /\/settings\/discovery$/]];
   for (const [query, label, url] of cases) {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeAttached();
     await page.keyboard.press('ControlOrMeta+k');
     await page.locator('dialog.g-palette').getByRole('combobox').fill(query);
     const group = page.getByRole('group', { name: 'Actions' });
@@ -78,17 +80,21 @@ test('the palette reaches Streaming, Live now, Your channels, saved channels and
   }
 });
 
-test('profile menu opens from the keyboard and focuses its first action', async ({ page }) => {
+test('account dialog opens from the keyboard and focuses its appearance controls', async ({ page }) => {
   const trigger = page.getByRole('button', { name: /, account menu$/ });
   await trigger.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('menuitem', { name: /^(Switch member…|Sign in as someone else…)$/ })).toBeFocused();
+  const dialog = page.getByRole('dialog', { name: 'Your activity' });
+  await expect(dialog.getByRole('radio', { name: 'System' })).toBeFocused();
 });
 
-test('profile menu → Switch member opens the picker (keyboard only)', async ({ page }) => {
+test('account dialog → Switch member opens the picker (keyboard only)', async ({ page }) => {
+  await mockDeviceRing(page, [{ user_id: 'member-2', display_name: 'Sam Rivers', username: 'sam', role: 'viewer', switch: 'instant', active: false }]);
+  await page.reload();
   const trigger = page.getByRole('button', { name: /, account menu$/ });
   await trigger.focus();
   await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
+  const switchMember = page.getByRole('dialog', { name: 'Your activity' }).getByRole('button', { name: 'Switch member…' });
+  await switchMember.press('Enter');
   await expect(page.getByRole('dialog', { name: "Who's watching?" })).toBeVisible();
 });

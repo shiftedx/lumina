@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, X } from '../luminaIcons';
 
@@ -8,7 +8,7 @@ export function ContextualSearch({ children, label, fallback = children }: { chi
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const field = useRef<HTMLDivElement>(null);
-  useEffect(() => { setSlot(document.getElementById('g-header-search')); }, []);
+  useLayoutEffect(() => { setSlot(document.getElementById('g-header-search')); }, []);
   if (!slot) return fallback;
   return createPortal(<div className={`g-context-search${open ? ' is-open' : ''}`} onKeyDown={(event) => {
     if (event.key === 'Escape' && open) { setOpen(false); requestAnimationFrame(() => trigger.current?.focus()); }

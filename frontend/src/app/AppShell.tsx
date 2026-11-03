@@ -61,7 +61,7 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   const current = (activity.state === 'ready' || activity.state === 'empty') && !activity.retrying;
   const trustedActive = current ? activity.active : 0;
   return (
-    <div className="lumina-app" data-surface={surface}>
+    <div className={`lumina-app${!focused && (surface === 'home' || surface === 'video' || surface === 'library') ? ' has-stage-header' : ''}`} data-surface={surface}>
       <SkipLink />
       {extraSkipLinks}
       {focused ? null : <NavigationPopover navigation={navigation} videoView={videoView} onVideoView={onVideoView} anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}

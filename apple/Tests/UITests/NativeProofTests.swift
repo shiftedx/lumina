@@ -1626,8 +1626,11 @@ class NativeProofJourney: XCTestCase {
         try closePlayer()
         let viewport = try applicationViewport()
         let usesDuo = UIDevice.current.userInterfaceIdiom == .phone && min(viewport.width, viewport.height) >= 450
-        let usesRail = usesDuo && viewport.width > viewport.height
-        if !usesDuo { try selectDestination("Home", screen: "homeScreen") }
+        let usesLandscapeHomeHeader = usesDuo && viewport.height >= 600 && viewport.width > viewport.height
+        if ProcessInfo.processInfo.environment["LUMINA_EXPECT_DUO_LANDSCAPE_HOME"] == "1" {
+            XCTAssertTrue(usesLandscapeHomeHeader, "Expected the open Duo landscape viewport, got \(viewport).")
+        }
+        if !usesDuo || usesLandscapeHomeHeader { try selectDestination("Home", screen: "homeScreen") }
         let artwork = element("nowPlayingBar")
         let toggle = element("nowPlayingPauseButton")
         let search = element("homeSearchButton")
@@ -1640,8 +1643,20 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(artwork.label.contains(fixture.audioTrackTitle))
         XCTAssertLessThanOrEqual(artwork.frame.width, 70, "Music controls must not form a full-width footer.")
         XCTAssertLessThanOrEqual(artwork.frame.height, 70)
-        if usesRail {
-            // Duo rail layouts stack controls; ordinary top bars remain horizontal.
+        if usesLandscapeHomeHeader {
+            let browse = element("homeBrowseMenu")
+            for control in [search, browse, artwork, toggle] {
+                try waitForHittable(control, timeout: 15, named: control.identifier)
+                XCTAssertTrue(viewport.contains(control.frame))
+                XCTAssertLessThan(control.frame.midX, viewport.midX,
+                                  "Home controls must clear the trailing system chrome.")
+                XCTAssertEqual(control.frame.midY, search.frame.midY, accuracy: 4,
+                               "Home actions and Now Playing must share the masthead row.")
+            }
+            try activate(browse)
+            try waitForExistence(element("homeMenu-watchlist"), timeout: 10, named: "Home Browse Watchlist")
+            try activate(element("homeMenu-home"))
+        } else if usesDuo && viewport.width > viewport.height {
             guard toggle.frame.minY >= artwork.frame.maxY - 1,
                   abs(toggle.frame.midX - artwork.frame.midX) <= 4,
                   artwork.isHittable, toggle.isHittable else {
@@ -1706,6 +1721,10 @@ class NativeProofJourney: XCTestCase {
         try stopAudioPlayer()
         XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
         XCTAssertFalse(hasVisibleFrame(element("nowPlayingBar")))
+        if usesLandscapeHomeHeader {
+            try activate(search)
+            try waitForExistence(element("homeSearchScreen"), timeout: 15, named: "Duo landscape Home search")
+        }
         completed = true
     }
     #endif

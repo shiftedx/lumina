@@ -179,9 +179,9 @@ test('title layout: the hero, side column, episode cards, and a long title descr
   const hero = await box(page, '.t-hero');
   const main = await box(page, '.t-main');
   const side = await box(page, '.t-side');
-  expect(hero.height).toBeCloseTo(630, 0); // min(70vh, 680px) at 900px tall
-  expect((await box(page, '.t-body')).y).toBeCloseTo(hero.y + hero.height - 120, 0);
-  expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 47);
+  expect(hero.height).toBeCloseTo(738, 0);
+  expect((await box(page, '.t-body')).y).toBeCloseTo(hero.y + hero.height, 0);
+  expect(side.x).toBeGreaterThan(main.x + main.width);
   expect(side.y).toBeCloseTo((await page.getByText(overview, { exact: true }).boundingBox())!.y, 0);
   expect((await box(page, '.t-episodes > li')).width).toBe(320);
   for (const width of [1920, 1280, 390]) {
@@ -248,8 +248,10 @@ for (const width of [390, 320]) {
     const actions = await box(page, '.t-actions');
     const side = await box(page, '.t-side');
     const story = await box(page, '.t-story');
-    // A landscape phone hero preserves ensemble width without letterboxing.
-    expect((await box(page, '.t-hero')).height).toBeCloseTo(width * 9 / 16, 0);
+    // The art-led phone hero stays within the first viewport.
+    const hero = await box(page, '.t-hero');
+    expect(hero.height).toBeGreaterThan(width);
+    expect(hero.height).toBeLessThan(844);
     expect(side.x).toBeCloseTo(main.x, 0);
     // The story so far sits in the main column directly after the actions.
     expect(story.y).toBeGreaterThanOrEqual(actions.y + actions.height);

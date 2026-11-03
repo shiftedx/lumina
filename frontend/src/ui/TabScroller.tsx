@@ -37,10 +37,10 @@ export function TabScroller({ activeKey, ariaLabel, as = 'div', children, classN
     const element = row.current;
     const active = element?.querySelector<HTMLElement>('[aria-current="page"], [aria-selected="true"]');
     if (!element || !active) return;
-    const start = active.offsetLeft - element.offsetLeft;
-    const end = start + active.offsetWidth;
-    if (start < element.scrollLeft) element.scrollLeft = start;
-    else if (end > element.scrollLeft + element.clientWidth) element.scrollLeft = end - element.clientWidth;
+    const viewport = element.getBoundingClientRect();
+    const tab = active.getBoundingClientRect();
+    if (tab.left < viewport.left) element.scrollLeft += Math.floor(tab.left - viewport.left);
+    else if (tab.right > viewport.right) element.scrollLeft += Math.ceil(tab.right - viewport.right);
   }, []);
   useLayoutEffect(() => {
     const container = frame.current;

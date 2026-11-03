@@ -234,10 +234,10 @@ def test_catalog_annotation_links_unrequested_mapped_anime_titles(db) -> None:  
     annotated = catalog.annotate(response, db, user(db, "bob"))
 
     assert [item["status"] for item in annotated["items"]] == [
-        {"state": "available", "library_title_id": "anime-series"},
-        {"state": "available", "library_title_id": "anime-film"},
-        {"state": "none"},
-        {"state": "none"},
+        {"state": "available", "library_title_id": "anime-series", "language_requests_supported": True},
+        {"state": "available", "library_title_id": "anime-film", "language_requests_supported": True},
+        {"state": "none", "language_requests_supported": True},
+        {"state": "none", "language_requests_supported": True},
     ]
 
 

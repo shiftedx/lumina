@@ -20,10 +20,11 @@ vi.mock('./features/home/LiveShelf', async () => {
     },
   };
 });
-const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn() }));
+const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), getHomeArrivals: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...homeApi }));
 homeApi.listNextUp.mockResolvedValue([]);
 homeApi.listTitles.mockResolvedValue({ items: [] });
+homeApi.getHomeArrivals.mockResolvedValue([]);
 homeApi.getHomeTitleRows.mockResolvedValue({ rows: [] });
 homeApi.listHouseholdCollections.mockResolvedValue([]);
 
@@ -83,7 +84,7 @@ function renderRecommendedHome(overrides: Partial<Parameters<typeof HomeSurface>
 }
 
 describe('Picked for you recommendation controls', () => {
-  const trigger = (name: string) => screen.getByRole('button', { name: `More options for ${name}` });
+  const trigger = (name: string) => screen.findByRole('button', { name: `More options for ${name}` });
 
   it('is headed Picked for you without explanations and keeps feedback available', async () => {
     const { container } = renderRecommendedHome();
@@ -91,25 +92,25 @@ describe('Picked for you recommendation controls', () => {
     expect(await screen.findByRole('region', { name: 'Picked for you' })).toBeTruthy();
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     expect(container.querySelector('.reco-reason')).toBeNull();
-    await userEvent.click(trigger('Video a'));
+    await userEvent.click(await trigger('Video a'));
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('hides a pick on Not interested: saves it with its list, then shows Hidden. Undo in its place', async () => {
     const { suppress } = renderRecommendedHome();
-    await userEvent.click(trigger('Video a'));
+    await userEvent.click(await trigger('Video a'));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Not interested' }));
     await waitFor(() => expect(suppress).toHaveBeenCalledWith(expect.objectContaining({ scope: 'item', source_id: 'a', list_id: LIST_ID })));
     expect(await screen.findByText('Hidden.')).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.queryByRole('button', { name: 'More options for Video a' })).toBeNull();
-    expect(trigger('Video b')).toBeTruthy();
+    expect(await trigger('Video b')).toBeTruthy();
   });
 
   it('shows fewer from a channel and Undo restores what that saved', async () => {
     const { suppress, restore } = renderRecommendedHome();
-    await userEvent.click(trigger('Video a'));
+    await userEvent.click(await trigger('Video a'));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Show fewer from Muted Channel' }));
     await waitFor(() => expect(suppress).toHaveBeenCalledWith(expect.objectContaining({ scope: 'fewer', uploader: 'Muted Channel' })));
     expect(await screen.findByText('Showing fewer from Muted Channel.')).toBeTruthy();
@@ -118,16 +119,16 @@ describe('Picked for you recommendation controls', () => {
     expect(await screen.findByRole('button', { name: 'More options for Video a' })).toBeTruthy();
   });
 
-  it('keeps the menu, without a reason, when the picks carry no annotation (the switch is off)', () => {
+  it('keeps the menu, without a reason, when the picks carry no annotation (the switch is off)', async () => {
     const { container } = renderRecommendedHome({ recommendations: recommendations(remoteItem('a', 'Muted Channel')) });
-    expect(trigger('Video a')).toBeTruthy();
+    expect(await trigger('Video a')).toBeTruthy();
     expect(screen.queryByText(/Because you/)).toBeNull();
     expect(container.querySelector('.g-remote-card [aria-describedby]')).toBeNull();
   });
 
   it('has no axe violations with the menu open', async () => {
     const { container } = renderRecommendedHome();
-    await userEvent.click(trigger('Video a'));
+    await userEvent.click(await trigger('Video a'));
     const results = await axe.run(container, { runOnly: ['button-name', 'aria-prohibited-attr', 'aria-valid-attr-value', 'aria-required-attr', 'aria-required-children', 'aria-allowed-role'] });
     expect(results.violations.flatMap((violation) => violation.nodes.map((node) => node.html))).toEqual([]);
   });

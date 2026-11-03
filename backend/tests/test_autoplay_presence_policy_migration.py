@@ -13,4 +13,4 @@ def test_schema_42_adds_the_autoplay_presence_json_column_after_a_schema_41_rest
     database.init_db()
     assert "autoplay_presence" in {column["name"] for column in inspect(database.engine).get_columns("app_settings")}
     with database.engine.connect() as connection:
-        assert connection.scalar(text("PRAGMA user_version")) == 42
+        assert connection.scalar(text("PRAGMA user_version")) == database.SCHEMA_VERSION

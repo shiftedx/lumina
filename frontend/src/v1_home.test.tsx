@@ -14,7 +14,7 @@ import { albumSummary, episodeSummary, movieSummary, stillItem, titleDetail } fr
 import type { PlaybackProgress, TitleSummary, UserProfile, WatchQueue, YouTubeSearchResult } from './types';
 
 const api = vi.hoisted(() => ({
-  listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn(),
+  listNextUp: vi.fn(), getHomeArrivals: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getHouseholdCollection: vi.fn(),
   dismissNextUp: vi.fn(), getWatchQueue: vi.fn(), getTitle: vi.fn(),
 }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
@@ -68,6 +68,7 @@ beforeEach(() => {
   Object.values(api).forEach((mock) => mock.mockReset());
   api.listNextUp.mockResolvedValue([]);
   api.listTitles.mockResolvedValue({ items: [] });
+  api.getHomeArrivals.mockResolvedValue([]);
   api.getHomeTitleRows.mockResolvedValue({ rows: [] });
   api.listHouseholdCollections.mockResolvedValue([]);
   api.getWatchQueue.mockResolvedValue(queue([]));
@@ -101,6 +102,7 @@ it('separates listening from watching, resumes the track, and removes it with Un
 
 describe('Home page', () => {
   it('shows shelves in the member\'s order, skips hidden ones without requesting them, and hides empty ones', async () => {
+    api.getHomeArrivals.mockResolvedValue([movieSummary('new-1')]);
     api.listTitles.mockImplementation(async (query: { category?: string; type?: string }) => ({ items: query.category === 'anime' ? [movieSummary('anime-1', { name: 'Spirited' })] : query.type ? [] : [movieSummary('new-1')] }));
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))], homeShelves: [{ id: 'new_anime', visible: true }, { id: 'next_up', visible: false }, { id: 'live', visible: false }] });
     await waitFor(() => expect(sections()).toEqual(['new_anime', 'continue', 'new_in_library']));
@@ -117,15 +119,15 @@ describe('Home page', () => {
   });
 
   it('with no Continue title, the hero is the newest title, fetched once for the hero and its shelf', async () => {
-    api.listTitles.mockImplementation(async (query: { category?: string; type?: string }) => ({ items: query.category || query.type ? [] : [movieSummary('new-1', { name: 'Fresh Arrival' })] }));
+    api.getHomeArrivals.mockResolvedValue([movieSummary('new-1', { name: 'Fresh Arrival' })]);
     renderHome({ continueWatching: [entry(null)] });
     expect(await screen.findByText('New in your library', { selector: '.h-hero-kicker' })).toBeTruthy();
     await waitFor(() => expect(sections()).toContain('new_in_library'));
-    expect(api.listTitles.mock.calls.filter(([query]) => !query.category && !query.type)).toHaveLength(1);
+    expect(api.getHomeArrivals).toHaveBeenCalledTimes(1);
   });
 
   it('with no Continue title, a return visit paints the cached hero at once instead of popping in (P-M1)', async () => {
-    api.listTitles.mockImplementation(async (query: { category?: string; type?: string }) => ({ items: query.category || query.type ? [] : [movieSummary('new-1', { name: 'Fresh Arrival' })] }));
+    api.getHomeArrivals.mockResolvedValue([movieSummary('new-1', { name: 'Fresh Arrival' })]);
     const { unmount } = renderHome({ continueWatching: [entry(null)] });
     await screen.findByText('New in your library', { selector: '.h-hero-kicker' });
     unmount();

@@ -25,10 +25,11 @@ vi.mock('./features/home/LiveShelf', async () => {
     },
   };
 });
-const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn() }));
+const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), getHomeArrivals: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...homeApi }));
 homeApi.listNextUp.mockResolvedValue([]);
 homeApi.listTitles.mockResolvedValue({ items: [] });
+homeApi.getHomeArrivals.mockResolvedValue([]);
 homeApi.getHomeTitleRows.mockResolvedValue({ rows: [] });
 homeApi.listHouseholdCollections.mockResolvedValue([]);
 
@@ -111,9 +112,9 @@ describe('authenticated navigation accessibility', () => {
   const user = { id: 'user-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as const;
 
   it('marks the current destination inside the navigation dialog', () => {
-    const html = renderToStaticMarkup(<NavigationPopover navigation={navigation} activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" />);
+    const html = renderToStaticMarkup(<NavigationPopover navigation={navigation} activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" videoView="movies" />);
     expect(html).toContain('popover="manual"');
-    expect(html).toMatch(/aria-current="page" aria-label="All video"/);
+    expect(html).toMatch(/aria-current="page" aria-label="Movies"/);
   });
 
   it('does not render navigation until its dialog opens', () => {
@@ -155,32 +156,32 @@ describe('member interest Home presentation', () => {
     expect(screen.queryByText('Picked for you')).toBeNull();
   });
 
-  it('always heads the shelf Picked for you, and keeps useful stale recommendations', () => {
+  it('always heads the shelf Picked for you, and keeps useful stale recommendations', async () => {
     const recommendation = { items: [{ id: 'm-1', title: 'Music pick', webpage_url: 'https://example.test/m-1' }], categories: [], state: 'stale' as const, refreshing: false, stale: true };
     render(<HomeSurface {...base} interests={music} onPersonalize={noop} recommendations={recommendation} />);
-    expect(screen.getByRole('region', { name: 'Picked for you' })).toBeTruthy();
+    expect((await screen.findByRole('region', { name: 'Picked for you' }))).toBeTruthy();
     expect(screen.getByText('Showing last-known picks while discovery refreshes.')).toBeTruthy();
     expect(screen.queryByText('Because you chose Music')).toBeNull();
   });
 
-  it('shows Picked for you from the server\'s picks alone, with no interests chosen, and then no start card', () => {
+  it('shows Picked for you from the server\'s picks alone, with no interests chosen, and then no start card', async () => {
     const recommendation = { items: [{ id: 'w-1', title: 'Watched pick', webpage_url: 'https://example.test/w-1' }], categories: [], state: 'ready' as const, refreshing: false, stale: false };
     render(<HomeSurface {...base} interests={{ ...music, selected_keys: [] }} recommendations={recommendation} />);
-    expect(screen.getByRole('region', { name: 'Picked for you' })).toBeTruthy();
+    expect((await screen.findByRole('region', { name: 'Picked for you' }))).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Make Home yours' })).toBeNull();
   });
 
-  it('keeps Home intact when personalized discovery fails', () => {
+  it('keeps Home intact when personalized discovery fails', async () => {
     render(<HomeSurface {...base} interests={music} onPersonalize={noop} onRetryRecommendations={noop} recommendationError="Discovery unavailable" recommendations={{ items: [], categories: [], state: 'failed', refreshing: false, stale: false }} />);
-    const picked = screen.getByRole('region', { name: 'Picked for you' });
+    const picked = (await screen.findByRole('region', { name: 'Picked for you' }));
     expect(picked.textContent).toContain('Personalized discovery is taking a pause. Discovery unavailable');
     expect(within(picked).getByRole('button', { name: 'Try again' })).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Good');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
   });
 
-  it('keeps the personalized shelf visibly loading while discovery has a cold snapshot', () => {
+  it('keeps the personalized shelf visibly loading while discovery has a cold snapshot', async () => {
     render(<HomeSurface {...base} interests={music} recommendations={{ items: [], categories: [], state: 'loading', refreshing: true, stale: false }} />);
-    expect(screen.getByRole('region', { name: 'Picked for you' }).getAttribute('aria-busy')).toBe('true');
+    expect((await screen.findByRole('region', { name: 'Picked for you' })).getAttribute('aria-busy')).toBe('true');
   });
 });
 

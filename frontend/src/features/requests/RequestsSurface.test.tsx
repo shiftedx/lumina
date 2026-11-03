@@ -227,7 +227,7 @@ describe('My requests', () => {
     api.cancelRequest.mockResolvedValue(undefined);
     renderSurface({ surface: 'requests', view: 'mine' });
     expect(await screen.findByText('Downloading 30%')).toBeTruthy();
-    expect(api.listRequests).toHaveBeenCalledWith({ scope: 'mine' });
+    expect(api.listRequests).toHaveBeenCalledWith({ scope: 'mine' }, expect.any(AbortSignal));
     await userEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
     expect(api.cancelRequest).toHaveBeenCalledWith('r-1');
   });
@@ -296,7 +296,7 @@ describe('Manage', () => {
       'All requests', 'Approved · 2', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1',
     ]);
     chooseSelect(status, 'Needs attention · 1');
-    await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }));
+    await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }, expect.any(AbortSignal)));
   });
 });
 

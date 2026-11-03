@@ -164,4 +164,4 @@
   .g-topbar:has(.g-context-search.is-open) .g-header-search { width: 100%; }
   .g-context-search.is-open .g-context-search-field { flex: 1; }
 }
-.g-topbar:not(.is-scrolled) .g-context-search { color: var(--topbar-opening-ink, var(--g-ink)); }
+.g-topbar:not(.is-scrolled) :is(.g-context-search, .g-context-search input, .g-context-search button) { color: var(--topbar-opening-ink, var(--g-ink)); }

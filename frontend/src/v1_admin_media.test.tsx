@@ -81,11 +81,10 @@ describe('Media server and Playback & transcoding sections', () => {
     api.updateMediaServerSettings.mockResolvedValue(settings);
     api.testTmdbKey.mockResolvedValue({ ok: true });
     const key = await screen.findByLabelText(/^TMDB API key/) as HTMLInputElement;
-    const save = screen.getByRole('button', { name: 'Save media server settings' }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Save media server settings' })).toBeNull();
     expect(key.placeholder).toMatch(/Saved key hidden/);
     await userEvent.type(key, 'abc123');
-    await userEvent.click(save);
+    await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ tmdb_api_key: 'abc123' }));
     expect(((await screen.findByLabelText(/^TMDB API key/)) as HTMLInputElement).value).toBe('');
     await userEvent.click(screen.getAllByRole('button', { name: 'Test key' }).at(0)!);

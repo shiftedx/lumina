@@ -989,7 +989,15 @@ def test_due_batch_needs_a_key_and_takes_only_due_series_and_movies(library) -> 
     assert load(due).metadata_due_at == NOW + timedelta(days=90)
     assert load(later).metadata_due_at == NOW + timedelta(days=1) and load(never).metadata_due_at is None
     assert fake.paths()[:2] == ["/3/movie/603", "/3/collection/2344"]
-    assert len([path for path in fake.paths() if path.startswith('/t/p/')]) == 3
+    expected_art = dict(tmdb.movie_fields(fixture('movie_603'), 'en', 'US').fields)
+    collection_art = tmdb.collection_fields(fixture('collection_2344'), 'en').fields
+    expected_paths = {
+        urlsplit(tmdb.image_url(entry['tmdb'], tmdb.IMAGE_SIZES[name.removeprefix('images.')])).path
+        for fields in (expected_art, collection_art)
+        for name, entry in fields.items()
+        if name.startswith('images.') and isinstance(entry, dict) and 'tmdb' in entry
+    }
+    assert {path for path in fake.paths() if path.startswith('/t/p/')} == expected_paths
     from app.services.renditions import offline_artwork
     for kind, entry in load(due).images.items():
         if kind in ('Primary', 'Backdrop', 'Logo') and 'tmdb' in entry:

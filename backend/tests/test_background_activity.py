@@ -163,7 +163,10 @@ def test_direct_web_media_marks_after_auth_and_holds_through_response(
     item = SimpleNamespace(id="item")
     monkeypatch.setattr(main_module, "resolve_user_from_request", lambda *_args, **_kwargs: user)
     monkeypatch.setattr(main_module.member_access, "carry_access", lambda _db, snapshot, _user: snapshot)
-    monkeypatch.setattr(main_module, "visible_item_or_404", lambda *_args: item)
+    monkeypatch.setattr(main_module, "playback_item_or_404", lambda *_args: item)
+    from app.services.playback_resources import playback_resources
+    monkeypatch.setattr(playback_resources, "enabled", lambda _db: False)
+    monkeypatch.setattr(playback_resources, "admit_direct", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main_module.LibraryService, "resolve_media_path", lambda _service, _item: media)
     monkeypatch.setattr(main_module.screen_time, "enforce", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main_module.activity, "guard", lambda *_args: None)

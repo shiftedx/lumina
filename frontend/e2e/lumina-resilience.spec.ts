@@ -315,8 +315,12 @@ async function openApp(page: Page, width: number, height = 900, options: { onboa
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
-  const geometry = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
-  expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
+  const geometry = await page.evaluate(() => {
+    const { clientWidth, scrollWidth } = document.documentElement;
+    const overflow = Array.from(document.querySelectorAll<HTMLElement>('*')).filter((element) => element.getBoundingClientRect().right > clientWidth + 1).slice(0, 10).map((element) => `${element.tagName}.${element.getAttribute('class')}`);
+    return { clientWidth, scrollWidth, overflow };
+  });
+  expect(geometry.scrollWidth, geometry.overflow.join(', ')).toBeLessThanOrEqual(geometry.clientWidth);
 }
 
 /** The --g-control floor: 36px for a mouse or trackpad, 44px for touch and remotes (tokens.css). */

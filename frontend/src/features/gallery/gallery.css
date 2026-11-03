@@ -299,7 +299,7 @@
 
 /* Direction A: the catalog opens on artwork, with browsing context over the stage. */
 .gallery.g-wall.has-browse-hero { position: relative; padding-top: 0; }
-.gallery.is-video-browse[aria-busy=true] { position: relative; }
+.gallery[aria-busy=true] { position: relative; }
 .gallery.is-video-browse[aria-busy=true] > :not(.g-browse-context, .g-stage-loading) { visibility: hidden; }
 .gallery .g-stage-loading { padding-top: 52px; }
 .gallery .g-browse-context { position: relative; margin-bottom: 24px; }

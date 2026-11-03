@@ -84,8 +84,6 @@
 .gallery.g-streaming > .g-masthead h1, .gallery.rq-surface > .g-masthead h1,
 .books-surface:not(:has(.books-detail)) > .g-masthead h1, .gallery .g-masthead h1 { font: var(--g-type-page-title); }
 
-.g-navigation-close { position: absolute; inset-inline-end: 8px; top: 8px; }
-
 .g-topbar { padding-inline: 30px; }
 .g-topbar-start { gap: 16px; }
 .g-topbar-start > .g-icon-button { flex: none; border-radius: 0; background: transparent; color: var(--g-ink); }
@@ -96,7 +94,6 @@
 .g-nav-item { min-height: 48px; border-radius: 10px; }
 .g-nav-group-label { margin-block: 12px 8px; font: var(--g-type-small); }
 .g-navigation-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 20px; }
-.g-navigation-close { position: static; }
 .g-navigation-popover { max-width: calc(100vw - 24px); background: var(--g-paper-2); }
 .g-nav-group + .g-nav-group { padding-top: 12px; border-top: var(--g-rule); }
 @media (max-width: 680px) {

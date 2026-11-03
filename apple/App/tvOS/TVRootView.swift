@@ -1062,7 +1062,7 @@ private enum TVDestination: String, CaseIterable {
 }
 
 private enum TVLibraryCategory: String, CaseIterable {
-    case movies, tv, anime, music
+    case movies, tv, anime, music, streaming
 
     var title: String {
         switch self {
@@ -1070,6 +1070,7 @@ private enum TVLibraryCategory: String, CaseIterable {
         case .tv: "TV"
         case .anime: "Anime"
         case .music: "Music"
+        case .streaming: "Streaming"
         }
     }
 
@@ -1132,7 +1133,9 @@ private struct TVLibraryView: View {
                             ProgressView("Loading Home…")
                         }
                     case .library:
-                        if libraryCategory == .music {
+                        if libraryCategory == .streaming {
+                            TVStreamingView(store: store, onOpen: onOpen, savedOnly: true)
+                        } else if libraryCategory == .music {
                             TVAudioView(
                                 store: store,
                                 onOpen: onOpen,
@@ -1198,9 +1201,26 @@ private struct TVLibraryView: View {
             if destination == .home, let focused { lastHomeHeaderCategory = focused }
         }
         .onChange(of: store.availableLibraryCategories) { _, available in
-            if !available.contains(libraryCategory.rawValue) {
+            if !available.contains(libraryCategory == .streaming ? "youtube" : libraryCategory.rawValue) {
                 destinationHistory.removeAll { $0 == .library }
                 if destination == .library { destination = .home; homeCategory = .all }
+            }
+        }
+        .onChange(of: store.streamingAvailable) { _, available in
+            if available && libraryCategory == .streaming {
+                if destination == .library { destination = .streaming }
+                let category = TVLibraryCategory.allCases.first { store.availableLibraryCategories.contains($0.rawValue) }
+                selectLibraryCategory(category ?? .movies)
+            } else if !available {
+                destinationHistory.removeAll { $0 == .streaming }
+                if destination == .streaming {
+                    if showsSavedStreaming {
+                        selectLibraryCategory(.streaming)
+                        destination = .library
+                    } else {
+                        destination = .home
+                    }
+                }
             }
         }
         .onChange(of: store.requestsAvailable) { _, available in
@@ -1296,7 +1316,7 @@ private struct TVLibraryView: View {
         libraryCategory = category
         if category == .music {
             audioBrowse.kind = .albums
-        } else {
+        } else if category != .streaming {
             videoBrowse.kind = category.videoKind
             if category != .movies {
                 videoBrowse.filters.collectionID = nil
@@ -1340,14 +1360,23 @@ private struct TVLibraryView: View {
                     .accessibilityIdentifier("homeBrowse-\(category.rawValue)")
                     .id(category.rawValue)
                 }
-                let streamingSelected = destination == .streaming
-                Button { selectDestination(.streaming) } label: {
-                    Text("Streaming")
+                if store.streamingAvailable || showsSavedStreaming {
+                    let streamingSelected = destination == .streaming || (destination == .library && libraryCategory == .streaming)
+                    Button {
+                        if store.streamingAvailable {
+                            selectDestination(.streaming)
+                        } else {
+                            selectLibraryCategory(.streaming)
+                            selectDestination(.library)
+                        }
+                    } label: {
+                        Text("Streaming")
+                    }
+                    .buttonStyle(LuminaUnderlineTabStyle(selected: streamingSelected, alignsWithMasthead: true))
+                    .accessibilityValue(streamingSelected ? "Selected" : "")
+                    .accessibilityAddTraits(streamingSelected ? .isSelected : [])
+                    .accessibilityIdentifier(store.streamingAvailable ? "homeBrowse-streaming" : "homeBrowse-savedStreaming")
                 }
-                .buttonStyle(LuminaUnderlineTabStyle(selected: streamingSelected, alignsWithMasthead: true))
-                .accessibilityValue(streamingSelected ? "Selected" : "")
-                .accessibilityAddTraits(streamingSelected ? .isSelected : [])
-                .accessibilityIdentifier("homeBrowse-streaming")
             }
             .frame(maxWidth: .infinity)
 
@@ -1383,6 +1412,10 @@ private struct TVLibraryView: View {
         .frame(height: 64)
     }
 
+    private var showsSavedStreaming: Bool {
+        !store.streamingAvailable && store.availableLibraryCategories.contains("youtube")
+    }
+
     private var primaryCategories: [HomeBrowsingDestination] {
         [.movies, .tv, .anime, .music, .watchlist].filter {
             $0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue)
@@ -1398,6 +1431,7 @@ private struct TVLibraryView: View {
             case .tv: .tv
             case .anime: .anime
             case .music: .music
+            case .streaming: nil
             }
         case .streaming:
             nil
@@ -2019,11 +2053,10 @@ private enum TVStreamingTab: Hashable {
     case saved, recommendations, live
 }
 
-/// Streaming is always a library destination. Server-downloaded videos remain
-/// available here even when remote discovery and playback are not configured.
 private struct TVStreamingView: View {
     let store: LuminaStore
     let onOpen: (MediaItem) -> Void
+    let savedOnly: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var savedLibrary: LuminaStreamingLibrary
     @State private var remoteFeed: LuminaHomeFeed
@@ -2032,9 +2065,10 @@ private struct TVStreamingView: View {
     @State private var hasUserSelectedTab = false
     @FocusState private var focusedTab: TVStreamingTab?
 
-    init(store: LuminaStore, onOpen: @escaping (MediaItem) -> Void) {
+    init(store: LuminaStore, onOpen: @escaping (MediaItem) -> Void, savedOnly: Bool = false) {
         self.store = store
         self.onOpen = onOpen
+        self.savedOnly = savedOnly
         _savedLibrary = State(initialValue: LuminaStreamingLibrary(session: store.session))
         _remoteFeed = State(initialValue: LuminaHomeFeed(session: store.session, includesExternalSources: true))
     }
@@ -2055,38 +2089,42 @@ private struct TVStreamingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 34) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Streaming")
-                        .font(LuminaTheme.editorial(52, relativeTo: .title2, italic: true))
-                        .foregroundStyle(LuminaTheme.ink)
-                    Text(remoteAvailable ? "Recommendations, live streams, and saved videos." : "Videos saved from YouTube, Twitch, and other sources.")
-                        .font(.body)
-                        .foregroundStyle(LuminaTheme.muted)
-                }
-
-                HStack(spacing: 22) {
-                    streamingTab("Saved", tab: .saved, identifier: "streamingDownloadedTab")
-                    if remoteAvailable {
-                        streamingTab("For you", tab: .recommendations, identifier: "streamingRecommendationsTab")
+                if savedOnly {
+                    savedContent
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Streaming")
+                            .font(LuminaTheme.editorial(52, relativeTo: .title2, italic: true))
+                            .foregroundStyle(LuminaTheme.ink)
+                        Text(remoteAvailable ? "Recommendations, live streams, and saved videos." : "Videos saved from YouTube, Twitch, and other sources.")
+                            .font(.body)
+                            .foregroundStyle(LuminaTheme.muted)
                     }
-                    if remoteAvailable && remoteLiveAvailable {
-                        streamingTab("Live", tab: .live, identifier: "streamingLiveTab")
-                    }
-                    Spacer()
-                    Button("Refresh") { Task { await load() } }
-                        .buttonStyle(LuminaUnderlineTabStyle())
-                        .disabled(savedLibrary.isBusy || remoteFeed.isLoading)
-                }
-                .focusSection()
 
-                Group {
-                    switch selectedTab {
-                    case .saved:
-                        savedContent
-                    case .recommendations:
-                        remoteContent(items: recommendationItems, emptyTitle: "Nothing recommended yet", emptyMessage: "Try again once your server has new recommendations.")
-                    case .live:
-                        remoteContent(items: liveItems, emptyTitle: "No live streams right now", emptyMessage: "Live sources will appear here when they are available.")
+                    HStack(spacing: 22) {
+                        streamingTab("Saved", tab: .saved, identifier: "streamingDownloadedTab")
+                        if remoteAvailable {
+                            streamingTab("For you", tab: .recommendations, identifier: "streamingRecommendationsTab")
+                        }
+                        if remoteAvailable && remoteLiveAvailable {
+                            streamingTab("Live", tab: .live, identifier: "streamingLiveTab")
+                        }
+                        Spacer()
+                        Button("Refresh") { Task { await load() } }
+                            .buttonStyle(LuminaUnderlineTabStyle())
+                            .disabled(savedLibrary.isBusy || remoteFeed.isLoading)
+                    }
+                    .focusSection()
+
+                    Group {
+                        switch selectedTab {
+                        case .saved:
+                            savedContent
+                        case .recommendations:
+                            remoteContent(items: recommendationItems, emptyTitle: "Nothing recommended yet", emptyMessage: "Try again once your server has new recommendations.")
+                        case .live:
+                            remoteContent(items: liveItems, emptyTitle: "No live streams right now", emptyMessage: "Live sources will appear here when they are available.")
+                        }
                     }
                 }
             }
@@ -2095,13 +2133,13 @@ private struct TVStreamingView: View {
             .padding(.bottom, 80)
         }
         .background(LuminaTheme.theater)
-        .accessibilityIdentifier("streamingScreen")
+        .accessibilityIdentifier(savedOnly ? "savedStreamingLibrary" : "streamingScreen")
         .task(id: TVHomeSessionScope(store.session)) {
             await load()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await refreshRemoteContent() }
+            Task { await load() }
         }
         .fullScreenCover(item: $selectedRemote) { item in
             NativeRemotePlayer(store: store, item: item)
@@ -2167,6 +2205,10 @@ private struct TVStreamingView: View {
 
     private func load() async {
         savedLibrary.configure(session: store.session)
+        if savedOnly {
+            await savedLibrary.load()
+            return
+        }
         remoteFeed.configure(session: store.session)
         async let saved: Void = savedLibrary.load()
         await refreshRemoteContent()

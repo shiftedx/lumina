@@ -36,15 +36,9 @@ final class NativeActorLibraryTests: NativeProofJourney {
 
 @MainActor
 final class NativeStreamingTests: NativeProofJourney {
-#if os(iOS)
     func testSavedStreamingUsesLibraryWhenRemoteStreamingIsDisabled() async throws {
         try await journeyNativeStreaming(remoteEnabled: false)
     }
-#else
-    func testSavedProviderVideosRemainAvailableWhenRemoteStreamingIsDisabled() async throws {
-        try await journeyNativeStreaming(remoteEnabled: false)
-    }
-#endif
     func testConfiguredStreamingShowsRecommendationsLiveAndServerPlayback() async throws {
         try await journeyNativeStreaming(remoteEnabled: true)
     }
@@ -618,7 +612,12 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(element("streamingScreen"), timeout: 25, named: "Streaming destination")
         }
         #else
-        try selectTVLibraryCategory("streaming", screen: "streamingScreen")
+        if remoteEnabled {
+            try selectTVLibraryCategory("streaming", screen: "streamingScreen")
+        } else {
+            XCTAssertFalse(element("homeBrowse-streaming").exists)
+            try selectTVLibraryCategory("savedStreaming", screen: "savedStreamingLibrary")
+        }
         #endif
         if remoteEnabled {
             try waitForExistence(element("streamingRecommendationsTab"), timeout: 25, named: "configured recommendations")
@@ -660,11 +659,7 @@ class NativeProofJourney: XCTestCase {
             XCTAssertFalse(element("streamingRecommendationsTab").exists)
             XCTAssertFalse(element("streamingLiveTab").exists)
         }
-        #if os(iOS)
         if remoteEnabled { try activateStreamingTab("streamingDownloadedTab") }
-        #else
-        try activateStreamingTab("streamingDownloadedTab")
-        #endif
         try waitForExistence(element("streamingSaved-\(youtubeID)"), timeout: 25, named: "saved YouTube video")
         try waitForExistence(element("streamingSaved-\(twitchID)"), timeout: 25, named: "saved Twitch video")
         try attachFrame(named: remoteEnabled ? "Configured Streaming saved library" : "Saved Streaming without external opt-in")

@@ -5380,7 +5380,8 @@ struct TitleDetailView: View {
         MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false,
                        showsMetadata: currentItem.isAudio, artworkFirst: !currentItem.isAudio,
                        compactMinimumHeight: currentItem.isAudio ? nil : 0,
-                       wideMinimumHeight: currentItem.isAudio ? nil : 0) {
+                       wideMinimumHeight: currentItem.isAudio ? nil : 0,
+                       bottomContentClearance: !currentItem.isAudio && usesStandardPhonePushedChrome ? 100 : 0) {
             if !currentItem.isAudio { detailHeroMetadata }
             if currentItem.isPlayable {
                 playbackActions

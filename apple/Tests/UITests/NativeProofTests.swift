@@ -2384,14 +2384,14 @@ class NativeProofJourney: XCTestCase {
         #if os(iOS)
         let play = element("playButton")
         try waitForExistence(play, timeout: 20, named: "playButton")
-        try revealDetailElement(play, in: element("detailScreen"), named: "playButton", requiresHittable: false)
-        // The rendered Resume control can be visible without XCTest reporting
-        // it hittable; tap its observed public button frame directly.
         if usesStandardPhonePushedChrome {
-            let visible = play.frame.intersection(try standardPhoneNavigationViewport())
+            let viewport = try standardPhoneNavigationViewport()
+            XCTAssertTrue(isFullyVerticallyContained(play.frame, in: viewport),
+                          "The initial detail Play action must clear the floating tab bar.")
             application!.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: visible.midX, dy: visible.midY)).tap()
+                .withOffset(CGVector(dx: play.frame.midX, dy: play.frame.midY)).tap()
         } else {
+            try revealDetailElement(play, in: element("detailScreen"), named: "playButton", requiresHittable: false)
             play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")

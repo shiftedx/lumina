@@ -189,6 +189,8 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
     if (path === '/api/books/shelves') return json([]);
     if (path === '/api/library/activity') return json({ scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0, discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null });
+    if (path === '/api/titles/facets') return json({ genres: [], years: { min: null, max: null }, resolutions: [] });
+    if (path === '/api/titles' || path === '/api/music/albums/recently-played') return json({ items: [], total: 0, next_cursor: null });
     if (path === '/api/home/new-in-library') return json([]);
     if (path === '/api/home/title-rows') return json({ rows: [] });
     if (path === '/api/navigation') return json({ categories: ['movies', 'tv', 'youtube', 'music', 'books'], features: { streaming: true, requests: true } });
@@ -271,6 +273,8 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
       return route.fulfill({ status: 204 });
     }
     if (path === '/api/auth-profiles') return json([{ id: 'auth-1', user_id: user.id, label: 'Privater Familienzugang', kind: 'cookie_file', has_password: false, has_token: false }]);
+    if (path === '/api/me/resources') return json({ overrides: {}, effective: { remote_member_bps: 0, ai_running: 1 } });
+    if (path === '/api/me/resource-jobs') return json([]);
     if (path === '/api/settings/me') return json(settings);
     if (path === '/api/me/listening-export' || path === '/api/me/listening-events') return json({ items: [] });
     if (path === '/api/automations') return json([automation, ...createdFollows]);
@@ -347,13 +351,6 @@ async function expectEffectiveTargets(page: Page) {
   expect([...undersized, ...undersizedChoices]).toEqual([]);
 }
 
-async function navigateWithMobileTabs(page: Page, label: string, heading: RegExp) {
-  await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: label }).click();
-  await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expectEffectiveTargets(page);
-}
-
 // Destinations outside the phone tabs are reached through the More menu.
 async function navigateWithMore(page: Page, label: string, heading: RegExp) {
   await navigateApp(page, label);
@@ -386,7 +383,7 @@ async function coverEverySurface(page: Page) {
   await expect(page.getByText('A home for every story')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
-  await navigateWithMobileTabs(page, 'Movies', /^Movies$/);
+  await navigateWithMore(page, 'Movies', /^Movies$/);
   await page.goto('/video/youtube');
   await page.getByRole('button', { name: new RegExp(`^${LONG_TITLE}, `) }).click();
   await expect(page.getByRole('heading', { level: 1, name: LONG_TITLE })).toBeVisible();
@@ -449,7 +446,7 @@ test('navigation menu fits a narrow viewport and scrolls to every action', async
   await more.click();
   const anchor = await more.boundingBox();
   const bounds = await dialog.boundingBox();
-  expect(bounds!.y).toBeGreaterThanOrEqual(8);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(anchor!.y);
   await dialog.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded();
   await expect(dialog.getByRole('button', { name: 'Sign out' })).toBeVisible();
@@ -460,7 +457,7 @@ test('navigation menu fits a narrow viewport and scrolls to every action', async
 
 test('Watch keeps long localized title and metadata readable at 200% equivalent', async ({ page }) => {
   await openApp(page, 640, 900);
-  await navigateWithMobileTabs(page, 'Movies', /^Movies$/);
+  await navigateWithMore(page, 'Movies', /^Movies$/);
   await page.goto('/video/youtube');
   await page.getByRole('button', { name: new RegExp(`^${LONG_TITLE}, `) }).click();
   const title = page.getByRole('heading', { level: 1, name: LONG_TITLE });

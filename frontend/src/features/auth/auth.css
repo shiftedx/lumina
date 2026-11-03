@@ -58,7 +58,7 @@
 .g-picker-tile[aria-disabled='true'] { cursor: default; }
 .g-picker-tile.is-asking { width: 260px; cursor: default; }
 .g-picker-name { font: var(--g-type-h3); }
-.g-picker-label { min-height: 1em; color: var(--g-ink-3); }
+.g-picker-label { min-height: 1em; color: var(--g-ink-2); }
 .g-picker-plus { display: grid; width: 96px; height: 96px; place-items: center; border-radius: var(--g-radius-round); }
 .g-picker-problem { margin: 0; color: var(--g-danger); font: var(--g-type-ui); }
 

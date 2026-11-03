@@ -133,7 +133,7 @@
 .settings-card { display: flex; min-width: 0; min-height: 220px; flex-direction: column; justify-content: space-between; padding: 24px; border-radius: var(--g-radius-sheet); background: var(--g-wash); overflow-wrap: anywhere; }
 .settings-card > header { display: flex; align-items: center; gap: 13px; }
 .settings-card h2 { margin: 0; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 26px; font-weight: 400; }
-.settings-card p { margin: 5px 0 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.6; }
+.settings-card p { margin: 5px 0 0; color: var(--g-ink-2); font-size: 11px; line-height: 1.6; }
 .settings-card .g-button { align-self: flex-start; }
 .settings-note strong { color: var(--g-ink-2); font-weight: 500; }
 .library-curation-controls > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
@@ -425,7 +425,7 @@
 .g-settings-summary, .settings-section-summary { font-size: 13px; line-height: 1.45; }
 .g-settings-scope { color: var(--g-ink-3); font: var(--g-type-small); }
 .g-settings-jumps { gap: 4px 16px; margin-bottom: 20px; padding-bottom: 12px; }
-.g-settings-page-link { min-height: 36px; font-size: 13px; }
+.g-settings-page-link { font-size: 13px; }
 .g-settings-group { margin-bottom: 32px; }
 .g-settings-group-title { margin: 0 0 10px; font: 500 17px / 1.35 var(--g-sans); }
 .g-settings-rows { padding: 0; border-radius: 0; background: none; }

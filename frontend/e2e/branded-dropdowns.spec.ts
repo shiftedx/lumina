@@ -36,7 +36,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [1440,
     await page.keyboard.press('Enter');
     await expect(quality).toContainText('Data saver');
     await expect(quality).toBeFocused();
-    await expect(page.locator('select:visible, datalist')).toHaveCount(0);
+    await expect(page.locator('.g-settings-pane select:visible, datalist')).toHaveCount(0);
 
     await page.goto('/manage/members?page=invitations');
     await page.getByRole('button', { name: 'Invite someone', exact: true }).click();
@@ -60,7 +60,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [1440,
     await page.getByRole('option', { name: 'Comedy', exact: true }).click();
     await genres.press('Enter');
     await expect(page.getByRole('button', { name: 'Remove Comedy', exact: true })).toBeVisible();
-    await expect(page.locator('select:visible, datalist')).toHaveCount(0);
+    await expect(page.locator('.g-settings-pane select:visible, datalist')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }

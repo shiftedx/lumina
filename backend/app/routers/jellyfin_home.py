@@ -231,10 +231,12 @@ def _collections(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session)
     return rows
 
 
-def _external_row(shelf_id: str, title: str, entries: list, caller: JellyfinCaller, db: Session) -> dict | None:
+def _external_row(
+    shelf_id: str, title: str, entries: list, caller: JellyfinCaller, db: Session, *, seen: set[str] | None = None,
+) -> dict | None:
     """Read-only source handoffs: metadata never grants native extraction or acquisition."""
     items: list[dict] = []
-    seen: set[str] = set()
+    seen = set() if seen is None else seen
     for value in entries:
         entry = value.model_dump(mode="json") if hasattr(value, "model_dump") else value
         if not isinstance(entry, dict):
@@ -381,9 +383,40 @@ def _external_rows(request: Request, caller: JellyfinCaller, db: Session, visibl
     return rows
 
 
+def _streaming_rows(request: Request, caller: JellyfinCaller, db: Session) -> list[dict]:
+    """Browse cached discovery independently of the member's Home shelf layout."""
+    from app.main import live_now
+
+    if not native_streaming_enabled(db, caller.user):
+        return []
+    rows = [row for row in _external_rows(request, caller, db, {"picked_for_you", "from_follows"}).values() if row]
+    try:
+        streaming_gate.check(db, caller.user, "live", beyond_follows=True)
+        snapshot = live_now(request, caller.user, db)
+    except HTTPException as error:
+        if error.status_code in {403, 429, 503}:
+            return rows
+        raise
+    groups = [("live-followed", "Live from your follows", getattr(snapshot, "hero", []))]
+    groups.extend(
+        (f"live-{category.key}", category.label,
+         [item for item in snapshot.items if category.key in getattr(item, "category_keys", ())])
+        for category in getattr(snapshot, "categories", ())
+    )
+    groups.append(("live", "Live now", snapshot.items))
+    seen: set[str] = set()
+    for identifier, title, entries in groups:
+        if row := _external_row("live", title, entries, caller, db, seen=seen):
+            row["id"] = identifier
+            rows.append(row)
+    return rows
+
+
 @router.get("/rows")
-def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = False) -> dict[str, object]:
+def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = False, streaming_only: bool = False) -> dict[str, object]:
     """The shared Home sources: local playback DTOs plus read-only external source links."""
+    if streaming_only:
+        return {"rows": _streaming_rows(request, caller, db)}
     settings = UserSettingsService(db).snapshot_for_user(caller.user)
     layout = _layout_from_prefs(settings.ui_prefs) or _normalize_shelves([])
     mapper = jf.JellyfinMapper(db, caller.user)

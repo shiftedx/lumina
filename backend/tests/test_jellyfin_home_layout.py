@@ -247,6 +247,26 @@ def test_external_home_sources_are_opt_in_member_scoped_and_bounded(native: Test
     assert external["from_follows"]["external_items"][0]["url"].endswith("v=follow")
     assert external["from_follows"]["external_items"][0]["artwork_url"] is None
     assert len(external["from_follows"]["external_items"]) == 1
+    from app.schemas import PopularItemResponse
+
+    music = PopularItemResponse(**{**public, "webpage_url": "https://www.youtube.com/watch?v=music"}, category_keys=["music", "gaming"])
+    gaming = PopularItemResponse(**{**public, "webpage_url": "https://www.youtube.com/watch?v=gaming"}, category_keys=["gaming"])
+    monkeypatch.setattr(main, "live_now", lambda *_: SimpleNamespace(
+        hero=[PopularItemResponse(**public)], items=[music, gaming],
+        categories=[SimpleNamespace(key="music", label="Music"), SimpleNamespace(key="gaming", label="Gaming")],
+    ))
+    assert call(native, "PUT", json={"shelves": [
+        {"id": key, "visible": False} for key in ("live", "picked_for_you", "from_follows")
+    ]}).status_code == 200
+    assert not any(row.get("external_items") for row in native.get(
+        ROWS, params={"include_external": True}, headers=mediabrowser(ALICE_TOKEN),
+    ).json()["rows"])
+    streaming = native.get(ROWS, params={"streaming_only": True}, headers=mediabrowser(ALICE_TOKEN))
+    assert streaming.status_code == 200
+    browse_rows = {row["id"]: row for row in streaming.json()["rows"]}
+    assert set(browse_rows) == {"picked_for_you", "from_follows", "live-followed", "live-music", "live-gaming"}
+    assert [item["url"] for item in browse_rows["live-gaming"]["external_items"]] == [gaming.webpage_url]
+
     bob = native.get(ROWS, params={"include_external": True}, headers=mediabrowser(BOB_TOKEN))
     assert not any(row["shelf_id"] == "from_follows" for row in bob.json()["rows"])
     # Browser and native source discovery share the same member restrictions.
@@ -259,3 +279,4 @@ def test_external_home_sources_are_opt_in_member_scoped_and_bounded(native: Test
     blocked = native.get(ROWS, params={"include_external": True}, headers=mediabrowser(ALICE_TOKEN))
     assert blocked.status_code == 200
     assert not any(row.get("external_items") for row in blocked.json()["rows"])
+    assert native.get(ROWS, params={"streaming_only": True}, headers=mediabrowser(ALICE_TOKEN)).json()["rows"] == []

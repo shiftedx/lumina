@@ -2043,7 +2043,7 @@ private struct NativeStreamingView: View {
     }
 
     @State private var savedLibrary = LuminaStreamingLibrary()
-    @State private var remoteFeed = LuminaHomeFeed(includesExternalSources: true)
+    @State private var remoteFeed = LuminaHomeFeed(streamingOnly: true)
     @State private var section: Section = .saved
     @State private var sectionOwner: MobileHomeSessionScope?
     @Environment(\.playRemoteStream) private var playRemoteStream
@@ -2087,7 +2087,7 @@ private struct NativeStreamingView: View {
                         remoteRowsView(recommendationRows, emptyTitle: "Nothing recommended yet",
                                        emptyDetail: "Recommendations will appear when your connected services have something new.")
                     case .live:
-                        remoteRowsView(liveRows, emptyTitle: "Nothing live right now",
+                        remoteRowsView(liveRows, usesGrid: true, emptyTitle: "Nothing live right now",
                                        emptyDetail: "Live streams from connected services will appear here.")
                     case .saved:
                         savedLibraryView
@@ -2144,9 +2144,11 @@ private struct NativeStreamingView: View {
     }
 
     @ViewBuilder
-    private func remoteRowsView(_ rows: [RemoteRow], emptyTitle: String, emptyDetail: String) -> some View {
+    private func remoteRowsView(_ rows: [RemoteRow], usesGrid: Bool = false, emptyTitle: String, emptyDetail: String) -> some View {
         if remoteFeed.isLoading && rows.isEmpty {
             LibraryLoadingView()
+        } else if rows.isEmpty && remoteFeed.errorMessage != nil {
+            InlineErrorView(message: "Couldn't load streaming discovery.") { Task { await load() } }
         } else if rows.isEmpty {
             ContentUnavailableView(emptyTitle, systemImage: "dot.radiowaves.left.and.right", description: Text(emptyDetail))
         } else {
@@ -2154,28 +2156,39 @@ private struct NativeStreamingView: View {
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(row.title).font(.title3.weight(.bold))
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(alignment: .top, spacing: 12) {
+                        if usesGrid {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 240 : 150),
+                                                        spacing: 14)], alignment: .leading, spacing: 18) {
                                 ForEach(row.items) { item in
-                                    if item.sourceURL != nil {
-                                        Button { playRemoteStream(item) } label: {
+                                    remoteCard(item) { StreamingRemoteCard(item: item) }
+                                }
+                            }
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(alignment: .top, spacing: 12) {
+                                    ForEach(row.items) { item in
+                                        remoteCard(item) {
                                             StreamingRemoteCard(item: item)
                                                 .containerRelativeFrame(.horizontal) { width, _ in min(292, width * 0.76) }
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityIdentifier("streamingRemote-\(item.id)")
-                                        .accessibilityLabel("\(item.title), \(item.subtitle)")
                                     }
                                 }
+                                .scrollTargetLayout()
                             }
-                            .scrollTargetLayout()
+                            .scrollTargetBehavior(.viewAligned)
+                            .modifier(LuminaCarouselEdges())
                         }
-                        .scrollTargetBehavior(.viewAligned)
-                        .modifier(LuminaCarouselEdges())
                     }
                 }
             }
         }
+    }
+
+    private func remoteCard<Card: View>(_ item: HomeExternalItem, @ViewBuilder label: () -> Card) -> some View {
+        Button { playRemoteStream(item) } label: { label() }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("streamingRemote-\(item.id)")
+            .accessibilityLabel("\(item.title), \(item.subtitle)")
     }
 
     private func deduplicatedRemoteRows(_ rows: [HomeFeedRow]) -> [RemoteRow] {

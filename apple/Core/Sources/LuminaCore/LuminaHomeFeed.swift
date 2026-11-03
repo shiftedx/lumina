@@ -128,18 +128,21 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
     private var session: LuminaSession?
     private let client: LuminaClient
     private let includesExternalSources: Bool
+    private let streamingOnly: Bool
     private var sessionGeneration = 0
     private var operationGeneration = 0
     private var seenRecommendations = Set<String>()
     private var hiddenTitleIDs = [String: String]()
 
-    public init(session: LuminaSession? = nil, includesExternalSources: Bool = false) {
+    public init(session: LuminaSession? = nil, includesExternalSources: Bool = false, streamingOnly: Bool = false) {
+        self.streamingOnly = streamingOnly
         self.includesExternalSources = includesExternalSources
         self.session = session
         client = LuminaClient()
     }
 
     init(session: LuminaSession?, client: LuminaClient, includesExternalSources: Bool = false) {
+        streamingOnly = false
         self.includesExternalSources = includesExternalSources
         self.session = session
         self.client = client
@@ -316,7 +319,8 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         var request = client.request(
             origin: session.serverURL,
             path: "/Lumina/Home/rows",
-            query: includesExternalSources ? [URLQueryItem(name: "include_external", value: "true")] : [],
+            query: streamingOnly ? [URLQueryItem(name: "streaming_only", value: "true")]
+                : includesExternalSources ? [URLQueryItem(name: "include_external", value: "true")] : [],
             token: session.accessToken,
             deviceID: session.deviceID
         )

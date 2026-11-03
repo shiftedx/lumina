@@ -41,6 +41,15 @@ export async function throttledPage(browser: Browser, baseURL: string, profile: 
  * goes through the app's popstate handler and openRoute, as any Play does. Returns the page-clock time of the click.
  */
 export async function openWatch(page: Page, libraryId: string, settleMs = 0): Promise<number> {
+  // Earlier journeys may leave resume progress on the shared owner. A cold
+  // Play sample starts from the beginning without a resume-choice dialog.
+  const session = await page.request.get('/api/session/me');
+  expect(session.ok()).toBe(true);
+  const { csrf_token: csrf } = await session.json() as { csrf_token: string };
+  const cleared = await page.request.delete(`/api/library/${libraryId}/playback`, {
+    headers: { Origin: new URL(session.url()).origin, 'X-CSRF-Token': csrf },
+  });
+  expect(cleared.status(), await cleared.text()).toBe(204);
   await page.goto('/library');
   await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
   if (settleMs) await page.waitForTimeout(settleMs); // a person looks at the page first; idle preloads (1.5 s) have run

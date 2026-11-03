@@ -75,7 +75,7 @@
   .gallery .g-artist-head { grid-template-columns: 1fr; margin-top: 24px; }
   .gallery .g-artist-image { width: 160px; }
   .gallery .g-album-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .gallery.g-artist-page .soundstage-layout { display: grid; margin-top: 12px; }
+  .gallery.g-artist-page .soundstage-layout { display: block; margin-top: 12px; }
   .gallery.g-artist-page .soundstage-portrait { width: min(100%, 380px); margin: 0 auto; }
   .gallery.g-artist-page .soundstage-records .g-album-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

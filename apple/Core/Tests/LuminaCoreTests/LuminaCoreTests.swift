@@ -68,6 +68,17 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertThrowsError(try TVPairingApprovalLink(scannedCode: "{\"type\":\"lumina-tv-pair\",\"version\":1,\"server_url\":\"https://lumina.example\",\"server_id\":\"server-1\",\"code\":\"O0IL1234\"}"))
     }
 
+    func testTVPairingHandoffAcceptsOnlyTheNearbyQRShape() throws {
+        let handoff = TVPairingHandoff()
+        XCTAssertEqual(try TVPairingHandoff(link: handoff.link), handoff)
+        var link = try XCTUnwrap(URLComponents(url: handoff.link, resolvingAgainstBaseURL: false))
+        link.queryItems = [URLQueryItem(name: "server", value: "https://other.example")]
+        XCTAssertThrowsError(try TVPairingHandoff(link: XCTUnwrap(link.url)))
+        link.query = nil
+        link.fragment = "short"
+        XCTAssertThrowsError(try TVPairingHandoff(link: XCTUnwrap(link.url)))
+    }
+
     func testTVApprovalNeverUsesScannedOriginOrChangesPhoneSession() async throws {
         let active = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "phone-token",
                                    userID: "member-1", username: "member", serverName: "Lumina", deviceID: "phone-device")

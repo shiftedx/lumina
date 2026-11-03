@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import Network
 
 public struct TVPairingRequest: Decodable, Sendable, Hashable {
     public let id: String
@@ -173,5 +175,156 @@ extension TVPairingRequest {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) != nil || ISO8601DateFormatter().date(from: value) != nil
+    }
+}
+
+// The QR is the out-of-band key. Bonjour advertises only a random service name.
+public struct TVPairingHandoff: Hashable, Sendable {
+    private static let serviceType = "_lumina-pair._tcp"
+    private static let limit = 8_192
+    private let serviceName: String
+    private let keyData: Data
+
+    public init() {
+        serviceName = UUID().uuidString.lowercased()
+        keyData = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    }
+
+    public init(link: URL) throws {
+        guard let parts = URLComponents(url: link, resolvingAgainstBaseURL: false),
+              parts.scheme == "lumina", parts.host == "connect-tv",
+              parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil,
+              parts.path.count == 37, let id = UUID(uuidString: String(parts.path.dropFirst())),
+              let secret = parts.fragment, secret.utf8.count == 44,
+              let key = Data(base64Encoded: secret), key.count == 32 else {
+            throw LuminaError.malformedResponse
+        }
+        serviceName = id.uuidString.lowercased()
+        keyData = key
+    }
+
+    public var link: URL {
+        // Both components have fixed alphabets and are generated or validated above.
+        URL(string: "lumina://connect-tv/\(serviceName)#\(keyData.base64EncodedString())")!
+    }
+
+    public func requestApproval(serverURL: URL) async throws -> TVPairingApprovalLink {
+        let origin = try ServerOrigin(serverURL.absoluteString).url
+        let endpoint = NWEndpoint.service(name: serviceName, type: Self.serviceType, domain: "local.", interface: nil)
+        let connection = NWConnection(to: endpoint, using: Self.parameters())
+        return try await Self.exchange(connection, timeout: .seconds(20)) {
+            try await send(origin.absoluteString, on: connection, response: false)
+            let raw = try await receive(on: connection, response: true)
+            guard let url = URL(string: raw) else { throw LuminaError.malformedResponse }
+            let approval = try TVPairingApprovalLink(deepLink: url)
+            guard approval.serverURL == origin else { throw LuminaError.malformedResponse }
+            return approval
+        }
+    }
+
+    public func awaitPhone(
+        startPairing: @MainActor @Sendable (URL) async throws -> TVPairingRequest
+    ) async throws {
+        let listener = try NWListener(using: Self.parameters())
+        listener.service = NWListener.Service(name: serviceName, type: Self.serviceType)
+        let (connections, input) = AsyncThrowingStream<NWConnection, Error>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        listener.newConnectionHandler = { connection in
+            switch input.yield(connection) {
+            case .dropped(let dropped): dropped.cancel()
+            case .terminated: connection.cancel()
+            default: break
+            }
+        }
+        listener.stateUpdateHandler = { state in
+            if case .failed(let error) = state { input.finish(throwing: error) }
+        }
+        let expiry = Task {
+            try await Task.sleep(for: .seconds(300))
+            input.finish(throwing: URLError(.timedOut))
+        }
+        listener.start(queue: .global(qos: .userInitiated))
+        defer {
+            expiry.cancel()
+            listener.cancel()
+            input.finish()
+        }
+        for try await connection in connections {
+            // Ignore unauthenticated local probes. Only a valid QR holder may
+            // select a server and cause the listener to stop accepting requests.
+            let accepted = try await Self.exchange(connection, timeout: .seconds(20)) {
+                let origin: URL
+                do {
+                    origin = try ServerOrigin(try await receive(on: connection, response: false)).url
+                } catch {
+                    try Task.checkCancellation()
+                    return false
+                }
+                try Task.checkCancellation()
+                let request = try await startPairing(origin)
+                try await send(try request.qrLink(serverURL: origin).absoluteString, on: connection, response: true)
+                return true
+            }
+            if accepted { return }
+        }
+        try Task.checkCancellation()
+    }
+
+    private static func parameters() -> NWParameters {
+        let parameters = NWParameters.tcp
+        let webSocket = NWProtocolWebSocket.Options()
+        webSocket.maximumMessageSize = limit
+        parameters.defaultProtocolStack.applicationProtocols.insert(webSocket, at: 0)
+        return parameters
+    }
+
+    private static func exchange<Result>(
+        _ connection: NWConnection, timeout: Duration, operation: () async throws -> Result
+    ) async throws -> Result {
+        let expiry = Task {
+            try await Task.sleep(for: timeout)
+            connection.cancel()
+        }
+        defer {
+            expiry.cancel()
+            connection.cancel()
+        }
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            connection.start(queue: .global(qos: .userInitiated))
+            return try await operation()
+        } onCancel: {
+            connection.cancel()
+        }
+    }
+
+    private func authenticationContext(response: Bool) -> Data {
+        Data("lumina-tv-handoff/1/\(serviceName)/\(response ? "approval" : "origin")".utf8)
+    }
+
+    private func send(_ message: String, on connection: NWConnection, response: Bool) async throws {
+        let sealed = try ChaChaPoly.seal(Data(message.utf8), using: SymmetricKey(data: keyData),
+                                         authenticating: authenticationContext(response: response))
+        guard sealed.combined.count <= Self.limit else { throw LuminaError.malformedResponse }
+        let context = NWConnection.ContentContext(identifier: "handoff", metadata: [NWProtocolWebSocket.Metadata(opcode: .binary)])
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: sealed.combined, contentContext: context, isComplete: true, completion: .contentProcessed { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            })
+        }
+    }
+
+    private func receive(on connection: NWConnection, response: Bool) async throws -> String {
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            connection.receiveMessage { data, _, complete, error in
+                if let error { continuation.resume(throwing: error) }
+                else if let data, complete, data.count <= Self.limit { continuation.resume(returning: data) }
+                else { continuation.resume(throwing: LuminaError.malformedResponse) }
+            }
+        }
+        let plain = try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: data), using: SymmetricKey(data: keyData),
+                                        authenticating: authenticationContext(response: response))
+        guard let message = String(data: plain, encoding: .utf8) else { throw LuminaError.malformedResponse }
+        return message
     }
 }

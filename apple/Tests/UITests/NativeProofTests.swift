@@ -1,5 +1,9 @@
 import Foundation
 import XCTest
+import LuminaCore
+#if os(tvOS)
+import CoreImage
+#endif
 #if os(iOS)
 import AVFoundation
 #endif
@@ -51,6 +55,9 @@ final class NativeTVPhoneEnrollmentTests: NativeProofJourney {
         try await journeyTVPhoneEnrollment()
     }
     #else
+    func testEnrolledPhoneSuppliesItsServerAndOpensTVApproval() async throws {
+        try await journeyPhoneApprovesTV(useDeepLink: true, nearby: true)
+    }
     func testEnrolledPhoneApprovesTVFromAccountWithoutSigningOut() async throws {
         try await journeyPhoneApprovesTV(useDeepLink: false)
     }
@@ -710,12 +717,29 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password,
                                                   deviceID: "proof-enrolled-phone-\(isolationID)")
         try launchAndResetSession()
-        try enter(fixture.serverURL, into: element("serverURLField"))
+        XCTAssertFalse(element("serverURLField").exists)
+        XCTAssertFalse(element("passwordField").exists)
+        try attachFrame(named: "Apple TV welcome")
         try activate(element("tvPairingStartButton"))
-        try waitForExistence(element("tvPairingQRCode"), timeout: 30, named: "Apple TV pairing QR")
-        let code = element("tvPairingCode").label.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "")
-        XCTAssertEqual(code.count, 8)
-        try attachFrame(named: "Apple TV displays phone approval QR and code")
+        let qr = element("tvPairingQRCode")
+        try waitForExistence(qr, timeout: 15, named: "Apple TV pairing QR before server entry")
+        XCTAssertFalse(element("serverURLField").exists)
+        try attachFrame(named: "Apple TV phone sign-in QR")
+        let image = try XCTUnwrap(qr.screenshot().image.cgImage)
+        let scan = try XCTUnwrap(CIDetector(ofType: CIDetectorTypeQRCode, context: nil,
+                                          options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]))
+        let barcode = try XCTUnwrap(scan.features(in: CIImage(cgImage: image)).first as? CIQRCodeFeature,
+                                    "The rendered TV code must be scannable.")
+        XCTAssertEqual(barcode.bounds.midX / CGFloat(image.width), 0.5, accuracy: 0.025,
+                       "The QR must be centered horizontally.")
+        XCTAssertEqual(barcode.bounds.midY / CGFloat(image.height), 0.5, accuracy: 0.025,
+                       "The QR must be centered vertically.")
+        let link = try XCTUnwrap(barcode.messageString.flatMap { URL(string: $0) })
+        let approval = try await TVPairingHandoff(link: link).requestApproval(serverURL: origin)
+        let code = approval.code
+        try waitForExistence(element("tvPairingCode"), timeout: 15, named: "Apple TV confirmation code")
+        XCTAssertEqual(element("tvPairingCode").label, code)
+        try attachFrame(named: "Apple TV awaits phone approval")
         let preview = try await api.devicePairing("Inspect", identity: identity, body: ["code": code])
         XCTAssertEqual(preview["code"] as? String, code)
         XCTAssertEqual(preview["status"] as? String, "pending")
@@ -730,7 +754,7 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
     #else
-    func journeyPhoneApprovesTV(useDeepLink: Bool) async throws {
+    func journeyPhoneApprovesTV(useDeepLink: Bool, nearby: Bool = false) async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
@@ -739,11 +763,32 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture, waitsForAccount: false)
         let pending = try await api.devicePairing("Start", body: ["device_name": "Proof Living Room Apple TV"])
-        guard let code = pending["code"] as? String,
-              let id = pending["id"] as? String,
-              let secret = pending["device_secret"] as? String,
-              let serverID = pending["server_id"] as? String else { throw ProofAPIError.malformedResponse }
-        if useDeepLink {
+        let request = try JSONDecoder().decode(TVPairingRequest.self, from: JSONSerialization.data(withJSONObject: pending))
+        let code = request.code
+        let id = request.id
+        let secret = request.deviceSecret
+        let serverID = request.serverID
+        if nearby {
+            let handoff = TVPairingHandoff()
+            let tv = Task {
+                try await handoff.awaitPhone { receivedOrigin in
+                    XCTAssertEqual(receivedOrigin, origin, "The phone supplies its authenticated server origin.")
+                    return request
+                }
+            }
+            defer { tv.cancel() }
+            application!.open(handoff.link)
+            let approval = element("tvPairingApprovalScreen")
+            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let allowLocalNetwork = springboard.alerts.buttons["Allow"]
+            for _ in 0..<80 {
+                if approval.exists { break }
+                if allowLocalNetwork.exists { allowLocalNetwork.tap() }
+                try await Task.sleep(for: .milliseconds(250))
+            }
+            guard approval.exists else { throw ProofFailure.timeout("The nearby QR did not open the approval screen.") }
+            try await tv.value
+        } else if useDeepLink {
             let payload: [String: Any] = ["type": "lumina-tv-pair", "version": 1,
                                         "server_url": origin.absoluteString, "server_id": serverID, "code": code]
             var components = URLComponents()
@@ -1961,7 +2006,7 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try await performancePhase("login_form") {
             try launchAndResetSession()
-            try waitForExistence(element("serverURLField"), timeout: 20, named: "TV music connection form")
+            try waitForExistence(element("tvManualSignInButton"), timeout: 20, named: "TV music connection welcome")
         }
         try await performanceQuietPhase("tv_music_login_form_idle")
         let firstTrack = element("musicItem-\(fixture.audioTrackID)")
@@ -4098,6 +4143,14 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         let ready = element("connectionShowcaseReady")
+        try activate(element("connectionHelpButton"))
+        try waitForExistence(element("connectionHelpSheet"), timeout: 8, named: "connection help")
+        XCTAssertTrue(waitUntil(timeout: 3) { self.element("connectionHelpDoneButton").hasFocus })
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(disappears(element("connectionHelpSheet"), timeout: 8))
+        XCTAssertTrue(waitUntil(timeout: 3) { self.element("connectionHelpButton").hasFocus },
+                      "Back from help must restore its trigger.")
+        try revealTVManualConnection()
         XCTAssertTrue(waitUntil(timeout: 15) { ready.exists && ((ready.value as? String)?.hasPrefix("asset") == true) },
                       "The welcome screen must begin with bundled offline artwork.")
         try enter(fixture.serverURL, into: element("serverURLField"))
@@ -4107,14 +4160,6 @@ class NativeProofJourney: XCTestCase {
         }, "The public release showcase should replace bundled artwork before sign-in.")
         XCTAssertFalse(element("connectionArtworkPauseButton").exists)
         try attachFrame(named: "TV welcome — public upcoming poster and compact sign-in")
-        XCTAssertFalse(element("connectionHelpSheet").exists)
-        try activate(element("connectionHelpButton"))
-        try waitForExistence(element("connectionHelpSheet"), timeout: 8, named: "connection help")
-        XCTAssertTrue(waitUntil(timeout: 3) { self.element("connectionHelpDoneButton").hasFocus })
-        XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(disappears(element("connectionHelpSheet"), timeout: 8))
-        XCTAssertTrue(waitUntil(timeout: 3) { self.element("connectionHelpButton").hasFocus },
-                      "Back from help must restore its trigger.")
         let previousArtwork = ready.value as? String
         XCTAssertTrue(waitUntil(timeout: 15) { (ready.value as? String) != previousArtwork },
                       "Welcome artwork must continue rotating without a pause control.")
@@ -7447,7 +7492,7 @@ class NativeProofJourney: XCTestCase {
         try await performancePhase("login_form") {
             try launchAndResetSession()
             #if os(tvOS)
-            try waitForExistence(element("serverURLField"), timeout: 20, named: "connection form")
+            try waitForExistence(element("tvManualSignInButton"), timeout: 20, named: "connection welcome")
             #else
             try waitForExistence(element("qrPairingLanding"), timeout: 20, named: "QR pairing landing")
             #endif
@@ -7455,6 +7500,7 @@ class NativeProofJourney: XCTestCase {
         try await performanceQuietPhase("login_form_idle")
         try await performancePhase("sign_in_home") {
             #if os(tvOS)
+            try revealTVManualConnection()
             let serverField = element("serverURLField")
             try enter(fixture.serverURL, into: serverField)
             let showcase = element("connectionShowcaseReady")
@@ -10020,7 +10066,11 @@ class NativeProofJourney: XCTestCase {
         app.launchEnvironment["LUMINA_UI_TEST_NAMESPACE"] = isolationID
         app.launch()
 
+        #if os(tvOS)
+        let loginField = element("tvManualSignInButton")
+        #else
         let loginField = element("serverURLField")
+        #endif
         #if os(iOS)
         let qrOption = element("advancedConnectionButton")
         #endif
@@ -10061,9 +10111,19 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
+    #if os(tvOS)
+    private func revealTVManualConnection() throws {
+        if !hasVisibleFrame(element("serverURLField")) {
+            try activate(element("tvManualSignInButton"))
+        }
+    }
+    #endif
+
     private func signIn(using fixture: ProofFixture, waitsForAccount: Bool = true) throws {
         #if os(iOS)
         try revealManualConnection()
+        #elseif os(tvOS)
+        try revealTVManualConnection()
         #endif
         let serverField = element("serverURLField")
         let usernameField = element("usernameField")

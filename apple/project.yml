@@ -92,6 +92,7 @@ targets:
         basedOnDependencyAnalysis: false
     dependencies:
       - target: Lumina-iOS
+      - package: LuminaCore
       - package: GoogleCast
         product: GoogleCastStatic
     settings:
@@ -112,6 +113,7 @@ targets:
         basedOnDependencyAnalysis: false
     dependencies:
       - target: Lumina-tvOS
+      - package: LuminaCore
     settings:
       base:
         INFOPLIST_FILE: Config/TestInfo.plist

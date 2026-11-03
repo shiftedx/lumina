@@ -6,6 +6,7 @@ import LuminaCore
 @MainActor
 struct TVPairingEntryView: View {
     let onSelect: (TVApprovalRequest) -> Void
+    let onHandoff: (TVPairingHandoff) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var code = ""
     @State private var scanning = false
@@ -62,7 +63,9 @@ struct TVPairingEntryView: View {
 
     private func acceptScannedCode(_ raw: String) {
         scanning = false
-        if let url = URL(string: raw), let link = try? TVPairingApprovalLink(deepLink: url) {
+        if let url = URL(string: raw), let handoff = try? TVPairingHandoff(link: url) {
+            onHandoff(handoff)
+        } else if let url = URL(string: raw), let link = try? TVPairingApprovalLink(deepLink: url) {
             onSelect(TVApprovalRequest(code: link.code, expectedServerID: link.serverID))
         } else if let link = try? TVPairingApprovalLink(scannedCode: raw) {
             onSelect(TVApprovalRequest(code: link.code, expectedServerID: link.serverID))

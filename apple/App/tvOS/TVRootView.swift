@@ -253,6 +253,8 @@ private struct TVEpisodeCollectionDestination: View {
 
 private struct TVConnectionView: View {
     let store: LuminaStore
+    @State private var screen = SignInScreen.welcome
+    @State private var handoff: TVPairingHandoff?
     @State private var server = ""
     @State private var username = ""
     @State private var password = ""
@@ -274,8 +276,10 @@ private struct TVConnectionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
+    private enum SignInScreen { case welcome, nearby, manual }
+
     private enum Field: Hashable {
-        case server, pairingStart, username, password, connect, pairingRegenerate, pairingCancel, help
+        case server, pairingStart, manual, username, password, connect, pairingRegenerate, pairingCancel, help
     }
 
     private enum TVPairingPhase: Equatable {
@@ -330,15 +334,10 @@ private struct TVConnectionView: View {
                         .accessibilityHidden(true)
 
                 connectionForm
-                    .frame(width: min(560, max(500, geometry.size.width * 0.34)))
+                    .frame(width: min(560, max(500, geometry.size.width * 0.34)), alignment: .leading)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding(.leading, max(80, geometry.size.width * 0.095))
                     .padding(.vertical, 64)
-
-                connectionFooter
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.horizontal, max(72, geometry.size.width * 0.06))
-                    .padding(.bottom, 52)
 
                 if Self.isAutomationRun {
                     // Keep this verification hook out of the production accessibility tree.
@@ -353,7 +352,7 @@ private struct TVConnectionView: View {
             .background(LuminaTheme.theater)
         }
         .ignoresSafeArea()
-        .defaultFocus($focusedField, .server)
+        .defaultFocus($focusedField, .pairingStart)
         .task {
             prefillLastSuccessfulServer()
         }
@@ -362,6 +361,10 @@ private struct TVConnectionView: View {
         }
         .task(id: slideshowKey) {
             await advanceShowcaseWhenReady()
+        }
+        .task(id: handoff) {
+            guard let handoff, screen == .nearby else { return }
+            await acceptPhone(handoff)
         }
         .task(id: tvPairingPollID) {
             await pollTVPairingIfNeeded()
@@ -375,6 +378,7 @@ private struct TVConnectionView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background else { return }
+            if screen == .nearby { returnToWelcome(); return }
             tvPairingGeneration = UUID()
             if tvPairingPhase == .starting {
                 tvPairingPhase = .idle
@@ -385,8 +389,7 @@ private struct TVConnectionView: View {
             tvPairingGeneration = UUID()
         }
         .onExitCommand {
-            guard tvPairingRequest != nil else { return }
-            cancelTVPairing()
+            if screen != .welcome { returnToWelcome() }
         }
         .sheet(isPresented: $helpPresented, onDismiss: {
             focusedField = .help
@@ -407,58 +410,144 @@ private struct TVConnectionView: View {
             }
             .foregroundStyle(.white)
 
-            Text("Sign in")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
-
-            VStack(alignment: .leading, spacing: 16) {
-                TextField("Server address", text: $server)
-                    .textContentType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("serverURLField")
-                    .focused($focusedField, equals: .server)
-
-                if let request = tvPairingRequest {
-                    tvPairingView(request)
-                } else {
-                    Button(action: beginTVPairing) {
-                        HStack(spacing: 12) {
-                            if tvPairingPhase == .starting { ProgressView() }
-                            Text(tvPairingPhase == .starting ? "Preparing sign-in…" : "Sign in with phone")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(LuminaQuietActionStyle(primary: true))
-                    .controlSize(.large)
-                    .accessibilityIdentifier("tvPairingStartButton")
-                    .focused($focusedField, equals: .pairingStart)
-                    .disabled(validServerOrigin == nil || tvPairingPhase == .starting || store.isBusy)
-
-                    if let tvPairingError {
-                        Label(tvPairingError, glyph: .warning)
-                            .foregroundStyle(LuminaTheme.accentInk)
-                            .font(.callout)
-                            .accessibilityLabel("Phone sign-in error: \(tvPairingError)")
-                            .accessibilityIdentifier("tvPairingStatus")
-                    }
-
-                    HStack(spacing: 12) {
-                        Rectangle().fill(.white.opacity(0.25)).frame(height: 1)
-                        Text("or sign in with password")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Rectangle().fill(.white.opacity(0.25)).frame(height: 1)
-                    }
-
-                    manualSignInFields
-                }
+            switch screen {
+            case .welcome:
+                welcomeActions
+            case .nearby:
+                nearbySignIn
+            case .manual:
+                manualSignIn
             }
-            .padding(22)
-            .background(.black.opacity(0.32), in: .rect(cornerRadius: 18))
-
         }
         .foregroundStyle(.white)
+        .focusSection()
+    }
+
+    private var welcomeActions: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Sign in").font(.title2.weight(.semibold))
+            Button("Sign in with phone", action: showNearbySignIn)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
+                .controlSize(.large)
+                .accessibilityIdentifier("tvPairingStartButton")
+                .focused($focusedField, equals: .pairingStart)
+            Button("Enter server and password") {
+                screen = .manual
+                focusedField = .server
+            }
+            .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+            .accessibilityIdentifier("tvManualSignInButton")
+            .focused($focusedField, equals: .manual)
+
+            Button("Connection help") { helpPresented = true }
+                .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+                .accessibilityIdentifier("connectionHelpButton")
+                .focused($focusedField, equals: .help)
+        }
+    }
+
+    private var manualSignIn: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Sign in manually").font(.title3.weight(.semibold))
+            TextField("Server address", text: $server)
+                .textContentType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("serverURLField")
+                .focused($focusedField, equals: .server)
+
+            if let request = tvPairingRequest {
+                tvPairingView(request)
+            } else {
+                manualSignInFields
+                if validServerOrigin != nil {
+                    Button("Get phone code", action: beginTVPairing)
+                        .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+                        .accessibilityIdentifier("tvPairingKnownServerButton")
+                        .disabled(tvPairingPhase == .starting || store.isBusy)
+                }
+
+                if let tvPairingError {
+                    Label(tvPairingError, glyph: .warning)
+                        .foregroundStyle(LuminaTheme.accentInk)
+                        .font(.callout)
+                        .accessibilityLabel("Phone sign-in error: \(tvPairingError)")
+                        .accessibilityIdentifier("tvPairingStatus")
+                }
+            }
+        }
+    }
+
+    private var nearbySignIn: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Sign in with your phone").font(.title3.weight(.semibold))
+            if let request = tvPairingRequest {
+                Text("Confirm this code in Lumina on your phone.")
+                Text(request.code)
+                    .font(.system(.title, design: .monospaced, weight: .semibold))
+                    .accessibilityIdentifier("tvPairingCode")
+            } else if let handoff, tvPairingError == nil {
+                TVPairingQRCode(url: handoff.link)
+                    .frame(width: 256, height: 256)
+                    .accessibilityIdentifier("tvPairingQRCode")
+                    .accessibilityLabel("QR code for phone sign-in")
+                Text("In Lumina on your phone, go to Account → Connect a TV and scan.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if tvPairingRequest != nil || tvPairingError != nil {
+                Text(tvPairingStatusText)
+                    .font(.callout)
+                    .accessibilityIdentifier("tvPairingStatus")
+            }
+            HStack(spacing: 18) {
+                if [.denied, .expired, .failed].contains(tvPairingPhase) {
+                    Button("Get a new code", action: showNearbySignIn)
+                        .buttonStyle(LuminaQuietActionStyle(primary: true))
+                        .focused($focusedField, equals: .pairingRegenerate)
+                }
+                Button("Cancel", action: returnToWelcome)
+                    .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+                    .focused($focusedField, equals: .pairingCancel)
+                    .accessibilityIdentifier("tvPairingCancelButton")
+                    .disabled(tvPairingPhase == .completing)
+            }
+        }
+    }
+
+    private func showNearbySignIn() {
+        cancelTVPairing()
+        screen = .nearby
+        handoff = TVPairingHandoff()
+        focusedField = .pairingCancel
+    }
+
+    private func returnToWelcome() {
+        handoff = nil
+        cancelTVPairing()
+        screen = .welcome
+        focusedField = .pairingStart
+    }
+
+    private func acceptPhone(_ handoff: TVPairingHandoff) async {
+        let generation = tvPairingGeneration
+        do {
+            try await handoff.awaitPhone { origin in
+                let request = try await store.beginTVPairing(server: origin.absoluteString, deviceName: "Apple TV")
+                guard !Task.isCancelled, tvPairingGeneration == generation else { throw CancellationError() }
+                tvPairingServerOrigin = origin.absoluteString
+                tvPairingRequest = request
+                tvPairingPhase = .waiting
+                return request
+            }
+        } catch {
+            guard !Task.isCancelled, tvPairingGeneration == generation else { return }
+            tvPairingRequest = nil
+            tvPairingServerOrigin = nil
+            tvPairingPhase = .failed
+            tvPairingError = "Couldn't connect to the phone or its server. Get a new code or sign in manually."
+            focusedField = .pairingRegenerate
+        }
     }
 
     private var manualSignInFields: some View {
@@ -549,21 +638,6 @@ private struct TVConnectionView: View {
         .focusSection()
     }
 
-    private var connectionFooter: some View {
-        HStack {
-            Button("Connection help") {
-                helpPresented = true
-            }
-            .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
-            .accessibilityIdentifier("connectionHelpButton")
-            .focused($focusedField, equals: .help)
-
-            Spacer()
-
-        }
-        .focusSection()
-    }
-
     private var canConnect: Bool {
         !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -644,7 +718,6 @@ private struct TVConnectionView: View {
                 case .approved:
                     tvPairingPhase = .completing
                     try await store.completeTVPairing(server: origin, request: request)
-                    guard isCurrentTVPairing(request, generation: generation) else { return }
                     lastSuccessfulServerOrigin = origin
                     return
                 case .denied:
@@ -673,7 +746,7 @@ private struct TVConnectionView: View {
         !Task.isCancelled &&
             tvPairingGeneration == generation &&
             tvPairingRequest?.id == request.id &&
-            tvPairingServerOrigin == validServerOrigin &&
+            (screen == .nearby || tvPairingServerOrigin == validServerOrigin) &&
             scenePhase == .active
     }
 
@@ -898,7 +971,7 @@ private struct TVPairingQRCode: View {
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
-                    .background(.white, in: .rect(cornerRadius: 12))
+                    .clipShape(.rect(cornerRadius: 8))
             } else {
                 Image(systemName: "qrcode")
                     .font(.system(size: 88))
@@ -921,9 +994,7 @@ private struct TVPairingQRCode: View {
         let extent = output.extent
         let background = CIImage(color: CIColor.white)
             .cropped(to: extent.insetBy(dx: -quietZone, dy: -quietZone))
-        let padded = output
-            .transformed(by: CGAffineTransform(translationX: quietZone, y: quietZone))
-            .composited(over: background)
+        let padded = output.composited(over: background)
         let scale: CGFloat = 10
         let scaled = padded.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cgImage = Self.context.createCGImage(scaled, from: scaled.extent) else { return nil }
@@ -1036,7 +1107,12 @@ private struct TVConnectionHelp: View {
             Text("Connection help")
                 .font(.title2.weight(.semibold))
 
-            Text("Enable Apps like Infuse in Lumina on the web: Manage Server → Connections → Metadata. If your account uses two-factor authentication, enter an app password.")
+            Text("For phone sign-in, connect both devices to the same network and sign in to Lumina on your phone first.")
+                .font(.body)
+                .foregroundStyle(LuminaTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("For manual sign-in, enter your server address and Lumina account. If you use two-factor authentication, enter an app password.")
                 .font(.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)

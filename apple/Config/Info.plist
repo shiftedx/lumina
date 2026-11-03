@@ -21,8 +21,12 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lumina-pair._tcp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to your household Lumina server to browse and play your library.</string>
+	<string>Connect to your Lumina server and pair with a nearby Apple TV.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan Lumina codes to connect this device or approve an Apple TV.</string>
 	<key>CFBundleURLTypes</key>

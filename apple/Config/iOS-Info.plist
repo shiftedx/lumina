@@ -22,7 +22,7 @@
 		<string>audio</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to your Lumina server and discover Chromecast devices on your local network.</string>
+	<string>Connect to your Lumina server, pair with a nearby Apple TV, and discover Chromecast devices.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a Lumina mobile connection code.</string>
 	<key>CFBundleURLTypes</key>
@@ -93,6 +93,7 @@
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_lumina-pair._tcp</string>
 		<string>_googlecast._tcp</string>
 		<string>_CC1AD845._googlecast._tcp</string>
 	</array>

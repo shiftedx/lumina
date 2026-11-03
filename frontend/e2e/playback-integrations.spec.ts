@@ -38,15 +38,20 @@ test('Chromecast acknowledges load/control and keeps a recoverable browser sourc
       if (Reflect.get(window, '__failCastLoad')) throw new Error('fixture load failure');
       receiver.media = request.media; receiver.currentTime = request.currentTime; receiver.playerState = 'PLAYING';
     } };
-    Object.defineProperty(window, 'cast', { configurable: true, value: { framework: { CastContext: { getInstance: () => ({ setOptions() {}, requestSession: () => Promise.resolve(), getCurrentSession: () => session }) } } } });
-    Object.defineProperty(window, 'chrome', { configurable: true, value: { cast: { media: {
+    const context = { setOptions() {}, requestSession: () => Promise.resolve(), getCurrentSession: () => session,
+      getCastState: () => 'NOT_CONNECTED', addEventListener() {}, removeEventListener() {} };
+    Object.defineProperty(window, 'cast', { configurable: true, value: { framework: { CastContext: { getInstance: () => context }, CastContextEventType: { CAST_STATE_CHANGED: 'cast-state' } } } });
+    Object.defineProperty(window, 'chrome', { configurable: true, value: { cast: { AutoJoinPolicy: { ORIGIN_SCOPED: 'origin-scoped' }, media: {
+      DEFAULT_MEDIA_RECEIVER_APP_ID: 'CC1AD845',
       MediaInfo: class { constructor(public contentId: string, public contentType: string) {} }, LoadRequest: class { constructor(public media: object) {} },
       Track: class { constructor(public trackId: number, public type: string) {} }, TrackType: { TEXT: 'TEXT' }, TextTrackType: { SUBTITLES: 'SUBTITLES' },
     } } } });
   });
   await page.goto(`/watch/library/${item.id}`); await signIn(page);
-  const panel = page.getByRole('group', { name: 'Chromecast output' });
-  await panel.locator('summary').click();
+  // Outputs now live in the player settings panel with captions and quality,
+  // rather than a standalone disclosure beside the player.
+  await page.getByRole('button', { name: 'Playback settings' }).click();
+  const panel = page.getByRole('group', { name: 'Playback settings' });
   await panel.getByRole('button', { name: 'Cast to Chromecast' }).click();
   await expect(panel.getByText(/Playing on Chromecast/)).toBeVisible();
   await panel.getByRole('button', { name: 'Pause Chromecast' }).click();
@@ -60,9 +65,9 @@ test('Chromecast acknowledges load/control and keeps a recoverable browser sourc
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' }); await page.setViewportSize({ width, height: 900 });
     await panel.scrollIntoViewIfNeeded();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-    const disclosure = await panel.locator('summary').boundingBox();
-    expect(disclosure?.height).toBeGreaterThanOrEqual(width < 600 ? 44 : 36);
-    expect((await new AxeBuilder({ page }).include('details[aria-label="Chromecast output"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+    const output = await panel.getByRole('button', { name: /Chromecast|Return playback here/ }).first().boundingBox();
+    expect(output?.height).toBeGreaterThanOrEqual(44);
+    expect((await new AxeBuilder({ page }).include('[aria-label="Playback settings"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
     await page.screenshot({ path: `${visuals}/chromecast-${width}-${scheme}.png`, fullPage: true });
   }
   await panel.getByRole('button', { name: 'Return playback here' }).click();

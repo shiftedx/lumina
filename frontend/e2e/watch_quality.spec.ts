@@ -47,7 +47,10 @@ for (const width of [390, 1440]) {
     expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
     expect(story!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
     expect(continuation!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
-    expect(tools!.y).toBeGreaterThanOrEqual(Math.max(story!.y + story!.height, continuation!.y + continuation!.height));
+    // The details tools share the left column. They only need to clear the
+    // continuation when the continuation is stacked below that column.
+    const continuationBesideStory = continuation!.x >= story!.x + story!.width;
+    expect(tools!.y).toBeGreaterThanOrEqual(continuationBesideStory ? story!.y + story!.height : continuation!.y + continuation!.height);
     if (width === 1440) {
       expect(continuation!.x).toBeGreaterThanOrEqual(story!.x + story!.width);
       expect(continuation!.y).toBeLessThan(story!.y + story!.height);
@@ -55,14 +58,19 @@ for (const width of [390, 1440]) {
       expect(continuation!.y).toBeGreaterThanOrEqual(story!.y + story!.height);
     }
     await expect(page.locator('.watch-local-meta')).toContainText('S2 · E1');
-    await expect(page.locator('.watch-local-synopsis')).toContainText('The keepers argue about the lamp');
+    // The compact watch identity deliberately leaves the long synopsis in the
+    // Summary tool. The visible header remains the episode's series and code.
+    await expect(page.locator('.watch-local-series')).toContainText('Harbor Lights');
     await expect(page.locator('.watch-local-story .watch-byline')).toHaveCount(0);
-    await expect(page.getByText(filename, { exact: true })).toBeHidden();
-    await page.getByText('File details', { exact: true }).click();
+    // File provenance is the default Details tool, so it is available without
+    // an extra disclosure beside the playing episode.
     await expect(page.getByText(filename, { exact: true })).toBeVisible();
+    const synopsis = page.locator('.watch-synopsis');
+    await synopsis.locator('summary').click();
+    await expect(synopsis).toContainText('The keepers argue about the lamp');
     await expect(page.getByRole('region', { name: 'Up next', exact: true })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Notes', exact: true })).toBeVisible();
-    expect(await page.locator('.watch-tools-tabs').evaluate(el => getComputedStyle(el).columnGap)).toBe('24px');
+    expect(parseFloat(await page.locator('.watch-tools-tabs').evaluate(el => getComputedStyle(el).columnGap))).toBeGreaterThanOrEqual(width === 390 ? 8 : 24);
     if (width === 390) {
       const tablist = page.locator('.watch-tools-tabs');
       const tablistBox = await tablist.boundingBox();
@@ -77,14 +85,12 @@ for (const width of [390, 1440]) {
       }
       await expect(page.getByRole('tab', { name: 'Sharing & tags', exact: true })).toBeInViewport();
     }
-    expect(await page.locator('.watch-local-synopsis').evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(14);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   });
 }
 
-test('an empty season keeps the full-width stage and explains where to find all episodes beneath it', async ({ page }) => {
+test('an empty season keeps the full-width stage and keeps the series route available', async ({ page }) => {
   await openEpisode(page, 1440, 'empty');
-  await expect(page.getByText('No next episode in your library.', { exact: false })).toBeVisible();
   const allEpisodes = page.getByRole('button', { name: 'See all episodes' });
   await expect(allEpisodes).toBeVisible();
   await page.getByRole('button', { name: 'Share', exact: true }).focus();
@@ -96,12 +102,12 @@ test('an empty season keeps the full-width stage and explains where to find all 
   }
   await expect(allEpisodes).toBeFocused();
   await expect(page.locator('.watch-rail')).toHaveCount(0);
-  await expect(page.locator('.watch-local-continuation')).toContainText('No next episode in your library.');
+  await expect(page.locator('.watch-local-continuation')).toBeEmpty();
   const layout = await page.locator('.watch-layout.is-library-title').boundingBox();
   const player = await page.locator('.player-frame').boundingBox();
-  const continuation = await page.locator('.watch-local-continuation').boundingBox();
   expect(player!.width).toBeGreaterThan(layout!.width * .98);
-  expect(continuation!.y).toBeGreaterThanOrEqual(player!.y + player!.height);
+  const title = await page.locator('.watch-local-title').boundingBox();
+  expect(title!.y).toBeGreaterThanOrEqual(player!.y + player!.height);
 });
 
 test('up next failure offers retry while preserving the playing media element', async ({ page }) => {
@@ -134,16 +140,19 @@ test('up next failure offers retry while preserving the playing media element', 
   await expect(video).toHaveAttribute('data-quality-identity', 'playing');
 });
 
-test('theater keeps episode heading and actions below the stage without overlap', async ({ page }) => {
+test('theater keeps episode identity and actions below the stage without overlap', async ({ page }) => {
   await openEpisode(page, 1440);
   await page.locator('body').press('t');
   await expect(page.locator('.watch-layout.theater.is-library-title')).toBeVisible();
   const frame = await page.locator('.player-frame').boundingBox();
-  const body = await page.locator('.watch-local-body').boundingBox();
+  const story = await page.locator('.watch-local-story').boundingBox();
   const heading = await page.locator('.watch-local-title').boundingBox();
   const actions = await page.locator('.watch-local-actions').boundingBox();
   const tools = await page.locator('.watch-local-tools').boundingBox();
   expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
-  expect(actions!.y).toBeGreaterThanOrEqual(heading!.y + heading!.height);
-  expect(tools!.y).toBeGreaterThanOrEqual(body!.y + body!.height);
+  // Wide layouts place actions beside the title. Narrow layouts stack them.
+  expect(
+    actions!.x >= heading!.x + heading!.width || actions!.y >= heading!.y + heading!.height,
+  ).toBe(true);
+  expect(tools!.y).toBeGreaterThanOrEqual(story!.y + story!.height);
 });

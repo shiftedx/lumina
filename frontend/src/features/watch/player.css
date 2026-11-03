@@ -118,12 +118,15 @@
 .player-panel label { display: grid; min-height: 44px; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; }
 .player-panel .playback-menu-translate { display: grid; min-height: 44px; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; }
 .player-panel .g-select-trigger { min-height: 44px; color: var(--g-overlay-ink); }
+.player-panel .g-field-label, .player-panel .g-input { color: var(--g-overlay-ink); }
+.player-panel .g-input { --g-field-rule: var(--g-overlay-rule); }
 .player-panel label small { grid-column: 2; color: var(--g-overlay-ink-2); }
 .player-panel .g-segment { color: var(--g-overlay-ink-2); }
 .player-panel .g-segment:has(:checked) { color: var(--g-overlay-ink); }
 .player-panel .g-segment:has(input:focus-visible) { outline-color: var(--g-overlay-focus); }
 .player-panel .playback-menu-actions { display: grid; gap: 6px; padding: 0 16px; }
 .player-panel .playback-menu-reason, .player-panel .playback-menu-status { margin: 0; color: var(--g-overlay-ink-2); font: var(--g-type-small); }
+.player-panel .g-setting-note { color: var(--g-overlay-ink-2); }
 .player-panel .g-text-button { min-height: 44px; margin: 4px 16px; justify-self: start; }
 @media (min-width: 1600px) { .player-card-actions .g-button, .player-skip { min-height: 48px; } }
 

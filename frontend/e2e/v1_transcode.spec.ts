@@ -15,7 +15,7 @@ import { launchIsolatedBrowser } from './isolated-browser';
 const backend = resolve('../backend');
 const user = { id: 'member-1', username: 'alexandria', display_name: 'Alexandria', role: 'admin', is_active: true, bio: '', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', onboarding_status: 'completed' };
 const item = {
-  id: 'library-1', user_id: user.id, visibility: 'private', remote_id: 'synthetic-1', source_url: 'https://example.test/watch/1', webpage_url: 'https://example.test/watch/1',
+  id: 'library-1', user_id: user.id, visibility: 'private', kind: 'video', remote_id: 'synthetic-1', source_url: 'https://example.test/watch/1', webpage_url: 'https://example.test/watch/1',
   title: 'A converted synthetic fixture whose original codecs no browser plays natively', uploader: 'Lumina fixture', duration: 8, extractor: 'youtube', status: 'available',
   file_path: null, file_size: 1, metadata_json: { description: 'fixture' }, chapters: [],
   downloaded_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
@@ -115,13 +115,11 @@ async function openWatch(page: Page, label = '180p · MPEG4 / AC3 · Transcoded'
   await page.getByLabel('Password', { exact: true }).fill('correct-horse');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
-  // The new Home's Recently saved card names itself "{title}, {uploader}, {duration}" (StillCard),
-  // not "Play {title}".
-  // A click that lands while Home is still settling can be swallowed, so retry it until the watch page is open.
-  await expect(async () => {
-    if (!page.url().includes('/watch/')) await page.getByRole('button', { name: new RegExp(`^${item.title}, `) }).first().click({ timeout: 3000 });
-    await expect(page.getByText(label).first()).toBeVisible({ timeout: 3000 });
-  }).toPass({ timeout: 20_000 });
+  // This fixture proves the player negotiation path. Home intentionally has no
+  // "recently saved" rail until the member has activity, so open the fixture
+  // through the same durable watch URL a library card uses.
+  await page.goto(`/watch/library/${item.id}`);
+  await expect(page.getByText(label).first()).toBeVisible({ timeout: 20_000 });
 }
 
 type Engine = 'chromium' | 'firefox' | 'webkit';

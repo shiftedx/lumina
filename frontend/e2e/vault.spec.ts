@@ -44,21 +44,15 @@ async function open(page: Page, path: string, options: { deleted?: number; setup
   await expect(page.locator('.surface.gallery h1, .gallery h1').first()).toBeVisible();
   return { library, collections };
 }
-const lensRow = (page: Page) => page.getByRole('navigation', { name: 'Library' });
+const libraryTools = (page: Page) => page.getByRole('navigation', { name: 'Library tools', exact: true });
 
-test('Collections: the list, the lens link, the All chapter, a tile and Back', async ({ page }) => {
-  await open(page, '/library/collections');
-  await expect(page.getByRole('heading', { level: 1, name: 'Collections' })).toBeVisible();
-  await expect(lensRow(page).getByRole('link', { name: 'Collections' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('.g-collection-tile')).toHaveCount(2);
-
-  await lensRow(page).getByRole('link', { name: 'All' }).click();
-  const chapter = page.getByRole('heading', { level: 2, name: 'Collections', exact: true });
-  await expect(chapter).toBeAttached();
-  await chapter.scrollIntoViewIfNeeded(); // the chapter loads lazily, one viewport ahead
-  await expect(page.locator('.g-collection-tile')).toHaveCount(2);
-  await page.getByRole('link', { name: 'See all', exact: true }).click();
+test('Collections: open from Movies tools, visit a tile and return with Back', async ({ page }) => {
+  await open(page, '/video/movies');
+  await libraryTools(page).getByRole('link', { name: 'Collections', exact: true }).click();
   await expect(page).toHaveURL(/\/video\/collections$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Collections' })).toBeVisible();
+  await expect(libraryTools(page).getByRole('link', { name: 'Collections' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.g-collection-tile')).toHaveCount(2);
 
   await page.locator('.g-collection-tile').first().click();
   await expect(page).toHaveURL(/\/video\/collections\/c-1$/);
@@ -142,13 +136,13 @@ test('Deleted: Restore is busy then the row leaves; a failing restore shows its 
   await expect(rows.last()).toBeVisible();
 });
 
-test('YouTube coexistence: the YouTube channels view keeps its lens, and Collections then Back returns to it', async ({ page }) => {
+test('YouTube coexistence: Collections and Back restore the saved Channels view', async ({ page }) => {
   await open(page, '/library/youtube?view=channels');
-  await expect(lensRow(page).getByRole('link', { name: 'YouTube' })).toHaveAttribute('aria-current', 'page');
-  await expect(lensRow(page).getByRole('link', { name: 'Collections' })).not.toHaveAttribute('aria-current', 'page');
-  await lensRow(page).getByRole('link', { name: 'Collections' }).click();
+  await expect(page.getByRole('button', { name: 'Channels', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(libraryTools(page).getByRole('link', { name: 'Collections' })).not.toHaveAttribute('aria-current', 'page');
+  await libraryTools(page).getByRole('link', { name: 'Collections' }).click();
   await expect(page).toHaveURL(/\/video\/collections$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/video\/youtube\?view=channels/);
-  await expect(lensRow(page).getByRole('link', { name: 'YouTube' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Channels', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

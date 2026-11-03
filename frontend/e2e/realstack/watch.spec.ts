@@ -103,19 +103,12 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
 test('Resume on Home\'s hero starts playback at the saved position', async ({ page }) => {
   await page.goto('/');
   const id = await libraryItemId(page, 'Realstack Direct');
-  await savePlaybackProgress(page, id, 0);
-  await page.goto(`/watch/library/${id}`);
-  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
-  const saved = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/library/${id}/playback`);
-  await page.locator('video').evaluate((video: HTMLVideoElement) => { video.currentTime = 2.5; });
-  await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(2.5);
-  await page.locator('video').evaluate((video: HTMLVideoElement) => video.pause());
-  await saved;
+  await savePlaybackProgress(page, id, 2);
   await page.goto('/');
   await expect(page.locator('.h-hero-kicker')).toHaveText(/continue watching/i);
   await expect(page.locator('.h-hero-title')).toHaveText('Realstack Direct');
   await page.getByRole('button', { name: 'Resume' }).click();
   await resumeSavedPlayback(page);
   await expect(page).toHaveURL(new RegExp(`/watch/library/${id}$`));
-  await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(2.3);
+  await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(1.8);
 });

@@ -42,10 +42,12 @@ test('albums use the artist wall width, show recent items and expose the full ca
   await page.locator('.audio-collection-disclosure > summary').click();
   await expect.poll(() => requests.some((url) => url.searchParams.get('type') === 'album' && url.searchParams.get('limit') === '18')).toBe(true);
   await page.locator('.audio-collection-disclosure > summary').click();
+  await expect(page.locator('.audio-soundstage')).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('region', { name: 'Recently played' })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+  await expect(page.locator('header.g-topbar').getByRole('button', { name: 'Search music' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
   const tools = page.getByRole('button', { name: 'Music tools' });
   const savedButton = page.getByRole('button', { name: 'Saved audio' });
   const toolsBox = await tools.boundingBox();

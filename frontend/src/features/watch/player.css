@@ -215,7 +215,7 @@
 }
 @media (max-width: 520px) {
   .player-controls .playback-menu { position: static; }
-  .playback-menu-panel { inset-inline: 8px; bottom: calc(100% + 4px); width: auto; }
+  .playback-menu-panel { inset-inline: 8px; bottom: 4px; width: auto; max-height: calc(100cqh - 8px); }
 }
 
 .playback-section > summary { min-height: 44px; padding: 12px 16px; cursor: pointer; }

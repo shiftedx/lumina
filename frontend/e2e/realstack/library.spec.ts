@@ -80,7 +80,11 @@ test('music imports into albums and artists, an album plays on, and the anime fo
   await test.step('with no anime folders, Show A is back in Shows; then the default returns', async () => {
     await page.goto('/settings/library?page=organization');
     const row = page.locator('[data-setting-id="library.anime"]');
-    if (!await row.isVisible()) await page.getByLabel('Organization').getByText('Advanced settings', { exact: true }).click();
+    const folderName = row.getByLabel('Folder name');
+    const advanced = page.getByRole('region', { name: 'Organization', exact: true }).locator('details').filter({ has: row });
+    await expect(advanced).toBeAttached();
+    if (await advanced.getAttribute('open') === null) await advanced.locator('summary').click();
+    await expect(folderName).toBeVisible();
     await row.getByRole('button', { name: 'Remove Anime' }).click();
     await row.getByRole('button', { name: 'Save' }).click();
     await expect(row.getByText('Titles re-sorted.')).toBeVisible({ timeout: 30_000 });
@@ -90,8 +94,10 @@ test('music imports into albums and artists, an album plays on, and the anime fo
       return page.getByRole('button', { name: /^Show A,/ }).count();
     }, { timeout: 60_000 }).toBeGreaterThan(0);
     await page.goto('/settings/library?page=organization');
-    if (!await row.isVisible()) await page.getByLabel('Organization').getByText('Advanced settings', { exact: true }).click();
-    await row.getByLabel('Folder name').fill('Anime');
+    await expect(advanced).toBeAttached();
+    if (await advanced.getAttribute('open') === null) await advanced.locator('summary').click();
+    await expect(folderName).toBeVisible();
+    await folderName.fill('Anime');
     await row.getByRole('button', { name: 'Add' }).click();
     await row.getByRole('button', { name: 'Save' }).click();
     await expect(row.getByText('Titles re-sorted.')).toBeVisible({ timeout: 30_000 });

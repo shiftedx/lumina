@@ -4,6 +4,12 @@ import Security
 
 let tickScale = 10_000_000.0
 
+public enum NavigationLoadState: Equatable, Sendable {
+    case loading
+    case loaded
+    case failed
+}
+
 @MainActor @Observable public final class LuminaStore {
     public private(set) var session: LuminaSession? {
         didSet {
@@ -15,6 +21,9 @@ let tickScale = 10_000_000.0
                 availableLibraryCategories = []
                 requestsAvailable = false
                 streamingAvailable = false
+                navigationLoadState = .loading
+                hasLoadedNavigationCategories = false
+                lastNavigationLoadState = nil
                 nativeStreamingCapabilities = nil
                 navigationGeneration += 1
                 librarySnapshots.removeAll()
@@ -76,9 +85,12 @@ let tickScale = 10_000_000.0
     public private(set) var availableLibraryCategories = Set<String>()
     public private(set) var requestsAvailable = false
     public private(set) var streamingAvailable = false
+    public private(set) var navigationLoadState: NavigationLoadState = .loading
     /// Remote-provider readiness. Saved streaming downloads do not depend on this opt-in.
     public private(set) var nativeStreamingCapabilities: NativeStreamingCapabilities?
     private var navigationGeneration = 0
+    private var hasLoadedNavigationCategories = false
+    private var lastNavigationLoadState: NavigationLoadState?
 
     /// Alphabet seeking is available only where a server index can describe the
     /// current complete video wall. Search, recency/year ordering, episodes and
@@ -1090,23 +1102,53 @@ let tickScale = 10_000_000.0
         guard isNeeded else { return }
         navigationGeneration += 1
         let requestGeneration = navigationGeneration
+        navigationLoadState = .loading
         do {
             let navigation = try await client.navigationCategories(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
-            guard !Task.isCancelled, generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            guard generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled else {
+                restoreNavigationLoadStateAfterCancellation()
+                return
+            }
             availableLibraryCategories = Set(navigation.categories)
             requestsAvailable = navigation.features?.requests ?? false
             streamingAvailable = navigation.features?.streaming ?? false
+            navigationLoadState = .loaded
+            hasLoadedNavigationCategories = true
+            lastNavigationLoadState = .loaded
         } catch {
-            guard !Task.isCancelled, generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
-            availableLibraryCategories = []
+            guard generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled else {
+                restoreNavigationLoadStateAfterCancellation()
+                return
+            }
+            if navigationAuthenticationFailed(error) || !hasLoadedNavigationCategories {
+                availableLibraryCategories = []
+                streamingAvailable = false
+                hasLoadedNavigationCategories = false
+            }
             requestsAvailable = false
-            streamingAvailable = false
+            navigationLoadState = .failed
+            lastNavigationLoadState = .failed
         }
     }
 
     public func refreshNavigationCategories() async {
         guard let active = session else { return }
         await loadNavigationCategories(active, generation: homeGeneration)
+    }
+
+    private func navigationAuthenticationFailed(_ error: Error) -> Bool {
+        switch error as? LuminaError {
+        case .http(401), .http(403), .notSignedIn:
+            true
+        default:
+            false
+        }
+    }
+
+    private func restoreNavigationLoadStateAfterCancellation() {
+        navigationLoadState = lastNavigationLoadState ?? .failed
     }
 
     private func loadHomeRecent(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {

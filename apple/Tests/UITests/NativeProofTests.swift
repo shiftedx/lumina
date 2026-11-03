@@ -129,6 +129,10 @@ final class NativeVideoFormatRecoveryTests: NativeProofJourney {
     func testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo() async throws {
         try await journeyInitialVideoFormatRecovery()
     }
+
+    func testStandardPhoneDetailPlayClearsFloatingTabBar() async throws {
+        try await journeyInitialVideoFormatRecovery(stopsAfterPlaybackStarts: true)
+    }
     #endif
 }
 
@@ -2308,7 +2312,7 @@ class NativeProofJourney: XCTestCase {
 
     #endif
 
-    func journeyInitialVideoFormatRecovery() async throws {
+    func journeyInitialVideoFormatRecovery(stopsAfterPlaybackStarts: Bool = false) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         #if os(iOS)
@@ -2394,6 +2398,12 @@ class NativeProofJourney: XCTestCase {
             try revealDetailElement(play, in: element("detailScreen"), named: "playButton", requiresHittable: false)
             play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
+        let resumeChoice = element("resumePlaybackChoice")
+        XCTAssertTrue(waitUntil(timeout: 15) { resumeChoice.exists || self.element("playbackScreen").exists },
+                      "Detail Play must present playback or the resume choice.")
+        if resumeChoice.exists {
+            try activate(resumeChoice.buttons.matching(NSPredicate(format: "label == %@", "Resume")).firstMatch)
+        }
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
         let time = element("playbackTime")
         try waitForExistence(time, timeout: 20, named: "playback time")
@@ -2402,6 +2412,11 @@ class NativeProofJourney: XCTestCase {
         #endif
         let initial = try waitForPlaybackValue(time, timeout: 25) { $0 >= 10 }
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 2 }
+
+        if stopsAfterPlaybackStarts {
+            completed = true
+            return
+        }
 
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)

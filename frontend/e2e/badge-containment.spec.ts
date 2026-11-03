@@ -6,19 +6,20 @@ import { mockApi, signIn } from './lumina-mock';
 
 const OUT = join(process.cwd(), '..', 'output', 'badge-containment');
 for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }]) {
-  test(`spotlight unwatched count stays with its artwork: ${viewport.name}`, async ({ page }) => {
+  test(`poster unwatched count stays with its artwork: ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     mkdirSync(OUT, { recursive: true });
     await mockApi(page, {});
     const show = seriesSummary('lantern', { name: 'Lantern Harbor', category: 'shows', user_data: userData({ unplayed_count: 47 }) });
-    await page.route('**/api/titles?**', (route) => route.fulfill({ json: { items: [show], total: 1, next_cursor: null } }));
-    await page.goto('/video');
+    await page.route('**/api/titles?**', (route) => route.fulfill({ json: { items: [seriesSummary('spotlight'), show], total: 2, next_cursor: null } }));
+    await page.goto('/video/shows');
     await signIn(page);
-    const feature = page.locator('.g-all.is-stage-led .g-spotlight .g-feature.is-lead');
+    const feature = page.getByRole('button', { name: 'Lantern Harbor, 47 unwatched episodes' });
     const badge = feature.locator('.g-marker-count');
     await expect(feature).toHaveAccessibleName('Lantern Harbor, 47 unwatched episodes');
     await expect(badge).toHaveText('47');
+    await feature.scrollIntoViewIfNeeded();
     const check = async () => {
       const tile = await feature.boundingBox();
       const mark = await badge.boundingBox();
@@ -32,7 +33,7 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     };
     await check();
     await page.screenshot({ path: join(OUT, `spotlight-${viewport.name}.png`) });
-    await page.evaluate(() => window.scrollBy(0, 150));
+    await page.evaluate(() => window.scrollBy(0, -150));
     await check();
   });
 }

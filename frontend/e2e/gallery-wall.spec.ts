@@ -197,13 +197,13 @@ test('a search that fails says so and offers Try again', async ({ page }) => {
 });
 
 for (const width of [390, 320]) {
-  test(`phone at ${width}px: the tabs and the toolbar each keep to one line`, async ({ page }) => {
+  test(`phone at ${width}px: library tools and the toolbar each keep to one line`, async ({ page }) => {
     await openWall(page, '/library/movies?genre=Drama', {}, { width, height: 844 });
-    const lenses = page.getByRole('navigation', { name: 'Library' });
+    const lenses = page.getByRole('navigation', { name: 'Library tools' });
     const lensBox = await lenses.boundingBox();
     const lensTops = await lenses.getByRole('link').evaluateAll((links) => links.map((link) => link.getBoundingClientRect().top));
     expect(new Set(lensTops.map(Math.round)).size).toBe(1);
-    for (const name of ['Movies', 'Shows']) {
+    for (const name of ['Collections', 'Deleted']) {
       const tab = await lenses.getByRole('link', { name, exact: true }).boundingBox();
       expect(tab!.x + tab!.width).toBeLessThanOrEqual(lensBox!.x + lensBox!.width);
     }
@@ -233,10 +233,13 @@ for (const without of [['backdrop'], ['backdrop', 'poster']] as const) {
   });
 }
 
-test('dark: the active catalog tab retains the approved brand underline', async ({ page }) => {
+test('dark: the active catalog destination retains the approved brand underline', async ({ page }) => {
   await openWall(page, '/library/movies', {}, DESKTOP, 'dark');
   const gold = await page.locator('.gallery').evaluate((wall) => getComputedStyle(wall).getPropertyValue('--g-gold').trim());
-  const underline = await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Movies', exact: true }).evaluate((tab) => getComputedStyle(tab).textDecorationColor);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const movies = page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Movies', exact: true });
+  await expect(movies).toHaveAttribute('aria-current', 'page');
+  const underline = await movies.evaluate((tab) => getComputedStyle(tab).borderBottomColor);
   expect(underline).toBe(await page.evaluate((hex) => { const probe = document.createElement('i'); probe.style.color = hex; document.body.append(probe); const colour = getComputedStyle(probe).color; probe.remove(); return colour; }, gold));
   await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });

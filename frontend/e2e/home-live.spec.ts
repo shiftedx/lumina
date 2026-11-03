@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import type { LiveSnapshot } from '../src/types';
-import { liveEntry, mockHome } from './home-mock';
+import { homeMovie, liveEntry, mockHome } from './home-mock';
 import { mockApi, signIn } from './lumina-mock';
 
 /** The Live shelf's order, refresh cadence, notices and reduced motion (mocked API). */
@@ -9,10 +9,12 @@ import { mockApi, signIn } from './lumina-mock';
 async function openHome(page: Page, live: Partial<LiveSnapshot>) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockApi(page, { sidebar_collapsed: false });
-  const requests = await mockHome(page, { live });
+  const requests = await mockHome(page, { live, newest: [homeMovie(1)] });
   await page.goto('/');
   await signIn(page);
-  await expect(page.getByRole('region', { name: 'Live now' })).toBeVisible();
+  const liveShelf = page.getByRole('region', { name: 'Live now' });
+  await expect(liveShelf).toBeVisible();
+  await liveShelf.scrollIntoViewIfNeeded();
   return requests;
 }
 const livePolls = (requests: string[]) => requests.filter((request) => request.startsWith('GET /api/discovery/live')).length;

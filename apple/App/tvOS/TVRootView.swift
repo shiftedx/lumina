@@ -3131,16 +3131,18 @@ private struct TVRailCaption {
 
 /// Focus follows the artwork; captions stay directly on the page.
 struct TVArtworkButtonStyle: ButtonStyle {
-    /// Callers provide the artwork aspect so existing media-card declarations
-    /// remain explicit even though focus now scales the full card.
-    init(aspect _: CGFloat) {}
+    private let focusedScale: CGFloat
+
+    init(aspect: CGFloat) {
+        focusedScale = aspect < 1 ? 1.08 : 1.04
+    }
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(isFocused ? 1.04 : 1, anchor: .top)
+            .scaleEffect(isFocused ? focusedScale : 1, anchor: .top)
             .shadow(color: .black.opacity(isFocused ? 0.48 : 0), radius: isFocused ? 18 : 0, y: isFocused ? 10 : 0)
             .opacity(configuration.isPressed ? 0.75 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isFocused)

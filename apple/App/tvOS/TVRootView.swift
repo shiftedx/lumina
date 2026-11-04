@@ -1805,9 +1805,11 @@ private struct TVVideoView: View {
     let focusRequest: Int
     let restoreFocusRequest: Int?
     @State private var filtersPresented = false
+    @State private var collectionsPresented = false
     @State private var pendingRestoredItemID: String?
     @State private var submittedSearch: String?
     @FocusState private var focusedItemID: String?
+    @FocusState private var allTitlesFocused: Bool
 
     @State private var alphabetLetter: String?
     @State private var alphabetRequestKey: String?
@@ -1820,17 +1822,20 @@ private struct TVVideoView: View {
     @FocusState private var alphabetFocused: Bool
 
     private var requestKey: String { "\(browse.kind.rawValue)-\(browse.sort.rawValue)-\(browse.query)-\(browse.filters.collectionID ?? "")-\(browse.filters.genre)-\(browse.filters.year ?? 0)-\(browse.filters.unwatchedOnly)-\(browse.filters.favoritesOnly)" }
-    private var hasFilters: Bool { browse.filters != VideoFilters() }
     private var watchlistID: String? {
         store.session.flatMap { LuminaWatchlist.libraryFilterID(userID: $0.userID) }
     }
     private var isWatchlist: Bool {
         watchlistID != nil && browse.filters.collectionID == watchlistID
     }
-    private var hasNonCollectionFilters: Bool {
-        VideoFilters(genre: browse.filters.genre, year: browse.filters.year, unwatchedOnly: browse.filters.unwatchedOnly,
-                     favoritesOnly: browse.filters.favoritesOnly, resolution: browse.filters.resolution, hdr: browse.filters.hdr,
-                     audio: browse.filters.audio, imaxOnly: browse.filters.imaxOnly) != VideoFilters()
+    private var hasFilters: Bool {
+        var filters = browse.filters
+        filters.collectionID = nil
+        filters.collectionName = nil
+        return filters != VideoFilters()
+    }
+    private var selectedCollectionName: String? {
+        isWatchlist ? nil : browse.filters.collectionName
     }
     private var canBrowseAlphabet: Bool {
         alphabetRequestKey == requestKey && browse.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1841,6 +1846,30 @@ private struct TVVideoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
             HStack(spacing: 28) {
+                scopeButton("All titles", selected: browse.filters.collectionID == nil, id: "videoAllTitlesButton") {
+                    selectCollection(nil, name: nil)
+                }
+                .focused($allTitlesFocused)
+                if let watchlistID {
+                    scopeButton("Watchlist", selected: isWatchlist, id: "videoLibraryWatchlistButton") {
+                        selectCollection(watchlistID, name: "Watchlist")
+                    }
+                }
+                Button { collectionsPresented = true } label: {
+                    HStack(spacing: 8) {
+                        Text(selectedCollectionName ?? "Collections")
+                            .lineLimit(1)
+                        LuminaIcon(glyph: .chevronDown, size: 16)
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: selectedCollectionName != nil))
+                .accessibilityLabel("Collections")
+                .accessibilityValue(selectedCollectionName ?? "Any collection")
+                .accessibilityAddTraits(selectedCollectionName == nil ? [] : .isSelected)
+                .accessibilityIdentifier("videoCollectionFilterButton")
+
                 if browse.query.isEmpty {
                     Menu {
                         Picker("Sort", selection: $browse.sort) {
@@ -1868,21 +1897,13 @@ private struct TVVideoView: View {
                 .onMoveCommand { direction in
                     if direction == .down { focusVisibleGridItem() }
                 }
-                if hasNonCollectionFilters {
+                if hasFilters {
                     Button("Clear filters") {
                         browse.filters = VideoFilters(collectionID: browse.filters.collectionID, collectionName: browse.filters.collectionName)
                     }
                         .buttonStyle(LuminaUnderlineTabStyle())
                         .accessibilityLabel("Clear filters")
                         .accessibilityIdentifier("videoClearFiltersButton")
-                }
-                if browse.filters.collectionID != nil {
-                    Button(isWatchlist ? "Clear watchlist" : "Clear collection") {
-                        browse.filters.collectionID = nil
-                        browse.filters.collectionName = nil
-                    }
-                    .buttonStyle(LuminaUnderlineTabStyle())
-                    .accessibilityIdentifier("videoClearCollectionFilterButton")
                 }
                 Spacer()
                 TextField("Search video", text: $browse.query)
@@ -1899,6 +1920,22 @@ private struct TVVideoView: View {
                     ScrollView {
                         if store.isBusy && store.items.isEmpty {
                             ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
+                        } else if store.items.isEmpty, isWatchlist, store.errorMessage == nil {
+                            if hasFilters || !browse.query.isEmpty {
+                                TVMessageView(title: "No matching saved titles", message: "Try clearing search and filters to see more of your Watchlist.", actionTitle: "Clear search and filters", focusActionOnAppear: true) {
+                                    browse.query = ""
+                                    browse.filters = VideoFilters(collectionID: watchlistID, collectionName: "Watchlist")
+                                }
+                                .containerRelativeFrame(.vertical)
+                                .focusSection()
+                            } else {
+                                TVMessageView(title: "Nothing saved here yet", message: "Add a title to your Watchlist from its details. It will appear here in its library category.", actionTitle: "Browse all titles", focusActionOnAppear: true) {
+                                    selectCollection(nil, name: nil)
+                                    allTitlesFocused = true
+                                }
+                                .containerRelativeFrame(.vertical)
+                                .focusSection()
+                            }
                         } else if store.items.isEmpty {
                             TVMessageView(title: "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") {
                                 Task { await reload(forceRefresh: true) }
@@ -2015,7 +2052,21 @@ private struct TVVideoView: View {
             await ArtworkImageCache.shared.prefetch(upcoming.compactMap { store.posterURL(for: $0, maxWidth: 480) }, limit: 36)
         }
         .sheet(isPresented: $filtersPresented) {
-            TVVideoFiltersView(filters: browse.filters, store: store, watchlistID: watchlistID, includesFranchises: browse.kind == .movies) { browse.filters = $0 }
+            TVVideoFiltersView(filters: browse.filters) { browse.filters = $0 }
+        }
+        .fullScreenCover(isPresented: $collectionsPresented) {
+            NavigationStack {
+                TVCollectionFilterPicker(store: store, watchlistID: watchlistID, includesFranchises: browse.kind == .movies,
+                                         selection: isWatchlist ? nil : browse.filters.collectionID, onSelect: selectCollection)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { collectionsPresented = false }
+                                .accessibilityIdentifier("collectionFilterCancelButton")
+                        }
+                    }
+            }
+            .background(LuminaTheme.theater.ignoresSafeArea())
+            .onExitCommand { collectionsPresented = false }
         }
         .onDisappear { alphabetTask?.cancel() }
         .task(id: requestKey) {
@@ -2038,8 +2089,23 @@ private struct TVVideoView: View {
         }
     }
 
+    private func scopeButton(_ title: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(LuminaUnderlineTabStyle(selected: selected))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityValue(selected ? "Selected" : "")
+            .accessibilityIdentifier(id)
+    }
+
+    private func selectCollection(_ id: String?, name: String?) {
+        var filters = browse.filters
+        filters.collectionID = id
+        filters.collectionName = name
+        browse.filters = filters
+    }
+
     private var filterSummary: String {
-        [browse.filters.collectionName, browse.filters.genre.isEmpty ? nil : browse.filters.genre, browse.filters.year.map(String.init), browse.filters.unwatchedOnly ? "Unwatched" : nil, browse.filters.favoritesOnly ? "Favorites" : nil]
+        [browse.filters.genre.isEmpty ? nil : browse.filters.genre, browse.filters.year.map(String.init), browse.filters.unwatchedOnly ? "Unwatched" : nil, browse.filters.favoritesOnly ? "Favorites" : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -2321,43 +2387,18 @@ private struct TVCollectionGrid: View {
 
 private struct TVVideoFiltersView: View {
     let filters: VideoFilters
-    let store: LuminaStore
-    let watchlistID: String?
-    let includesFranchises: Bool
     let onApply: (VideoFilters) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var genre = ""
     @State private var year = ""
     @State private var unwatchedOnly = false
     @State private var favoritesOnly = false
-    @State private var collectionID: String?
-    @State private var collectionName: String?
-    @State private var collectionPickerPresented = false
 
     private var validYear: Bool { year.isEmpty || (Int(year).map { (1...9999).contains($0) } ?? false) }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Saved titles") {
-                    if let watchlistID {
-                        Toggle("Watchlist only", isOn: Binding(
-                            get: { collectionID == watchlistID },
-                            set: { included in
-                                collectionID = included ? watchlistID : nil
-                                collectionName = included ? "Watchlist" : nil
-                            }
-                        ))
-                        .tint(LuminaTheme.brand)
-                        .accessibilityIdentifier("videoWatchlistFilterToggle")
-                    }
-                    Button {
-                        collectionPickerPresented = true
-                    } label: {
-                        LabeledContent("Collections", value: collectionID == watchlistID ? "Any collection" : collectionName ?? "Any collection")
-                    }
-                    .accessibilityIdentifier("videoCollectionFilterButton")
-                }
                 Section("Find your next watch") {
                     TextField("Genre", text: $genre)
                         .autocorrectionDisabled()
@@ -2374,15 +2415,18 @@ private struct TVVideoFiltersView: View {
                 }
                 Section {
                     Button("Apply filters") {
-                        onApply(VideoFilters(genre: genre.trimmingCharacters(in: .whitespacesAndNewlines), year: Int(year),
-                                             unwatchedOnly: unwatchedOnly, favoritesOnly: favoritesOnly,
-                                             collectionID: collectionID, collectionName: collectionName))
+                        var updated = filters
+                        updated.genre = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+                        updated.year = Int(year)
+                        updated.unwatchedOnly = unwatchedOnly
+                        updated.favoritesOnly = favoritesOnly
+                        onApply(updated)
                         dismiss()
                     }
                     .disabled(!validYear)
                     .accessibilityIdentifier("videoApplyFiltersButton")
                     Button("Reset filters") {
-                        collectionID = nil; collectionName = nil; genre = ""; year = ""; unwatchedOnly = false; favoritesOnly = false
+                        genre = ""; year = ""; unwatchedOnly = false; favoritesOnly = false
                     }
                     Button("Cancel", role: .cancel) { dismiss() }
                         .accessibilityIdentifier("videoCancelFiltersButton")
@@ -2390,23 +2434,7 @@ private struct TVVideoFiltersView: View {
             }
             .navigationTitle("Video filters")
         }
-        .fullScreenCover(isPresented: $collectionPickerPresented) {
-            NavigationStack {
-                TVCollectionFilterPicker(store: store, watchlistID: watchlistID, includesFranchises: includesFranchises,
-                                         selection: $collectionID, selectedName: $collectionName)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { collectionPickerPresented = false }
-                                .accessibilityIdentifier("collectionFilterCancelButton")
-                        }
-                    }
-            }
-            .background(LuminaTheme.theater.ignoresSafeArea())
-            .onExitCommand { collectionPickerPresented = false }
-        }
         .onAppear {
-            collectionID = filters.collectionID
-            collectionName = filters.collectionName
             genre = filters.genre
             year = filters.year.map(String.init) ?? ""
             unwatchedOnly = filters.unwatchedOnly
@@ -2419,8 +2447,8 @@ private struct TVCollectionFilterPicker: View {
     let store: LuminaStore
     let watchlistID: String?
     let includesFranchises: Bool
-    @Binding var selection: String?
-    @Binding var selectedName: String?
+    let selection: String?
+    let onSelect: (String?, String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var collections = [MediaItem]()
     @State private var isLoading = false
@@ -2429,9 +2457,8 @@ private struct TVCollectionFilterPicker: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Button("Any collection") {
-                    selection = nil
-                    selectedName = nil
+                Button("All titles") {
+                    onSelect(nil, nil)
                     dismiss()
                 }
                 .buttonStyle(LuminaUnderlineTabStyle(selected: selection == nil))
@@ -2454,8 +2481,7 @@ private struct TVCollectionFilterPicker: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
                         ForEach(collections) { item in
                             TVMediaCard(item: item, store: store, poster: true, artworkWidth: 480) {
-                                selection = item.id
-                                selectedName = item.name
+                                onSelect(item.id, item.name)
                                 dismiss()
                             }
                             .accessibilityValue(selection == item.id ? "Selected" : "")
@@ -2470,7 +2496,7 @@ private struct TVCollectionFilterPicker: View {
         }
         .background(LuminaTheme.theater)
         .foregroundStyle(LuminaTheme.ink)
-        .navigationTitle("Collection")
+        .navigationTitle("Collections")
         .accessibilityIdentifier("collectionFilterPicker")
         .task { await load() }
     }
@@ -3076,7 +3102,9 @@ struct TVMessageView: View {
     let title: String
     let message: String
     let actionTitle: String
+    var focusActionOnAppear = false
     let action: () -> Void
+    @FocusState private var actionFocused: Bool
 
     var body: some View {
         VStack(spacing: 24) {
@@ -3091,6 +3119,10 @@ struct TVMessageView: View {
             Button(actionTitle, action: action)
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
+                .focused($actionFocused)
+                .task {
+                    if focusActionOnAppear { actionFocused = true }
+                }
         }
         .frame(maxWidth: .infinity, minHeight: 360)
         .padding(48)

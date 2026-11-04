@@ -137,10 +137,13 @@ public struct MediaTechnicalStream: Codable, Hashable, Sendable {
     public let channels: Int?
     public let isDefault: Bool?
     public let isInterlaced: Bool?
+    /// The source file's declared HDR transfer format, never the active output route.
+    public let videoRangeType: String?
 
     enum CodingKeys: String, CodingKey {
         case type = "Type", displayTitle = "DisplayTitle", codec = "Codec"
         case width = "Width", height = "Height", channels = "Channels", isDefault = "IsDefault", isInterlaced = "IsInterlaced"
+        case videoRangeType = "VideoRangeType"
     }
 }
 

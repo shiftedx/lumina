@@ -17,13 +17,14 @@ final class LuminaCoreTests: XCTestCase {
         payload["Type"] = "Episode"
         payload["PremiereDate"] = "2026-10-14T00:00:00Z"
         payload["MediaStreams"] = [
-            ["Type": "Video", "Height": 1080, "IsInterlaced": false],
+            ["Type": "Video", "Height": 1080, "IsInterlaced": false, "VideoRangeType": "HDR10"],
             ["Type": "Audio", "Codec": "eac3", "DisplayTitle": "E-AC3 5.1", "Channels": 6, "IsDefault": true],
         ]
         let episode = try JSONDecoder().decode(MediaItem.self, from: json(payload))
         XCTAssertEqual(episode.premiereDate, "2026-10-14T00:00:00Z")
         XCTAssertEqual(episode.mediaStreams?.first?.height, 1080)
         XCTAssertEqual(episode.mediaStreams?.first?.isInterlaced, false)
+        XCTAssertEqual(episode.mediaStreams?.first?.videoRangeType, "HDR10")
         XCTAssertEqual(episode.mediaStreams?.last?.displayTitle, "E-AC3 5.1")
         XCTAssertEqual(episode.mediaStreams?.last?.isDefault, true)
         let roundTrip = try JSONDecoder().decode(MediaItem.self, from: JSONEncoder().encode(episode))

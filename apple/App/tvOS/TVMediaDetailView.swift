@@ -426,7 +426,7 @@ struct TVVideoCollectionView: View {
                                     .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
                                     .disabled(isPreparingPlayback)
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .frame(width: 320, height: 248, alignment: .topLeading)
+                                    .frame(width: 320, height: 292, alignment: .topLeading)
                                     .focused($focusedAction, equals: .episode(episode.id))
                                     .accessibilityIdentifier("videoCollectionItem-\(episode.id)")
                                     .accessibilityHint("Play this episode")
@@ -436,7 +436,7 @@ struct TVVideoCollectionView: View {
                         }
                         .padding(.horizontal, 82).padding(.vertical, 16)
                     }
-                    .frame(height: 280)
+                    .frame(height: 324)
                     .scrollClipDisabled()
                     .accessibilityIdentifier("collectionEpisodeRail")
                     .focusSection()
@@ -458,9 +458,14 @@ struct TVVideoCollectionView: View {
             Text(episodeHeading(episode))
                 .font(.system(size: 23, weight: .medium))
                 .foregroundStyle(.white).lineLimit(2)
-                .frame(height: 58, alignment: .topLeading)
+            if let timing = episodeCardTiming(episode) {
+                Text(timing)
+                    .font(.caption)
+                    .foregroundStyle(LuminaTheme.muted)
+                    .lineLimit(1)
+            }
         }
-        .frame(width: 320, height: 248, alignment: .topLeading)
+        .frame(width: 320, height: 292, alignment: .topLeading)
         .overlay {
             if selected {
                 RoundedRectangle(cornerRadius: 12)
@@ -468,7 +473,16 @@ struct TVVideoCollectionView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(episodeHeading(episode))\(episode.userData?.played == true ? ", Watched" : "")")
+        .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : "")")
+    }
+
+    private func episodeCardTiming(_ episode: MediaItem) -> String? {
+        guard episode.durationSeconds > 0 else { return nil }
+        let inProgress = episode.resumeSeconds > 0 && episode.resumeSeconds < episode.durationSeconds
+        let seconds = inProgress ? episode.durationSeconds - episode.resumeSeconds : episode.durationSeconds
+        let units: Set<Duration.UnitsFormatStyle.Unit> = seconds < 60 ? [.seconds] : [.hours, .minutes]
+        let time = Duration.seconds(seconds).formatted(.units(allowed: units, width: .abbreviated))
+        return inProgress ? time + " remaining" : time
     }
 
     private func preferredEpisode(in values: [MediaItem]) -> MediaItem? {
@@ -847,12 +861,25 @@ private func sourceFormatFacts(for item: MediaItem) -> [String] {
     if let video = streams.first(where: { $0.type == "Video" }), let height = video.height, height > 0 {
         facts.append("\(height)\(video.isInterlaced == true ? "i" : "p")")
     }
+    if let video = streams.first(where: { $0.type == "Video" }), let label = sourceHDRLabel(video.videoRangeType) {
+        facts.append(label)
+    }
     if let audio = streams.first(where: { $0.type == "Audio" && $0.isDefault == true })
         ?? streams.first(where: { $0.type == "Audio" }) {
         if let label = audio.displayTitle, !label.isEmpty { facts.append(label) }
         else if let codec = audio.codec { facts.append(codec.uppercased()) }
     }
     return facts
+}
+
+private func sourceHDRLabel(_ value: String?) -> String? {
+    switch value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+    case "HDR10": "HDR10"
+    case "HDR10+", "HDR10PLUS": "HDR10+"
+    case "HLG": "HLG"
+    case "DOVI", "DOVIWITHHDR10", "DOLBYVISION", "DOLBY VISION": "Dolby Vision"
+    default: nil
+    }
 }
 
 /// Playback has a filled control; the underline distinguishes focus and season selection elsewhere.

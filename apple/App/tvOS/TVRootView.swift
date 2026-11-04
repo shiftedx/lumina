@@ -1185,6 +1185,7 @@ private struct TVLibraryView: View {
     @State private var requestsUnavailable = false
     @State private var homeLayout = LuminaHomeLayout()
     @State private var homeFeed = LuminaHomeFeed()
+    @State private var requestsCatalog = LuminaRequests()
     @State private var homeSessionScope: TVHomeSessionScope?
     @State private var homeHeroID: String?
     @AppStorage(TVLibraryCategory.preferenceKey) private var defaultLibrary: TVLibraryCategory = .movies
@@ -1222,13 +1223,16 @@ private struct TVLibraryView: View {
                     case .library:
                         libraryContent
                     case .requests:
-                        TVRequestsView(
-                            store: store,
-                            focusRequest: contentFocusRequest,
-                            onOpen: onOpen,
-                            onPlayback: onPlayback,
-                            onOpenVault: { id in try await store.libraryItem(id: id) }
-                        )
+                        if store.requestsAvailable, homeSessionScope == TVHomeSessionScope(store.session) {
+                            TVRequestsView(
+                                store: store,
+                                catalog: requestsCatalog,
+                                focusRequest: contentFocusRequest,
+                                onOpen: onOpen,
+                                onPlayback: onPlayback,
+                                onOpenVault: { id in try await store.libraryItem(id: id) }
+                            )
+                        }
                     }
                 }
                 .padding(.top, contentTopPadding)
@@ -1261,6 +1265,7 @@ private struct TVLibraryView: View {
         .task(id: TVHomeSessionScope(store.session)) {
             homeLayout.configure(session: store.session)
             homeFeed.configure(session: store.session)
+            requestsCatalog.configure(session: store.requestsAvailable ? store.session : nil)
             homeSessionScope = TVHomeSessionScope(store.session)
         }
         .task(id: destination) {
@@ -1275,6 +1280,7 @@ private struct TVLibraryView: View {
             }
         }
         .onChange(of: store.requestsAvailable) { _, available in
+            requestsCatalog.configure(session: available ? store.session : nil)
             if !available {
                 history.removeAll { $0.destination == .requests }
                 if destination == .requests {
@@ -1603,17 +1609,18 @@ private struct TVHomeView<Header: View>: View {
     }
 
     var body: some View {
-        let snapshot = feed.refined(HomeRefinement(category: .all), heroItems: store.featuredItems)
+        let heroItems = store.featuredItems
+        let rowsByShelf = Dictionary(grouping: feed.rows.filter { !$0.items.isEmpty || !($0.externalItems ?? []).isEmpty }, by: \.shelfID)
         let showsContinueWatching = shelves.contains { $0.id == .continueWatching && $0.visible }
-            && (snapshot.rows.contains { $0.shelfID == .continueWatching && !$0.items.isEmpty }
+            && (rowsByShelf[.continueWatching]?.contains { !$0.items.isEmpty } == true
                 || (feed.completedShelfIDs?.contains(.continueWatching) != true && !store.resumeItems.isEmpty))
         GeometryReader { geometry in
             TVHeroScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    if !snapshot.items.isEmpty {
+                    if !heroItems.isEmpty {
                         TVFeaturedView(
                             store: store,
-                            items: snapshot.items,
+                            items: heroItems,
                             heroSelection: $heroSelection,
                             onOpen: onOpen,
                             onPlayback: onPlayback,
@@ -1636,8 +1643,7 @@ private struct TVHomeView<Header: View>: View {
                     }
                     if feed.hasLoaded {
                         ForEach(shelves.filter(\.visible)) { shelf in
-                        let richRows = snapshot.rows.filter { $0.shelfID == shelf.id }
-                        if !richRows.isEmpty {
+                        if let richRows = rowsByShelf[shelf.id] {
                         ForEach(richRows) { row in
                             TVRail(title: row.displayTitle, items: row.items, store: store,
                                    poster: row.shelfID == .nextUp || (row.shelfID != .continueWatching && row.shape == .poster),
@@ -1686,7 +1692,7 @@ private struct TVHomeView<Header: View>: View {
             let needsInitialLibraryLoad = !layout.hasLoaded || !feed.hasLoaded
             loadingInitialLibrary = needsInitialLibraryLoad
             defer { loadingInitialLibrary = false }
-            await reloadHome()
+            await reloadHome(refreshingConfiguration: needsInitialLibraryLoad)
             guard !Task.isCancelled, TVHomeSessionScope(store.session) == owner else { return }
             initialHomeLoadOwner = owner
             refreshAfterForegrounding()
@@ -1741,22 +1747,24 @@ private struct TVHomeView<Header: View>: View {
         Set(shelves.lazy.filter(\.visible).map(\.id)).intersection([.continueWatching, .nextUp, .newInLibrary])
     }
 
-    private func reloadHome(refreshingLegacyRecent: Bool = false) async {
+    private func reloadHome(refreshingLegacyRecent: Bool = false, refreshingConfiguration: Bool = true) async {
         let coldCompatibility = !layout.hasLoaded || !feed.hasLoaded
         let expected = expectedCompatibilityShelves
         let legacyRecent = refreshingLegacyRecent ? expected.intersection([.newInLibrary]) : []
         let richCompatibility = expected.subtracting(legacyRecent)
-        async let savedLayout: Void = layout.load()
         async let rows: Void = feed.load()
-        async let navigation: Void = store.refreshNavigationCategories()
-        if coldCompatibility {
-            // Keep the established cold remote focus path. After a rich snapshot
-            // exists, foreground refreshes use its completed shelf facts.
-            async let legacy: Void = store.loadHomeFallback(for: expected)
-            _ = await (savedLayout, rows, navigation, legacy)
-        } else {
-            _ = await (savedLayout, rows, navigation)
+        if refreshingConfiguration {
+            async let savedLayout: Void = layout.load()
+            async let navigation: Void = store.refreshNavigationCategories()
+            if coldCompatibility {
+                // Keep the established cold remote focus path.
+                async let legacy: Void = store.loadHomeFallback(for: expected)
+                _ = await (savedLayout, navigation, legacy)
+            } else {
+                _ = await (savedLayout, navigation)
+            }
         }
+        await rows
         guard !Task.isCancelled else { return }
         let missing = await store.reconcileRichHomeRows(
             feed.rows,
@@ -1798,6 +1806,7 @@ private struct TVVideoView: View {
     let restoreFocusRequest: Int?
     @State private var filtersPresented = false
     @State private var pendingRestoredItemID: String?
+    @State private var submittedSearch: String?
     @FocusState private var focusedItemID: String?
 
     @State private var alphabetLetter: String?
@@ -1805,7 +1814,7 @@ private struct TVVideoView: View {
     @State private var fastScrolling = false
     @State private var lastScrollSample: (offset: Int, time: TimeInterval)?
     @State private var alphabetTask: Task<Void, Never>?
-    @State private var lastVisibleItemID: String?
+    @State private var artworkWindow = 0
     @State private var lastFocusedIndex = 0
     @State private var movingForward = true
     @FocusState private var alphabetFocused: Bool
@@ -1897,8 +1906,7 @@ private struct TVVideoView: View {
                         } else {
                             VStack(alignment: .leading, spacing: 42) {
                                 TVCollectionGrid(title: nil, items: store.items, store: store,
-                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear,
-                                                 onVisible: { lastVisibleItemID = $0 })
+                                                 focusedItemID: $focusedItemID, onOpen: onOpen, onItemDidAppear: itemDidAppear)
                             }
                             .padding(.horizontal, 80)
                             .padding(.top, 24)
@@ -1986,20 +1994,25 @@ private struct TVVideoView: View {
                     let forward = index >= lastFocusedIndex
                     if movingForward != forward { movingForward = forward }
                     lastFocusedIndex = index
+                    let window = index / 6
+                    if window != artworkWindow { artworkWindow = window }
                 }
-                lastVisibleItemID = itemID
             }
         }
         .onChange(of: restoreFocusRequest, initial: true) { _, request in
             guard request != nil else { return }
             pendingRestoredItemID = browse.focusedItemID
-            restoreLastSelectionIfAvailable()
+            restoreSelection(restorableItemID)
         }
-        .onChange(of: displayedItems.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
-        .task(id: "\(lastVisibleItemID ?? "")-\(store.items.count)-\(movingForward)", priority: .utility) {
-            // Warm the poster window at its displayed rendition within the shared cache and four-load budgets.
-            await store.prefetchArtwork(after: lastVisibleItemID, in: store.items, maxWidth: 480,
-                                        count: 36, movingForward: movingForward)
+        .onChange(of: restorableItemID) { _, itemID in restoreSelection(itemID) }
+        .task(id: "\(store.items.first?.id ?? "")-\(artworkWindow)-\(store.items.count)-\(movingForward)", priority: .utility) {
+            // Advance lookahead in small batches instead of rebuilding the queue for every focused or visible card.
+            let items = store.items
+            guard !items.isEmpty else { return }
+            let anchor = min(items.count - 1, artworkWindow * 6 + (movingForward ? 0 : 5))
+            let upcoming = movingForward ? Array(items.dropFirst(anchor + 1).prefix(36))
+                : Array(items.prefix(anchor).suffix(36).reversed())
+            await ArtworkImageCache.shared.prefetch(upcoming.compactMap { store.posterURL(for: $0, maxWidth: 480) }, limit: 36)
         }
         .sheet(isPresented: $filtersPresented) {
             TVVideoFiltersView(filters: browse.filters, store: store, watchlistID: watchlistID, includesFranchises: browse.kind == .movies) { browse.filters = $0 }
@@ -2008,13 +2021,17 @@ private struct TVVideoView: View {
         .task(id: requestKey) {
             let requestedKey = requestKey
             alphabetTask?.cancel()
-            lastVisibleItemID = nil
+            artworkWindow = 0
             lastFocusedIndex = 0
             movingForward = true
             alphabetLetter = nil
             alphabetRequestKey = nil
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            let query = browse.query
+            if let submittedSearch, query != submittedSearch, !query.isEmpty {
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            }
             guard !Task.isCancelled else { return }
+            submittedSearch = query
             await reload()
             guard !Task.isCancelled, requestedKey == requestKey else { return }
             alphabetRequestKey = requestedKey
@@ -2040,9 +2057,13 @@ private struct TVVideoView: View {
         Task { await store.loadMore() }
     }
 
-    private func restoreLastSelectionIfAvailable() {
-        guard let itemID = pendingRestoredItemID,
-              displayedItems.contains(where: { $0.id == itemID }) else { return }
+    private var restorableItemID: String? {
+        guard let itemID = pendingRestoredItemID else { return nil }
+        return displayedItems.contains { $0.id == itemID } ? itemID : nil
+    }
+
+    private func restoreSelection(_ itemID: String?) {
+        guard let itemID else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
     }
@@ -2273,7 +2294,6 @@ private struct TVCollectionGrid: View {
     let focusedItemID: FocusState<String?>.Binding
     let onOpen: (MediaItem) -> Void
     let onItemDidAppear: (MediaItem) -> Void
-    let onVisible: (String) -> Void
 
     var body: some View {
         if !items.isEmpty {
@@ -2291,9 +2311,6 @@ private struct TVCollectionGrid: View {
                             .id(item.id)
                             .accessibilityIdentifier("libraryItem-\(item.id)")
                             .onAppear { onItemDidAppear(item) }
-                            .onScrollVisibilityChange(threshold: 0.01) { visible in
-                                if visible { onVisible(item.id) }
-                            }
                     }
                 }
                 .focusSection()
@@ -2479,6 +2496,7 @@ private struct TVAudioView: View {
     @Binding var browse: TVAudioBrowseState
     let restoreFocusRequest: Int?
     @State private var pendingRestoredItemID: String?
+    @State private var submittedSearch: String?
     @State private var lastVisibleItemID: String?
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedSearch: Bool
@@ -2549,22 +2567,29 @@ private struct TVAudioView: View {
         .onChange(of: restoreFocusRequest, initial: true) { _, request in
             guard request != nil else { return }
             pendingRestoredItemID = browse.focusedItemID
-            restoreLastSelectionIfAvailable()
+            restoreSelection(restorableItemID)
         }
-        .onChange(of: store.audioItems.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
+        .onChange(of: restorableItemID) { _, itemID in restoreSelection(itemID) }
         .task(id: "\(browse.kind.rawValue)-\(browse.query)") {
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            let query = browse.query
+            if let submittedSearch, query != submittedSearch, !query.isEmpty {
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            }
             guard !Task.isCancelled else { return }
+            submittedSearch = query
             await store.loadAudio(kind: browse.kind, search: browse.query)
         }
     }
 
-    private func restoreLastSelectionIfAvailable() {
-        guard let itemID = pendingRestoredItemID else { return }
-        if store.audioItems.contains(where: { $0.id == itemID }) {
-            focusedItemID = itemID
-            pendingRestoredItemID = nil
-        }
+    private var restorableItemID: String? {
+        guard let itemID = pendingRestoredItemID else { return nil }
+        return store.audioItems.contains { $0.id == itemID } ? itemID : nil
+    }
+
+    private func restoreSelection(_ itemID: String?) {
+        guard let itemID else { return }
+        focusedItemID = itemID
+        pendingRestoredItemID = nil
     }
 }
 

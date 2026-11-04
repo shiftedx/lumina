@@ -34,12 +34,12 @@ private struct TVRequestVaultDestination: View {
 @MainActor
 struct TVRequestsView: View {
     let store: LuminaStore
+    let catalog: LuminaRequests
     var focusRequest = 0
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let onOpenVault: @MainActor (String) async throws -> MediaItem
     @FocusState private var focusedSearch: Bool
-    @State private var catalog = LuminaRequests()
     @State private var search = ""
     @State private var searchResults: [RequestCatalogItem] = []
     @State private var searchPage = 0
@@ -118,6 +118,7 @@ struct TVRequestsView: View {
                 return
             }
             await catalog.loadHome()
+            guard !Task.isCancelled else { return }
             await loadQuotas()
         }
         .task(id: "\(query)|\(searchRetry)") { await startSearch() }

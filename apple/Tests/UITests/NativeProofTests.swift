@@ -4504,9 +4504,12 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(application!.buttons["homeNavigationButton"].exists,
                       "The sunrise must be a remote-focusable Home button.")
         let library = element("libraryNavigationButton")
+        let moviesStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "tv_movies_entry", event: "begin", started: moviesStarted)
         try activate(library)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library opens directly to Movies")
         try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "Movies poster wall")
+        emitPerformanceMarker(phase: "tv_movies_entry", event: "ready", started: moviesStarted)
         XCTAssertFalse(element("libraryHubScreen").exists)
         try attachFrame(named: "Library opens directly to Movies")
         let unsaved = element("libraryItem-\(fixture.convertedItemID)")
@@ -4518,14 +4521,21 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "saved movie")
         XCTAssertTrue(disappears(unsaved, timeout: 20), "Watchlist filters out unsaved movies.")
 
+        let requestsStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "tv_requests_entry", event: "begin", started: requestsStarted)
         try activate(element("requestsButton"))
         try waitForExistence(element("requestsScreen"), timeout: 20, named: "Requests from the Movies library")
+        emitPerformanceMarker(phase: "tv_requests_entry", event: "ready", started: requestsStarted)
+        let requestHero = application!.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "requestFeatured-")).firstMatch
+        try waitForExistence(requestHero, timeout: 15, named: "Requests featured title")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Requests Back restores Movies")
         XCTAssertTrue(element("videoClearCollectionFilterButton").exists,
                       "Returning from Requests must preserve the Watchlist filter.")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "TV Home after Library Back")
+        try waitForExistence(element("featuredPlayButton"), timeout: 15, named: "warm Home hero")
         try activate(library)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies before switching categories")
         let shows = element("homeBrowse-tv")
@@ -4535,14 +4545,19 @@ class NativeProofJourney: XCTestCase {
         try activate(element("videoFiltersButton"))
         try waitForExistence(element("videoWatchlistFilterToggle"), timeout: 15, named: "Shows Watchlist filter")
         try waitForExistence(element("videoCollectionFilterButton"), timeout: 15, named: "Shows Collections filter")
-        try activate(element("videoCancelFiltersButton"))
+        XCUIRemote.shared.press(.menu)
         guard disappears(element("videoCancelFiltersButton"), timeout: 10) else {
-            throw ProofFailure.ui("Cancel must dismiss the Library filters before Back leaves the category.")
+            throw ProofFailure.ui("Back must dismiss Library filters before leaving the category.")
         }
         XCUIRemote.shared.press(.menu)
         let episodeResume = element("resumeItem-\(fixture.episodeID)")
         try waitForExistence(episodeResume, timeout: 20, named: "episode resume on TV Home")
         XCTAssertTrue(episodeResume.label.contains(fixture.showTitle) && episodeResume.label.contains("S1 · E1"))
+
+        try activate(element("requestsButton"))
+        try waitForExistence(requestHero, timeout: 15, named: "featured title on returning to Requests")
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after returning from Requests")
 
         try openDeviceSettings()
         try selectDeviceSettingsCategory("library")

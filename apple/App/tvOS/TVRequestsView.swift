@@ -155,7 +155,6 @@ struct TVRequestsView: View {
             HStack(spacing: 28) {
                 Text("Requests")
                     .font(LuminaTheme.editorial(52, relativeTo: .largeTitle, italic: true))
-                Spacer()
                 Button("Discover", action: showDiscovery)
                     .buttonStyle(LuminaUnderlineTabStyle(selected: !showingSearch))
                     .focused($discoveryFocused)
@@ -175,6 +174,7 @@ struct TVRequestsView: View {
                 }
                 .buttonStyle(LuminaUnderlineTabStyle())
                 .accessibilityIdentifier("requestsMyListButton")
+                Spacer()
             }
             if showingSearch { searchControl }
             else { browseControls }
@@ -469,6 +469,12 @@ private struct TVRequestHero: View {
                     startPoint: .center,
                     endPoint: .bottom
                 )
+
+                LinearGradient(stops: [
+                    .init(color: LuminaTheme.theater.opacity(0.90), location: 0),
+                    .init(color: LuminaTheme.theater.opacity(0.60), location: 0.33),
+                    .init(color: .clear, location: 0.72)
+                ], startPoint: .leading, endPoint: .trailing)
 
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Featured")

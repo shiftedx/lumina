@@ -455,6 +455,14 @@ struct TVVideoCollectionView: View {
                             .tint(LuminaTheme.brand).padding(.horizontal, 10).padding(.bottom, 8)
                     }
                 }
+                .overlay {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(LuminaTheme.brand, lineWidth: 4)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
             Text(episodeHeading(episode))
                 .font(.system(size: 23, weight: .medium))
                 .foregroundStyle(.white).lineLimit(2)
@@ -466,12 +474,6 @@ struct TVVideoCollectionView: View {
             }
         }
         .frame(width: 320, height: 292, alignment: .topLeading)
-        .overlay {
-            if selected {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(LuminaTheme.brand, lineWidth: 4)
-            }
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : "")")
     }

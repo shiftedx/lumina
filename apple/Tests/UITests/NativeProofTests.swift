@@ -4439,6 +4439,23 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("detailScreen"), timeout: 20, named: "movie from the visited carousel")
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(waitUntil(timeout: 12) { visited.hasFocus }, "Back from detail must restore the same carousel card.")
+        let movie = element("\(recentPrefix)-\(fixture.directItemID)")
+        try activate(movie)
+        let play = element("playButton")
+        try waitForExistence(play, timeout: 20, named: "Play on the Home movie's details")
+        try activate(play)
+        if element("resumePlaybackChoice").waitForExistence(timeout: 3) {
+            try activate(element("resumePlaybackChoice").buttons["Resume"])
+        }
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "Home movie playback")
+        let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 2 }
+        try closePlayer()
+        try waitForExistence(play, timeout: 15, named: "movie details after leaving playback")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 12) { movie.hasFocus },
+                      "Back from playback and detail must restore the exact Home poster, even when the movie also appears in Continue Watching.")
+        try attachFrame(named: "Home restores the focused movie poster after playback")
         completed = true
     }
 

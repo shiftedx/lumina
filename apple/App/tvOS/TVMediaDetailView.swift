@@ -32,6 +32,7 @@ struct TVDetailView: View {
                             Text(metadataFacts.joined(separator: " · "))
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.9))
+                                .accessibilityIdentifier("movieDetailFacts")
                         }
                         detailActionRow
                         detailStatus
@@ -77,6 +78,7 @@ struct TVDetailView: View {
         if let communityRating = currentItem.communityRating {
             facts.append("Community \(communityRating.formatted(.number.precision(.fractionLength(1)))) / 10")
         }
+        facts += sourceFormatFacts(for: currentItem)
         return facts
     }
 
@@ -344,16 +346,7 @@ struct TVVideoCollectionView: View {
             facts.append(date.formatted(date: .abbreviated, time: .omitted))
         } else if let year = episode.productionYear { facts.append(String(year)) }
         if let rating = episode.officialRating ?? currentItem.officialRating { facts.append(rating) }
-        let streams = episode.mediaStreams ?? []
-        // These describe the source file, not the device's current HDMI/audio output.
-        if let video = streams.first(where: { $0.type == "Video" }), let height = video.height, height > 0 {
-            facts.append("\(height)\(video.isInterlaced == true ? "i" : "p")")
-        }
-        if let audio = streams.first(where: { $0.type == "Audio" && $0.isDefault == true })
-            ?? streams.first(where: { $0.type == "Audio" }) {
-            if let label = audio.displayTitle, !label.isEmpty { facts.append(label) }
-            else if let codec = audio.codec { facts.append(codec.uppercased()) }
-        }
+        facts += sourceFormatFacts(for: episode)
         return facts
     }
 
@@ -847,7 +840,22 @@ private struct TVDetailOverflowActions: View {
     }
 }
 
-/// Detail actions defer to the artwork; an underline carries focus and season selection.
+private func sourceFormatFacts(for item: MediaItem) -> [String] {
+    var facts: [String] = []
+    let streams = item.mediaStreams ?? []
+    // These describe the source file, not the device's current HDMI/audio output.
+    if let video = streams.first(where: { $0.type == "Video" }), let height = video.height, height > 0 {
+        facts.append("\(height)\(video.isInterlaced == true ? "i" : "p")")
+    }
+    if let audio = streams.first(where: { $0.type == "Audio" && $0.isDefault == true })
+        ?? streams.first(where: { $0.type == "Audio" }) {
+        if let label = audio.displayTitle, !label.isEmpty { facts.append(label) }
+        else if let codec = audio.codec { facts.append(codec.uppercased()) }
+    }
+    return facts
+}
+
+/// Playback has a filled control; the underline distinguishes focus and season selection elsewhere.
 private struct TVDetailTextActionStyle: ButtonStyle {
     var primary = false
     var selected = false
@@ -858,13 +866,24 @@ private struct TVDetailTextActionStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 27, weight: isFocused || primary || selected ? .semibold : .regular))
-            .padding(.horizontal, 4)
+            .padding(.horizontal, primary ? 20 : 4)
             .frame(minWidth: 64, minHeight: 64)
-            .foregroundStyle(.white.opacity(isFocused || primary ? 1 : 0.82))
+            .foregroundStyle(primary ? LuminaTheme.onPrimaryControl : .white.opacity(isFocused ? 1 : 0.82))
+            .background {
+                if primary {
+                    RoundedRectangle(cornerRadius: 12).fill(isFocused ? .white : LuminaTheme.primaryControlFill)
+                }
+            }
             .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(isFocused ? .white : selected ? LuminaTheme.brand : .clear)
-                    .frame(height: isFocused ? 3 : 1)
+                if primary && isFocused {
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white, lineWidth: 2)
+                        .padding(-5)
+                } else if !primary {
+                    Rectangle()
+                        .fill(isFocused ? .white : selected ? LuminaTheme.brand : .clear)
+                        .frame(height: isFocused ? 3 : 1)
+                }
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)
             .contentShape(.rect)

@@ -855,12 +855,12 @@ private struct TVDeviceSettingsRow: View {
             if !value.isEmpty {
                 Text(value)
                     .font(.system(size: 24))
-                    .foregroundStyle(LuminaTheme.muted)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             if showsDisclosure {
                 LuminaIcon(glyph: .forward, size: 18)
-                    .foregroundStyle(LuminaTheme.muted)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
@@ -875,12 +875,22 @@ private struct TVDeviceSettingsRowStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        let filled = isFocused && !destructive
         configuration.label
-            .foregroundStyle(destructive ? Color.red.opacity(isFocused ? 1 : 0.82) : LuminaTheme.ink.opacity(isFocused ? 1 : 0.86))
+            .padding(.horizontal, 16)
+            .foregroundStyle(filled ? LuminaTheme.onPrimaryControl
+                : destructive ? Color.red.opacity(isFocused ? 1 : 0.82) : LuminaTheme.ink)
+            .background {
+                if filled {
+                    RoundedRectangle(cornerRadius: 12).fill(LuminaTheme.primaryControlFill)
+                }
+            }
             .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(isFocused ? Color.white : selected ? LuminaTheme.brand : .clear)
-                    .frame(height: isFocused ? 3 : selected ? 2 : 1)
+                if !filled {
+                    Rectangle()
+                        .fill(isFocused ? Color.white : selected ? LuminaTheme.brand : .clear)
+                        .frame(height: isFocused ? 3 : selected ? 2 : 1)
+                }
             }
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
             .contentShape(.rect)

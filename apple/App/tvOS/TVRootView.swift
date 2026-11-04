@@ -1719,6 +1719,10 @@ private struct TVHomeView<Header: View>: View {
 
     var body: some View {
         let snapshot = refinement
+        let showsContinueWatching = category == .all
+            && shelves.contains { $0.id == .continueWatching && $0.visible }
+            && (snapshot.rows.contains { $0.shelfID == .continueWatching && !$0.items.isEmpty }
+                || (feed.completedShelfIDs?.contains(.continueWatching) != true && !store.resumeItems.isEmpty))
         GeometryReader { geometry in
             TVHeroScrollView {
                 VStack(alignment: .leading, spacing: 32) {
@@ -1731,7 +1735,9 @@ private struct TVHomeView<Header: View>: View {
                             onPlayback: onPlayback,
                             focusRequest: focusRequest,
                             onRequestHeaderFocus: onRequestHeaderFocus,
-                            minimumHeight: min(900, max(620, geometry.size.height * 0.82)),
+                            minimumHeight: showsContinueWatching
+                                ? min(560, max(440, geometry.size.height * 0.50))
+                                : min(900, max(620, geometry.size.height * 0.82)),
                             onWatchlistChanged: { await feed.load() }
                         )
                             .focusedValue(\.tvHeroRegion, true)
@@ -1755,7 +1761,8 @@ private struct TVHomeView<Header: View>: View {
                         if !richRows.isEmpty {
                         ForEach(richRows) { row in
                             TVRail(title: row.displayTitle, items: row.items, store: store,
-                                   poster: row.shape == .poster,
+                                   poster: row.shelfID == .continueWatching ? category != .all
+                                       : row.shelfID == .nextUp || row.shape == .poster,
                                    identifierPrefix: row.shelfID == .continueWatching ? "resumeItem" : row.shelfID == .nextUp ? "nextUpItem" : "homeRow-\(row.id)",
                                    onOpen: onOpen, feed: feed,
                                    onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
@@ -1889,11 +1896,12 @@ private struct TVHomeView<Header: View>: View {
         switch id {
         case .continueWatching:
             if !store.resumeItems.isEmpty {
-                TVRail(title: id.title, items: filtered(store.resumeItems), store: store, onOpen: onOpen).focusSection()
+                TVRail(title: id.title, items: filtered(store.resumeItems), store: store,
+                       poster: category != .all, onOpen: onOpen).focusSection()
             }
         case .nextUp:
             if !store.nextUpItems.isEmpty {
-                TVRail(title: id.title, items: filtered(store.nextUpItems), store: store, identifierPrefix: "nextUpItem", onOpen: onOpen).focusSection()
+                TVRail(title: id.title, items: filtered(store.nextUpItems), store: store, poster: true, identifierPrefix: "nextUpItem", onOpen: onOpen).focusSection()
             }
         case .newInLibrary:
             if !store.recentItems.isEmpty {
@@ -2865,10 +2873,6 @@ private struct TVRail: View {
         TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
     }
 
-    private var presentsPosters: Bool {
-        poster || captionPresentation != .standard
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             TVSectionHeading(title: title, count: items.count)
@@ -2877,13 +2881,13 @@ private struct TVRail: View {
                 LazyHStack(alignment: .top, spacing: 32) {
                     ForEach(items) { item in
                         TVRecommendationCard(item: item, feed: feed, onHide: onHide) {
-                            TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation,
-                                        artworkWidth: presentsPosters ? 480 : 760) {
+                            TVMediaCard(item: item, store: store, poster: poster, captionPresentation: captionPresentation,
+                                        artworkWidth: poster ? 480 : 760) {
                                 if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
                                 onOpen(item)
                             }
                         }
-                            .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : presentsPosters ? 220 : 400)
+                            .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : poster ? 220 : 400)
                             .focused($focusedItemID, equals: item.id)
                             .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
@@ -2909,8 +2913,8 @@ private struct TVRail: View {
             let upcoming = movingForward ? Array(items.dropFirst(index + 1).prefix(8))
                 : Array(items.prefix(index).suffix(8).reversed())
             let urls = upcoming.compactMap {
-                store.thumbnailURL(for: $0, poster: presentsPosters || $0.isAudio || $0.type.hasPrefix("Music"),
-                                   maxWidth: presentsPosters ? 480 : 760)
+                store.thumbnailURL(for: $0, poster: poster || $0.isAudio || $0.type.hasPrefix("Music"),
+                                   maxWidth: poster ? 480 : 760)
             }
             await ArtworkImageCache.shared.prefetch(urls, limit: 8)
         }

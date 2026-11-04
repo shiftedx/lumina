@@ -4337,6 +4337,7 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try await api.seedProgress(identity: identity, itemID: fixture.episodeID,
                                    seconds: nextUp ? 0 : 12, completed: nextUp)
+        _ = try await api.saveHomeLayout(identity: identity, shelves: nil)
         try launchAndResetSession()
         try await performanceQuietPhase("login_form")
         try signIn(using: fixture)
@@ -4346,12 +4347,19 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(resume, timeout: 25, named: "Continue Watching episode")
         XCTAssertTrue(focus(resume, timeout: 25), "Continue Watching must accept remote focus.")
         let artwork = resume.descendants(matching: .any).matching(identifier: "tvArtwork-\(targetID)").firstMatch
-        try waitForExistence(artwork, timeout: 10, named: "Continue Watching poster source")
+        try waitForExistence(artwork, timeout: 10, named: "Home episode artwork")
         let source = try XCTUnwrap(artwork.value as? String)
-        XCTAssertTrue(source.hasSuffix("/Images/Primary"))
-        XCTAssertNotEqual(source, "/Items/\(targetID)/Images/Primary",
-                          "A portrait episode tile must load series/catalog poster artwork, not its landscape still.")
-        try attachFrame(named: nextUp ? "TV Next Up uses series poster artwork" : "TV Continue Watching uses series poster artwork")
+        if nextUp {
+            XCTAssertTrue(source.hasSuffix("/Images/Primary"))
+            XCTAssertNotEqual(source, "/Items/\(targetID)/Images/Primary",
+                              "Next Up uses series or season poster artwork.")
+            XCTAssertLessThan(artwork.frame.width, artwork.frame.height)
+        } else {
+            XCTAssertTrue(source == "/Items/\(targetID)/Images/Primary" || source.hasSuffix("/Images/Backdrop/0"),
+                          "Continue Watching uses the episode still or a backdrop.")
+            XCTAssertGreaterThan(artwork.frame.width, artwork.frame.height)
+        }
+        try attachFrame(named: nextUp ? "TV Next Up uses series poster artwork" : "TV Continue Watching uses wide episode artwork")
         for cycle in 0..<(nextUp ? 1 : 3) {
             let phase = cycle == 0 ? "tv_cold_show_detail" : "tv_warm_show_detail_\(cycle)"
             let started = ContinuousClock.now
@@ -4376,14 +4384,25 @@ class NativeProofJourney: XCTestCase {
         emitPerformanceMarker(phase: "tv_shelf_remote_navigation", event: "end", started: navigationStarted)
         XCTAssertTrue(focus(next, timeout: 20))
         XCUIRemote.shared.press(.select)
-        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "Next Up show")
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show from the Home shelf")
         let play = element("playButton")
         XCTAssertTrue(focus(play, timeout: 20))
+        try attachFrame(named: "Episode detail with focused playback action")
         XCUIRemote.shared.press(.select)
-        try waitForExistence(element("playbackScreen"), timeout: 25, named: "Next Up playback after cached navigation")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
+        if element("resumePlaybackChoice").waitForExistence(timeout: 3) {
+            try activate(element("resumePlaybackChoice").buttons["Resume"])
+        }
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "episode playback after cached navigation")
+        let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 2 }
         try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback")
         try closePlayer()
+        if !nextUp {
+            try waitForExistence(play, timeout: 15, named: "episode detail after playback")
+            XCUIRemote.shared.press(.menu)
+            XCTAssertTrue(waitUntil(timeout: 12) { resume.hasFocus },
+                          "Back must restore the original Continue Watching card.")
+        }
         completed = true
     }
 
@@ -4414,10 +4433,9 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("featuredWatchlistButton"), timeout: 25, named: "hero's right-hand action")
         XCTAssertTrue(focus(element("featuredWatchlistButton"), timeout: 20))
         let firstResume = element("resumeItem-\(resumeRow.items[0].Id)")
-        for _ in 0..<4 {
-            XCUIRemote.shared.press(.down)
-            if resumeRow.items.contains(where: { element("resumeItem-\($0.Id)").hasFocus }) { break }
-        }
+        try waitForExistence(firstResume, timeout: 20, named: "first Continue Watching card")
+        try attachFrame(named: "Compact TV Home with Continue Watching visible")
+        XCUIRemote.shared.press(.down)
         guard waitUntil(timeout: 8, condition: { firstResume.hasFocus }) else {
             throw ProofFailure.ui("Down from the hero must enter the leftmost Continue watching card, regardless of the hero action's horizontal position.")
         }
@@ -4443,7 +4461,13 @@ class NativeProofJourney: XCTestCase {
         try activate(movie)
         let play = element("playButton")
         try waitForExistence(play, timeout: 20, named: "Play on the Home movie's details")
-        try activate(play)
+        let facts = element("movieDetailFacts")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            facts.label.contains("180p") && facts.label.localizedCaseInsensitiveContains("AAC")
+        }, "Movie detail should show the fixture's video resolution and audio format.")
+        XCTAssertTrue(focus(play, timeout: 10))
+        try attachFrame(named: "Movie detail shows source formats and focused Resume")
+        XCUIRemote.shared.press(.select)
         if element("resumePlaybackChoice").waitForExistence(timeout: 3) {
             try activate(element("resumePlaybackChoice").buttons["Resume"])
         }
@@ -5313,6 +5337,11 @@ class NativeProofJourney: XCTestCase {
         try signIn(using: fixture)
         try openDeviceSettings()
         try attachFrame(named: "Device settings initial layout")
+        #if os(tvOS)
+        XCTAssertTrue(focus(element("devicePlaybackQualityPicker"), timeout: 10))
+        XCTAssertEqual(element("deviceSettingsCategory-playback").value as? String, "Selected")
+        try attachFrame(named: "Device settings focused row and selected Playback category")
+        #endif
         try chooseDeviceSetting("devicePlaybackQualityPicker", option: "Up to 720p")
         #if os(tvOS)
         try selectDeviceSettingsCategory("audio")

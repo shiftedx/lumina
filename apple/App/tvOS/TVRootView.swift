@@ -1408,13 +1408,30 @@ private struct TVLibraryView: View {
             Button { selectDestination(.home) } label: {
                 LuminaBrandMark()
                     .frame(width: 42, height: 26)
+                    .overlay {
+                        if focusedDestination == .home {
+                            RoundedRectangle(cornerRadius: 7)
+                                .strokeBorder(LuminaTheme.ink, lineWidth: 2)
+                                .padding(-7)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .frame(width: 64, height: 64, alignment: .leading)
+                    .overlay(alignment: .bottomLeading) {
+                        if destination == .home {
+                            Rectangle().fill(LuminaTheme.brand)
+                                .frame(width: 42, height: 2)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .contentShape(.rect)
             }
-            .buttonStyle(LuminaUnderlineTabStyle(selected: destination == .home))
+            .buttonStyle(TVNavigationButtonStyle())
             .focusEffectDisabled()
             .focused($focusedDestination, equals: .home)
             .accessibilityLabel("Home")
+            .accessibilityAddTraits(destination == .home ? .isSelected : [])
+            .accessibilityValue(destination == .home ? "Selected" : "")
             .accessibilityIdentifier("homeNavigationButton")
 
             Spacer()

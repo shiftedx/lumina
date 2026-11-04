@@ -4506,6 +4506,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(element("homeBrowse-all").exists)
         XCTAssertTrue(application!.buttons["homeNavigationButton"].exists,
                       "The sunrise must be a remote-focusable Home button.")
+        let home = element("homeNavigationButton")
+        XCTAssertEqual(home.value as? String, "Selected")
         let library = element("libraryNavigationButton")
         let moviesStarted = ContinuousClock.now
         emitPerformanceMarker(phase: "tv_movies_entry", event: "begin", started: moviesStarted)
@@ -4514,6 +4516,8 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "Movies poster wall")
         emitPerformanceMarker(phase: "tv_movies_entry", event: "ready", started: moviesStarted)
         XCTAssertFalse(element("libraryHubScreen").exists)
+        XCTAssertNotEqual(home.value as? String, "Selected")
+        XCTAssertEqual(library.value as? String, "Selected")
         try attachFrame(named: "Library opens directly to Movies")
         let unsaved = element("libraryItem-\(fixture.convertedItemID)")
         try waitForExistence(unsaved, timeout: 25, named: "unsaved movie in the unfiltered library")
@@ -4792,7 +4796,7 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Requests", screen: "requestsScreen")
         XCTAssertEqual(element("requestsButton").label, "Requests",
                        "Requests must be a labeled primary navigation tab, not an unlabeled utility icon.")
-        try enter(requestShowTitle, into: element("requestsSearchField"))
+        try enter(requestShowTitle, into: openTVRequestsSearch())
         let requestFeature = try revealRequestPoster(requestShowKey, named: "unlinked Requests show")
         try attachFrame(named: "TV Requests discovery")
         try activate(requestFeature)
@@ -7017,7 +7021,13 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(movie, timeout: 30, named: "Requests hero title")
         #if os(tvOS)
         XCTAssertTrue(movie.label.contains(movieTitle), "The Requests hero did not preserve its catalog title.")
-        let search = element("requestsSearchField")
+        XCTAssertFalse(element("requestsSearchField").exists, "Requests should open on Discover.")
+        XCTAssertTrue(element("requestsMyListButton").exists)
+        try attachFrame(named: "Requests Discover with Search and My Requests")
+        _ = try openTVRequestsSearch()
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(movie, timeout: 15, named: "Discover restored by Back from Requests Search")
+        let search = try openTVRequestsSearch()
         try enter(unavailableShowTitle, into: search)
         #else
         XCTAssertEqual(movie.label, movieTitle, "The Requests hero did not preserve its catalog title.")
@@ -7104,6 +7114,9 @@ class NativeProofJourney: XCTestCase {
         try activate(element("requestLanguagePicker"))
         try activate(menuAction("English dub"))
         #endif
+        #if os(tvOS)
+        try waitForExistence(element("requestConfirmButton"), timeout: 10, named: "request confirmation")
+        #else
         try revealDetailElement(
             element("requestConfirmButton"),
             in: element("requestDetailScreen"),
@@ -7111,6 +7124,7 @@ class NativeProofJourney: XCTestCase {
             requiresHittable: true
         )
         try waitForHittable(element("requestConfirmButton"), timeout: 10, named: "request confirmation")
+        #endif
         try activate(element("requestConfirmButton"))
         let submitted = try await waitForNativeRequest(api, identity: identity, key: freshAnimeKey)
         XCTAssertFalse(freshAnimeBefore.contains(submitted.id),
@@ -7215,7 +7229,7 @@ class NativeProofJourney: XCTestCase {
         try signIn(using: fixture)
         try selectDestination("Requests", screen: "requestsScreen")
         #if os(tvOS)
-        let search = element("requestsSearchField")
+        let search = try openTVRequestsSearch()
         try enter(animeTitle, into: search)
         #else
         try activate(element("requestsSearchButton"))
@@ -7289,7 +7303,7 @@ class NativeProofJourney: XCTestCase {
         try closeRequestDetailToRequests()
 
         #if os(tvOS)
-        let search = element("requestsSearchField")
+        let search = try openTVRequestsSearch()
         try enter(showTitle, into: search)
         #endif
         let show = try revealRequestPoster(showKey, named: "available show")
@@ -7874,7 +7888,7 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer")
             #endif
             #if os(tvOS)
-            let search = element("requestsSearchField")
+            let search = try openTVRequestsSearch()
             let readySearch = try waitForPerformanceControl(search, timeout: 20, named: "Requests search")
             try enter(movieTitle, into: readySearch)
             let searchResult = application!.buttons.matching(
@@ -7882,11 +7896,7 @@ class NativeProofJourney: XCTestCase {
             ).firstMatch
             _ = try waitForPerformanceControl(searchResult, timeout: 30, named: "TV Requests search result")
             try await performanceQuietPhase("requests_search_idle")
-            try replaceText(readySearch, with: "")
-            // replaceText opens the TV keyboard but intentionally remains
-            // cross-platform; dismiss it here before remote focus returns to
-            // the featured Requests action.
-            XCUIRemote.shared.press(.menu)
+            try activate(element("requestsDiscoverButton"))
             let browse = element("requestsBrowseMenu")
             _ = try waitForPerformanceControl(browse, timeout: 20, named: "TV Requests browse controls")
             try await performanceQuietPhase("requests_browse_controls_idle")
@@ -11600,6 +11610,13 @@ class NativeProofJourney: XCTestCase {
     #if os(tvOS)
     /// Library categories are pinned above the options row; continue downward
     /// through that hierarchy until the first matching poster owns focus.
+    private func openTVRequestsSearch() throws -> XCUIElement {
+        let field = element("requestsSearchField")
+        if !field.exists { try activate(element("requestsCatalogSearchButton")) }
+        try waitForExistence(field, timeout: 10, named: "Requests search field")
+        return field
+    }
+
     private func focusVideoGridItemFromCategories(_ item: XCUIElement, named name: String) throws {
         try waitForExistence(item, timeout: 25, named: name)
         XCTAssertTrue(focus(item, timeout: 20),

@@ -468,6 +468,7 @@ private enum TVDeviceSettingsCategory: String, CaseIterable, Identifiable {
     case subtitles
     case storage
     case about
+    case library
     case account
 
     var id: Self { self }
@@ -479,12 +480,14 @@ private enum TVDeviceSettingsCategory: String, CaseIterable, Identifiable {
         case .subtitles: "Subtitles"
         case .storage: "Storage"
         case .about: "About"
+        case .library: "Library"
         case .account: "Account"
         }
     }
 }
 
 private enum TVDeviceSettingsRoute: Hashable {
+    case defaultLibrary
     case quality
     case audioLanguage
     case subtitleLanguage
@@ -509,6 +512,7 @@ private struct TVDeviceSettingsView: View {
     var onClose: (() -> Void)?
     @Bindable private var preferences: NativePlaybackPreferences
     @Binding private var subtitleStyle: VideoSubtitleStyle
+    @AppStorage(TVLibraryCategory.preferenceKey) private var defaultLibrary: TVLibraryCategory = .movies
     @State private var category: TVDeviceSettingsCategory = .playback
     @State private var path = [TVDeviceSettingsRoute]()
     @State private var artworkCacheUsageBytes = 0
@@ -673,6 +677,14 @@ private struct TVDeviceSettingsView: View {
                 .buttonStyle(TVDeviceSettingsRowStyle())
                 .accessibilityIdentifier("deviceLicensesButton")
             }
+        case .library:
+            TVDeviceSettingsSection(title: "Library", detail: "Choose where the Library icon opens on this Apple TV.") {
+                Button { path.append(.defaultLibrary) } label: {
+                    TVDeviceSettingsRow(title: "Default library", value: defaultLibrary.label(in: store))
+                }
+                .buttonStyle(TVDeviceSettingsRowStyle())
+                .accessibilityIdentifier("deviceDefaultLibraryPicker")
+            }
         case .account:
             TVDeviceSettingsSection(
                 title: "Account",
@@ -692,6 +704,16 @@ private struct TVDeviceSettingsView: View {
     @ViewBuilder
     private func destination(for route: TVDeviceSettingsRoute) -> some View {
         switch route {
+        case .defaultLibrary:
+            let available = TVLibraryCategory.available(in: store)
+            TVDeviceChoiceScreen(
+                title: "Default library",
+                choices: available.isEmpty ? [.movies, .tv, .anime, .music] : available,
+                selection: $defaultLibrary,
+                label: { $0.label(in: store) },
+                identifier: { "deviceLibraryOption-\($0.rawValue)" },
+                onSelection: popRoute
+            )
         case .quality:
             TVDeviceChoiceScreen(
                 title: "Video quality",

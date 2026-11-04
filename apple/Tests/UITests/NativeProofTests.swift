@@ -3762,18 +3762,10 @@ class NativeProofJourney: XCTestCase {
     private func revealMusicAlbum(_ fixture: ProofFixture, named name: String) throws -> XCUIElement {
         let album = element("audioItem-\(fixture.audioAlbumID)")
         #if os(tvOS)
-        let featured = element("audioFeaturedAlbum")
-        try waitForExistence(featured, timeout: 25, named: "featured \(name)")
-        XCTAssertTrue(featured.label.contains(fixture.audioAlbumTitle),
-                      "The featured Music album must match the fixture album before navigating to its grid card.")
-        for _ in 0..<10 {
-            if hasVisibleFrame(album), album.isEnabled, album.isHittable, album.hasFocus {
-                XCTAssertTrue(album.label.contains(fixture.audioAlbumTitle))
-                return album
-            }
-            XCUIRemote.shared.press(.down)
-        }
-        throw ProofFailure.ui("Siri Remote Down did not reveal and focus the \(name) grid card.")
+        try waitForExistence(album, timeout: 25, named: name)
+        XCTAssertTrue(focus(album, timeout: 20), "The album must be focusable in the Music grid.")
+        XCTAssertTrue(album.label.contains(fixture.audioAlbumTitle))
+        return album
         #else
         try waitForExistence(album, timeout: 25, named: name)
         return album
@@ -4304,16 +4296,9 @@ class NativeProofJourney: XCTestCase {
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Home before Music")
         try selectDestination("Audio", screen: "audioScreen")
-        let albumHero = element("audioFeaturedAlbum")
-        try waitForExistence(albumHero, timeout: 20, named: "Music hero")
-        let album = element("audioItem-\(fixture.audioAlbumID)")
-        for _ in 0..<8 where !album.exists { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(focus(album, timeout: 25))
-        XCTAssertLessThan(albumHero.frame.minY, -1)
-        for _ in 0..<6 { XCUIRemote.shared.press(.up) }
-        XCTAssertTrue(waitUntil(timeout: 8) { abs(albumHero.frame.minY) < 2 },
-                      "Music Up must restore its artwork and header.")
-        try attachFrame(named: "TV Music hero restored from albums")
+        let album = try revealMusicAlbum(fixture, named: "Music library album")
+        XCTAssertTrue(album.hasFocus)
+        try attachFrame(named: "TV Music opens directly to the album grid")
         try selectDestination("Requests", screen: "requestsScreen")
         let heading = element("requestsScreen").staticTexts["Requests"].firstMatch
         try waitForExistence(heading, timeout: 20, named: "Requests heading")
@@ -4520,11 +4505,10 @@ class NativeProofJourney: XCTestCase {
                       "The sunrise must be a remote-focusable Home button.")
         let library = element("libraryNavigationButton")
         try activate(library)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "TV Library hub")
-        let movies = element("homeBrowse-movies")
-        try waitForExistence(movies, timeout: 15, named: "Movies Library tile")
-        try activate(movies)
-        try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Movies library")
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library opens directly to Movies")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 25, named: "Movies poster wall")
+        XCTAssertFalse(element("libraryHubScreen").exists)
+        try attachFrame(named: "Library opens directly to Movies")
         let unsaved = element("libraryItem-\(fixture.convertedItemID)")
         try waitForExistence(unsaved, timeout: 25, named: "unsaved movie in the unfiltered library")
         try activate(element("videoFiltersButton"))
@@ -4541,15 +4525,9 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(element("videoClearCollectionFilterButton").exists,
                       "Returning from Requests must preserve the Watchlist filter.")
         XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Library hub after Movies Back")
-        XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeBrowse-movies").hasFocus },
-                      "Back from Movies must restore the tile that opened it.")
-        try attachFrame(named: "Library hub restores Movies tile focus")
-        XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "TV Home after Library Back")
-
         try activate(library)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Library hub before TV Shows")
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies before switching categories")
         let shows = element("homeBrowse-tv")
         XCTAssertEqual(shows.label, "TV Shows", "The TV library tile must use its descriptive label.")
         try activate(shows)
@@ -4562,23 +4540,25 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("Cancel must dismiss the Library filters before Back leaves the category.")
         }
         XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Library hub after TV Shows Back")
         let episodeResume = element("resumeItem-\(fixture.episodeID)")
-        try activate(element("homeNavigationButton"))
         try waitForExistence(episodeResume, timeout: 20, named: "episode resume on TV Home")
-        XCTAssertTrue(episodeResume.label.contains(fixture.showTitle) && episodeResume.label.contains("S1 · E1"),
-                      "The TV episode resume must identify its series and episode number.")
+        XCTAssertTrue(episodeResume.label.contains(fixture.showTitle) && episodeResume.label.contains("S1 · E1"))
+
+        try openDeviceSettings()
+        try selectDeviceSettingsCategory("library")
+        try assertDeviceSetting("deviceDefaultLibraryPicker", contains: "Movies")
+        try activateDeviceControl("deviceDefaultLibraryPicker")
+        try activate(element("deviceLibraryOption-tv"))
+        try assertDeviceSetting("deviceDefaultLibraryPicker", contains: "TV Shows")
+        application!.terminate()
+        application!.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after app relaunch")
+        try activate(library)
+        try waitForExistence(element("libraryItem-\(fixture.showID)"), timeout: 25, named: "saved TV Shows landing preference")
+        try attachFrame(named: "Library opens directly to the saved TV Shows category")
         try selectTVLibraryCategory("music", screen: "audioScreen")
-        try waitForExistence(element("audioScreen"), timeout: 15, named: "TV Music library")
-        let musicHero = element("audioFeaturedAlbum")
-        try waitForExistence(musicHero, timeout: 20, named: "TV Music hero")
-        XCTAssertTrue(focus(musicHero, timeout: 20), "The TV Music hero must accept remote focus.")
-        XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitUntil(timeout: 10) { self.element("libraryNavigationButton").hasFocus },
-                      "Up from the focused Music hero must return to the Library tab.")
+        _ = try revealMusicAlbum(fixture, named: "Music library album")
         XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "TV Library hub after Music Back")
-        try activate(element("homeNavigationButton"))
         try waitForExistence(element("homeScreen"), timeout: 15, named: "TV Home after Music Back")
 
         try activate(element("homeSearchButton"))
@@ -4612,16 +4592,9 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(application!.staticTexts["LUMINA"].exists, "The TV header uses the sunrise mark without a wordmark.")
         let library = element("libraryNavigationButton")
         try activate(library)
-        let hub = element("libraryHubScreen")
-        try waitForExistence(hub, timeout: 25, named: "stable Library hub")
-        let movies = element("homeBrowse-movies")
-        try waitForExistence(movies, timeout: 15, named: "Movies hub tile")
-        XCTAssertTrue(focus(movies, timeout: 15), "Movies must be reachable from the Library hub.")
-        try activate(movies)
         try waitForExistence(element("libraryScreen"), timeout: 25, named: "Movies Library")
         XCUIRemote.shared.press(.menu)
-        try waitForExistence(hub, timeout: 15, named: "Library hub after Movies Back")
-        XCTAssertTrue(waitUntil(timeout: 8) { movies.hasFocus }, "Back must restore the Movies tile in the Library hub.")
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after Movies Back")
         completed = true
         #endif
     }
@@ -4740,8 +4713,6 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try selectDestination("Video", screen: "libraryScreen")
         XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Back returns Movies to the Library hub")
-        XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Back from focused Library tab returns Home")
         try selectDestination("Video", screen: "libraryScreen")
         try exerciseTVLibraryAlphabet(using: fixture)
@@ -4767,9 +4738,7 @@ class NativeProofJourney: XCTestCase {
         try selectTVLibraryCategory("tv", screen: "libraryScreen")
         try waitForExistence(element("libraryItem-\(fixture.showID)"), timeout: 25, named: "Shows library")
         try attachFrame(named: "TV Library Shows category")
-        XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Library hub after TV Shows")
-        XCTAssertFalse(element("homeBrowse-anime").exists, "Unconfigured Anime must be absent from the Library hub too.")
+        XCTAssertFalse(element("homeBrowse-anime").exists, "Unconfigured Anime must be absent from the Library category bar.")
         XCTAssertFalse(element("homeBrowse-books").exists,
                        "Books remain intentionally unavailable on tvOS.")
         try activate(element("homeNavigationButton"))
@@ -4820,10 +4789,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(focus(featuredTitle, timeout: 15), "Requests Back must restore a focusable featured title.")
         try selectDestination("Audio", screen: "audioScreen")
         try waitForExistence(element("audioSearchField"), timeout: 15, named: "Audio search")
-        try waitForExistence(element("audioFeaturedAlbum"), timeout: 20, named: "Audio album artwork")
+        try waitForExistence(element("audioItem-\(fixture.audioAlbumID)"), timeout: 20, named: "Audio album artwork")
         try attachFrame(named: "TV Audio library")
-        XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Audio Back returns to Library hub")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Audio hub Back returns Home")
         try waitForExistence(featuredTitle, timeout: 15, named: "restored Home content after Audio Back")
@@ -4911,10 +4878,6 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("detailScreen"), timeout: 15, named: "Video title detail")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "title Back returns to Video")
-        XCUIRemote.shared.press(.menu)
-        try waitForExistence(element("libraryHubScreen"), timeout: 15, named: "Video Back returns to Library hub")
-        XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeBrowse-movies").hasFocus },
-                      "Back must restore the tile that opened the Library category.")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Library tab Back returns Home")
         completed = true
@@ -7197,7 +7160,7 @@ class NativeProofJourney: XCTestCase {
         #endif
         application!.activate()
         #if os(tvOS)
-        try waitForExistence(element("libraryHubScreen"), timeout: 30, named: "Library hub after music removal")
+        try waitForExistence(element("libraryScreen"), timeout: 30, named: "Movie catalog after music removal")
         XCTAssertFalse(element("homeBrowse-music").exists)
         #else
         XCTAssertTrue(waitUntil(timeout: 30) { !self.element("audioScreen").exists }, "A removed selected category must leave its old library.")
@@ -10495,10 +10458,10 @@ class NativeProofJourney: XCTestCase {
 
     #if os(tvOS)
     private func selectTVLibraryCategory(_ category: String, screen: String) throws {
-        let hub = element("libraryHubScreen")
-        if !hasVisibleFrame(hub) {
+        let categories = element("libraryCategoriesScreen")
+        if !hasVisibleFrame(categories) {
             try activate(element("libraryNavigationButton"))
-            try waitForExistence(hub, timeout: 15, named: "TV Library hub before \(category)")
+            try waitForExistence(categories, timeout: 15, named: "TV Library categories")
         }
         let identifier = category == "savedStreaming" ? "savedStreaming" : category
         let control = element("homeBrowse-\(identifier)")

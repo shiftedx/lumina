@@ -9,6 +9,13 @@ final class LuminaWatchlistTests: XCTestCase {
         WatchlistProtocol.handler = nil
     }
 
+    func testLibraryFilterUsesTheServersWatchlistPlaylistID() {
+        let expected = "a41521ebfb4759499f65908586d4abc6"
+        XCTAssertEqual(LuminaWatchlist.libraryFilterID(userID: "6dd1c021-125f-4471-a66b-182c183bfc40"), expected)
+        XCTAssertEqual(LuminaWatchlist.libraryFilterID(userID: "6DD1C021125F4471A66B182C183BFC40"), expected)
+        XCTAssertNil(LuminaWatchlist.libraryFilterID(userID: "invalid"))
+    }
+
     func testLoadAndSetUseTheConnectedAppWatchlistContract() async throws {
         let recorder = WatchlistRequestRecorder()
         let watchlist = library()

@@ -537,7 +537,7 @@ private struct TVDeviceSettingsView: View {
         NavigationStack(path: $path) {
             VStack(alignment: .leading, spacing: 42) {
                 Text("Settings")
-                    .font(LuminaTheme.editorial(42, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                     .accessibilityIdentifier("deviceSettingsScreen")
 
@@ -850,10 +850,10 @@ private struct TVDeviceSettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(title)
-                .font(LuminaTheme.editorial(34, relativeTo: .title2))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(LuminaTheme.ink)
             Text(detail)
-                .font(.system(size: 21))
+                .font(TVTypography.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 720, alignment: .leading)
@@ -871,12 +871,12 @@ private struct TVDeviceSettingsRow: View {
     var body: some View {
         HStack(spacing: 24) {
             Text(title)
-                .font(.system(size: 27, weight: .regular))
+                .font(TVTypography.body)
                 .lineLimit(1)
             Spacer(minLength: 32)
             if !value.isEmpty {
                 Text(value)
-                    .font(.system(size: 24))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -932,7 +932,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(title)
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                     .padding(.bottom, 22)
 
@@ -949,7 +949,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
                                     .foregroundStyle(LuminaTheme.accentInk)
                             }
                         }
-                        .font(.system(size: 28))
+                        .font(TVTypography.body)
                         .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
                     }
                     .buttonStyle(TVDeviceSettingsRowStyle(selected: selection == choice))
@@ -977,10 +977,10 @@ private struct TVDeviceSubtitleAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Caption appearance")
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                 Text("System leaves caption presentation to the device and authored subtitles. Custom styling applies to supported WebVTT captions.")
-                    .font(.system(size: 21))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 720, alignment: .leading)
@@ -1060,13 +1060,13 @@ private struct TVDeviceLicensesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Open-source licenses")
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                 Text("Playback includes PrismCore, MPVKit and FFmpeg. Complete transitive notices are included in PlaybackNotices.txt in the app bundle.")
-                    .font(.system(size: 21))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                 Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/db42eb269ee629fe8ea81614b187fe290d2ec2d0")!)
                 Link("MPVKit and FFmpeg source and build recipes", destination: URL(string: "https://github.com/Wenzlik/MPVKit/tree/1.0.1")!)
-                Text(licenses).font(.footnote)
+                Text(licenses).font(TVTypography.metadata)
             }
             .padding(.horizontal, 120)
             .padding(.vertical, 88)

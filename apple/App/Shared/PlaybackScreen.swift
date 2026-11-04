@@ -878,20 +878,20 @@ struct PlaybackScreen: View {
                         VStack(alignment: .leading, spacing: 32) {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(playback.request.item.name)
-                                    .font(.system(size: 42, weight: .semibold))
+                                    .font(TVTypography.pageTitle)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .accessibilityIdentifier("nowPlayingTitle")
                                 Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
-                                    .font(.system(size: 25))
+                                    .font(TVTypography.body)
                                     .foregroundStyle(.white.opacity(0.9))
                                 if let album = playback.request.item.album {
                                     Text(album)
-                                        .font(.system(size: 23))
+                                        .font(TVTypography.metadata)
                                         .foregroundStyle(.white.opacity(0.65))
                                 }
                             }
                             Text(playback.request.methodLabel)
-                                .font(.caption)
+                                .font(TVTypography.metadata)
                                 .foregroundStyle(.white.opacity(0.6))
                                 .accessibilityIdentifier("audioPlaybackMethod")
                             NativeAudioOptions(session: audioSession, playback: playback,

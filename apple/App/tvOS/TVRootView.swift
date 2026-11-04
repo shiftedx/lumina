@@ -159,7 +159,7 @@ struct TVMovieCollectionView: View {
                 MediaBillboard(item: item, store: store, context: "", showsOverview: false, showsContext: false,
                                artworkFirst: true, wideMinimumHeight: 620) {
                     Text(title)
-                        .font(.system(size: 25, weight: .semibold))
+                        .font(TVTypography.cardTitle.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.9))
                 }
                 if isLoading {
@@ -175,7 +175,7 @@ struct TVMovieCollectionView: View {
                     }
                 } else {
                     Text(title)
-                        .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                        .font(TVTypography.sectionTitle)
                         .foregroundStyle(LuminaTheme.ink)
                         .padding(.horizontal, 82)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
@@ -405,7 +405,7 @@ private struct TVConnectionView: View {
                     .frame(width: 44, height: 27)
                     .luminaBrandMarkBaseline()
                 Text("LUMINA")
-                    .font(LuminaTheme.editorial(32, relativeTo: .title3))
+                    .font(TVTypography.sectionTitle)
                     .tracking(2.4)
             }
             .foregroundStyle(.white)
@@ -425,7 +425,7 @@ private struct TVConnectionView: View {
 
     private var welcomeActions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Sign in").font(.title2.weight(.semibold))
+            Text("Sign in").font(TVTypography.pageTitle)
             Button("Sign in with phone", action: showNearbySignIn)
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
@@ -448,8 +448,9 @@ private struct TVConnectionView: View {
 
     private var manualSignIn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Sign in manually").font(.title3.weight(.semibold))
+            Text("Sign in manually").font(TVTypography.sectionTitle)
             TextField("Server address", text: $server)
+                .font(TVTypography.body)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -470,7 +471,7 @@ private struct TVConnectionView: View {
                 if let tvPairingError {
                     Label(tvPairingError, glyph: .warning)
                         .foregroundStyle(LuminaTheme.accentInk)
-                        .font(.callout)
+                        .font(TVTypography.body)
                         .accessibilityLabel("Phone sign-in error: \(tvPairingError)")
                         .accessibilityIdentifier("tvPairingStatus")
                 }
@@ -480,7 +481,7 @@ private struct TVConnectionView: View {
 
     private var nearbySignIn: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Sign in with your phone").font(.title3.weight(.semibold))
+            Text("Sign in with your phone").font(TVTypography.sectionTitle)
             if let request = tvPairingRequest {
                 Text("Confirm this code in Lumina on your phone.")
                 Text(request.code)
@@ -492,12 +493,12 @@ private struct TVConnectionView: View {
                     .accessibilityIdentifier("tvPairingQRCode")
                     .accessibilityLabel("QR code for phone sign-in")
                 Text("In Lumina on your phone, go to Account → Connect a TV and scan.")
-                    .font(.callout)
+                    .font(TVTypography.body)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if tvPairingRequest != nil || tvPairingError != nil {
                 Text(tvPairingStatusText)
-                    .font(.callout)
+                    .font(TVTypography.body)
                     .accessibilityIdentifier("tvPairingStatus")
             }
             HStack(spacing: 18) {
@@ -553,6 +554,7 @@ private struct TVConnectionView: View {
     private var manualSignInFields: some View {
         Group {
             TextField("Lumina username", text: $username)
+                .font(TVTypography.body)
                 .textContentType(.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -560,6 +562,7 @@ private struct TVConnectionView: View {
                 .focused($focusedField, equals: .username)
 
             SecureField("Password or app password", text: $password)
+                .font(TVTypography.body)
                 .textContentType(.password)
                 .accessibilityIdentifier("passwordField")
                 .focused($focusedField, equals: .password)
@@ -567,7 +570,7 @@ private struct TVConnectionView: View {
             if let error = store.errorMessage, !error.isEmpty {
                 Label(error, glyph: .warning)
                     .foregroundStyle(LuminaTheme.accentInk)
-                    .font(.callout)
+                    .font(TVTypography.body)
                     .accessibilityLabel("Connection error: \(error)")
                     .accessibilityIdentifier("connectionError")
             }
@@ -591,7 +594,7 @@ private struct TVConnectionView: View {
     private func tvPairingView(_ request: TVPairingRequest) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Scan with Lumina on your phone")
-                .font(.title3.weight(.semibold))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
 
             HStack(alignment: .center, spacing: 28) {
@@ -606,7 +609,7 @@ private struct TVConnectionView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Confirmation code")
-                        .font(.callout.weight(.medium))
+                        .font(TVTypography.body)
                         .foregroundStyle(.white.opacity(0.72))
                     Text(request.code)
                         .font(.system(.title2, design: .monospaced, weight: .semibold))
@@ -615,7 +618,7 @@ private struct TVConnectionView: View {
                         .accessibilityHint("Confirmation code")
                         .accessibilityValue(request.code)
                     Text(tvPairingStatusText)
-                        .font(.callout)
+                        .font(TVTypography.body)
                         .foregroundStyle(tvPairingPhase == .denied || tvPairingPhase == .expired || tvPairingPhase == .failed ? LuminaTheme.accentInk : .white.opacity(0.75))
                         .accessibilityIdentifier("tvPairingStatus")
                 }
@@ -1105,15 +1108,15 @@ private struct TVConnectionHelp: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             Text("Connection help")
-                .font(.title2.weight(.semibold))
+                .font(TVTypography.pageTitle)
 
             Text("For phone sign-in, connect both devices to the same network and sign in to Lumina on your phone first.")
-                .font(.body)
+                .font(TVTypography.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("For manual sign-in, enter your server address and Lumina account. If you use two-factor authentication, enter an app password.")
-                .font(.body)
+                .font(TVTypography.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -1548,6 +1551,7 @@ private struct TVHomeSearchView: View {
             VStack(alignment: .leading, spacing: 32) {
                 HStack {
                     TextField("Search films, shows, and music", text: $query)
+                        .font(TVTypography.body)
                         .focused($searchFocused)
                         .onSubmit { search() }
                         .accessibilityIdentifier("homeSearchField")
@@ -1903,7 +1907,7 @@ private struct TVVideoView: View {
                     .accessibilityLabel("Sort library")
                     .accessibilityValue(browse.sort.label)
                 } else {
-                    Text("By relevance").font(.body).foregroundStyle(LuminaTheme.muted)
+                    Text("By relevance").font(TVTypography.body).foregroundStyle(LuminaTheme.muted)
                 }
                 Button { filtersPresented = true } label: {
                     Label(hasFilters ? "Filters applied" : "Filters", glyph: .filter)
@@ -1924,6 +1928,7 @@ private struct TVVideoView: View {
                 }
                 Spacer()
                 TextField("Search video", text: $browse.query)
+                    .font(TVTypography.body)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .frame(width: 340)
@@ -2355,11 +2360,11 @@ private struct TVStreamingRemoteCard: View {
                 .clipShape(.rect(cornerRadius: 14))
 
                 Text(item.title)
-                    .font(.system(size: 25, weight: .semibold))
+                    .font(TVTypography.cardTitle.weight(.semibold))
                     .foregroundStyle(LuminaTheme.ink)
                     .lineLimit(2)
                 Text(item.subtitle)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(1)
             }
@@ -2383,7 +2388,7 @@ private struct TVCollectionGrid: View {
             VStack(alignment: .leading, spacing: 24) {
                 if let title {
                     Text(title)
-                        .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                        .font(TVTypography.sectionTitle)
                         .foregroundStyle(LuminaTheme.ink)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -2418,9 +2423,11 @@ private struct TVVideoFiltersView: View {
             Form {
                 Section("Find your next watch") {
                     TextField("Genre", text: $genre)
+                        .font(TVTypography.body)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("videoGenreField")
                     TextField("Year", text: $year)
+                        .font(TVTypography.body)
                         .accessibilityIdentifier("videoYearField")
                     if !validYear { Text("Enter a year, or leave it blank for all years.").foregroundStyle(LuminaTheme.accentInk) }
                     Toggle("Unwatched only", isOn: $unwatchedOnly)
@@ -2561,6 +2568,7 @@ private struct TVAudioView: View {
                     }
                     Spacer()
                     TextField("Search music", text: $browse.query)
+                        .font(TVTypography.body)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .frame(width: 440)
@@ -2669,7 +2677,7 @@ private struct TVFeaturedView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let context = context(for: item) {
                     Text(context)
-                        .font(.caption2.weight(.medium))
+                        .font(TVTypography.metadata.weight(.medium))
                         .foregroundStyle(.white.opacity(0.82))
                         .lineLimit(1)
                 }
@@ -2677,7 +2685,7 @@ private struct TVFeaturedView: View {
                     heroActionButtons(for: item)
                 }
             }
-            if let playbackError { Text(playbackError).font(.body) }
+            if let playbackError { Text(playbackError).font(TVTypography.body) }
         }
         .environment(\.luminaArtworkMotionEnabled, heroIsVisible)
         .onScrollVisibilityChange(threshold: 0.2) { heroIsVisible = $0 }
@@ -2772,10 +2780,10 @@ private struct TVSectionHeading: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 20) {
-            Text(title).font(.system(size: 30, weight: .semibold))
+            Text(title).font(TVTypography.sectionTitle)
                 .foregroundStyle(LuminaTheme.ink).accessibilityAddTraits(.isHeader)
             Spacer()
-            if let count { Text(count, format: .number).font(.system(size: 18)).foregroundStyle(LuminaTheme.muted) }
+            if let count { Text(count, format: .number).font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted) }
         }
     }
 }
@@ -2890,6 +2898,8 @@ struct TVMediaCard: View {
     let action: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var titleLinesHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .caption2) private var metadataLineHeight: CGFloat = 30
 
     private var caption: TVRailCaption {
         TVRailCaption(item: item, presentation: captionPresentation)
@@ -2917,11 +2927,11 @@ struct TVMediaCard: View {
 
                 if showsCaption {
                     Text(caption.primary)
-                        .font(.system(size: 23, weight: .medium))
+                        .font(TVTypography.cardTitle)
                         .foregroundStyle(LuminaTheme.ink)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                        .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 58, alignment: .topLeading)
+                        .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : titleLinesHeight, alignment: .topLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Group {
@@ -2931,10 +2941,10 @@ struct TVMediaCard: View {
                             Color.clear.accessibilityHidden(true)
                         }
                     }
-                    .font(.caption2)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 28, alignment: .topLeading)
+                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : metadataLineHeight, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     if captionPresentation.reservesProgressBaseline {
@@ -2945,10 +2955,10 @@ struct TVMediaCard: View {
                                 Color.clear.accessibilityHidden(true)
                             }
                         }
-                        .font(.caption2.weight(.medium))
+                        .font(TVTypography.metadata.weight(.medium))
                         .foregroundStyle(LuminaTheme.muted)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                        .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 28, alignment: .topLeading)
+                        .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : metadataLineHeight, alignment: .topLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -2974,11 +2984,11 @@ private struct TVFocusedArtworkCaption: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(caption.primary)
-                .font(.system(size: 23, weight: .semibold))
+                .font(TVTypography.cardTitle.weight(.semibold))
                 .lineLimit(2)
             if let secondary = caption.secondary {
                 Text(secondary)
-                    .font(.caption2)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(.white.opacity(0.82))
                     .lineLimit(1)
             }
@@ -3126,11 +3136,11 @@ struct TVMessageView: View {
     var body: some View {
         VStack(spacing: 24) {
             Text(title)
-                .font(LuminaTheme.editorial(42, relativeTo: .title))
+                .font(TVTypography.sectionTitle)
                 .italic()
                 .foregroundStyle(LuminaTheme.ink)
             Text(message)
-                .font(.title3)
+                .font(TVTypography.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .multilineTextAlignment(.center)
             Button(actionTitle, action: action)
@@ -3169,9 +3179,8 @@ private struct TVLibraryAlphabetRail: View {
                 if expanded {
                     ForEach(visibleLetters, id: \.self) { letter in
                         Text(letter)
-                            .font(.system(size: letter == letters[selectedIndex] ? 34 : 20,
-                                          weight: letter == letters[selectedIndex] ? .semibold : .regular))
-                            .foregroundStyle(.white.opacity(letter == letters[selectedIndex] ? 1 : 0.4))
+                            .font(letter == letters[selectedIndex] ? TVTypography.sectionTitle : TVTypography.metadata)
+                            .foregroundStyle(.white.opacity(letter == letters[selectedIndex] ? 1 : 0.72))
                             .frame(height: 36)
                             .overlay(alignment: .bottom) {
                                 if isFocused && letter == letters[selectedIndex] {
@@ -3180,11 +3189,11 @@ private struct TVLibraryAlphabetRail: View {
                             }
                     }
                 } else {
-                    Text("A–Z").font(.system(size: 19, weight: .medium)).frame(height: 44)
+                    Text("A–Z").font(TVTypography.cardTitle).frame(height: 44)
                 }
                 LuminaIcon(glyph: .chevronDown, size: 14)
             }
-            .foregroundStyle(.white.opacity(isFocused ? 1 : 0.5))
+            .foregroundStyle(.white.opacity(isFocused ? 1 : 0.72))
             .frame(width: 72, height: 420)
             .contentShape(.rect)
         }

@@ -30,7 +30,7 @@ struct TVDetailView: View {
                                    artworkFirst: true, wideMinimumHeight: min(900, max(620, geometry.size.height * 0.82))) {
                         if !metadataFacts.isEmpty {
                             Text(metadataFacts.joined(separator: " · "))
-                                .font(.caption.weight(.medium))
+                                .font(TVTypography.metadata.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.9))
                                 .accessibilityIdentifier("movieDetailFacts")
                         }
@@ -204,6 +204,12 @@ struct TVVideoCollectionView: View {
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
 
+    @ScaledMetric(relativeTo: .body) private var episodeSynopsisHeight: CGFloat = 114
+    @ScaledMetric(relativeTo: .caption) private var episodeTitleLinesHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .caption2) private var episodeMetadataHeight: CGFloat = 30
+
+    private var episodeCardHeight: CGFloat { 210 + episodeTitleLinesHeight + episodeMetadataHeight }
+
     @State private var seasons = [MediaItem]()
     @State private var episodes = [MediaItem]()
     @State private var selectedSeasonID: String?
@@ -286,26 +292,26 @@ struct TVVideoCollectionView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let episode = selectedEpisode {
                     Text(episodeHeading(episode))
-                        .font(.system(size: 29, weight: .semibold))
+                        .font(TVTypography.action)
                         .lineLimit(2)
                         .accessibilityIdentifier("collectionEpisodeTitle")
                     episodeFacts(episode)
                     Text(episode.overview ?? currentItem.overview ?? "")
-                        .font(.system(size: 25))
+                        .font(TVTypography.body)
                         .lineSpacing(3)
                         .lineLimit(3)
-                        .frame(height: 96, alignment: .topLeading)
+                        .frame(height: episodeSynopsisHeight, alignment: .topLeading)
                         .accessibilityIdentifier("collectionEpisodeSynopsis")
                 } else {
                     Text(currentItem.overview ?? "")
-                        .font(.system(size: 25))
+                        .font(TVTypography.body)
                         .lineLimit(3)
-                        .frame(height: 96, alignment: .topLeading)
+                        .frame(height: episodeSynopsisHeight, alignment: .topLeading)
                 }
                 collectionActionRow
                 if let errorMessage, !isLoading {
                     Label(errorMessage, glyph: .warning)
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.accentInk)
                         .accessibilityIdentifier("collectionError")
                 }
@@ -330,7 +336,7 @@ struct TVVideoCollectionView: View {
                       glyph: .ratingStar, variant: .solid)
             }
         }
-        .font(.system(size: 23, weight: .medium))
+        .font(TVTypography.cardTitle)
         .foregroundStyle(.white.opacity(0.86))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("collectionEpisodeMetadata")
@@ -426,7 +432,7 @@ struct TVVideoCollectionView: View {
                                     .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
                                     .disabled(isPreparingPlayback)
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .frame(width: 320, height: 292, alignment: .topLeading)
+                                    .frame(width: 320, height: episodeCardHeight, alignment: .topLeading)
                                     .focused($focusedAction, equals: .episode(episode.id))
                                     .accessibilityIdentifier("videoCollectionItem-\(episode.id)")
                                     .accessibilityHint("Play this episode")
@@ -436,7 +442,7 @@ struct TVVideoCollectionView: View {
                         }
                         .padding(.horizontal, 82).padding(.vertical, 16)
                     }
-                    .frame(height: 324)
+                    .frame(height: episodeCardHeight + 32)
                     .scrollClipDisabled()
                     .accessibilityIdentifier("collectionEpisodeRail")
                     .focusSection()
@@ -464,16 +470,16 @@ struct TVVideoCollectionView: View {
                     }
                 }
             Text(episodeHeading(episode))
-                .font(.system(size: 23, weight: .medium))
+                .font(TVTypography.cardTitle)
                 .foregroundStyle(.white).lineLimit(2)
             if let timing = episodeCardTiming(episode) {
                 Text(timing)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(1)
             }
         }
-        .frame(width: 320, height: 292, alignment: .topLeading)
+        .frame(width: 320, height: episodeCardHeight, alignment: .topLeading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : "")")
     }
@@ -636,10 +642,10 @@ private struct TVDetailStory: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("The story")
-                .font(LuminaTheme.editorial(30, relativeTo: .title3, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             Text(overview)
-                .font(.system(size: 26))
+                .font(TVTypography.body)
                 .lineSpacing(4)
                 .foregroundStyle(.white.opacity(0.9))
         }
@@ -654,7 +660,7 @@ private struct TVDetailCastRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Cast")
-                .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             HStack(alignment: .top, spacing: 24) {
                 ForEach(people.prefix(8), id: \.detailIdentity) { person in
@@ -678,11 +684,11 @@ private struct TVDetailCastMember: View {
                 .clipShape(.rect(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12)) }
             Text(person.name)
-                .font(.system(size: 23, weight: .semibold))
+                .font(TVTypography.cardTitle.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(2)
             Text(person.detailRole)
-                .font(.caption)
+                .font(TVTypography.metadata)
                 .foregroundStyle(.white.opacity(0.7))
                 .lineLimit(2)
         }
@@ -720,7 +726,7 @@ private struct TVDetailRelatedRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("More like this")
-                .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 28) {
@@ -768,7 +774,7 @@ private struct TVWatchlistButton: View {
 
             if let message = watchlist?.errorMessage {
                 Label(message, glyph: .warning)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.accentInk)
             }
         }
@@ -834,7 +840,7 @@ private struct TVDetailOverflowActions: View {
 
             if let errorMessage {
                 Label(errorMessage, glyph: .warning)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("videoStateError")
             }
@@ -894,7 +900,7 @@ private struct TVDetailTextActionStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 27, weight: isFocused || primary || selected ? .semibold : .regular))
+            .font(isFocused || primary || selected ? TVTypography.action : TVTypography.body)
             .padding(.horizontal, primary ? 20 : 4)
             .frame(minWidth: 64, minHeight: 64)
             .foregroundStyle(primary ? LuminaTheme.onPrimaryControl : .white.opacity(isFocused ? 1 : 0.82))

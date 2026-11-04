@@ -113,7 +113,7 @@ struct TVRequestsView: View {
         if showingSearch {
             if query.isEmpty {
                 Text("Find a movie, show, or anime to request.")
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
                     .padding(.horizontal, 80)
             } else {
@@ -154,7 +154,7 @@ struct TVRequestsView: View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 28) {
                 Text("Requests")
-                    .font(LuminaTheme.editorial(52, relativeTo: .largeTitle, italic: true))
+                    .font(TVTypography.pageTitle)
                 Button("Discover", action: showDiscovery)
                     .buttonStyle(LuminaUnderlineTabStyle(selected: !showingSearch))
                     .focused($discoveryFocused)
@@ -191,6 +191,7 @@ struct TVRequestsView: View {
 
     private var searchControl: some View {
         TextField("Search films, series, and anime", text: $search)
+            .font(TVTypography.body)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .frame(width: 600, alignment: .leading)
@@ -478,23 +479,23 @@ private struct TVRequestHero: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Featured")
-                        .font(.caption.weight(.semibold))
+                        .font(TVTypography.status)
                         .foregroundStyle(LuminaTheme.accentInk)
 
                     MediaTitleArtwork(name: item.title, url: item.logoURL, maximumWidth: 500, maximumHeight: 96) {
                         Text(item.title)
-                            .font(LuminaTheme.editorial(56, relativeTo: .largeTitle, italic: true))
+                            .font(TVTypography.heroTitle)
                             .multilineTextAlignment(.leading)
                             .lineLimit(2)
                     }
 
                     Text(metadata(for: item))
-                        .font(.system(size: 24))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.ink.opacity(0.82))
 
                     if let overview = item.overview, !overview.isEmpty {
                         Text(overview)
-                            .font(.body)
+                            .font(TVTypography.body)
                             .foregroundStyle(LuminaTheme.ink.opacity(0.9))
                             .lineLimit(2)
                             .frame(maxWidth: 760, alignment: .leading)
@@ -506,7 +507,7 @@ private struct TVRequestHero: View {
                         variant: .solid,
                         size: 24
                     )
-                        .font(.headline)
+                        .font(TVTypography.action)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .foregroundStyle(LuminaTheme.onPrimaryControl)
@@ -574,12 +575,12 @@ private struct TVRequestPoster: View {
                 TVRequestArtwork(url: item.posterURL ?? item.backdropURL, aspect: 2 / 3, catalog: catalog)
 
                 Text(item.title)
-                    .font(.title3.weight(.medium))
+                    .font(TVTypography.cardTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
                 Text(catalogStatus(for: item))
-                    .font(.caption.weight(.semibold))
+                    .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .lineLimit(1)
             }
@@ -684,17 +685,17 @@ private struct TVRequestDetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 MediaTitleArtwork(name: current.title, url: current.logoURL, maximumWidth: 560, maximumHeight: 160) {
                     Text(current.title)
-                        .font(LuminaTheme.editorial(58, relativeTo: .largeTitle, italic: true))
+                        .font(TVTypography.heroTitle)
                         .lineLimit(2)
                 }
 
                 Text(metadata(for: current))
-                    .font(.system(size: 24))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.ink.opacity(0.82))
 
                 if let tagline = detail?.tagline, !tagline.isEmpty {
                     Text(tagline)
-                        .font(.system(size: 24).italic())
+                        .font(TVTypography.body)
                         .foregroundStyle(LuminaTheme.ink.opacity(0.9))
                 }
             }
@@ -721,7 +722,7 @@ private struct TVRequestDetailView: View {
                 .accessibilityIdentifier("requestYouTubeTrailerButton")
                 if trailerUnavailable {
                     Text("YouTube could not open on this Apple TV. You can watch this trailer from Lumina on your phone or the website.")
-                        .font(.body)
+                        .font(TVTypography.body)
                         .foregroundStyle(LuminaTheme.muted)
                 }
             }
@@ -732,7 +733,7 @@ private struct TVRequestDetailView: View {
                 if canRequestMore {
                     if let created {
                         Label(created.status.label, glyph: .check, variant: .solid, size: 24)
-                            .font(.system(size: 26, weight: .semibold))
+                            .font(TVTypography.status)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("requestSubmittedStatus")
                     } else if current.canRequest && canRequestChoice {
@@ -741,12 +742,12 @@ private struct TVRequestDetailView: View {
                 }
             } else if let created {
                 Label(created.status.label, glyph: .check, variant: .solid, size: 24)
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
             } else if !current.status.label.isEmpty, !canRequestChoice {
                 Label(current.status.label, systemImage: "clock.fill")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestStatus")
             } else if current.canRequest && canRequestChoice {
@@ -843,7 +844,7 @@ private struct TVRequestDetailView: View {
                 }.accessibilityIdentifier("requestSubtitleLanguagePicker")
                 if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
                     Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(TVTypography.metadata).foregroundStyle(.secondary)
                 }
             }
 
@@ -867,7 +868,7 @@ private struct TVRequestDetailView: View {
     @ViewBuilder private var languageEvidence: some View {
         if let availability = current.status.languageAvailability {
             VStack(alignment: .leading, spacing: 8) {
-                Text("In your vault").font(.headline)
+                Text("In your vault").font(TVTypography.action)
                 if availability.files.isEmpty {
                     Text(availability.state == "unknown" ? "Audio and subtitles are unknown." : "No playable files identified.")
                 }
@@ -877,7 +878,7 @@ private struct TVRequestDetailView: View {
                 if availability.state != "known" { Text("Some track information is unknown.") }
                 if availability.truncated { Text("Showing \(availability.files.count) of \(availability.totalFiles) files.") }
             }
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(TVTypography.metadata).foregroundStyle(.secondary)
             .accessibilityIdentifier("requestLanguageAvailability")
         }
     }
@@ -918,7 +919,7 @@ private struct TVRequestDetailView: View {
                 ProgressView()
                 Text("Checking your request allowance…")
             }
-            .font(.body)
+            .font(TVTypography.body)
             .foregroundStyle(LuminaTheme.muted)
             .accessibilityIdentifier("requestQuotaLoading")
         case .failed(let message):
@@ -926,7 +927,7 @@ private struct TVRequestDetailView: View {
                 Label("Could not check your request allowance", glyph: .warning, variant: .solid, size: 24)
                     .foregroundStyle(LuminaTheme.accentInk)
                 Text(message)
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
                 Button("Try again") {
                     Task { await refreshQuota() }
@@ -937,7 +938,7 @@ private struct TVRequestDetailView: View {
         case .ready:
             if let quota {
                 Text(quotaText(quota))
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -958,14 +959,14 @@ private struct TVRequestDetailView: View {
             if let overview = current.overview, !overview.isEmpty {
                 TVRequestSectionHeading(title: "About this title")
                 Text(overview)
-                    .font(.system(size: 24))
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.ink.opacity(0.88))
                     .frame(maxWidth: 980, alignment: .leading)
             }
 
             if let cast = detail?.cast, !cast.isEmpty {
                 Text("Starring \(cast.prefix(8).map(\.name).joined(separator: ", "))")
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
             }
         }
@@ -1048,10 +1049,10 @@ private struct TVRequestHistory: View {
                             TVRequestArtwork(url: record.posterURL, aspect: 2 / 3, catalog: catalog)
                                 .frame(width: 90)
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(record.title).font(.system(size: 26, weight: .semibold))
-                                Text(record.status.label).foregroundStyle(LuminaTheme.accentInk)
-                                if let language = record.languageDescription { Text(language).foregroundStyle(LuminaTheme.muted) }
-                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").foregroundStyle(LuminaTheme.muted) }
+                                Text(record.title).font(TVTypography.cardTitle.weight(.semibold))
+                                Text(record.status.label).font(TVTypography.status).foregroundStyle(LuminaTheme.accentInk)
+                                if let language = record.languageDescription { Text(language).font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted) }
+                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted) }
                                 if record.status == .processing {
                                     ProgressView(value: min(1, max(0, record.progress ?? 0)))
                                         .frame(width: 360)
@@ -1143,12 +1144,12 @@ private struct TVRequestSectionHeading: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 20) {
             Text(title)
-                .font(LuminaTheme.editorial(34, relativeTo: .title2))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(LuminaTheme.ink)
                 .accessibilityAddTraits(.isHeader)
             if let count {
                 Text(count, format: .number)
-                    .font(.system(size: 24))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
             }
             Rectangle()
@@ -1167,8 +1168,8 @@ private struct TVRequestMessage: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text(title).font(.title.weight(.semibold))
-            Text(message).font(.system(size: 24)).foregroundStyle(LuminaTheme.muted).multilineTextAlignment(.center)
+            Text(title).font(TVTypography.sectionTitle)
+            Text(message).font(TVTypography.body).foregroundStyle(LuminaTheme.muted).multilineTextAlignment(.center)
             Button(actionTitle, action: action)
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)

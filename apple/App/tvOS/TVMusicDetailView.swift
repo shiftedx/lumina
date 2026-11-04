@@ -68,19 +68,19 @@ struct TVMusicDetailView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(currentItem.isAudio ? currentItem.name : (album?.name ?? currentItem.name))
-                        .font(.system(size: currentItem.isAudio ? 38 : 42, weight: .bold))
+                        .font(TVTypography.pageTitle)
                         .lineLimit(3)
                         .minimumScaleFactor(0.72)
                         .fixedSize(horizontal: false, vertical: true)
                     if let artistName, !artistName.isEmpty {
                         Text(artistName)
-                            .font(.system(size: 25, weight: .regular))
+                            .font(TVTypography.body)
                             .foregroundStyle(LuminaTheme.muted)
                             .lineLimit(2)
                     }
                     if let albumName = album?.name, currentItem.isAudio, albumName != currentItem.name {
                         Text(albumName)
-                            .font(.system(size: 23))
+                            .font(TVTypography.metadata)
                             .foregroundStyle(LuminaTheme.muted)
                             .lineLimit(2)
                     }
@@ -91,7 +91,7 @@ struct TVMusicDetailView: View {
                 pivotActions
                 if let errorMessage = displayedError {
                     Label(errorMessage, glyph: .warning, variant: .solid, size: 24)
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("musicDetailError")
@@ -112,18 +112,18 @@ struct TVMusicDetailView: View {
                 TVArtwork(item: currentItem, store: store, aspect: 1)
                     .frame(width: 420, height: 420)
                 Text(currentItem.name)
-                    .font(.system(size: 42, weight: .bold))
+                    .font(TVTypography.pageTitle)
                     .lineLimit(3)
                     .minimumScaleFactor(0.72)
                     .fixedSize(horizontal: false, vertical: true)
                 if albumCount > 0 {
                     Text(albumCount == 1 ? "1 album" : "\(albumCount) albums")
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.muted)
                 }
                 if let errorMessage = displayedError {
                     Label(errorMessage, glyph: .warning, variant: .solid, size: 24)
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("musicDetailError")
@@ -134,12 +134,12 @@ struct TVMusicDetailView: View {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Albums")
-                        .font(.system(size: 34, weight: .semibold))
+                        .font(TVTypography.sectionTitle)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
                     if !artistAlbums.isEmpty {
                         Text("\(artistAlbums.count)")
-                            .font(.system(size: 23))
+                            .font(TVTypography.metadata)
                             .foregroundStyle(LuminaTheme.muted)
                     }
                 }
@@ -227,13 +227,13 @@ struct TVMusicDetailView: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .firstTextBaseline) {
                 Text(album?.name ?? "Track listing")
-                    .font(.system(size: 34, weight: .semibold))
+                    .font(TVTypography.sectionTitle)
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 if !albumTracks.isEmpty {
                     Text(albumTracks.count == 1 ? "1 track" : "\(albumTracks.count) tracks")
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.muted)
                 }
             }
@@ -285,8 +285,8 @@ struct TVMusicDetailView: View {
 
     private func emptyMusicContent(title: String, message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.system(size: 26, weight: .semibold))
-            Text(message).font(.system(size: 23)).foregroundStyle(LuminaTheme.muted)
+            Text(title).font(TVTypography.action)
+            Text(message).font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted)
             Button("Try again", glyph: .sync, action: { Task { await load() } })
                 .buttonStyle(LuminaQuietActionStyle())
         }
@@ -442,17 +442,17 @@ private struct TVMusicTrackRow: View {
     var body: some View {
         HStack(spacing: 20) {
             Text(track.indexNumber.map(String.init) ?? "–")
-                .font(.system(size: 23, weight: .medium, design: .rounded))
+                .font(TVTypography.metadata.monospacedDigit())
                 .monospacedDigit()
                 .foregroundStyle(isFocused ? Color.black.opacity(0.7) : isCurrent ? LuminaTheme.accentInk : LuminaTheme.muted)
                 .frame(width: 48, alignment: .trailing)
             VStack(alignment: .leading, spacing: 4) {
                 Text(track.name)
-                    .font(.system(size: 25, weight: isCurrent ? .semibold : .regular))
+                    .font(TVTypography.cardTitle.weight(isCurrent ? .semibold : .medium))
                     .lineLimit(1)
                 if let subtitle = track.displaySubtitle.nilIfEmpty {
                     Text(subtitle)
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(isFocused ? Color.black.opacity(0.7) : LuminaTheme.muted)
                         .lineLimit(1)
                 }
@@ -464,7 +464,7 @@ private struct TVMusicTrackRow: View {
                     .accessibilityHidden(true)
             }
             Text(duration)
-                .font(.system(size: 23, design: .monospaced))
+                .font(TVTypography.metadata.monospacedDigit())
                 .foregroundStyle(isFocused ? Color.black.opacity(0.7) : LuminaTheme.muted)
                 .frame(width: 80, alignment: .trailing)
         }
@@ -482,10 +482,10 @@ private struct TVMusicAlbumCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 TVArtwork(item: item, store: store, aspect: 1)
                 Text(item.name)
-                    .font(.system(size: 23, weight: .medium))
+                    .font(TVTypography.cardTitle)
                     .lineLimit(2)
                 Text(item.albumArtist ?? item.displaySubtitle)
-                    .font(.system(size: 23))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(1)
             }

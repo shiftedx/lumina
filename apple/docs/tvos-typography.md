@@ -5,7 +5,7 @@ The tvOS interface uses **SF Pro for UI text** and **Newsreader Italic for page 
 | Role | Default | Typeface and weight | Use |
 | --- | ---: | --- | --- |
 | Hero title | 52 pt | Newsreader Italic | Featured Home and Requests titles; movie and series billboards |
-| Page title | 48 pt | Newsreader Italic | Requests, Settings, and music detail or Now Playing headings |
+| Page title | 48 pt | Newsreader Italic | Settings and music detail or Now Playing headings |
 | Section heading | 31 pt | SF Pro semibold | Shelf headings, results headings, settings sections, and empty-state titles |
 | Body and fields | 29 pt | SF Pro regular | Synopsis, guidance, form input, settings labels, and secondary actions |
 | Primary action | 29 pt | SF Pro semibold | Play, Resume, View title, confirmation, and other primary controls |

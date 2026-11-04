@@ -153,8 +153,6 @@ struct TVRequestsView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 28) {
-                Text("Requests")
-                    .font(TVTypography.pageTitle)
                 Button("Discover", action: showDiscovery)
                     .buttonStyle(LuminaUnderlineTabStyle(selected: !showingSearch))
                     .focused($discoveryFocused)

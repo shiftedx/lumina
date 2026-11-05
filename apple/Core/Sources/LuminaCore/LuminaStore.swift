@@ -1124,10 +1124,10 @@ public enum NavigationLoadState: Equatable, Sendable {
             }
             if navigationAuthenticationFailed(error) || !hasLoadedNavigationCategories {
                 availableLibraryCategories = []
+                requestsAvailable = false
                 streamingAvailable = false
                 hasLoadedNavigationCategories = false
             }
-            requestsAvailable = false
             navigationLoadState = .failed
             lastNavigationLoadState = .failed
         }

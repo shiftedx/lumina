@@ -551,7 +551,7 @@ private struct TVDeviceSettingsView: View {
                         .frame(height: 660)
 
                     settingsContent
-                        .frame(maxWidth: 860, alignment: .leading)
+                        .frame(maxWidth: 860, maxHeight: .infinity, alignment: .topLeading)
                         .focusSection()
                 }
             }

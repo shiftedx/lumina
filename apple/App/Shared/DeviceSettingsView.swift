@@ -468,6 +468,7 @@ private enum TVDeviceSettingsCategory: String, CaseIterable, Identifiable {
     case subtitles
     case storage
     case about
+    case library
     case account
 
     var id: Self { self }
@@ -479,12 +480,14 @@ private enum TVDeviceSettingsCategory: String, CaseIterable, Identifiable {
         case .subtitles: "Subtitles"
         case .storage: "Storage"
         case .about: "About"
+        case .library: "Library"
         case .account: "Account"
         }
     }
 }
 
 private enum TVDeviceSettingsRoute: Hashable {
+    case defaultLibrary
     case quality
     case audioLanguage
     case subtitleLanguage
@@ -509,6 +512,7 @@ private struct TVDeviceSettingsView: View {
     var onClose: (() -> Void)?
     @Bindable private var preferences: NativePlaybackPreferences
     @Binding private var subtitleStyle: VideoSubtitleStyle
+    @AppStorage(TVLibraryCategory.preferenceKey) private var defaultLibrary: TVLibraryCategory = .movies
     @State private var category: TVDeviceSettingsCategory = .playback
     @State private var path = [TVDeviceSettingsRoute]()
     @State private var artworkCacheUsageBytes = 0
@@ -533,7 +537,7 @@ private struct TVDeviceSettingsView: View {
         NavigationStack(path: $path) {
             VStack(alignment: .leading, spacing: 42) {
                 Text("Settings")
-                    .font(LuminaTheme.editorial(42, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                     .accessibilityIdentifier("deviceSettingsScreen")
 
@@ -547,7 +551,7 @@ private struct TVDeviceSettingsView: View {
                         .frame(height: 660)
 
                     settingsContent
-                        .frame(maxWidth: 860, alignment: .leading)
+                        .frame(maxWidth: 860, maxHeight: .infinity, alignment: .topLeading)
                         .focusSection()
                 }
             }
@@ -673,6 +677,14 @@ private struct TVDeviceSettingsView: View {
                 .buttonStyle(TVDeviceSettingsRowStyle())
                 .accessibilityIdentifier("deviceLicensesButton")
             }
+        case .library:
+            TVDeviceSettingsSection(title: "Library", detail: "Choose where the Library icon opens on this Apple TV.") {
+                Button { path.append(.defaultLibrary) } label: {
+                    TVDeviceSettingsRow(title: "Default library", value: defaultLibrary.label(in: store))
+                }
+                .buttonStyle(TVDeviceSettingsRowStyle())
+                .accessibilityIdentifier("deviceDefaultLibraryPicker")
+            }
         case .account:
             TVDeviceSettingsSection(
                 title: "Account",
@@ -692,6 +704,16 @@ private struct TVDeviceSettingsView: View {
     @ViewBuilder
     private func destination(for route: TVDeviceSettingsRoute) -> some View {
         switch route {
+        case .defaultLibrary:
+            let available = TVLibraryCategory.available(in: store)
+            TVDeviceChoiceScreen(
+                title: "Default library",
+                choices: available.isEmpty ? [.movies, .tv, .anime, .music] : available,
+                selection: $defaultLibrary,
+                label: { $0.label(in: store) },
+                identifier: { "deviceLibraryOption-\($0.rawValue)" },
+                onSelection: popRoute
+            )
         case .quality:
             TVDeviceChoiceScreen(
                 title: "Video quality",
@@ -828,10 +850,10 @@ private struct TVDeviceSettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(title)
-                .font(LuminaTheme.editorial(34, relativeTo: .title2))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(LuminaTheme.ink)
             Text(detail)
-                .font(.system(size: 21))
+                .font(TVTypography.body)
                 .foregroundStyle(LuminaTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 720, alignment: .leading)
@@ -849,18 +871,18 @@ private struct TVDeviceSettingsRow: View {
     var body: some View {
         HStack(spacing: 24) {
             Text(title)
-                .font(.system(size: 27, weight: .regular))
+                .font(TVTypography.body)
                 .lineLimit(1)
             Spacer(minLength: 32)
             if !value.isEmpty {
                 Text(value)
-                    .font(.system(size: 24))
-                    .foregroundStyle(LuminaTheme.muted)
+                    .font(TVTypography.metadata)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             if showsDisclosure {
                 LuminaIcon(glyph: .forward, size: 18)
-                    .foregroundStyle(LuminaTheme.muted)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
@@ -875,12 +897,22 @@ private struct TVDeviceSettingsRowStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        let filled = isFocused && !destructive
         configuration.label
-            .foregroundStyle(destructive ? Color.red.opacity(isFocused ? 1 : 0.82) : LuminaTheme.ink.opacity(isFocused ? 1 : 0.86))
+            .padding(.horizontal, 16)
+            .foregroundStyle(filled ? LuminaTheme.onPrimaryControl
+                : destructive ? Color.red.opacity(isFocused ? 1 : 0.82) : LuminaTheme.ink)
+            .background {
+                if filled {
+                    RoundedRectangle(cornerRadius: 12).fill(LuminaTheme.primaryControlFill)
+                }
+            }
             .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(isFocused ? Color.white : selected ? LuminaTheme.brand : .clear)
-                    .frame(height: isFocused ? 3 : selected ? 2 : 1)
+                if !filled {
+                    Rectangle()
+                        .fill(isFocused ? Color.white : selected ? LuminaTheme.brand : .clear)
+                        .frame(height: isFocused ? 3 : selected ? 2 : 1)
+                }
             }
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
             .contentShape(.rect)
@@ -900,7 +932,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(title)
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                     .padding(.bottom, 22)
 
@@ -917,7 +949,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
                                     .foregroundStyle(LuminaTheme.accentInk)
                             }
                         }
-                        .font(.system(size: 28))
+                        .font(TVTypography.body)
                         .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
                     }
                     .buttonStyle(TVDeviceSettingsRowStyle(selected: selection == choice))
@@ -945,10 +977,10 @@ private struct TVDeviceSubtitleAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Caption appearance")
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                     .foregroundStyle(LuminaTheme.ink)
                 Text("System leaves caption presentation to the device and authored subtitles. Custom styling applies to supported WebVTT captions.")
-                    .font(.system(size: 21))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 720, alignment: .leading)
@@ -1028,13 +1060,13 @@ private struct TVDeviceLicensesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Open-source licenses")
-                    .font(LuminaTheme.editorial(40, relativeTo: .title))
+                    .font(TVTypography.pageTitle)
                 Text("Playback includes PrismCore, MPVKit and FFmpeg. Complete transitive notices are included in PlaybackNotices.txt in the app bundle.")
-                    .font(.system(size: 21))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                 Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/db42eb269ee629fe8ea81614b187fe290d2ec2d0")!)
                 Link("MPVKit and FFmpeg source and build recipes", destination: URL(string: "https://github.com/Wenzlik/MPVKit/tree/1.0.1")!)
-                Text(licenses).font(.footnote)
+                Text(licenses).font(TVTypography.metadata)
             }
             .padding(.horizontal, 120)
             .padding(.vertical, 88)

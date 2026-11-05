@@ -166,6 +166,12 @@ def test_watch_queue_is_a_playlist_over_http(vault: Vault) -> None:
     bob = login(vault, "bob", "bob-tv")
     assert vault.jf.get(items_url, headers=bob.headers).status_code == 404  # someone else's queue id
 
+    # Native library uses the playlist ID as a category-scoped filter. Saved
+    # episodes project up to their series without exposing a different member's queue.
+    filters = {"Recursive": "true", "IncludeItemTypes": "Series", "LuminaCollectionId": queue}
+    assert names(vault.jf.get("/Items", headers=tv.headers, params=filters)) == ["Vault Show"]
+    assert names(vault.jf.get("/Items", headers=bob.headers, params=filters)) == []
+
     # Final review #22: clients fetch the folder itself before listing it (jellyfin-web's item page).
     for url in (f"/Items/{queue}", f"/Users/{tv.user_id}/Items/{queue}"):
         opened = vault.jf.get(url, headers=tv.headers).json()

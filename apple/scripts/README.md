@@ -321,6 +321,23 @@ test bundle. The optional fixture variables
 synthetic catalogue, full-HD direct and client-demux MKV movies, and bounded redacted request log.
 They apply only to the disposable proof fixture.
 
+For a larger tvOS poster-wall pass, use `LUMINA_NATIVE_PERF_CATALOGUE_COUNT=997`
+and `LUMINA_NATIVE_PERF_SERIES_COUNT=1999`. These add to the three standard
+movies and one standard series for exactly 1,000 movies and 2,000 series.
+Run `NativeTVLibraryAlphabetTests/testTVLargeMovieAndSeriesCatalogs` on the
+Release simulator build with the generated fixture. The test waits for each
+complete catalog and moves eight rows down and back with the remote. Its
+`tv_scale_*` markers cover the automated workflow. The redacted request log
+records server timings separately. The extra series each have one episode
+and reuse generated media and artwork. Set
+`LUMINA_NATIVE_PERF_POSTER_VARIANTS=256` to rotate 256 distinct synthetic
+480 × 720 posters through the generated titles for artwork profiling.
+Run `NativeTVLibraryAlphabetTests/testTVLargeLibraryEntryTiming` with the
+same fixture to compare first poster, full catalog, focus, and warm scrolling.
+The test starts each entry measurement at remote Select. To collect its
+artwork mount events, stream the simulator unified log with the predicate
+`subsystem == "ai.cozylabs.lumina.proof" AND category == "Artwork"`.
+
 The sampler waits for the tour's settled login marker, scopes samples and
 Time Profiler to the simulator's exact app executable, rejects process changes,
 and writes phase-level CPU, wakeups, charged footprint and host-load results.

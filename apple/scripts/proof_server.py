@@ -92,7 +92,10 @@ AUTOPLAY_CREDITS_START_SECONDS = 10
 AUTOPLAY_SERIES_ENV = "LUMINA_NATIVE_AUTOPLAY_SERIES"
 AUTOPLAY_DISABLED_ENV = "LUMINA_NATIVE_AUTOPLAY_DISABLED"
 PERFORMANCE_CATALOGUE_COUNT_ENV = "LUMINA_NATIVE_PERF_CATALOGUE_COUNT"
-MAX_PERFORMANCE_CATALOGUE_COUNT = 500
+PERFORMANCE_SERIES_COUNT_ENV = "LUMINA_NATIVE_PERF_SERIES_COUNT"
+MAX_PERFORMANCE_CATALOGUE_COUNT = 2_000
+PERFORMANCE_POSTER_VARIANTS_ENV = "LUMINA_NATIVE_PERF_POSTER_VARIANTS"
+MAX_PERFORMANCE_POSTER_VARIANTS = 256
 PERFORMANCE_VIDEO_SIZE_ENV = "LUMINA_NATIVE_PERF_VIDEO_SIZE"
 PERFORMANCE_VIDEO_SIZES = frozenset({"320x180", "1920x1080"})
 PERFORMANCE_REQUEST_LOG_ENV = "LUMINA_NATIVE_PERF_REQUEST_LOG"
@@ -520,15 +523,29 @@ def copy_artwork(source: Path, target: Path) -> None:
     shutil.copyfile(source, target)
 
 
-def performance_catalogue_count() -> int:
-    """Return the opt-in size of the disposable high-density movie catalog."""
-    raw = os.environ.get(PERFORMANCE_CATALOGUE_COUNT_ENV, "0")
+def performance_catalogue_count(env: str = PERFORMANCE_CATALOGUE_COUNT_ENV) -> int:
+    """Return the opt-in size of the disposable high-density catalog."""
+    raw = os.environ.get(env, "0")
     try:
         count = int(raw)
     except ValueError as error:
-        raise RuntimeError(f"{PERFORMANCE_CATALOGUE_COUNT_ENV} must be an integer from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.") from error
+        raise RuntimeError(f"{env} must be an integer from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.") from error
     if not 0 <= count <= MAX_PERFORMANCE_CATALOGUE_COUNT:
-        raise RuntimeError(f"{PERFORMANCE_CATALOGUE_COUNT_ENV} must be from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.")
+        raise RuntimeError(f"{env} must be from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.")
+    return count
+
+
+def performance_poster_variant_count() -> int:
+    """Return the opt-in number of local artwork variants for poster-wall profiling."""
+    raw = os.environ.get(PERFORMANCE_POSTER_VARIANTS_ENV, "0")
+    try:
+        count = int(raw)
+    except ValueError as error:
+        raise RuntimeError(
+            f"{PERFORMANCE_POSTER_VARIANTS_ENV} must be an integer from 0 to {MAX_PERFORMANCE_POSTER_VARIANTS}."
+        ) from error
+    if not 0 <= count <= MAX_PERFORMANCE_POSTER_VARIANTS:
+        raise RuntimeError(f"{PERFORMANCE_POSTER_VARIANTS_ENV} must be from 0 to {MAX_PERFORMANCE_POSTER_VARIANTS}.")
     return count
 
 
@@ -1320,7 +1337,43 @@ def make_music(media_root: Path, artwork: Path | None = None) -> None:
         shutil.copyfile(folder / "cover.jpg", folder.parent / "artist.jpg")
 
 
-def make_performance_catalogue(media_root: Path, count: int) -> None:
+def make_performance_posters(media_root: Path, count: int) -> list[Path]:
+    """Generate a bounded local set of distinct poster images for cache and decode profiling."""
+    if count == 0:
+        return []
+
+    directory = media_root / "performance-posters"
+    directory.mkdir(parents=True)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    def poster(index: int) -> bytes:
+        width, height = 480, 720
+        hue = (index * 47) % 256
+        top = bytes(((hue + 38) % 256, (hue * 3 + 70) % 256, (hue * 5 + 112) % 256))
+        bottom = bytes(((hue * 7 + 28) % 256, (hue + 134) % 256, (hue * 11 + 44) % 256))
+        stripe = bytes(((hue * 13 + 210) % 256, (hue * 17 + 162) % 256, (hue + 196) % 256))
+        rows = []
+        stripe_start = (index * 31) % (width - 84)
+        for y in range(height):
+            color = top if y < height * 3 // 5 else bottom
+            row = bytearray(color * width)
+            if height // 5 < y < height * 4 // 5:
+                row[stripe_start * 3:(stripe_start + 84) * 3] = stripe * 84
+            rows.append(b"\0" + bytes(row))
+        payload = b"".join(rows)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(payload, 6)) + chunk(b"IEND", b"")
+
+    posters = []
+    for index in range(count):
+        path = directory / f"poster-{index:03d}.png"
+        path.write_bytes(poster(index))
+        posters.append(path)
+    return posters
+
+
+def make_performance_catalogue(media_root: Path, count: int, posters: list[Path] | None = None) -> None:
     """Add opt-in movie cards without re-encoding media or downloading fixture data."""
     if count == 0:
         return
@@ -1334,7 +1387,8 @@ def make_performance_catalogue(media_root: Path, count: int) -> None:
         folder = media_root / "Movies" / f"{title} (2026)"
         folder.mkdir(parents=True)
         link_or_copy(source_video, folder / f"{title} (2026).mp4")
-        link_or_copy(source_poster, folder / source_poster.name)
+        artwork = posters[(index - 1) % len(posters)] if posters else source_poster
+        link_or_copy(artwork, folder / "poster.png" if posters else folder / source_poster.name)
         (folder / "movie.nfo").write_text(
             f"""<movie>
 <title>{title}</title>
@@ -1394,6 +1448,22 @@ def make_show(media_root: Path) -> None:
             f"<episodedetails><title>{xml_text(title)}</title><showtitle>{xml_text(SHOW_TITLE)}</showtitle><season>{season_number}</season><episode>{episode_number}</episode><plot>{xml_text(episode_overview)}</plot></episodedetails>",
             encoding="utf-8",
         )
+
+
+def make_performance_series(media_root: Path, count: int, posters: list[Path] | None = None) -> None:
+    """Add separate series with one synthetic episode each for TV wall profiling."""
+    source = media_root / "Movies" / f"{DIRECT_TITLE} (2026)"
+    video = source / f"{DIRECT_TITLE} (2026).mp4"
+    poster = source / "poster.png" if (source / "poster.png").is_file() else source / "poster.jpg"
+    for index in range(1, count + 1):
+        title = f"ZZ Performance Catalogue Series {index:04d}"
+        series = media_root / "Shows" / title
+        season = series / "Season 01"
+        season.mkdir(parents=True)
+        link_or_copy(video, season / f"{title} S01E01.mp4")
+        artwork = posters[(index - 1) % len(posters)] if posters else poster
+        link_or_copy(artwork, series / "poster.png" if posters else series / poster.name)
+        (series / "tvshow.nfo").write_text(f"<tvshow><title>{title}</title></tvshow>", encoding="utf-8")
 
 
 def install_loopback_guard() -> None:
@@ -1463,6 +1533,13 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         from app.services.media_probe import MediaProbeService
         with session_scope() as db:
             for item in db.query(LibraryItem).all():
+                MediaProbeService(db).facts(item)
+    if performance_catalogue_count(PERFORMANCE_SERIES_COUNT_ENV):
+        # The background probe queue may still be working through thousands of
+        # synthetic videos when the fixture verifies its known audio tracks.
+        from app.services.media_probe import MediaProbeService
+        with session_scope() as db:
+            for item in db.query(LibraryItem).filter(LibraryItem.kind.in_(("track", "audio"))):
                 MediaProbeService(db).facts(item)
     with session_scope() as db:
         items = {item.title: item.id for item in db.query(LibraryItem).all()}
@@ -1747,7 +1824,7 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         if not response.headers.get("Content-Type", "").startswith("image/") or not response.read():
             raise RuntimeError("The public welcome fixture artwork did not load.")
 
-    items = request_json("/Items?IncludeItemTypes=Movie,Episode,Video&Recursive=true&Fields=Overview,UserData,ImageTags&SortBy=SortName&StartIndex=0&Limit=50", token=token)
+    items = request_json("/Items?IncludeItemTypes=Movie,Video&Recursive=true&Fields=Overview,UserData,ImageTags&SortBy=SortName&StartIndex=0&Limit=50", token=token)
     by_name = {item.get("Name"): item for item in items.get("Items", [])}
     direct = by_name.get(DIRECT_TITLE)
     converted = by_name.get(CONVERTED_TITLE)
@@ -1988,6 +2065,8 @@ def main() -> None:
         playback_info_delay = playback_info_delay_seconds()
         artwork = fixture_artwork()
         performance_catalogue = performance_catalogue_count()
+        performance_series = performance_catalogue_count(PERFORMANCE_SERIES_COUNT_ENV)
+        performance_poster_variants = performance_poster_variant_count()
         perf_video_size = performance_video_size() if performance_catalogue else "320x180"
         # Default sidecars are generated locally; optional original PNGs are copied unchanged.
         print("Generating synthetic proof video and music media...", flush=True)
@@ -1998,11 +2077,17 @@ def main() -> None:
         make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540", artwork=artwork.get("cartographer.png"),
                    embedded_subtitle=True, embedded_chapters=True, video_size="960x540")
         make_movie(state_root / "media", MATRIX_TITLE, 2024, ".mp4", "360x540", duration=40, artwork=artwork.get("observatory.png"))
+        performance_posters = make_performance_posters(state_root / "media", performance_poster_variants)
+        if performance_posters:
+            print(f"Adding {len(performance_posters)} synthetic performance poster variants...", flush=True)
         if performance_catalogue:
             print(f"Adding {performance_catalogue} synthetic performance-catalog movies...", flush=True)
-            make_performance_catalogue(state_root / "media", performance_catalogue)
+            make_performance_catalogue(state_root / "media", performance_catalogue, performance_posters)
         make_music(state_root / "media", artwork=artwork.get("observatory.png"))
         make_show(state_root / "media")
+        if performance_series:
+            print(f"Adding {performance_series} synthetic performance-catalog series...", flush=True)
+            make_performance_series(state_root / "media", performance_series, performance_posters)
         configure_environment(state_root)
         install_loopback_guard()
         install_requests_catalog_fixture()
@@ -2025,7 +2110,7 @@ def main() -> None:
         activate_restore_failure = None
         if os.environ.get("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE") == "1":
             activate_restore_failure = install_audio_restore_failure(app, provisioned["audioTrackID"])
-        if performance_catalogue and (request_log_path := performance_request_log_path()) is not None:
+        if (performance_catalogue or performance_series) and (request_log_path := performance_request_log_path()) is not None:
             performance_request_log = install_performance_request_log(app, request_log_path)
         if (metrics_path := artwork_metrics_path()) is not None:
             artwork_metrics = install_artwork_request_metrics(app, metrics_path)
@@ -2059,6 +2144,8 @@ def main() -> None:
             performance_request_log.activate()
         if artwork_metrics is not None:
             artwork_metrics.activate()
+        if performance_catalogue == 997 and performance_series == 1999:
+            verified["largeVideoCatalog"] = True
         write_fixture(state_root, username, password, verified)
         print(f"Lumina Apple proof server ready at {ORIGIN}")
         print(f"Fixture: {FIXTURE_PATH}")

@@ -392,14 +392,23 @@ struct MediaBillboard<Actions: View>: View {
         VStack(alignment: .leading, spacing: copySpacing) {
             if showsContext {
                 Text(context)
-                    .font(.system(size: compact ? 11 : labelSize, weight: .semibold))
+                    #if os(tvOS)
+                    .font(TVTypography.status)
+                    #else
+                    .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                    #endif
                     .tracking(2)
                     .textCase(.uppercase)
                     .foregroundStyle(.white.opacity(0.85))
             }
             title
             if featured, let subtitle = item.homeHeroSubtitle {
-                Text(subtitle).font(.subheadline.weight(.medium))
+                Text(subtitle)
+                    #if os(tvOS)
+                    .font(TVTypography.cardTitle)
+                    #else
+                    .font(.subheadline.weight(.medium))
+                    #endif
                     .foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                     .accessibilityIdentifier("featuredEpisodeSubtitle")
             }
@@ -409,7 +418,11 @@ struct MediaBillboard<Actions: View>: View {
             }
             if showsOverview && !(featured && compact), let overview = item.overview, !overview.isEmpty {
                 Text(overview)
-                    .font(LuminaTheme.editorial(bodySize, relativeTo: .body))
+                    #if os(tvOS)
+                    .font(TVTypography.body)
+                    #else
+                    .font(LuminaTheme.editorial(18, relativeTo: .body))
+                    #endif
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -423,7 +436,11 @@ struct MediaBillboard<Actions: View>: View {
                     }
                     .frame(height: 3)
                     Text(Duration.seconds(item.durationSeconds - item.resumeSeconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " left")
+                        #if os(tvOS)
+                        .font(TVTypography.metadata)
+                        #else
                         .font(.caption)
+                        #endif
                 }
                 .frame(maxWidth: 260)
                 .accessibilityElement(children: .combine)
@@ -488,7 +505,7 @@ struct MediaBillboard<Actions: View>: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        LuminaTheme.editorial((featured ? 54 : 64) * 0.8, relativeTo: .largeTitle, italic: true).weight(.bold)
+        TVTypography.heroTitle
         #else
         LuminaTheme.editorial((compact ? 34 : 58) * (featured ? 0.75 : 1) * 0.8, relativeTo: .largeTitle, italic: true).weight(.bold)
         #endif
@@ -498,20 +515,6 @@ struct MediaBillboard<Actions: View>: View {
         32
         #else
         featured ? max(featureHeaderClearance, topContentClearance) : compact ? 88 : 32
-        #endif
-    }
-    private var labelSize: CGFloat {
-        #if os(tvOS)
-        16
-        #else
-        12
-        #endif
-    }
-    private var bodySize: CGFloat {
-        #if os(tvOS)
-        24
-        #else
-        18
         #endif
     }
     private var copyWidth: CGFloat {
@@ -579,7 +582,11 @@ struct MediaMetadata: View {
             HStack(spacing: 12) { metadata }
             VStack(alignment: .leading, spacing: 8) { metadata }
         }
+        #if os(tvOS)
+        .font(TVTypography.metadata)
+        #else
         .font(.caption.weight(.medium))
+        #endif
         .textCase(.uppercase)
         .tracking(1)
         .foregroundStyle(onArtwork ? .white.opacity(0.85) : LuminaTheme.muted)
@@ -1018,7 +1025,7 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             #if os(tvOS)
-            .font(.system(size: 24, weight: selected ? .semibold : .medium))
+            .font(TVTypography.navigation(selected: selected))
             .frame(minWidth: 64, minHeight: 64)
             #else
             .font(.body.weight(selected ? .semibold : .medium))
@@ -1051,7 +1058,11 @@ struct LuminaQuietActionStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let foreground: Color = configuration.role == .destructive ? .red : isFocused ? LuminaTheme.theater : primary ? LuminaTheme.onPrimaryControl : Color.primary
         return configuration.label
+            #if os(tvOS)
+            .font(primary || selected ? TVTypography.action : TVTypography.body)
+            #else
             .font(.body.weight(primary || selected ? .semibold : .regular))
+            #endif
             .padding(.horizontal, 16)
             #if os(tvOS)
             .frame(minWidth: 64, minHeight: 64)

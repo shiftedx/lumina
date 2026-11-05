@@ -30,8 +30,9 @@ struct TVDetailView: View {
                                    artworkFirst: true, wideMinimumHeight: min(900, max(620, geometry.size.height * 0.82))) {
                         if !metadataFacts.isEmpty {
                             Text(metadataFacts.joined(separator: " · "))
-                                .font(.caption.weight(.medium))
+                                .font(TVTypography.metadata.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.9))
+                                .accessibilityIdentifier("movieDetailFacts")
                         }
                         detailActionRow
                         detailStatus
@@ -77,6 +78,7 @@ struct TVDetailView: View {
         if let communityRating = currentItem.communityRating {
             facts.append("Community \(communityRating.formatted(.number.precision(.fractionLength(1)))) / 10")
         }
+        facts += sourceFormatFacts(for: currentItem)
         return facts
     }
 
@@ -202,6 +204,12 @@ struct TVVideoCollectionView: View {
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
 
+    @ScaledMetric(relativeTo: .body) private var episodeSynopsisHeight: CGFloat = 114
+    @ScaledMetric(relativeTo: .caption) private var episodeTitleLinesHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .caption2) private var episodeMetadataHeight: CGFloat = 30
+
+    private var episodeCardHeight: CGFloat { 210 + episodeTitleLinesHeight + episodeMetadataHeight }
+
     @State private var seasons = [MediaItem]()
     @State private var episodes = [MediaItem]()
     @State private var selectedSeasonID: String?
@@ -284,26 +292,26 @@ struct TVVideoCollectionView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let episode = selectedEpisode {
                     Text(episodeHeading(episode))
-                        .font(.system(size: 29, weight: .semibold))
+                        .font(TVTypography.action)
                         .lineLimit(2)
                         .accessibilityIdentifier("collectionEpisodeTitle")
                     episodeFacts(episode)
                     Text(episode.overview ?? currentItem.overview ?? "")
-                        .font(.system(size: 25))
+                        .font(TVTypography.body)
                         .lineSpacing(3)
                         .lineLimit(3)
-                        .frame(height: 96, alignment: .topLeading)
+                        .frame(height: episodeSynopsisHeight, alignment: .topLeading)
                         .accessibilityIdentifier("collectionEpisodeSynopsis")
                 } else {
                     Text(currentItem.overview ?? "")
-                        .font(.system(size: 25))
+                        .font(TVTypography.body)
                         .lineLimit(3)
-                        .frame(height: 96, alignment: .topLeading)
+                        .frame(height: episodeSynopsisHeight, alignment: .topLeading)
                 }
                 collectionActionRow
                 if let errorMessage, !isLoading {
                     Label(errorMessage, glyph: .warning)
-                        .font(.system(size: 23))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.accentInk)
                         .accessibilityIdentifier("collectionError")
                 }
@@ -328,7 +336,7 @@ struct TVVideoCollectionView: View {
                       glyph: .ratingStar, variant: .solid)
             }
         }
-        .font(.system(size: 23, weight: .medium))
+        .font(TVTypography.cardTitle)
         .foregroundStyle(.white.opacity(0.86))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("collectionEpisodeMetadata")
@@ -344,16 +352,7 @@ struct TVVideoCollectionView: View {
             facts.append(date.formatted(date: .abbreviated, time: .omitted))
         } else if let year = episode.productionYear { facts.append(String(year)) }
         if let rating = episode.officialRating ?? currentItem.officialRating { facts.append(rating) }
-        let streams = episode.mediaStreams ?? []
-        // These describe the source file, not the device's current HDMI/audio output.
-        if let video = streams.first(where: { $0.type == "Video" }), let height = video.height, height > 0 {
-            facts.append("\(height)\(video.isInterlaced == true ? "i" : "p")")
-        }
-        if let audio = streams.first(where: { $0.type == "Audio" && $0.isDefault == true })
-            ?? streams.first(where: { $0.type == "Audio" }) {
-            if let label = audio.displayTitle, !label.isEmpty { facts.append(label) }
-            else if let codec = audio.codec { facts.append(codec.uppercased()) }
-        }
+        facts += sourceFormatFacts(for: episode)
         return facts
     }
 
@@ -433,7 +432,7 @@ struct TVVideoCollectionView: View {
                                     .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
                                     .disabled(isPreparingPlayback)
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .frame(width: 320, height: 248, alignment: .topLeading)
+                                    .frame(width: 320, height: episodeCardHeight, alignment: .topLeading)
                                     .focused($focusedAction, equals: .episode(episode.id))
                                     .accessibilityIdentifier("videoCollectionItem-\(episode.id)")
                                     .accessibilityHint("Play this episode")
@@ -443,7 +442,7 @@ struct TVVideoCollectionView: View {
                         }
                         .padding(.horizontal, 82).padding(.vertical, 16)
                     }
-                    .frame(height: 280)
+                    .frame(height: episodeCardHeight + 32)
                     .scrollClipDisabled()
                     .accessibilityIdentifier("collectionEpisodeRail")
                     .focusSection()
@@ -462,20 +461,36 @@ struct TVVideoCollectionView: View {
                             .tint(LuminaTheme.brand).padding(.horizontal, 10).padding(.bottom, 8)
                     }
                 }
+                .overlay {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(LuminaTheme.brand, lineWidth: 4)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
             Text(episodeHeading(episode))
-                .font(.system(size: 23, weight: .medium))
+                .font(TVTypography.cardTitle)
                 .foregroundStyle(.white).lineLimit(2)
-                .frame(height: 58, alignment: .topLeading)
-        }
-        .frame(width: 320, height: 248, alignment: .topLeading)
-        .overlay {
-            if selected {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(LuminaTheme.brand, lineWidth: 4)
+            if let timing = episodeCardTiming(episode) {
+                Text(timing)
+                    .font(TVTypography.metadata)
+                    .foregroundStyle(LuminaTheme.muted)
+                    .lineLimit(1)
             }
         }
+        .frame(width: 320, height: episodeCardHeight, alignment: .topLeading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(episodeHeading(episode))\(episode.userData?.played == true ? ", Watched" : "")")
+        .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : "")")
+    }
+
+    private func episodeCardTiming(_ episode: MediaItem) -> String? {
+        guard episode.durationSeconds > 0 else { return nil }
+        let inProgress = episode.resumeSeconds > 0 && episode.resumeSeconds < episode.durationSeconds
+        let seconds = inProgress ? episode.durationSeconds - episode.resumeSeconds : episode.durationSeconds
+        let units: Set<Duration.UnitsFormatStyle.Unit> = seconds < 60 ? [.seconds] : [.hours, .minutes]
+        let time = Duration.seconds(seconds).formatted(.units(allowed: units, width: .abbreviated))
+        return inProgress ? time + " remaining" : time
     }
 
     private func preferredEpisode(in values: [MediaItem]) -> MediaItem? {
@@ -627,10 +642,10 @@ private struct TVDetailStory: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("The story")
-                .font(LuminaTheme.editorial(30, relativeTo: .title3, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             Text(overview)
-                .font(.system(size: 26))
+                .font(TVTypography.body)
                 .lineSpacing(4)
                 .foregroundStyle(.white.opacity(0.9))
         }
@@ -645,7 +660,7 @@ private struct TVDetailCastRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Cast")
-                .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             HStack(alignment: .top, spacing: 24) {
                 ForEach(people.prefix(8), id: \.detailIdentity) { person in
@@ -669,11 +684,11 @@ private struct TVDetailCastMember: View {
                 .clipShape(.rect(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12)) }
             Text(person.name)
-                .font(.system(size: 23, weight: .semibold))
+                .font(TVTypography.cardTitle.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(2)
             Text(person.detailRole)
-                .font(.caption)
+                .font(TVTypography.metadata)
                 .foregroundStyle(.white.opacity(0.7))
                 .lineLimit(2)
         }
@@ -711,7 +726,7 @@ private struct TVDetailRelatedRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("More like this")
-                .font(LuminaTheme.editorial(34, relativeTo: .title2, italic: true))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(.white)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 28) {
@@ -759,7 +774,7 @@ private struct TVWatchlistButton: View {
 
             if let message = watchlist?.errorMessage {
                 Label(message, glyph: .warning)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.accentInk)
             }
         }
@@ -825,7 +840,7 @@ private struct TVDetailOverflowActions: View {
 
             if let errorMessage {
                 Label(errorMessage, glyph: .warning)
-                    .font(.caption)
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("videoStateError")
             }
@@ -847,7 +862,35 @@ private struct TVDetailOverflowActions: View {
     }
 }
 
-/// Detail actions defer to the artwork; an underline carries focus and season selection.
+private func sourceFormatFacts(for item: MediaItem) -> [String] {
+    var facts: [String] = []
+    let streams = item.mediaStreams ?? []
+    // These describe the source file, not the device's current HDMI/audio output.
+    if let video = streams.first(where: { $0.type == "Video" }), let height = video.height, height > 0 {
+        facts.append("\(height)\(video.isInterlaced == true ? "i" : "p")")
+    }
+    if let video = streams.first(where: { $0.type == "Video" }), let label = sourceHDRLabel(video.videoRangeType) {
+        facts.append(label)
+    }
+    if let audio = streams.first(where: { $0.type == "Audio" && $0.isDefault == true })
+        ?? streams.first(where: { $0.type == "Audio" }) {
+        if let label = audio.displayTitle, !label.isEmpty { facts.append(label) }
+        else if let codec = audio.codec { facts.append(codec.uppercased()) }
+    }
+    return facts
+}
+
+private func sourceHDRLabel(_ value: String?) -> String? {
+    switch value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+    case "HDR10": "HDR10"
+    case "HDR10+", "HDR10PLUS": "HDR10+"
+    case "HLG": "HLG"
+    case "DOVI", "DOVIWITHHDR10", "DOLBYVISION", "DOLBY VISION": "Dolby Vision"
+    default: nil
+    }
+}
+
+/// Playback has a filled control; the underline distinguishes focus and season selection elsewhere.
 private struct TVDetailTextActionStyle: ButtonStyle {
     var primary = false
     var selected = false
@@ -857,14 +900,25 @@ private struct TVDetailTextActionStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 27, weight: isFocused || primary || selected ? .semibold : .regular))
-            .padding(.horizontal, 4)
+            .font(isFocused || primary || selected ? TVTypography.action : TVTypography.body)
+            .padding(.horizontal, primary ? 20 : 4)
             .frame(minWidth: 64, minHeight: 64)
-            .foregroundStyle(.white.opacity(isFocused || primary ? 1 : 0.82))
+            .foregroundStyle(primary ? LuminaTheme.onPrimaryControl : .white.opacity(isFocused ? 1 : 0.82))
+            .background {
+                if primary {
+                    RoundedRectangle(cornerRadius: 12).fill(isFocused ? .white : LuminaTheme.primaryControlFill)
+                }
+            }
             .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(isFocused ? .white : selected ? LuminaTheme.brand : .clear)
-                    .frame(height: isFocused ? 3 : 1)
+                if primary && isFocused {
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white, lineWidth: 2)
+                        .padding(-5)
+                } else if !primary {
+                    Rectangle()
+                        .fill(isFocused ? .white : selected ? LuminaTheme.brand : .clear)
+                        .frame(height: isFocused ? 3 : 1)
+                }
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)
             .contentShape(.rect)

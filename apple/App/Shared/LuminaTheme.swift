@@ -149,3 +149,21 @@ extension View {
         modifier(LuminaBrandMarkBaseline())
     }
 }
+
+#if os(tvOS)
+/// Semantic living-room type roles. See apple/docs/tvos-typography.md.
+enum TVTypography {
+    static let heroTitle = LuminaTheme.editorial(52, relativeTo: .largeTitle, italic: true)
+    static let pageTitle = LuminaTheme.editorial(48, relativeTo: .title, italic: true)
+    static let sectionTitle = Font.callout.weight(.semibold)
+    static let body = Font.body.weight(.regular)
+    static let action = Font.body.weight(.semibold)
+    static let cardTitle = Font.caption.weight(.medium)
+    static let metadata = Font.caption2.weight(.regular)
+    static let status = Font.caption2.weight(.semibold)
+
+    static func navigation(selected: Bool) -> Font {
+        .caption.weight(selected ? .semibold : .medium)
+    }
+}
+#endif

@@ -34,12 +34,14 @@ private struct TVRequestVaultDestination: View {
 @MainActor
 struct TVRequestsView: View {
     let store: LuminaStore
+    let catalog: LuminaRequests
     var focusRequest = 0
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let onOpenVault: @MainActor (String) async throws -> MediaItem
     @FocusState private var focusedSearch: Bool
-    @State private var catalog = LuminaRequests()
+    @FocusState private var discoveryFocused: Bool
+    @State private var showingSearch = false
     @State private var search = ""
     @State private var searchResults: [RequestCatalogItem] = []
     @State private var searchPage = 0
@@ -68,41 +70,11 @@ struct TVRequestsView: View {
 
     var body: some View {
         TVHeroScrollView {
-            LazyVStack(alignment: .leading, spacing: 48) {
+            LazyVStack(alignment: .leading, spacing: 32) {
                 controls
                     .focusedValue(\.tvHeroRegion, true)
 
-                if !query.isEmpty {
-                    searchContent
-                } else if browseKind != nil {
-                    browseContent
-                } else if catalog.isLoading, catalog.home == nil {
-                    ProgressView("Finding something new…")
-                        .frame(maxWidth: .infinity, minHeight: 460)
-                } else if let home = catalog.home, let featured = home.hero.first {
-                    TVRequestHero(item: featured, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
-                        .focusedValue(\.tvHeroRegion, true)
-                        .focusSection()
-
-                    ForEach(home.rails) { rail in
-                        if !rail.items.isEmpty {
-                            TVRequestRail(title: rail.title, items: rail.items, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
-                                .focusSection()
-                        }
-                    }
-                } else {
-                    TVRequestMessage(
-                        title: "Discover something new",
-                        message: catalog.error?.localizedDescription ?? "Requests will appear here when the household catalog is available.",
-                        actionTitle: "Try again"
-                    ) {
-                        Task {
-                            await catalog.loadHome()
-                            await loadQuotas()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 460)
-                }
+                catalogContent
             }
             .padding(.top, 28)
             .padding(.bottom, 96)
@@ -110,7 +82,11 @@ struct TVRequestsView: View {
         .background(LuminaTheme.theater.ignoresSafeArea())
         .foregroundStyle(LuminaTheme.ink)
         .accessibilityIdentifier("requestsScreen")
-        .onChange(of: focusRequest) { _, _ in focusedSearch = true }
+        .onChange(of: focusRequest) { _, _ in
+            if showingSearch { focusedSearch = true }
+            else { discoveryFocused = true }
+        }
+        .onExitCommand(perform: searchBackAction)
         .task(id: store.session?.accessToken) {
             catalog.configure(session: store.session)
             guard store.session != nil else {
@@ -118,6 +94,7 @@ struct TVRequestsView: View {
                 return
             }
             await catalog.loadHome()
+            guard !Task.isCancelled else { return }
             await loadQuotas()
         }
         .task(id: "\(query)|\(searchRetry)") { await startSearch() }
@@ -127,78 +104,136 @@ struct TVRequestsView: View {
         }
     }
 
+    private var searchBackAction: (() -> Void)? {
+        guard showingSearch else { return nil }
+        return { showDiscovery() }
+    }
+
+    @ViewBuilder private var catalogContent: some View {
+        if showingSearch {
+            if query.isEmpty {
+                Text("Find a movie, show, or anime to request.")
+                    .font(TVTypography.body)
+                    .foregroundStyle(LuminaTheme.muted)
+                    .padding(.horizontal, 80)
+            } else {
+                searchContent
+            }
+        } else if browseKind != nil {
+            browseContent
+        } else if catalog.isLoading, catalog.home == nil {
+            ProgressView("Finding something new…")
+                .frame(maxWidth: .infinity, minHeight: 460)
+        } else if let home = catalog.home, let featured = home.hero.first {
+            TVRequestHero(item: featured, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
+                .focusedValue(\.tvHeroRegion, true)
+                .focusSection()
+
+            ForEach(home.rails) { rail in
+                if !rail.items.isEmpty {
+                    TVRequestRail(title: rail.title, items: rail.items, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
+                        .focusSection()
+                }
+            }
+        } else {
+            TVRequestMessage(
+                title: "Discover something new",
+                message: catalog.error?.localizedDescription ?? "Requests will appear here when the household catalog is available.",
+                actionTitle: "Try again"
+            ) {
+                Task {
+                    await catalog.loadHome()
+                    await loadQuotas()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 460)
+        }
+    }
+
     private var controls: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("Requests")
-                .font(LuminaTheme.editorial(52, relativeTo: .largeTitle, italic: true))
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 24) { searchControl; browseControls }
-                VStack(alignment: .leading, spacing: 24) { searchControl; browseControls }
+            HStack(spacing: 28) {
+                Button("Discover", action: showDiscovery)
+                    .buttonStyle(LuminaUnderlineTabStyle(selected: !showingSearch))
+                    .focused($discoveryFocused)
+                    .accessibilityAddTraits(showingSearch ? [] : .isSelected)
+                    .accessibilityIdentifier("requestsDiscoverButton")
+                Button {
+                    showingSearch = true
+                    focusedSearch = true
+                } label: {
+                    Label("Search", glyph: .search, size: 24)
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: showingSearch))
+                .accessibilityAddTraits(showingSearch ? .isSelected : [])
+                .accessibilityIdentifier("requestsCatalogSearchButton")
+                Button { historyPresented = true } label: {
+                    Label("My Requests", glyph: .history, size: 24)
+                }
+                .buttonStyle(LuminaUnderlineTabStyle())
+                .accessibilityIdentifier("requestsMyListButton")
+                Spacer()
             }
+            if showingSearch { searchControl }
+            else { browseControls }
         }
         .padding(.horizontal, 80)
         .focusSection()
     }
 
+    private func showDiscovery() {
+        showingSearch = false
+        search = ""
+        discoveryFocused = true
+    }
+
     private var searchControl: some View {
         TextField("Search films, series, and anime", text: $search)
+            .font(TVTypography.body)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .frame(minWidth: 280, idealWidth: 440, maxWidth: .infinity)
+            .frame(width: 600, alignment: .leading)
             .accessibilityIdentifier("requestsSearchField")
             .focused($focusedSearch)
     }
 
     private var browseControls: some View {
-        HStack(spacing: 24) {
-            Menu {
-                Picker("Catalog", selection: Binding(
-                    get: { browseKind },
-                    set: { next in
-                        browseGenre = ""
-                        browseKind = next
-                    }
-                )) {
-                    Text("Featured").tag(nil as RequestCatalogKind?)
-                    ForEach(RequestCatalogKind.allCases, id: \.self) { kind in
-                        Text(kind.rawValue.capitalized).tag(Optional(kind))
+        Menu {
+            Picker("Catalog", selection: Binding(
+                get: { browseKind },
+                set: { next in
+                    browseGenre = ""
+                    browseKind = next
+                }
+            )) {
+                Text("Featured").tag(nil as RequestCatalogKind?)
+                ForEach(RequestCatalogKind.allCases, id: \.self) { kind in
+                    Text(kind.rawValue.capitalized).tag(Optional(kind))
+                }
+            }
+            .accessibilityIdentifier("requestsBrowseKindPicker")
+
+            if browseKind != nil {
+                Picker("Genre", selection: $browseGenre) {
+                    Text("All genres").tag("")
+                    ForEach(availableGenres) { genre in
+                        Text(genre.name).tag(genre.id)
                     }
                 }
-                .accessibilityIdentifier("requestsBrowseKindPicker")
+                .accessibilityIdentifier("requestsBrowseGenrePicker")
 
-                if browseKind != nil {
-                    Picker("Genre", selection: $browseGenre) {
-                        Text("All genres").tag("")
-                        ForEach(availableGenres) { genre in
-                            Text(genre.name).tag(genre.id)
-                        }
-                    }
-                    .accessibilityIdentifier("requestsBrowseGenrePicker")
-
-                    if let genreError {
-                        Text(genreError)
-                    }
+                if let genreError {
+                    Text(genreError)
                 }
-            } label: {
-                Label(browseTitle, glyph: .filter, size: 24)
-                    .frame(minWidth: 240, alignment: .leading)
             }
-            .buttonStyle(LuminaUnderlineTabStyle())
-            .controlSize(.large)
-            .accessibilityIdentifier("requestsBrowseMenu")
-
-            Button {
-                historyPresented = true
-            } label: {
-                Label("My requests", glyph: .history, size: 24)
-                    .frame(minWidth: 240, alignment: .leading)
-            }
-            .buttonStyle(LuminaUnderlineTabStyle())
-            .controlSize(.large)
-            .accessibilityIdentifier("requestsMyListButton")
+        } label: {
+            Label(browseTitle, glyph: .filter, size: 24)
+                .frame(minWidth: 240, alignment: .leading)
         }
-        .fixedSize(horizontal: true, vertical: false)
+        .buttonStyle(LuminaUnderlineTabStyle())
+        .controlSize(.large)
+        .accessibilityIdentifier("requestsBrowseMenu")
+
     }
 
     @ViewBuilder private var searchContent: some View {
@@ -434,46 +469,56 @@ private struct TVRequestHero: View {
                     endPoint: .bottom
                 )
 
+                LinearGradient(stops: [
+                    .init(color: LuminaTheme.theater.opacity(0.90), location: 0),
+                    .init(color: LuminaTheme.theater.opacity(0.60), location: 0.33),
+                    .init(color: .clear, location: 0.72)
+                ], startPoint: .leading, endPoint: .trailing)
+
                 VStack(alignment: .leading, spacing: 16) {
-                    MediaTitleArtwork(name: item.title, url: item.logoURL, maximumWidth: 520, maximumHeight: 150) {
+                    Text("Featured")
+                        .font(TVTypography.status)
+                        .foregroundStyle(LuminaTheme.accentInk)
+
+                    MediaTitleArtwork(name: item.title, url: item.logoURL, maximumWidth: 500, maximumHeight: 96) {
                         Text(item.title)
-                            .font(LuminaTheme.editorial(56, relativeTo: .largeTitle, italic: true))
+                            .font(TVTypography.heroTitle)
                             .multilineTextAlignment(.leading)
                             .lineLimit(2)
                     }
 
                     Text(metadata(for: item))
-                        .font(.system(size: 24))
+                        .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.ink.opacity(0.82))
 
                     if let overview = item.overview, !overview.isEmpty {
                         Text(overview)
-                            .font(.body)
+                            .font(TVTypography.body)
                             .foregroundStyle(LuminaTheme.ink.opacity(0.9))
-                            .lineLimit(3)
+                            .lineLimit(2)
                             .frame(maxWidth: 760, alignment: .leading)
                     }
 
                     Label(
-                        actionLabel(for: item),
-                        glyph: hasVaultItem(item) ? .library : (item.status.canCreateRequest && item.canRequest ? .add : .info),
+                        "View title",
+                        glyph: .info,
                         variant: .solid,
                         size: 24
                     )
-                        .font(.headline)
+                        .font(TVTypography.action)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
-                        .foregroundStyle(LuminaTheme.theater)
-                        .background(.white, in: .capsule)
+                        .foregroundStyle(LuminaTheme.onPrimaryControl)
+                        .background(LuminaTheme.primaryControlFill, in: .rect(cornerRadius: 8))
                 }
                 .padding(.horizontal, 82)
-                .padding(.vertical, 58)
+                .padding(.vertical, 28)
             }
-            .frame(maxWidth: .infinity, minHeight: 570, maxHeight: 640)
+            .frame(maxWidth: .infinity, minHeight: 400, maxHeight: 440)
             .contentShape(.rect)
         }
         .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 7))
-        .accessibilityLabel("\(item.title), \(actionLabel(for: item))")
+        .accessibilityLabel("\(item.title), \(catalogStatus(for: item)), View title")
         .accessibilityIdentifier("requestFeatured-\(item.id)")
     }
 }
@@ -526,30 +571,21 @@ private struct TVRequestPoster: View {
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 TVRequestArtwork(url: item.posterURL ?? item.backdropURL, aspect: 2 / 3, catalog: catalog)
-                    .overlay(alignment: .bottomLeading) {
-                        if item.status.state != .none {
-                            Text(item.status.label)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .background(.black.opacity(0.82), in: .rect(topTrailingRadius: 8))
-                        }
-                    }
 
                 Text(item.title)
-                    .font(.title3.weight(.medium))
+                    .font(TVTypography.cardTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text(metadata(for: item))
-                    .font(.body)
-                    .foregroundStyle(LuminaTheme.muted)
+                Text(catalogStatus(for: item))
+                    .font(TVTypography.status)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
         }
         .buttonStyle(TVArtworkButtonStyle(aspect: 2 / 3))
-        .accessibilityLabel("\(item.title), \(item.status.label.isEmpty ? "Available to request" : item.status.label)")
+        .accessibilityLabel("\(item.title), \(catalogStatus(for: item))")
         .accessibilityIdentifier("requestPoster-\(item.id)")
     }
 }
@@ -647,17 +683,17 @@ private struct TVRequestDetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 MediaTitleArtwork(name: current.title, url: current.logoURL, maximumWidth: 560, maximumHeight: 160) {
                     Text(current.title)
-                        .font(LuminaTheme.editorial(58, relativeTo: .largeTitle, italic: true))
+                        .font(TVTypography.heroTitle)
                         .lineLimit(2)
                 }
 
                 Text(metadata(for: current))
-                    .font(.system(size: 24))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.ink.opacity(0.82))
 
                 if let tagline = detail?.tagline, !tagline.isEmpty {
                     Text(tagline)
-                        .font(.system(size: 24).italic())
+                        .font(TVTypography.body)
                         .foregroundStyle(LuminaTheme.ink.opacity(0.9))
                 }
             }
@@ -684,7 +720,7 @@ private struct TVRequestDetailView: View {
                 .accessibilityIdentifier("requestYouTubeTrailerButton")
                 if trailerUnavailable {
                     Text("YouTube could not open on this Apple TV. You can watch this trailer from Lumina on your phone or the website.")
-                        .font(.body)
+                        .font(TVTypography.body)
                         .foregroundStyle(LuminaTheme.muted)
                 }
             }
@@ -695,7 +731,7 @@ private struct TVRequestDetailView: View {
                 if canRequestMore {
                     if let created {
                         Label(created.status.label, glyph: .check, variant: .solid, size: 24)
-                            .font(.system(size: 26, weight: .semibold))
+                            .font(TVTypography.status)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("requestSubmittedStatus")
                     } else if current.canRequest && canRequestChoice {
@@ -704,12 +740,12 @@ private struct TVRequestDetailView: View {
                 }
             } else if let created {
                 Label(created.status.label, glyph: .check, variant: .solid, size: 24)
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
             } else if !current.status.label.isEmpty, !canRequestChoice {
                 Label(current.status.label, systemImage: "clock.fill")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestStatus")
             } else if current.canRequest && canRequestChoice {
@@ -806,7 +842,7 @@ private struct TVRequestDetailView: View {
                 }.accessibilityIdentifier("requestSubtitleLanguagePicker")
                 if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
                     Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(TVTypography.metadata).foregroundStyle(.secondary)
                 }
             }
 
@@ -830,7 +866,7 @@ private struct TVRequestDetailView: View {
     @ViewBuilder private var languageEvidence: some View {
         if let availability = current.status.languageAvailability {
             VStack(alignment: .leading, spacing: 8) {
-                Text("In your vault").font(.headline)
+                Text("In your vault").font(TVTypography.action)
                 if availability.files.isEmpty {
                     Text(availability.state == "unknown" ? "Audio and subtitles are unknown." : "No playable files identified.")
                 }
@@ -840,7 +876,7 @@ private struct TVRequestDetailView: View {
                 if availability.state != "known" { Text("Some track information is unknown.") }
                 if availability.truncated { Text("Showing \(availability.files.count) of \(availability.totalFiles) files.") }
             }
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(TVTypography.metadata).foregroundStyle(.secondary)
             .accessibilityIdentifier("requestLanguageAvailability")
         }
     }
@@ -881,7 +917,7 @@ private struct TVRequestDetailView: View {
                 ProgressView()
                 Text("Checking your request allowance…")
             }
-            .font(.body)
+            .font(TVTypography.body)
             .foregroundStyle(LuminaTheme.muted)
             .accessibilityIdentifier("requestQuotaLoading")
         case .failed(let message):
@@ -889,7 +925,7 @@ private struct TVRequestDetailView: View {
                 Label("Could not check your request allowance", glyph: .warning, variant: .solid, size: 24)
                     .foregroundStyle(LuminaTheme.accentInk)
                 Text(message)
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
                 Button("Try again") {
                     Task { await refreshQuota() }
@@ -900,7 +936,7 @@ private struct TVRequestDetailView: View {
         case .ready:
             if let quota {
                 Text(quotaText(quota))
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -921,14 +957,14 @@ private struct TVRequestDetailView: View {
             if let overview = current.overview, !overview.isEmpty {
                 TVRequestSectionHeading(title: "About this title")
                 Text(overview)
-                    .font(.system(size: 24))
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.ink.opacity(0.88))
                     .frame(maxWidth: 980, alignment: .leading)
             }
 
             if let cast = detail?.cast, !cast.isEmpty {
                 Text("Starring \(cast.prefix(8).map(\.name).joined(separator: ", "))")
-                    .font(.body)
+                    .font(TVTypography.body)
                     .foregroundStyle(LuminaTheme.muted)
             }
         }
@@ -1011,10 +1047,10 @@ private struct TVRequestHistory: View {
                             TVRequestArtwork(url: record.posterURL, aspect: 2 / 3, catalog: catalog)
                                 .frame(width: 90)
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(record.title).font(.system(size: 26, weight: .semibold))
-                                Text(record.status.label).foregroundStyle(LuminaTheme.accentInk)
-                                if let language = record.languageDescription { Text(language).foregroundStyle(LuminaTheme.muted) }
-                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").foregroundStyle(LuminaTheme.muted) }
+                                Text(record.title).font(TVTypography.cardTitle.weight(.semibold))
+                                Text(record.status.label).font(TVTypography.status).foregroundStyle(LuminaTheme.accentInk)
+                                if let language = record.languageDescription { Text(language).font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted) }
+                                if record.fulfillmentMode == "manual" { Text("Manual fulfillment").font(TVTypography.metadata).foregroundStyle(LuminaTheme.muted) }
                                 if record.status == .processing {
                                     ProgressView(value: min(1, max(0, record.progress ?? 0)))
                                         .frame(width: 360)
@@ -1106,12 +1142,12 @@ private struct TVRequestSectionHeading: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 20) {
             Text(title)
-                .font(LuminaTheme.editorial(34, relativeTo: .title2))
+                .font(TVTypography.sectionTitle)
                 .foregroundStyle(LuminaTheme.ink)
                 .accessibilityAddTraits(.isHeader)
             if let count {
                 Text(count, format: .number)
-                    .font(.system(size: 24))
+                    .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
             }
             Rectangle()
@@ -1130,8 +1166,8 @@ private struct TVRequestMessage: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text(title).font(.title.weight(.semibold))
-            Text(message).font(.system(size: 24)).foregroundStyle(LuminaTheme.muted).multilineTextAlignment(.center)
+            Text(title).font(TVTypography.sectionTitle)
+            Text(message).font(TVTypography.body).foregroundStyle(LuminaTheme.muted).multilineTextAlignment(.center)
             Button(actionTitle, action: action)
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
@@ -1152,10 +1188,10 @@ private func metadata(for item: RequestCatalogItem) -> String {
         .joined(separator: " · ")
 }
 
-private func actionLabel(for item: RequestCatalogItem) -> String {
-    if hasVaultItem(item) { return "View" }
-    if item.canRequest && item.status.canCreateRequest { return "Request" }
-    return item.status.label.isEmpty ? "Details" : item.status.label
+private func catalogStatus(for item: RequestCatalogItem) -> String {
+    if item.status.state == .available { return "Available" }
+    if item.status.state != .none { return item.status.label }
+    return item.canRequest && item.status.canCreateRequest ? "Ready to request" : "Not requestable"
 }
 
 private func hasVaultItem(_ item: RequestCatalogItem) -> Bool {

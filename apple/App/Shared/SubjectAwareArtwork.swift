@@ -1,6 +1,9 @@
 import SwiftUI
 import LuminaCore
 import UIKit
+#if os(tvOS) && LUMINA_UI_TESTING
+import OSLog
+#endif
 
 extension EnvironmentValues {
     @Entry var luminaRetainsArtworkWhileHidden = false
@@ -147,16 +150,23 @@ struct SubjectAwareArtwork: View {
     var body: some View {
         GeometryReader { geometry in
             if let source = displayedSource {
-                if fit {
-                    Image(uiImage: source).resizable().scaledToFit()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                } else {
-                    let crop = HeroFraming.crop(framing, source: source.size, viewport: geometry.size, home: home)
-                    Image(uiImage: source).resizable()
-                        .frame(width: geometry.size.width / crop.width, height: geometry.size.height / crop.height)
-                        .offset(x: -crop.minX * geometry.size.width / crop.width, y: -crop.minY * geometry.size.height / crop.height)
-                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                Group {
+                    if fit {
+                        Image(uiImage: source).resizable().scaledToFit()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                    } else {
+                        let crop = HeroFraming.crop(framing, source: source.size, viewport: geometry.size, home: home)
+                        Image(uiImage: source).resizable()
+                            .frame(width: geometry.size.width / crop.width, height: geometry.size.height / crop.height)
+                            .offset(x: -crop.minX * geometry.size.width / crop.width, y: -crop.minY * geometry.size.height / crop.height)
+                            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                    }
                 }
+                #if os(tvOS) && LUMINA_UI_TESTING
+                .onChange(of: url, initial: true) { _, url in
+                    Self.recordProofArtworkMount(url)
+                }
+                #endif
             }
         }
         .clipped()
@@ -199,6 +209,20 @@ struct SubjectAwareArtwork: View {
         .accessibilityHidden(true)
         .allowsHitTesting(false)
     }
+
+    #if os(tvOS) && LUMINA_UI_TESTING
+    private static let proofArtworkIDs = Set(
+        (ProcessInfo.processInfo.environment["LUMINA_TV_ARTWORK_TIMING"] ?? "")
+            .split(separator: ",").map(String.init)
+    )
+    private static let proofArtworkLog = Logger(subsystem: "ai.cozylabs.lumina.proof", category: "Artwork")
+
+    private static func recordProofArtworkMount(_ url: URL?) {
+        guard !proofArtworkIDs.isEmpty, let url,
+              let id = url.pathComponents.first(where: { proofArtworkIDs.contains($0) }) else { return }
+        proofArtworkLog.notice("artwork-mounted \(id, privacy: .public)")
+    }
+    #endif
 
     #if os(iOS)
     private func reclaimArtwork() {

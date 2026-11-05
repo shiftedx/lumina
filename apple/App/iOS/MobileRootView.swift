@@ -876,7 +876,7 @@ private enum LibraryCategory: String, CaseIterable {
     var title: String {
         switch self {
         case .movies: "Movies"
-        case .tv: "TV"
+        case .tv: "Shows"
         case .anime: "Anime"
         case .music: "Music"
         case .books: "Books"

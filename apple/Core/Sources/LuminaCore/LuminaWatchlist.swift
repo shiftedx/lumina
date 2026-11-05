@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -33,6 +34,24 @@ public enum WatchlistError: Error, Equatable, LocalizedError, Sendable {
     private var loadedItemID: String?
     private var sessionGeneration = 0
     private var operationGeneration = 0
+
+    /// The connected-app Watchlist playlist ID accepted by the library collection filter.
+    public nonisolated static func libraryFilterID(userID: String) -> String? {
+        let compact = userID.replacingOccurrences(of: "-", with: "")
+        guard compact.utf8.count == 32 else { return nil }
+        let parts = [compact.prefix(8), compact.dropFirst(8).prefix(4), compact.dropFirst(12).prefix(4),
+                     compact.dropFirst(16).prefix(4), compact.dropFirst(20)]
+        guard let user = UUID(uuidString: parts.joined(separator: "-")) else { return nil }
+
+        // Matches the server's UUIDv5 synthetic_id("watchqueue:<user UUID>").
+        let namespace = UUID(uuidString: "b313b443-44d5-44a1-95e2-052a2d34c25b")!
+        var input = withUnsafeBytes(of: namespace.uuid) { Data($0) }
+        input.append(contentsOf: "watchqueue:\(user.uuidString.lowercased())".utf8)
+        var bytes = Array(Insecure.SHA1.hash(data: input).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
 
     public init(session: LuminaSession? = nil) {
         self.session = session

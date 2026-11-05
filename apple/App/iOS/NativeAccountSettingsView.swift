@@ -274,7 +274,7 @@ private struct NativeInvitationsView: View {
     @State private var error: String?
     private enum Field: Hashable { case email, password, code }
     @FocusState private var editingField: Field?
-    private let libraries = [("movies", "Movies"), ("shows", "TV"), ("anime", "Anime"),
+    private let libraries = [("movies", "Movies"), ("shows", "Shows"), ("anime", "Anime"),
                              ("music", "Music"), ("photos", "Photos"), ("books", "Books")]
 
     var body: some View {

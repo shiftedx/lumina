@@ -22,6 +22,8 @@ test('a timestamped note persists and seeks the player', async ({ page }) => {
   const id = await libraryItemId(page, 'Realstack Direct');
   await savePlaybackProgress(page, id, 0);
   await page.goto(`/watch/library/${id}`);
+  // The initial player can precede title metadata. Wait for the final local-watch layout before interacting.
+  await expect(page.locator('.watch-local-story').getByRole('heading', { name: 'Realstack Direct', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   await expect.poll(() => videoTime(page)).toBeGreaterThan(1.2);
   await page.getByRole('button', { name: 'Pause' }).click();

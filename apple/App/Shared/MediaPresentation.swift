@@ -4,6 +4,13 @@ import UIKit
 import QuartzCore
 
 extension EnvironmentValues {
+    var luminaReduceMotion: Bool {
+        #if LUMINA_UI_TESTING
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-reduce-motion") { return true }
+        #endif
+        return accessibilityReduceMotion
+    }
+
     @Entry var luminaArtworkMotionEnabled = true
 }
 
@@ -170,7 +177,7 @@ private struct CroppedBillboardArtwork: View {
     let viewport: CGSize
     let home: Bool
     let motionDirection: Int?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.luminaReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.luminaArtworkMotionEnabled) private var motionEnabled
 
@@ -662,7 +669,7 @@ struct FeaturedShelf<Actions: View>: View {
     #endif
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.luminaArtworkMotionEnabled) private var motionEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.luminaReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     #if !os(tvOS)
     @ScaledMetric(relativeTo: .largeTitle) private var minimumWideWidth: CGFloat = 600
@@ -758,7 +765,11 @@ struct FeaturedShelf<Actions: View>: View {
                 .onChanged { _ in dragging = true }
                 .onEnded { value in
                     dragging = false
-                    if abs(value.translation.width) > 48 && abs(value.translation.width) > abs(value.translation.height) {
+                    let horizontal = abs(value.translation.width) > abs(value.translation.height)
+                    let flick = abs(value.predictedEndTranslation.width) > 48
+                        && abs(value.predictedEndTranslation.width) > abs(value.predictedEndTranslation.height)
+                        && value.predictedEndTranslation.width * value.translation.width > 0
+                    if horizontal && (abs(value.translation.width) > 48 || flick) {
                         step(value.translation.width < 0 ? 1 : -1)
                     }
                 })
@@ -903,7 +914,7 @@ struct FeaturedShelf<Actions: View>: View {
         layoutTransition += 1
         #endif
         movingForward = forward ?? ((items.firstIndex { $0.id == id } ?? 0) > index)
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.72)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: userInitiated ? 0.25 : 0.72)) {
             if let selection {
                 selection.wrappedValue = id
             } else {
@@ -1126,6 +1137,7 @@ struct LuminaCategoryBar<Content: View>: View {
     var centersContent = true
     @ViewBuilder let content: Content
     #if os(iOS)
+    @Environment(\.luminaReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @State private var overflow = Overflow(leading: false, trailing: false)
     private struct Overflow: Equatable {
@@ -1136,6 +1148,7 @@ struct LuminaCategoryBar<Content: View>: View {
     #endif
     #if os(iOS) && LUMINA_UI_TESTING
     @State private var uiTestingMaxVerticalPull: CGFloat = 0
+    @State private var uiTestingCategoryScrollAnimated = false
     #endif
 
     var body: some View {
@@ -1185,6 +1198,9 @@ struct LuminaCategoryBar<Content: View>: View {
             } action: { _, distance in
                 uiTestingMaxVerticalPull = max(uiTestingMaxVerticalPull, distance)
             }
+            .onScrollPhaseChange { _, phase in
+                if phase == .animating { uiTestingCategoryScrollAnimated = true }
+            }
             #endif
             #else
             .scrollClipDisabled()
@@ -1195,7 +1211,7 @@ struct LuminaCategoryBar<Content: View>: View {
         #if os(iOS)
         .accessibilityElement(children: .contain)
         #if LUMINA_UI_TESTING
-        .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull)")
+        .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull) scrollAnimated=\(uiTestingCategoryScrollAnimated)")
         #endif
         #endif
     }
@@ -1203,13 +1219,17 @@ struct LuminaCategoryBar<Content: View>: View {
     #if os(iOS)
     private func scrollCue(using proxy: ScrollViewProxy, forward: Bool) -> some View {
         Button {
-            withAnimation {
+            #if LUMINA_UI_TESTING
+            uiTestingCategoryScrollAnimated = false
+            #endif
+            withAnimation(reduceMotion ? nil : .default) {
                 proxy.scrollTo(ScrollAnchor.content, anchor: forward ? .trailing : .leading)
             }
         } label: {
             LuminaIcon(glyph: forward ? .forward : .back, size: 14)
                 .flipsForRightToLeftLayoutDirection(true)
                 .frame(width: 44, height: 44)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(forward ? "More categories" : "Previous categories")

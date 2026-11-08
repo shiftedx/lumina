@@ -308,6 +308,7 @@ final class NativeTVWelcomeShowcaseAndConnectionHelpTests: NativeProofJourney {
 @MainActor
 final class NativeTVNavigationArtworkAndVideoCategoriesTests: NativeProofJourney {
     func testHeaderEntersHeroBeforeShelves() throws { try journeyTVHeaderHeroFocus() }
+    func testReducedMotionKeepsRemoteFocusAtRestingSize() throws { try journeyTVHeaderHeroFocus(reducedMotion: true) }
     func testTVNavigationArtworkAndVideoCategories() async throws { try await journeyTVNavigationArtworkAndVideoCategories() }
 }
 @MainActor
@@ -449,6 +450,14 @@ final class NativeIdleBackgroundTests: NativeProofJourney {
 
 @MainActor
 final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourney {
+    func testHeroFlicksWithNormalMotion() async throws {
+        try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(motionOnly: true)
+    }
+    func testHeroFlicksWithReducedMotion() async throws {
+        try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(reducedMotion: true)
+    }
+    func testCategoryOverflowWithReducedMotion() throws { try journeyCategoryOverflowWithReducedMotion() }
+    func testCategoryOverflowWithNormalMotion() throws { try journeyCategoryOverflowWithReducedMotion(reducedMotion: false) }
     func testHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
         try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle()
     }
@@ -4623,17 +4632,21 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
-    func journeyTVHeaderHeroFocus() throws {
+    func journeyTVHeaderHeroFocus(reducedMotion: Bool = false) throws {
         #if os(tvOS)
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
-        try launchAndResetSession()
+        try launchAndResetSession(extraLaunchArguments: reducedMotion ? ["--ui-testing-reduce-motion"] : [])
         try signIn(using: fixture)
         let play = element("featuredPlayButton")
         let home = element("homeNavigationButton")
         try waitForExistence(play, timeout: 30, named: "Home hero action")
         XCTAssertTrue(focus(home, timeout: 20), "The Home tab must be reachable from the header.")
+        if reducedMotion {
+            XCTAssertEqual(home.frame.width, 64, accuracy: 1, "Reduce Motion must keep focused navigation at its resting size.")
+            try attachFrame(named: "Reduced Motion header focus without zoom")
+        }
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitUntil(timeout: 5) { play.hasFocus }, "Down from Home must enter the hero before the shelves.")
         try attachFrame(named: "Home tab enters the hero")
@@ -4665,6 +4678,11 @@ class NativeProofJourney: XCTestCase {
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeSearchButton").hasFocus },
                       "Closing Home search must restore focus to Search.")
+        if reducedMotion {
+            XCTAssertEqual(element("homeSearchButton").frame.width, 64, accuracy: 1,
+                           "Reduce Motion must keep the focused Search control at its resting size.")
+            try attachFrame(named: "Reduced Motion Search focus outline without zoom")
+        }
 
         try openDeviceSettings()
         XCUIRemote.shared.press(.menu)
@@ -4673,6 +4691,16 @@ class NativeProofJourney: XCTestCase {
         let library = element("libraryNavigationButton")
         try activate(library)
         try waitForExistence(element("libraryScreen"), timeout: 25, named: "Movies Library")
+        if reducedMotion {
+            let card = element("libraryItem-\(fixture.directItemID)")
+            try waitForExistence(card, timeout: 20, named: "Library artwork")
+            XCTAssertTrue(focus(library, timeout: 15))
+            let restingFrame = card.frame
+            XCTAssertTrue(focus(card, timeout: 20))
+            XCTAssertEqual(card.frame.width, restingFrame.width, accuracy: 1, "Reduce Motion must keep focused artwork at its resting width.")
+            XCTAssertEqual(card.frame.height, restingFrame.height, accuracy: 1, "Reduce Motion must keep focused artwork at its resting height.")
+            try attachFrame(named: "Reduced Motion artwork focus outline without zoom")
+        }
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after Movies Back")
         completed = true
@@ -6835,7 +6863,33 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     #if os(iOS)
-    func journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(checksLayout: Bool = false) async throws {
+    func journeyCategoryOverflowWithReducedMotion(reducedMotion: Bool = true) throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let app = XCUIApplication()
+        application = app
+        app.launchArguments = ["--ui-testing", "--ui-testing-category-motion-proof"]
+            + (reducedMotion ? ["--ui-testing-reduce-motion"] : [])
+        app.launchEnvironment["LUMINA_UI_TEST_NAMESPACE"] = isolationID
+        app.launch()
+        let categories = element("motionProofCategories")
+        try waitForExistence(categories, timeout: 15, named: "Unified category rail")
+        let forward = element("categoryScrollForward")
+        try waitForHittable(forward, timeout: 10, named: "More categories")
+        try activate(forward)
+        let back = element("categoryScrollBack")
+        try waitForHittable(back, timeout: 10, named: "Previous categories after scrolling")
+        let diagnostics = try XCTUnwrap(categories.value as? String)
+        XCTAssertTrue(diagnostics.contains("scrollAnimated=\(!reducedMotion)"), "Category scrolling must honor Reduce Motion: \(diagnostics)")
+        try activate(app.buttons["Account"])
+        XCTAssertEqual(element("motionProofSelection").label, "Selected: Account")
+        try attachFrame(named: "Category navigation reaches trailing categories — Reduce Motion \(reducedMotion)")
+        try activate(back)
+        try waitForHittable(forward, timeout: 10, named: "More categories after returning")
+        completed = true
+    }
+
+    func journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(checksLayout: Bool = false, reducedMotion: Bool = false, motionOnly: Bool = false) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -6845,9 +6899,11 @@ class NativeProofJourney: XCTestCase {
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
-        try launchAndResetSession(extraLaunchArguments: checksLayout ? ["--ui-testing-manual-hero-selection"] : [])
-        try signIn(using: fixture, waitsForAccount: !checksLayout)
-        if !checksLayout {
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-manual-hero-selection"]
+            + (motionOnly || reducedMotion ? ["--ui-testing-static-hero-artwork"] : [])
+            + (reducedMotion ? ["--ui-testing-reduce-motion"] : []))
+        try signIn(using: fixture, waitsForAccount: !checksLayout && !reducedMotion && !motionOnly)
+        if !checksLayout && !reducedMotion && !motionOnly {
             try selectDestination("Account", screen: "accountScreen")
             try chooseDeviceSetting("deviceAppearancePicker", option: "Dark")
             try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Home")).firstMatch)
@@ -6859,7 +6915,8 @@ class NativeProofJourney: XCTestCase {
         }
         let choice = element("featuredChoice-\(fixture.directItemID)")
         let title = element("featuredTitleButton")
-        if !checksLayout || title.label != fixture.directItemTitle {
+        try waitForExistence(title, timeout: 15, named: "Home hero title")
+        if title.label != fixture.directItemTitle {
             try revealInLibraryViewport([choice])
             try activate(choice)
         }
@@ -6890,6 +6947,18 @@ class NativeProofJourney: XCTestCase {
         let y = visibleArt.minY + visibleArt.height * 0.3 - window.frame.minY
         let right = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.75, dy: y))
         let left = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.25, dy: y))
+        let shortLeft = right.withOffset(CGVector(dx: -36, dy: 0))
+        right.press(forDuration: 0.05, thenDragTo: shortLeft, withVelocity: XCUIGestureVelocity(rawValue: 40), thenHoldForDuration: 0.3)
+        XCTAssertEqual(title.label, fixture.directItemTitle, "A short slow drag must not advance the hero.")
+        right.press(forDuration: 0.05, thenDragTo: right.withOffset(CGVector(dx: 0, dy: 36)), withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertEqual(title.label, fixture.directItemTitle, "Vertical scrolling must not advance the hero.")
+        right.press(forDuration: 0.05, thenDragTo: shortLeft, withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(waitUntil(timeout: 3) { title.label != fixture.directItemTitle && !title.label.isEmpty },
+                      "A short fast flick must advance the hero.")
+        XCTAssertFalse(element("detailScreen").exists, "Flicking artwork must not open details.")
+        try attachFrame(named: "Short fast flick advances the hero")
+        shortLeft.press(forDuration: 0.05, thenDragTo: right, withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(waitUntil(timeout: 3) { title.label == fixture.directItemTitle }, "The reverse flick must restore the hero.")
         let initialHeroFrame = artwork.frame
         var initialHeroY = Double(initialHeroFrame.minY)
         var initialHeroHeight = Double(initialHeroFrame.height)
@@ -6935,6 +7004,10 @@ class NativeProofJourney: XCTestCase {
             XCUIDevice.shared.orientation = .portrait
             XCTAssertTrue(waitUntil(timeout: 8) { artwork.frame.width < artwork.frame.height })
             try attachFrame(named: "Portrait hero with critic rating")
+            completed = true
+            return
+        }
+        if reducedMotion || motionOnly {
             completed = true
             return
         }

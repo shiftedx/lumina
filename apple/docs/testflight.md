@@ -708,3 +708,38 @@ and What to Test notes. The source revision above identifies the binaries; this
 later release-record commit changes documentation only. Earlier packages and
 symbols remain preserved. Owned proof simulators, fixture runtime and temporary
 build caches were removed after qualification.
+
+
+### General TestFlight package 56, 2026-11-08
+
+**iOS and tvOS 0.1.0 (56) are signed and staged in Xcode Organizer for the
+owner to upload. Neither platform was uploaded by this operation.** Both exports
+were made with **TestFlight internal testing only disabled**, automatic build
+numbering disabled, and symbols included. Select the signed build-56 entry,
+choose App Store Connect and keep Internal Only disabled when uploading. tvOS 56
+is left selected; both signed entries show the team and Distribute App available.
+
+Build 55 was mistakenly uploaded as Internal Only. Those uploads remain
+preserved and cannot serve the intended external audience. Build 56 replaces
+them for general TestFlight. [PR #315](https://github.com/shiftedx/lumina/pull/315)
+changes the export plist and release script to default to general TestFlight;
+Internal Only now requires an explicit audience override. General TestFlight
+eligibility does not establish Apple beta approval, tester assignment or a public
+App Store release.
+
+Built from clean main `b75ab8cbf02dcc28904c120f8de77ecb07bd2ebd`. App runtime
+code, dependencies and packaging safeguards are unchanged from qualified build
+55. Its focused motion/playback and safeguard evidence remains retained; no
+repeat native UI or full suite ran for this audience-only replacement. Both
+Release archives, signed IPAs and matching-symbol Organizer copies passed local
+identity/version, device-family, artwork/privacy, signature, UUID and test-hook
+exclusion checks. All 988 source-input hashes were verified before this later
+documentation update. Internal Only was directly observed unchecked for both
+exports; Xcode omits that disabled flag from the saved export options. No new
+physical-device qualification or server deployment occurred.
+
+Preserve ignored `apple/Distribution/0.1.0-56/`: signed IPAs, unsigned source
+archives, signed Organizer references, matching symbols, source snapshot/input
+hashes, release manifest, checksums, validation/export logs and What to Test.
+Earlier packages, including build 55's upload evidence, remain preserved. Owned
+temporary build caches were removed after validation.

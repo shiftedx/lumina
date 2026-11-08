@@ -455,6 +455,10 @@ struct TVVideoCollectionView: View {
         VStack(alignment: .leading, spacing: 10) {
             TVArtwork(item: episode, store: store, aspect: 16 / 9)
                 .frame(width: 320, height: 180)
+                .overlay(alignment: .topTrailing) {
+                    UnwatchedEpisodeCorner(episode: episode, size: 28)
+                }
+                .clipShape(.rect(cornerRadius: 4))
                 .overlay(alignment: .bottom) {
                     if episode.resumeSeconds > 0, episode.durationSeconds > 0 {
                         ProgressView(value: min(episode.resumeSeconds / episode.durationSeconds, 1))
@@ -481,7 +485,7 @@ struct TVVideoCollectionView: View {
         }
         .frame(width: 320, height: episodeCardHeight, alignment: .topLeading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : "")")
+        .accessibilityLabel("\(episodeHeading(episode))\(episodeCardTiming(episode).map { ", \($0)" } ?? "")\(episode.userData?.played == true ? ", Watched" : episode.resumeSeconds > 0 ? ", In progress" : ", Unwatched")")
     }
 
     private func episodeCardTiming(_ episode: MediaItem) -> String? {

@@ -74,7 +74,30 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ## Only when the owner requests another build
 
-### Current release and production status, November 1
+### Current release status, November 8
+
+The latest signed/staged packages are **iOS and tvOS 0.1.0 (54)** from clean
+main `b693e2aef8b47d66c2548d37ae47af6274c7553a`. They include the latest merged
+native changes, including PR #309's gold unwatched episode corners, PR #310's
+Apple TV library-art standby, TV Library/Requests/remote refinements, and the
+independent iOS Streaming load. Both signed IPAs and matching-symbol Organizer
+archives, including staged copies, passed release validation and source-input
+checks. Both packaging safeguards passed; no full suite or new physical-device
+qualification ran.
+
+Xcode's tvOS export analysis required build 54, so the initial partial local
+build 50 was superseded and preserved. Xcode's existing cloud-signing account
+exported both final packages with internal-only distribution and fixed build
+numbering. Both signed build-54 entries are visible in Organizer; iOS is left
+selected. **The owner uploads. This operation uploaded neither platform and
+deployed no server changes.** Earlier iOS 48 and tvOS 49 upload statuses were
+observed in Organizer, not performed here. No Apple processing/tester-availability
+claim is made. Preserve ignored `apple/Distribution/0.1.0-54/`, the superseded
+partial 50 directory, and earlier packages. See the
+[build-54 release record](../../apple/docs/testflight.md#internal-dogfood-package-54-2026-11-08).
+The production history below was not changed by client packaging.
+
+### Earlier release and production status, November 1
 
 The latest staged packages are **iOS and tvOS 0.1.0 (44)** from clean main
 `e252213343f9dc4ec54552589a20d35454dee17f`, including PR #260 and PR #259's

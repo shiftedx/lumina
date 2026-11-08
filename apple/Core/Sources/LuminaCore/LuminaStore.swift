@@ -604,6 +604,25 @@ public enum NavigationLoadState: Equatable, Sendable {
         )
     }
 
+    /// A bounded, independent sample that leaves the current Library wall intact.
+    public func loadStandbyArtwork() async throws -> [MediaItem] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            try Task.checkCancellation()
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken,
+                deviceID: active.deviceID, search: "", start: 0, types: "Movie,Series", sort: .recentlyAdded, limit: 50)
+            try Task.checkCancellation()
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            return page.items.filter {
+                ["Movie", "Series"].contains($0.type) && (backdropURL(for: $0) != nil || imageURL(for: $0) != nil)
+            }
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) { clearSession() }
+            throw error
+        }
+    }
+
     /// Actor-scoped catalog reads keep the current Library wall and its navigation state intact.
     public func titles(featuring person: MediaPerson) async throws -> [MediaItem] {
         guard let active = session else { throw LuminaError.notSignedIn }

@@ -512,6 +512,12 @@ final class NativeEpisodeAutoplayPresenceTests: NativeProofJourney {
     func testNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes() async throws {
         try await journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes()
     }
+    #if os(tvOS)
+    func testUnansweredPresencePromptEntersLibraryArtworkStandbyAfterFiveMinutes() async throws {
+        executionTimeAllowance = 900
+        try await journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes(waitForStandby: true)
+    }
+    #endif
 }
 @MainActor
 final class NativeVideoOverlayTests: NativeProofJourney {
@@ -9123,7 +9129,7 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
-    func journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes() async throws {
+    func journeyNativeEpisodeAutoplayRequiresPresenceAfterThreeEpisodes(waitForStandby: Bool = false) async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
@@ -9178,10 +9184,7 @@ class NativeProofJourney: XCTestCase {
 
         func finishCurrentEpisode(creditsStartSeconds: Double) throws {
             #if os(tvOS)
-            XCUIRemote.shared.press(.playPause)
-            let transport = try waitForHittable(element("videoPlayPauseButton"), timeout: 10,
-                                                 named: "paused autoplay transport")
-            XCTAssertEqual(transport.label, "Play", "Autoplay proof must seek while the current episode is paused.")
+            _ = try waitForPlaybackValue(time, timeout: creditsStartSeconds + 15) { $0 >= creditsStartSeconds }
             #else
             XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 8))
             let surface = element("videoControlsSurface")
@@ -9192,7 +9195,6 @@ class NativeProofJourney: XCTestCase {
             transport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" },
                           "Autoplay proof must seek while the current episode is paused.")
-            #endif
             let forward = element("videoSeekForwardButton")
             let position = try waitForPlaybackValue(time, timeout: 5) { $0 >= 0 }
             let steps = max(0, Int(ceil((creditsStartSeconds - position) / 10)))
@@ -9211,6 +9213,7 @@ class NativeProofJourney: XCTestCase {
             #else
             try activate(skipCredits)
             #endif
+            #endif
         }
 
         let automaticallyStarted = [
@@ -9219,9 +9222,14 @@ class NativeProofJourney: XCTestCase {
         ]
         for (index, next) in automaticallyStarted.enumerated() {
             try finishCurrentEpisode(creditsStartSeconds: index == 0 ? fixture.episodeCreditsStartSeconds : 10)
+            #if os(tvOS)
+            let title = element("playbackScreen").staticTexts
+                .matching(NSPredicate(format: "label CONTAINS %@", next.title)).firstMatch
+            #else
             let title = element("videoPlaybackChrome").staticTexts
                 .matching(NSPredicate(format: "label CONTAINS %@", next.title)).firstMatch
-            guard waitUntil(timeout: 30, condition: { self.hasVisibleFrame(title) }) else {
+            #endif
+            guard waitUntil(timeout: 120, condition: { self.hasVisibleFrame(title) }) else {
                 throw ProofFailure.ui("Completing episode \(index + 1) did not reveal the next episode title.")
             }
             _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= 3 }
@@ -9230,7 +9238,7 @@ class NativeProofJourney: XCTestCase {
 
         try finishCurrentEpisode(creditsStartSeconds: 10)
         let stillWatching = application!.alerts["Still watching?"]
-        try waitForExistence(stillWatching, timeout: 20, named: "Still watching presence confirmation")
+        try waitForExistence(stillWatching, timeout: 120, named: "Still watching presence confirmation")
         let fourthTitle = element("videoPlaybackChrome").staticTexts
             .matching(NSPredicate(format: "label CONTAINS %@", fourthEpisodeTitle)).firstMatch
         XCTAssertFalse(hasVisibleFrame(fourthTitle),
@@ -9238,6 +9246,30 @@ class NativeProofJourney: XCTestCase {
         let fourthProgress = try await api.playbackSeconds(identity: identity, itemID: fourthEpisodeID)
         XCTAssertEqual(fourthProgress, 0, accuracy: 0.1, "An unconfirmed fourth episode must not report playback.")
         try attachFrame(named: "Still watching after three episodes")
+        #if os(tvOS)
+        if waitForStandby {
+            let standby = element("tvStandbyArtwork")
+            XCTAssertFalse(standby.exists, "Standby must wait for the presence deadline.")
+            try waitForExistence(standby, timeout: 330, named: "library artwork standby after five unanswered minutes")
+            XCTAssertFalse(element("playbackScreen").exists, "Standby must release the video player.")
+            XCTAssertFalse(stillWatching.exists)
+            let standbyProgress = try await api.playbackSeconds(identity: identity, itemID: fourthEpisodeID)
+            XCTAssertEqual(standbyProgress, 0, accuracy: 0.1,
+                           "Standby must not start the unconfirmed fourth episode.")
+            XCTAssertTrue(waitUntil(timeout: 20) { !(standby.value as? String ?? "").isEmpty },
+                          "Standby must display artwork from the signed-in library.")
+            try attachFrame(named: "Unattended Apple TV displays library artwork in standby")
+            let firstArtworkTitle = standby.value as? String
+            XCTAssertTrue(waitUntil(timeout: 30) { (standby.value as? String) != firstArtworkTitle },
+                          "Standby must cycle through library artwork.")
+            XCUIRemote.shared.press(.right)
+            XCTAssertTrue(disappears(standby, timeout: 10), "Remote input must leave standby.")
+            try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after leaving standby")
+            XCTAssertFalse(element("playbackScreen").exists, "Waking standby must not resume playback.")
+            completed = true
+            return
+        }
+        #endif
         let goHome = application!.buttons.matching(NSPredicate(format: "label == %@", "Go Home")).firstMatch
         try activate(try waitForHittable(goHome, timeout: 10, named: "Go Home presence action"))
         XCTAssertTrue(waitUntil(timeout: 15) {

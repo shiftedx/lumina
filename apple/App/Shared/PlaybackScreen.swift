@@ -434,20 +434,23 @@ struct PlaybackScreen: View {
     private let store: LuminaStore
     private let onVideoDismiss: (() -> Void)?
     private let onReturnHome: () -> Void
+    private let onAutoplayStandby: (() -> Void)?
 
     init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem] = [], queueIndex: Int? = nil,
-         onReturnHome: @escaping () -> Void = {}) {
+         onReturnHome: @escaping () -> Void = {}, onAutoplayStandby: (() -> Void)? = nil) {
         self.store = store
         onVideoDismiss = nil
         self.onReturnHome = onReturnHome
+        self.onAutoplayStandby = onAutoplayStandby
         _requestedPlayback = State(initialValue: PlaybackModel(request: request, store: store, queue: queue, queueIndex: queueIndex))
     }
 
     init(playback: PlaybackModel, store: LuminaStore, onVideoDismiss: (() -> Void)? = nil,
-         onReturnHome: @escaping () -> Void = {}) {
+         onReturnHome: @escaping () -> Void = {}, onAutoplayStandby: (() -> Void)? = nil) {
         self.store = store
         self.onVideoDismiss = onVideoDismiss
         self.onReturnHome = onReturnHome
+        self.onAutoplayStandby = onAutoplayStandby
         _requestedPlayback = State(initialValue: playback)
     }
 
@@ -634,14 +637,14 @@ struct PlaybackScreen: View {
                 )) {
                     Button("Continue watching") {
                         Task {
-                            if playback.episodeAutoplay.confirmationExpired() { finishAndReturnHome(); return }
+                            if playback.episodeAutoplay.confirmationExpired() { finishAfterPresenceTimeout(); return }
                             guard playback.confirmEpisodeAutoplay() else { return }
                             await playback.playNextEpisode(automatically: true)
                         }
                     }
                     Button("Go Home", role: .cancel) { finishAndReturnHome() }
                 } message: {
-                    Text("Continue watching, or Lumina will return Home after \(Duration.seconds(playback.episodeAutoplay.policy.timeoutSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))) without a response.")
+                    Text("Continue watching, or Lumina will \(onAutoplayStandby == nil ? "return Home" : "enter standby") after \(Duration.seconds(playback.episodeAutoplay.policy.timeoutSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))) without a response.")
                 }
                 #if os(tvOS)
                 // The library’s white tint makes the focused system-alert action unreadable.
@@ -654,7 +657,7 @@ struct PlaybackScreen: View {
                 let remaining = deadline.timeIntervalSinceNow
                 if remaining <= 0 {
                     guard playback.episodeAutoplay.confirmationExpired() else { return }
-                    finishAndReturnHome()
+                    finishAfterPresenceTimeout()
                     return
                 }
                 do { try await Task.sleep(for: .seconds(remaining)) }
@@ -663,7 +666,7 @@ struct PlaybackScreen: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, playback.episodeAutoplay.confirmationExpired() {
-                finishAndReturnHome()
+                finishAfterPresenceTimeout()
                 return
             }
             playback.traceContinuity("scene=\(String(describing: phase))")
@@ -2268,6 +2271,13 @@ struct PlaybackScreen: View {
         playback.close()
         finish()
         onReturnHome()
+    }
+
+    private func finishAfterPresenceTimeout() {
+        guard let onAutoplayStandby else { finishAndReturnHome(); return }
+        playback.close()
+        finish()
+        onAutoplayStandby()
     }
 
     private func stopAudio() {

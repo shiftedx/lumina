@@ -542,6 +542,82 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 5)
     }
 
+    func testStandbyArtworkUsesIndependentMemberCatalogAndRetainsLibrary() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { @Sendable request in
+            requests.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let value = { (name: String) in query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume", "/UserViews": return response(request, json: page(items: []))
+            case "/Items":
+                if value("IncludeItemTypes") == "Movie,Series" {
+                    return response(request, json: page(items: [
+                        ["Id": "backdrop", "Name": "Film", "Type": "Movie", "BackdropImageTags": ["backdrop-tag"]],
+                        ["Id": "poster", "Name": "Show", "Type": "Series", "ImageTags": ["Primary": "poster-tag"]],
+                        ["Id": "missing", "Name": "No art", "Type": "Movie"],
+                        ["Id": "episode", "Name": "Episode", "Type": "Episode", "ImageTags": ["Primary": "tag"]],
+                    ]))
+                }
+                return response(request, json: page(items: [["Id": "library-film", "Name": "Library", "Type": "Movie"]]))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        await store.loadLibrary(kind: .movies, filters: VideoFilters(favoritesOnly: true))
+        let retained = store.items
+        let artwork = try await store.loadStandbyArtwork()
+        XCTAssertEqual(artwork.map(\.id), ["backdrop", "poster"])
+        XCTAssertEqual(store.items, retained)
+        let request = try XCTUnwrap(requests.all.last { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "IncludeItemTypes" && $0.value == "Movie,Series" } == true
+        })
+        let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "Limit" }?.value, "50")
+        XCTAssertEqual(query.first { $0.name == "StartIndex" }?.value, "0")
+        XCTAssertEqual(query.first { $0.name == "SortBy" }?.value, "DateCreated")
+        XCTAssertNil(query.first { $0.name == "IsFavorite" })
+        XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true)
+        let count = requests.all.count
+        await store.loadLibrary(kind: .movies, filters: VideoFilters(favoritesOnly: true))
+        XCTAssertEqual(store.items, retained)
+        XCTAssertEqual(requests.all.count, count)
+    }
+
+    func testStandbyArtworkRejectsResponseAfterSignOut() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "member"]) }
+            return response(request, json: page(items: [["Id": "old", "Name": "Old", "Type": "Movie", "ImageTags": ["Primary": "tag"]]]))
+        }
+        await store.restore()
+        let started = expectation(description: "Standby request started")
+        let isStandbyRequest: @Sendable (URLRequest) -> Bool = { request in
+            guard let url = request.url, url.path == "/Items" else { return false }
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "IncludeItemTypes" && $0.value == "Movie,Series" }
+                && query.contains { $0.name == "Limit" && $0.value == "50" }
+                && query.contains { $0.name == "SortBy" && $0.value == "DateCreated" }
+        }
+        HomeDelayedURLProtocol.delay = { request in isStandbyRequest(request) ? 0.2 : 0 }
+        HomeDelayedURLProtocol.onStart = { request in
+            if isStandbyRequest(request) { started.fulfill() }
+        }
+        let loading = Task { try await store.loadStandbyArtwork() }
+        await fulfillment(of: [started], timeout: 2)
+        await store.signOut()
+        do {
+            _ = try await loading.value
+            XCTFail("An old member's artwork must not be returned after sign-out")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .notSignedIn)
+        }
+    }
+
     func testActorTitlesUseThePersonFilterAndReadEveryPageWithoutReplacingLibrary() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))

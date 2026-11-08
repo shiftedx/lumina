@@ -32,7 +32,7 @@ struct UnwatchedEpisodeCorner: View {
 
 /// Landscape primary images are usable billboards too. Portrait sources remain
 /// intact over a diffuse field, so neither shape is stretched to fill the screen.
-private struct BillboardArtwork: View {
+struct BillboardArtwork: View {
     let item: MediaItem
     let store: LuminaStore
     var showsPoster = false

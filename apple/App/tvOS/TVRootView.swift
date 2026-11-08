@@ -10,6 +10,7 @@ public struct TVRootView: View {
     @State private var playbackRequest: PlaybackRequest?
     @State private var presentedPlaybackRequest: PlaybackRequest?
     @State private var libraryGeneration = 0
+    @State private var isStandby = false
     @AppStorage("lumina.tv.lastSuccessfulServerOrigin") private var lastSuccessfulServerOrigin = ""
     @State private var audioSession = NativeAudioSession()
     @Environment(\.scenePhase) private var scenePhase
@@ -62,14 +63,17 @@ public struct TVRootView: View {
         }
         .preferredColorScheme(.dark)
         .onChange(of: store.session?.accessToken) { _, token in
+            isStandby = false
             if token == nil { audioSession.stop() }
         }
         .task(id: store.session?.accessToken) {
             if store.session != nil { audioSession.restoreFromTVRoot(store: store) }
         }
         .onChange(of: store.session?.serverURL) { _, origin in
+            isStandby = false
             if let origin { lastSuccessfulServerOrigin = origin.absoluteString }
         }
+        .onChange(of: store.session?.userID) { _, _ in isStandby = false }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 ArtworkImageCache.shared.setBackgrounded(false)
@@ -100,7 +104,18 @@ public struct TVRootView: View {
             PlaybackScreen(request: request, store: store, onReturnHome: {
                 path.removeAll()
                 libraryGeneration += 1
+            }, onAutoplayStandby: {
+                audioSession.stop()
+                path.removeAll()
+                libraryGeneration += 1
+                isStandby = true
             })
+        }
+        .accessibilityHidden(isStandby)
+        .overlay {
+            if isStandby, store.session != nil, presentedPlaybackRequest == nil {
+                TVStandbyArtworkView(store: store) { isStandby = false }
+            }
         }
         .environment(audioSession)
         .tint(LuminaTheme.ink)
@@ -138,6 +153,64 @@ public struct TVRootView: View {
             #if LUMINA_UI_TESTING
             audioSession.recordTVRestoreRemoteOutcome("root-toggle-finished")
             #endif
+        }
+    }
+}
+
+private struct TVStandbyArtworkView: View {
+    let store: LuminaStore
+    let onDismiss: () -> Void
+    @State private var items: [MediaItem] = []
+    @State private var index = 0
+    @FocusState private var focused: Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+    private var canRotate: Bool {
+        scenePhase == .active && !reduceMotion && !voiceOver && items.count > 1
+    }
+
+    var body: some View {
+        Button(action: onDismiss) {
+            ZStack {
+                Color.black
+                if scenePhase == .active, items.indices.contains(index) {
+                    BillboardArtwork(item: items[index], store: store, showsPoster: true)
+                        .id(items[index].id)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .focused($focused)
+        .ignoresSafeArea()
+        .accessibilityLabel("Standby. Press any button to return Home.")
+        .accessibilityValue(items.indices.contains(index) ? items[index].name : "")
+        .accessibilityIdentifier("tvStandbyArtwork")
+        .onAppear { focused = true }
+        .onMoveCommand { _ in onDismiss() }
+        .onExitCommand(perform: onDismiss)
+        .onPlayPauseCommand(perform: onDismiss)
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            let loaded = (try? await store.loadStandbyArtwork()) ?? store.featuredItems.filter {
+                $0.type == "Movie" || $0.type == "Series"
+            }
+            guard !Task.isCancelled else { return }
+            items = loaded.shuffled()
+            index = 0
+        }
+        .task(id: canRotate) {
+            while canRotate {
+                do { try await Task.sleep(for: .seconds(20)) }
+                catch { return }
+                guard !Task.isCancelled, canRotate else { return }
+                withAnimation(.easeInOut(duration: 2)) { index = (index + 1) % items.count }
+            }
         }
     }
 }

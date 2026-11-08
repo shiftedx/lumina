@@ -5378,6 +5378,8 @@ class NativeProofJourney: XCTestCase {
 
         try waitForHittable(firstEpisode, timeout: 20, named: "first season episode card")
         try waitForHittable(secondEpisode, timeout: 20, named: "second season episode card")
+        XCTAssertTrue(accessibilityText(firstEpisode).contains("Unwatched"))
+        XCTAssertTrue(accessibilityText(secondEpisode).contains("Unwatched"))
         // Labels and the selected focus outline affect a card's outer
         // accessibility frame. Compare the poster surfaces, which retain the
         // equal media-card geometry users see in the rail.
@@ -5437,7 +5439,15 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(resume, timeout: 15, named: "resumed episode collection play")
         XCTAssertTrue(accessibilityText(resume).contains("Resume"),
                       "The selected resumed episode must present a Resume action.")
+        let resumedEpisode = element("videoCollectionItem-\(secondSeasonEpisodeID)")
+        XCTAssertTrue(accessibilityText(resumedEpisode).contains("In progress"))
+        XCTAssertFalse(accessibilityText(resumedEpisode).contains("Unwatched"))
+        XCTAssertTrue(focus(resumedEpisode, timeout: 20), "The resumed episode must remain remote-focusable.")
+        try attachFrame(named: "In-progress episode retains its progress bar without an unwatched corner")
         XCUIRemote.shared.press(.playPause)
+        let resumeChoice = element("resumePlaybackChoice")
+        try waitForExistence(resumeChoice, timeout: 15, named: "saved episode resume choice")
+        try activate(resumeChoice.buttons["Resume"])
         try waitForExistence(element("playbackScreen"), timeout: 30, named: "episode resumed with Siri Remote")
         let resumedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 28 }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= resumedAt + 2 }
@@ -8606,6 +8616,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(element("collectionEpisodeTitle").exists)
         let savedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(savedEpisode, in: collection, named: "saved episode thumbnail", requiresHittable: false)
+        XCTAssertTrue(accessibilityText(savedEpisode).contains("in progress"))
+        XCTAssertFalse(accessibilityText(savedEpisode).contains("Unwatched"))
         let aboutHeading = element("episodeAboutHeading")
         try waitForExistence(aboutHeading, timeout: 10, named: "episode About heading")
         let episodesHeading = application!.staticTexts["Episodes"].firstMatch
@@ -8615,6 +8627,9 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Episode thumbnail aligned with About and no duplicate title or Resume block")
         savedEpisode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let resumeChoice = element("resumePlaybackChoice")
+        try waitForExistence(resumeChoice, timeout: 15, named: "saved episode resume choice")
+        try activate(resumeChoice.buttons["Resume"])
         try waitForExistence(element("playbackScreen"), timeout: 30, named: "thumbnail resumes saved episode")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 25) { $0 >= 8 }
         _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.secondEpisodeID, minimum: 8)
@@ -8624,6 +8639,8 @@ class NativeProofJourney: XCTestCase {
         try activate(menuAction("Season 2"))
         let thumbnail = element("videoEpisode-\(otherEpisode)")
         try revealDetailElement(thumbnail, in: collection, named: "other season episode thumbnail", requiresHittable: false)
+        XCTAssertTrue(accessibilityText(thumbnail).contains("Unwatched"))
+        try attachFrame(named: "Unwatched episode with gold thumbnail corner")
         XCTAssertTrue(element("collectionHero").frame.minY < viewport.minY)
         thumbnail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("playbackScreen"), timeout: 30, named: "thumbnail starts tapped season episode")

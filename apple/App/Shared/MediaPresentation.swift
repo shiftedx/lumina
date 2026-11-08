@@ -7,6 +7,29 @@ extension EnvironmentValues {
     @Entry var luminaArtworkMotionEnabled = true
 }
 
+struct UnwatchedEpisodeCorner: View {
+    let episode: MediaItem
+    var size: CGFloat = 22
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    var body: some View {
+        if episode.userData?.played != true, episode.resumeSeconds <= 0 {
+            Path { path in
+                path.move(to: .zero)
+                path.addLine(to: CGPoint(x: size, y: 0))
+                path.addLine(to: CGPoint(x: size, y: size))
+                path.closeSubpath()
+            }
+            .fill(LuminaTheme.brand)
+            .frame(width: size, height: size)
+            .scaleEffect(x: layoutDirection == .rightToLeft ? -1 : 1, y: 1)
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 /// Landscape primary images are usable billboards too. Portrait sources remain
 /// intact over a diffuse field, so neither shape is stretched to fill the screen.
 private struct BillboardArtwork: View {

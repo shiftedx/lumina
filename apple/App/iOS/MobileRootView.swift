@@ -3772,7 +3772,7 @@ struct VideoCollectionView: View {
         .contextMenu { NativeMetadataActions(item: episode) }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
+        .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : episode.resumeSeconds > 0 ? "" : ", Unwatched"))
         .accessibilityHint(episode.resumeSeconds > 5 && episode.userData?.played != true ? "Resumes this episode" : "Plays this episode")
         .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
         .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
@@ -3875,6 +3875,9 @@ struct VideoCollectionView: View {
                     .padding(.bottom, 5)
                     .frame(maxWidth: .infinity, alignment: .bottom)
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            UnwatchedEpisodeCorner(episode: episode)
         }
         .clipShape(.rect(cornerRadius: 8))
         .overlay {

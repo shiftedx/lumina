@@ -1229,6 +1229,7 @@ struct LuminaCategoryBar<Content: View>: View {
             LuminaIcon(glyph: forward ? .forward : .back, size: 14)
                 .flipsForRightToLeftLayoutDirection(true)
                 .frame(width: 44, height: 44)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(forward ? "More categories" : "Previous categories")

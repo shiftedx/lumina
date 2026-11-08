@@ -1754,7 +1754,6 @@ private struct TVNavigationButtonStyle: ButtonStyle {
                 if showsReducedMotionOutline && reduceMotion && isFocused {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(LuminaTheme.ink, lineWidth: 2)
-                        .padding(-4)
                 }
             }
     }

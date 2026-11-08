@@ -76,26 +76,26 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ### Current release status, November 8
 
-The latest signed/staged packages are **iOS and tvOS 0.1.0 (54)** from clean
-main `b693e2aef8b47d66c2548d37ae47af6274c7553a`. They include the latest merged
-native changes, including PR #309's gold unwatched episode corners, PR #310's
-Apple TV library-art standby, TV Library/Requests/remote refinements, and the
-independent iOS Streaming load. Both signed IPAs and matching-symbol Organizer
-archives, including staged copies, passed release validation and source-input
-checks. Both packaging safeguards passed; no full suite or new physical-device
-qualification ran.
+**iOS and tvOS 0.1.0 (55) uploaded successfully to Apple** from clean main
+`2fa96f8705e71f2b43c5314ee6d9b18b729f5ecb`. Xcode's completion screens and
+distribution logs confirm both uploads. They use TestFlight Internal Only, fixed
+build numbering and included symbols. **Do not upload build 55 again.** Apple
+processing and tester-group assignment remain unverified; no server was deployed.
 
-Xcode's tvOS export analysis required build 54, so the initial partial local
-build 50 was superseded and preserved. Xcode's existing cloud-signing account
-exported both final packages with internal-only distribution and fixed build
-numbering. Both signed build-54 entries are visible in Organizer; iOS is left
-selected. **The owner uploads. This operation uploaded neither platform and
-deployed no server changes.** Earlier iOS 48 and tvOS 49 upload statuses were
-observed in Organizer, not performed here. No Apple processing/tester-availability
-claim is made. Preserve ignored `apple/Distribution/0.1.0-54/`, the superseded
-partial 50 directory, and earlier packages. See the
-[build-54 release record](../../apple/docs/testflight.md#internal-dogfood-package-54-2026-11-08).
-The production history below was not changed by client packaging.
+Build 55 includes PR #313's Reduce Motion category scrolling/full arrow hit
+targets, iOS hero flicks and stable tvOS focus outlines, plus all earlier native
+changes. Both movie Resume/Start Over/Cancel workflows passed before packaging;
+the five focused motion workflows and two packaging safeguards also passed.
+Release archives, signed exports, exact submitted IPAs and matching-symbol
+references passed local validation. No full suite or new physical-device
+qualification ran. The portrait detail Play obstruction above remains.
+
+Preserve ignored `apple/Distribution/0.1.0-55/` and all older packages and symbols.
+It contains exact submitted IPAs, source archives/snapshot/input hashes, signed
+references, focused XCResults, checksums, logs and upload confirmations. The native
+build revision above predates the documentation-only release record. Owned proof
+simulators, fixture runtime and temporary build caches were cleaned. See the
+[build-55 release record](../../apple/docs/testflight.md#internal-dogfood-build-55-2026-11-08).
 
 ### Earlier release and production status, November 1
 

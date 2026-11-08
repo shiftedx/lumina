@@ -76,26 +76,32 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 
 ### Current release status, November 8
 
-**iOS and tvOS 0.1.0 (55) uploaded successfully to Apple** from clean main
-`2fa96f8705e71f2b43c5314ee6d9b18b729f5ecb`. Xcode's completion screens and
-distribution logs confirm both uploads. They use TestFlight Internal Only, fixed
-build numbering and included symbols. **Do not upload build 55 again.** Apple
-processing and tester-group assignment remain unverified; no server was deployed.
+**iOS and tvOS 0.1.0 (56) are signed and staged for general TestFlight. The
+owner uploads; neither build-56 package was uploaded by this operation.** Both
+are visible in Xcode Organizer with the signing team and Distribute App available;
+tvOS 56 is left selected. Choose the signed build-56 entry and App Store Connect,
+keeping **TestFlight internal testing only disabled**.
 
-Build 55 includes PR #313's Reduce Motion category scrolling/full arrow hit
-targets, iOS hero flicks and stable tvOS focus outlines, plus all earlier native
-changes. Both movie Resume/Start Over/Cancel workflows passed before packaging;
-the five focused motion workflows and two packaging safeguards also passed.
-Release archives, signed exports, exact submitted IPAs and matching-symbol
-references passed local validation. No full suite or new physical-device
-qualification ran. The portrait detail Play obstruction above remains.
+The owner wants general TestFlight. PR #315 makes that the export/script default;
+Internal Only requires an explicit request. Build 55 was mistakenly uploaded as
+Internal Only and cannot serve the intended external audience. Its uploads and
+evidence remain preserved. Use the staged build 56 replacement. Apple processing,
+beta review and tester assignment remain separate from local packaging.
 
-Preserve ignored `apple/Distribution/0.1.0-55/` and all older packages and symbols.
-It contains exact submitted IPAs, source archives/snapshot/input hashes, signed
-references, focused XCResults, checksums, logs and upload confirmations. The native
-build revision above predates the documentation-only release record. Owned proof
-simulators, fixture runtime and temporary build caches were cleaned. See the
-[build-55 release record](../../apple/docs/testflight.md#internal-dogfood-build-55-2026-11-08).
+Build 56 source is clean main `b75ab8cbf02dcc28904c120f8de77ecb07bd2ebd`, with
+app runtime and dependencies unchanged from qualified build 55. The five focused
+motion workflows, both movie Resume/Start Over/Cancel workflows and two packaging
+safeguards passed for build 55; they were not rerun for the audience-only change.
+Both new Release archives, signed IPAs and matching-symbol Organizer copies
+passed release validation, and all 988 source-input hashes were verified. No full
+suite, new physical-device qualification or server deployment ran. The known
+portrait detail Play obstruction remains.
+
+Preserve ignored `apple/Distribution/0.1.0-56/` and all earlier packages/symbols.
+Source snapshots, hashes, signed packages/references, validation/export logs and
+What to Test are retained. Owned temporary build caches were removed. The native
+build revision above predates this documentation-only release record. See the
+[build-56 release record](../../apple/docs/testflight.md#general-testflight-package-56-2026-11-08).
 
 ### Earlier release and production status, November 1
 

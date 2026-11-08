@@ -131,9 +131,14 @@ for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [
 }
 
 for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [1536, 'dark']] as const) {
-  test(`Artwork captions keep labels and controls inside their cards at ${width}px, ${scheme}`, async ({ page }) => {
+  test(`Artwork keeps its heading clear of navigation and captions inside cards at ${width}px, ${scheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await open(page, { width, height: width === 390 ? 844 : 900 }, '/title/movie-1/edit?tab=artwork');
+    const header = await page.locator('.g-topbar').boundingBox();
+    for (const control of [page.getByRole('heading', { level: 1, name: 'Harbor Lights' }), page.getByRole('button', { name: 'Back to title' })]) {
+      const box = await control.boundingBox();
+      expect(header && box && box.y >= header.y + header.height + 16).toBe(true);
+    }
     const posterCaption = page.locator('.ed-art-card').first().locator('.ed-art-caption');
     await expect(posterCaption.locator('strong')).toHaveText('Poster');
     await expect(posterCaption.locator('.g-chip')).toHaveText('From TMDB');
@@ -141,5 +146,6 @@ for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [
     await expect(posterCaption.getByRole('button', { name: 'Poster options' })).toBeVisible();
     await expectArtworkCaptionsInsideCards(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('artwork-layout.png'), fullPage: true });
   });
 }

@@ -60,11 +60,11 @@ export function EditorPage({ id, tab, onTab, onBack, user }: EditorPageProps) {
   // An undo can touch any title in the batch: drop every cached detail, refetch this one, and refresh the episode table and History.
   const reloadAfterUndo = () => { forgetTitles(); setEpisodesRevision((n) => n + 1); setHistoryRevision((n) => n + 1); reload(); };
 
-  if (loading && !doc) return <div className="ed"><Skeleton count={6} label="Loading details" shape="row" /></div>;
+  if (loading && !doc) return <div className="surface ed"><Skeleton count={6} label="Loading details" shape="row" /></div>;
   if (error || !doc) {
-    if (error instanceof ApiRequestError && error.status === 404) return <div className="ed"><EmptyState size="page" title="This title isn't in your library." /></div>;
-    if (error instanceof ApiRequestError && error.status === 403) return <div className="ed"><EmptyState size="page" title="Ask a vault owner to let household members edit details." /></div>;
-    return <div className="ed"><ErrorState onRetry={reload} title="Lumina could not load this title." /></div>;
+    if (error instanceof ApiRequestError && error.status === 404) return <div className="surface ed"><EmptyState size="page" title="This title isn't in your library." /></div>;
+    if (error instanceof ApiRequestError && error.status === 403) return <div className="surface ed"><EmptyState size="page" title="Ask a vault owner to let household members edit details." /></div>;
+    return <div className="surface ed"><ErrorState onRetry={reload} title="Lumina could not load this title." /></div>;
   }
 
   function applyResult(result: EditResult) {
@@ -119,7 +119,7 @@ export function EditorPage({ id, tab, onTab, onBack, user }: EditorPageProps) {
   const conflictFields = banner ? banner.flatMap((conflict) => conflict.fields) : [];
 
   return (
-    <div className="ed">
+    <div className="surface ed">
       <div className="ed-head">
         {poster ? <img alt="" className="ed-poster" height={84} src={poster} width={56} /> : null}
         <Masthead

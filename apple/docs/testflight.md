@@ -668,3 +668,43 @@ IPAs, Organizer references, matching symbols, source snapshot/input hashes,
 release manifest, checksums, export/validation evidence and What to Test notes.
 The build revision above is the native source provenance; this later record
 changes documentation only. Earlier packages remain preserved.
+
+
+### Internal dogfood build 55, 2026-11-08
+
+**iOS and tvOS 0.1.0 (55) uploaded successfully to Apple**, confirmed by
+Xcode's completion screens and each distribution log's `UPLOAD SUCCEEDED with
+no errors`. Both use TestFlight Internal Only, fixed build numbering and included
+symbols. Do not upload build 55 again. Apple processing and Device Testing group
+assignment have not been verified. No server deployment occurred.
+
+Built from clean merged main `2fa96f8705e71f2b43c5314ee6d9b18b729f5ecb`,
+including [PR #313](https://github.com/shiftedx/lumina/pull/313): Reduce Motion
+category scrolling, full category-arrow hit targets, predicted-end iOS hero
+flicks, and stable Apple TV focus with outlines. All previous merged native
+changes remain included; the immutable PrismCore revision and three locks agree.
+
+Focused movie Resume/Start Over/Cancel workflows passed on iPhone and Apple TV
+before archiving. The motion change also has five passing focused workflows
+across iPhone, iPad and Apple TV. Both packaging safeguards passed. Release
+archives, cloud-signed exports, exact submitted IPAs and matching-symbol signed
+references passed local identity, version/build, device-family, artwork/privacy,
+fixture/test-hook exclusion, signature and executable/dSYM UUID checks. All 988
+native source-input hashes were verified before the release-record edits. No full
+suite or new physical-device qualification ran. The known standard-iPhone portrait
+detail Play obstruction remains; the playback workflow enters in landscape.
+
+Xcode's existing account performed automatic cloud signing. Upload used an
+unsigned cloud-export input copied from the preserved source archive; its public
+team metadata selects the account, and Xcode supplies the actual signature. A
+separate signed local reference was retained. The signed-reference upload path
+requested a local profile and was canceled before upload.
+
+Preserve ignored `apple/Distribution/0.1.0-55/`: exact submitted IPAs under
+`upload-iOS/` and `upload-tvOS/`, local signed exports, original source archives,
+matching-symbol signed references, source snapshot/input hashes, release manifest,
+checksums, focused XCResults, validation/distribution logs, upload confirmations
+and What to Test notes. The source revision above identifies the binaries; this
+later release-record commit changes documentation only. Earlier packages and
+symbols remain preserved. Owned proof simulators, fixture runtime and temporary
+build caches were removed after qualification.

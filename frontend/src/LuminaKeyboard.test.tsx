@@ -498,6 +498,84 @@ describe('browser routes', () => {
     expect(mocks.getPlaybackProgress).toHaveBeenCalledTimes(1);
   });
 
+  it('does not start a timed watch link after navigation cancels its pending item lookup', async () => {
+    const browser = userEvent.setup();
+    let finishItem!: (item: LibraryItem) => void;
+    workspaceState.library = [];
+    mocks.getLibraryItem.mockImplementationOnce(() => new Promise((resolve) => { finishItem = resolve; }));
+    window.history.replaceState(null, '', '/watch/library/library-1?t=42');
+    render(<LuminaApp />);
+
+    await waitFor(() => expect(mocks.getLibraryItem).toHaveBeenCalledWith('library-1'));
+    await navigateWithMenu(browser, 'Home');
+    await screen.findByRole('heading', { level: 1, name: 'Home' });
+    await act(async () => { finishItem(libraryItem); });
+
+    expect(window.location.pathname).toBe('/');
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('clears an unstarted watch selection when navigation wins its pending history lookup', async () => {
+    const browser = userEvent.setup();
+    let finishProgress!: (progress: null) => void;
+    mocks.getPlaybackProgress.mockImplementationOnce(() => new Promise((resolve) => { finishProgress = resolve; }));
+    render(<LuminaApp />);
+
+    await browser.click(await screen.findByRole('button', { name: /^Film in the vault,/ }));
+    await waitFor(() => expect(mocks.getPlaybackProgress).toHaveBeenCalledWith(libraryItem.id));
+    await navigateWithMenu(browser, 'Home');
+    await screen.findByRole('heading', { level: 1, name: 'Home' });
+    await act(async () => { finishProgress(null); });
+
+    expect(window.location.pathname).toBe('/');
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('starts only the newer watch route when its item lookup completes before the older one', async () => {
+    let finishA!: (item: LibraryItem) => void;
+    let finishB!: (item: LibraryItem) => void;
+    const itemA = { ...libraryItem, id: 'library-a', title: 'Older route' };
+    const itemB = { ...libraryItem, id: 'library-b', title: 'Newer route' };
+    workspaceState.library = [];
+    mocks.getLibraryItem.mockImplementation((id: string) => new Promise((resolve) => {
+      if (id === itemA.id) finishA = resolve;
+      else if (id === itemB.id) finishB = resolve;
+    }));
+    window.history.replaceState(null, '', `/watch/library/${itemA.id}?t=1`);
+    render(<LuminaApp />);
+
+    await waitFor(() => expect(mocks.getLibraryItem).toHaveBeenCalledWith(itemA.id));
+    act(() => { openAppPath(`/watch/library/${itemB.id}?t=2`); });
+    await waitFor(() => expect(mocks.getLibraryItem).toHaveBeenCalledWith(itemB.id));
+    await act(async () => { finishB(itemB); });
+    expect(await screen.findByText('Newer route')).toBeTruthy();
+    await act(async () => { finishA(itemA); });
+
+    expect(screen.getByText('Newer route')).toBeTruthy();
+    expect(screen.queryByText('Older route')).toBeNull();
+  });
+
+  it('keeps the active watch item when its reselect cancels a pending successor', async () => {
+    let finishB!: (item: LibraryItem) => void;
+    const itemA = { ...libraryItem, id: 'library-a', title: 'Active route' };
+    const itemB = { ...libraryItem, id: 'library-b', title: 'Pending route' };
+    workspaceState.library = [];
+    mocks.getLibraryItem.mockImplementation((id: string) => id === itemA.id
+      ? Promise.resolve(itemA)
+      : new Promise((resolve) => { if (id === itemB.id) finishB = resolve; }));
+    window.history.replaceState(null, '', `/watch/library/${itemA.id}?t=1`);
+    render(<LuminaApp />);
+
+    expect(await screen.findByText('Active route')).toBeTruthy();
+    act(() => { openAppPath(`/watch/library/${itemB.id}?t=2`); });
+    await waitFor(() => expect(mocks.getLibraryItem).toHaveBeenCalledWith(itemB.id));
+    act(() => { openAppPath(`/watch/library/${itemA.id}`); });
+    await act(async () => { finishB(itemB); });
+
+    expect(screen.getByText('Active route')).toBeTruthy();
+    expect(screen.queryByText('Pending route')).toBeNull();
+  });
+
   it('keeps the position when the open item is reopened without a time, and seeks when its link time is asked for again', async () => {
     const movie = { ...libraryItem, kind: 'movie' as const };
     workspaceState.library = [movie]; workspaceState.libraryRecent = [movie];

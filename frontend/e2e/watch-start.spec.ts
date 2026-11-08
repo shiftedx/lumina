@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
 import { item, mockApi, navigateApp, signIn } from './lumina-mock';
 
@@ -29,6 +29,24 @@ test('an unfinished item resumes from its saved position', async ({ page }) => {
   await signIn(page);
   await expect.poll(() => page.locator('video').first().getAttribute('src')).toMatch(new RegExp(`/api/library/${item.id}/media#t=30$`));
   expect(new URL(page.url()).search).toBe('');
+});
+
+test('leaving a pending watch link prevents its late lookup from starting playback', async ({ page }) => {
+  await mockApi(page, {});
+  await directOptions(page);
+  let pending: Route | undefined;
+  await page.route(`**/api/library/${item.id}`, (route) => { pending = route; });
+  await page.goto(`/watch/library/${item.id}?t=42`);
+  await signIn(page);
+  await expect.poll(() => Boolean(pending)).toBe(true);
+
+  await navigateApp(page, 'Home');
+  await expect(page).toHaveURL(/\/$/);
+  await pending!.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(item) });
+  // Let the released response and any resulting player requests finish before checking the cancelled intent.
+  await page.waitForLoadState('networkidle');
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('video')).toHaveCount(0);
 });
 
 

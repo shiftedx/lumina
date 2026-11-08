@@ -31,11 +31,13 @@ import {
 import {
   resolveTheaterModePreference,
   theaterModePreferenceFromUiPrefs,
+  THEATER_MODE_UI_PREF_KEY,
   withTheaterModePreference,
 } from './theaterMode';
-import { DEFAULT_OPTIONAL_PROVIDERS, optionalProvidersFromUiPrefs, type OptionalProvider, withStreamingProviders } from './features/streaming/providers';
+import { DEFAULT_OPTIONAL_PROVIDERS, optionalProvidersFromUiPrefs, STREAMING_PROVIDERS_UI_PREF_KEY, type OptionalProvider, withStreamingProviders } from './features/streaming/providers';
 import {
   autoplayUpNextPreferenceFromUiPrefs,
+  AUTOPLAY_UP_NEXT_UI_PREF_KEY,
   withAutoplayUpNextPreference,
 } from './autoplayUpNext';
 import { storedThemePreference, themePreferenceFromUiPrefs, THEME_UI_PREF_KEY, type ThemePreference } from './theme';
@@ -236,11 +238,25 @@ export function workspaceSettingsUpdate(
 }
 
 /** The autosave body: only the ui_prefs keys this browser changed, so an unchanged key (another browser's Home layout) is never written back over the server's newer value. The server merges ui_prefs key by key. */
-export function workspaceSettingsChanges(state: Pick<WorkspaceState, 'preferences' | 'userSettings'>) {
+type WorkspaceSettingsKeys = { downloadDefaults: boolean; uiPrefs: readonly string[] };
+
+export function workspaceSettingsChanges(state: Pick<WorkspaceState, 'preferences' | 'userSettings'>, keys?: WorkspaceSettingsKeys) {
   const update = workspaceSettingsUpdate(state);
   const saved = (state.userSettings?.ui_prefs ?? {}) as Record<string, unknown>;
-  const ui_prefs = Object.fromEntries(Object.entries(update.ui_prefs).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(saved[key])));
-  return { ...update, ui_prefs };
+  const allowedUiPrefs = keys ? new Set(keys.uiPrefs) : null;
+  const ui_prefs = Object.fromEntries(Object.entries(update.ui_prefs).filter(([key, value]) =>
+    (allowedUiPrefs === null || allowedUiPrefs.has(key)) && JSON.stringify(value) !== JSON.stringify(saved[key]),
+  ));
+  const savedDownloadDefaults = state.userSettings?.download_defaults ?? state.userSettings?.resolved_download_defaults;
+  return {
+    ...(keys?.downloadDefaults === false || JSON.stringify(update.download_defaults) === JSON.stringify(savedDownloadDefaults) ? {} : { download_defaults: update.download_defaults }),
+    ui_prefs,
+  };
+}
+
+function hasWorkspaceSettingsChanges(state: Pick<WorkspaceState, 'preferences' | 'userSettings'>, keys: WorkspaceSettingsKeys): boolean {
+  const changes = workspaceSettingsChanges(state, keys);
+  return changes.download_defaults !== undefined || Object.keys(changes.ui_prefs).length > 0;
 }
 
 type HealthPayload = Awaited<ReturnType<typeof getHealth>>;
@@ -1066,9 +1082,83 @@ function isAuthError(error: unknown): error is ApiRequestError {
   return error instanceof ApiRequestError && error.status === 401;
 }
 
+type WorkspaceSettingsDirty = {
+  downloadDefaults: number | null;
+  uiPrefs: Map<string, number>;
+};
+
+type WorkspaceSettingsPending = { revision: number; deadline: number };
+type WorkspaceSettingsAutosavePhase =
+  | { kind: 'idle'; revision: number }
+  | { kind: 'debouncing'; revision: number; timer: number }
+  | { kind: 'writing'; revision: number; generation: number; settings: UserSettings; sent: WorkspaceSettingsKeys; pending: WorkspaceSettingsPending | null }
+  | { kind: 'awaitingBaseline'; revision: number; pending: WorkspaceSettingsPending };
+
+type WorkspaceSettingsAutosave = {
+  ownerId: string | null;
+  dirty: WorkspaceSettingsDirty;
+  phase: WorkspaceSettingsAutosavePhase;
+};
+
+function emptyWorkspaceSettingsDirty(): WorkspaceSettingsDirty {
+  return { downloadDefaults: null, uiPrefs: new Map() };
+}
+
+function workspaceSettingsRevision(phase: WorkspaceSettingsAutosavePhase): number {
+  return phase.kind === 'writing' && phase.pending ? phase.pending.revision
+    : phase.kind === 'awaitingBaseline' ? phase.pending.revision
+      : phase.revision;
+}
+
+function workspaceSettingsKeysAtRevision(dirty: WorkspaceSettingsDirty, revision: number): WorkspaceSettingsKeys {
+  return {
+    downloadDefaults: dirty.downloadDefaults !== null && dirty.downloadDefaults <= revision,
+    uiPrefs: [...dirty.uiPrefs].flatMap(([key, changedRevision]) => changedRevision <= revision ? [key] : []),
+  };
+}
+
+function clearWorkspaceSettingsDirty(dirty: WorkspaceSettingsDirty, sent: WorkspaceSettingsKeys, revision: number): void {
+  if (sent.downloadDefaults && dirty.downloadDefaults !== null && dirty.downloadDefaults <= revision) dirty.downloadDefaults = null;
+  for (const key of sent.uiPrefs) {
+    if ((dirty.uiPrefs.get(key) ?? Infinity) <= revision) dirty.uiPrefs.delete(key);
+  }
+}
+
+function clearWorkspaceSettingsAutosave(autosave: WorkspaceSettingsAutosave): void {
+  if (autosave.phase.kind === 'debouncing') window.clearTimeout(autosave.phase.timer);
+  autosave.ownerId = null;
+  autosave.dirty = emptyWorkspaceSettingsDirty();
+  autosave.phase = { kind: 'idle', revision: 0 };
+}
+
+function workspaceSettingsKeysForPatch(patch: Partial<WorkspacePreferences>): WorkspaceSettingsKeys {
+  const uiPrefs: string[] = [];
+  let downloadDefaults = false;
+  for (const key of Object.keys(patch) as Array<keyof WorkspacePreferences>) {
+    switch (key) {
+      case 'outputFolder': case 'outputContainer': case 'formatPreset': case 'downloadSubtitles': downloadDefaults = true; break;
+      case 'sidebarCollapsed': uiPrefs.push('sidebar_collapsed'); break;
+      case 'theaterMode': uiPrefs.push(THEATER_MODE_UI_PREF_KEY); break;
+      case 'streamingProviders': uiPrefs.push(STREAMING_PROVIDERS_UI_PREF_KEY); break;
+      case 'autoplayUpNext': uiPrefs.push(AUTOPLAY_UP_NEXT_UI_PREF_KEY); break;
+      case 'theme': uiPrefs.push(THEME_UI_PREF_KEY); break;
+      case 'playerVolume': uiPrefs.push('player_volume'); break;
+      case 'playbackMaxHeight': uiPrefs.push('playback_max_height'); break;
+      case 'normalizeLoudness': uiPrefs.push('normalize_loudness'); break;
+      case 'autoSkip': uiPrefs.push('auto_skip'); break;
+      case 'captions': uiPrefs.push('captions'); break;
+      case 'profanity': uiPrefs.push('profanity'); break;
+      case 'homeShelves': uiPrefs.push('home_shelves'); break;
+      case 'settingsAdvanced': uiPrefs.push('settings_advanced'); break;
+      case 'musicBrowseView': uiPrefs.push('music_browse'); break;
+    }
+  }
+  return { downloadDefaults, uiPrefs };
+}
+
 export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): AuthenticatedWorkspace {
   const [state, dispatchBase] = useReducer(workspaceReducer, undefined, createInitialWorkspaceState);
-  const settingsSaveTimerRef = useRef<number | null>(null);
+  const settingsAutosaveRef = useRef<WorkspaceSettingsAutosave>({ ownerId: null, dirty: emptyWorkspaceSettingsDirty(), phase: { kind: 'idle', revision: 0 } });
   const requestGateRef = useRef(new CollectionRequestGate());
   const errorReporterRef = useRef(onError);
   errorReporterRef.current = onError;
@@ -1076,11 +1166,89 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
   stateRef.current = state;
   const loadMoreGuardRef = useRef<{ jobs: boolean; library: boolean }>({ jobs: false, library: false });
   const [eventsHeld, holdEvents] = useState(false);
+  const scheduleSettingsAutosaveRef = useRef<(ownerId: string, revision: number, delay: number) => void>(() => undefined);
 
-  const dispatch = useCallback<Dispatch<WorkspaceAction>>((action) => dispatchBase(action), []);
+  const scheduleSettingsAutosave = useCallback((ownerId: string, revision: number, delay: number) => {
+    const autosave = settingsAutosaveRef.current;
+    if (autosave.ownerId !== ownerId) return;
+    if (autosave.phase.kind === 'debouncing') window.clearTimeout(autosave.phase.timer);
+    if (autosave.phase.kind !== 'idle' && autosave.phase.kind !== 'debouncing') return;
+    const timer = window.setTimeout(() => {
+      const phase = autosave.phase;
+      if (phase.kind !== 'debouncing' || phase.revision !== revision) return;
+      const current = stateRef.current;
+      if (!canAutosaveWorkspacePreferences(current) || current.currentUser?.id !== ownerId) {
+        clearWorkspaceSettingsAutosave(autosave);
+        return;
+      }
+      const sent = workspaceSettingsKeysAtRevision(autosave.dirty, revision);
+      if (!hasWorkspaceSettingsChanges(current, sent)) {
+        clearWorkspaceSettingsDirty(autosave.dirty, sent, revision);
+        autosave.phase = { kind: 'idle', revision };
+        return;
+      }
+      const writing: WorkspaceSettingsAutosavePhase = {
+        kind: 'writing', revision, generation: requestGateRef.current.currentSession(), settings: current.userSettings!, sent, pending: null,
+      };
+      autosave.phase = writing;
+      void updateMySettings(workspaceSettingsChanges(current, sent)).then((saved) => {
+        const currentState = stateRef.current;
+        if (autosave.phase !== writing || !requestGateRef.current.isSessionCurrent(writing.generation) || currentState.currentUser?.id !== ownerId) return;
+        clearWorkspaceSettingsDirty(autosave.dirty, writing.sent, writing.revision);
+        const pending = writing.pending;
+        const acknowledged = currentState.userSettings === writing.settings;
+        if (acknowledged) {
+          autosave.phase = pending ? { kind: 'awaitingBaseline', revision: writing.revision, pending } : { kind: 'idle', revision: writing.revision };
+          dispatchBase({ type: 'settings/replace', settings: saved });
+        } else {
+          autosave.phase = { kind: 'idle', revision: writing.revision };
+          if (pending) scheduleSettingsAutosaveRef.current(ownerId, pending.revision, Math.max(0, pending.deadline - Date.now()));
+        }
+      }, (error) => {
+        if (autosave.phase !== writing || !requestGateRef.current.isSessionCurrent(writing.generation) || stateRef.current.currentUser?.id !== ownerId) return;
+        const pending = writing.pending;
+        autosave.phase = { kind: 'idle', revision: writing.revision };
+        errorReporterRef.current(error instanceof Error ? error.message : 'Unable to save personal settings');
+        if (pending) scheduleSettingsAutosaveRef.current(ownerId, pending.revision, Math.max(0, pending.deadline - Date.now()));
+      });
+    }, delay);
+    autosave.phase = { kind: 'debouncing', revision, timer };
+  }, []);
+  scheduleSettingsAutosaveRef.current = scheduleSettingsAutosave;
+
+  const requestWorkspaceSettingsAutosave = useCallback((patch: Partial<WorkspacePreferences>) => {
+    const current = stateRef.current;
+    if (!canAutosaveWorkspacePreferences(current)) return;
+    const autosave = settingsAutosaveRef.current;
+    const ownerId = current.currentUser!.id;
+    if (autosave.ownerId !== ownerId) return;
+    const revision = workspaceSettingsRevision(autosave.phase) + 1;
+    const keys = workspaceSettingsKeysForPatch(patch);
+    if (keys.downloadDefaults) autosave.dirty.downloadDefaults = revision;
+    for (const key of keys.uiPrefs) autosave.dirty.uiPrefs.set(key, revision);
+    const deadline = Date.now() + 650;
+    switch (autosave.phase.kind) {
+      case 'idle':
+      case 'debouncing':
+        scheduleSettingsAutosave(ownerId, revision, 650);
+        break;
+      case 'writing':
+        autosave.phase.pending = { revision, deadline };
+        break;
+      case 'awaitingBaseline':
+        autosave.phase.pending = { revision, deadline };
+        break;
+    }
+  }, [scheduleSettingsAutosave]);
+
+  const dispatch = useCallback<Dispatch<WorkspaceAction>>((action) => {
+    if (action.type === 'preferences/patch') requestWorkspaceSettingsAutosave(action.patch);
+    dispatchBase(action);
+  }, [requestWorkspaceSettingsAutosave]);
 
   const loadPublic = useCallback(async () => {
     const generation = requestGateRef.current.beginSession();
+    clearWorkspaceSettingsAutosave(settingsAutosaveRef.current);
     const [healthResult, bootstrapResult] = await Promise.allSettled([
       getHealth({ timeoutMs: BOOTSTRAP_REQUEST_TIMEOUT_MS }),
       getBootstrapStatus({ timeoutMs: BOOTSTRAP_REQUEST_TIMEOUT_MS }),
@@ -1095,6 +1263,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
 
   const loadAuthenticated = useCallback(async (): Promise<UserProfile> => {
     const generation = requestGateRef.current.beginSession();
+    clearWorkspaceSettingsAutosave(settingsAutosaveRef.current);
     const healthPromise = getRuntimeHealth({ timeoutMs: BOOTSTRAP_REQUEST_TIMEOUT_MS });
     const sessionPromise = getSession({ timeoutMs: BOOTSTRAP_REQUEST_TIMEOUT_MS });
     const [healthResult, sessionResult] = await Promise.all([
@@ -1143,6 +1312,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     if (typeof savedOutputFolder === 'string' && outputFolderProblem(savedOutputFolder)) {
       preferenceIssues.push('an unsafe output folder was reset to the Library root');
     }
+    settingsAutosaveRef.current.ownerId = sessionResult.user.id;
     dispatchBase({
       type: 'authenticated/resolved',
       currentUser: sessionResult.user,
@@ -1265,6 +1435,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
 
   const reset = useCallback(() => {
     requestGateRef.current.invalidateSession();
+    clearWorkspaceSettingsAutosave(settingsAutosaveRef.current);
     dispatchBase({ type: 'authenticated/reset' });
   }, []);
 
@@ -1361,23 +1532,26 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
   }, [state.preferences.sidebarCollapsed]);
 
   useEffect(() => {
-    if (!canAutosaveWorkspacePreferences(state)) return undefined;
-    if (settingsSaveTimerRef.current) window.clearTimeout(settingsSaveTimerRef.current);
-    const generation = requestGateRef.current.currentSession();
-    settingsSaveTimerRef.current = window.setTimeout(() => {
-      if (!requestGateRef.current.isSessionCurrent(generation)) return;
-      updateMySettings(workspaceSettingsChanges(state))
-        .then((settings) => {
-          if (requestGateRef.current.isSessionCurrent(generation)) dispatchBase({ type: 'settings/replace', settings });
-        })
-        .catch((error) => {
-          if (requestGateRef.current.isSessionCurrent(generation)) errorReporterRef.current(error instanceof Error ? error.message : 'Unable to save personal settings');
-        });
-    }, 650);
-    return () => {
-      if (settingsSaveTimerRef.current) window.clearTimeout(settingsSaveTimerRef.current);
-    };
-  }, [state.authStage, state.currentUser, state.preferences]);
+    const autosave = settingsAutosaveRef.current;
+    if (!canAutosaveWorkspacePreferences(state)) {
+      clearWorkspaceSettingsAutosave(autosave);
+      return undefined;
+    }
+    const ownerId = state.currentUser!.id;
+    if (autosave.ownerId !== ownerId) {
+      clearWorkspaceSettingsAutosave(autosave);
+      autosave.ownerId = ownerId;
+      return undefined;
+    }
+    if (autosave.phase.kind === 'awaitingBaseline') {
+      const { pending, revision } = autosave.phase;
+      autosave.phase = { kind: 'idle', revision };
+      scheduleSettingsAutosave(ownerId, pending.revision, Math.max(0, pending.deadline - Date.now()));
+    }
+    return undefined;
+  }, [scheduleSettingsAutosave, state.authStage, state.currentUser?.id, state.settingsHydrated, state.userSettings]);
+
+  useEffect(() => () => clearWorkspaceSettingsAutosave(settingsAutosaveRef.current), []);
 
   return { state, dispatch, loadAuthenticated, loadPublic, retryCollection, refreshLibraryCollection, refreshContinueWatching, loadMoreLibrary, loadMoreJobs, captureSessionToken, isSessionTokenCurrent, reset, holdEvents };
 }

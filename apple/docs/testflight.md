@@ -628,3 +628,43 @@ release manifest, checksums, validation/export/distribution logs, staging
 observation and What to Test notes. Source provenance records the clean native
 build revision above; this later release-record update changes documentation
 only. Prior release packages and symbols remain preserved.
+
+
+### Internal dogfood package 54, 2026-11-08
+
+Version **0.1.0 (54)** is distribution-signed and staged for **iOS and tvOS**
+from clean merged main `b693e2aef8b47d66c2548d37ae47af6274c7553a`. It includes
+the gold unwatched episode corners from [PR #309](https://github.com/shiftedx/lumina/pull/309),
+Apple TV library-art standby after an unanswered presence prompt from
+[PR #310](https://github.com/shiftedx/lumina/pull/310), the latest TV Library,
+Requests and remote-navigation refinements, and the independent iOS Streaming
+load. All earlier merged native fixes remain included. PrismCore's immutable
+revision and all three locks remain unchanged and consistent.
+
+Both Release device archives, cloud-signed IPAs and matching-symbol Organizer
+references passed local validation, including their staged copies. Checks cover
+identity/version/build, device families, artwork/privacy, strict framework and
+application signatures, executable/dSYM UUIDs, source-input hashes and absence
+of fixtures/test hooks. Both focused packaging safeguards passed. No full suite
+or new physical-device qualification ran.
+
+Command-line export encountered the documented No Accounts limitation; Xcode's
+existing account completed both local automatic cloud-signing exports. Initial
+local build 50 was superseded when Xcode's tvOS export analysis required build
+54. Both platforms were rebuilt as 54; final export options retain build 54,
+TestFlight Internal Only and symbols. The partial build-50 artifacts remain
+preserved and labeled superseded.
+
+Xcode Organizer visibly shows **Lumina iOS 0.1.0 (54) — Signed for Upload** and
+**Lumina tvOS 0.1.0 (54) — Signed for Upload**, with the signing team and
+Distribute App available. iOS 54 is left selected. **The owner uploads; this
+operation uploaded neither platform and deployed no server changes.** Earlier
+iOS 48 and tvOS 49 showed Uploaded to Apple during inventory; those uploads
+were observed, not performed here. Local packaging does not establish Apple
+validation, processing or tester availability.
+
+Preserve ignored `apple/Distribution/0.1.0-54/`: unsigned source archives, signed
+IPAs, Organizer references, matching symbols, source snapshot/input hashes,
+release manifest, checksums, export/validation evidence and What to Test notes.
+The build revision above is the native source provenance; this later record
+changes documentation only. Earlier packages remain preserved.

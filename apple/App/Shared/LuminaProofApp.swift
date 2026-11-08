@@ -42,7 +42,15 @@ struct LuminaProofApp: App {
                 #if os(tvOS)
                 TVRootView(store: store)
                 #else
+                #if LUMINA_UI_TESTING
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing-category-motion-proof") {
+                    CategoryScrollMotionProof()
+                } else {
+                    MobileRootView(store: store, isRestoring: isRestoring)
+                }
+                #else
                 MobileRootView(store: store, isRestoring: isRestoring)
+                #endif
                 #endif
             }
             #if os(iOS) && LUMINA_UI_TESTING
@@ -63,6 +71,29 @@ struct LuminaProofApp: App {
         }
     }
 }
+
+#if os(iOS) && LUMINA_UI_TESTING
+private struct CategoryScrollMotionProof: View {
+    @State private var selection = "Home"
+    private let categories = ["Home", "Movies", "Shows", "Music", "Books", "Watchlist", "Account"]
+
+    var body: some View {
+        VStack(spacing: 24) {
+            LuminaCategoryBar(selection: selection) {
+                ForEach(categories, id: \.self) { category in
+                    Button(category) { selection = category }
+                        .buttonStyle(LuminaUnderlineTabStyle(selected: selection == category))
+                        .id(category)
+                }
+            }
+            .frame(width: 240)
+            .accessibilityIdentifier("motionProofCategories")
+            Text("Selected: \(selection)").accessibilityIdentifier("motionProofSelection")
+        }
+        .padding()
+    }
+}
+#endif
 
 /// Licenses are bundled with the app, including transitive native-library notices.
 struct PlaybackLicensesView: View {

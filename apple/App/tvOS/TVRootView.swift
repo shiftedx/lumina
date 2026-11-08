@@ -1627,7 +1627,7 @@ private struct TVLibraryView: View {
                     }
                     .contentShape(.rect)
             }
-            .buttonStyle(TVNavigationButtonStyle())
+            .buttonStyle(TVNavigationButtonStyle(showsReducedMotionOutline: false))
             .focusEffectDisabled()
             .focused($focusedDestination, equals: .home)
             .accessibilityLabel("Home")
@@ -1742,12 +1742,21 @@ private struct TVLibraryView: View {
 
 /// Keep remote focus legible without placing a system capsule over the artwork.
 private struct TVNavigationButtonStyle: ButtonStyle {
+    var showsReducedMotionOutline = true
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.luminaReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.7 : 1)
-            .scaleEffect(isFocused ? 1.04 : 1)
+            .scaleEffect(isFocused && !reduceMotion ? 1.04 : 1)
+            .overlay {
+                if showsReducedMotionOutline && reduceMotion && isFocused {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(LuminaTheme.ink, lineWidth: 2)
+                        .padding(-4)
+                }
+            }
     }
 }
 
@@ -3405,12 +3414,18 @@ struct TVArtworkButtonStyle: ButtonStyle {
     }
 
     @Environment(\.isFocused) private var isFocused
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.luminaReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(isFocused ? focusedScale : 1, anchor: .top)
+            .scaleEffect(isFocused && !reduceMotion ? focusedScale : 1, anchor: .top)
             .shadow(color: .black.opacity(isFocused ? 0.48 : 0), radius: isFocused ? 18 : 0, y: isFocused ? 10 : 0)
+            .overlay {
+                if reduceMotion && isFocused {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(.white, lineWidth: 3)
+                }
+            }
             .opacity(configuration.isPressed ? 0.75 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isFocused)
     }

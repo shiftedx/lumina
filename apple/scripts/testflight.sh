@@ -7,7 +7,7 @@ case "$mode" in archive|export|upload) ;; *) echo "Usage: $0 [archive|export|upl
 : "${LUMINA_DEVELOPMENT_TEAM:?Set the Apple Developer team ID}"
 : "${LUMINA_BUILD_NUMBER:?Set an unused build number}"
 version="${LUMINA_VERSION:-0.1.0}"
-audience="${LUMINA_TESTFLIGHT_AUDIENCE:-internal}"
+audience="${LUMINA_TESTFLIGHT_AUDIENCE:-external}"
 case "$audience" in internal|external) ;; *) echo "Audience must be internal or external" >&2; exit 2 ;; esac
 release_root="${LUMINA_DISTRIBUTION_DIR:-$PWD/Distribution/$version-$LUMINA_BUILD_NUMBER}"
 mkdir -p "$release_root"
@@ -19,8 +19,8 @@ options="$release_root/ExportOptions-$mode-$audience.plist"
 if [ "$mode" != archive ]; then
     cp Config/TestFlightExport.plist "$options"
     /usr/libexec/PlistBuddy -c "Add :teamID string $LUMINA_DEVELOPMENT_TEAM" "$options"
-    if [ "$audience" = external ]; then
-        /usr/libexec/PlistBuddy -c 'Set :testFlightInternalTestingOnly false' "$options"
+    if [ "$audience" = internal ]; then
+        /usr/libexec/PlistBuddy -c 'Set :testFlightInternalTestingOnly true' "$options"
     fi
     if [ "$mode" = upload ]; then
         /usr/libexec/PlistBuddy -c 'Set :destination upload' "$options"

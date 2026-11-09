@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { pageForRow } from './navigation';
 import { sectionById, SETTINGS_SECTIONS, searchSettings, visibleSections } from './registry';
 import { SectionRows } from './SettingRow';
 import { SettingsHostContext } from './settingsHost';
@@ -51,6 +52,13 @@ describe('Requests settings', () => {
 
   it.each(['sonarr', 'radarr', 'smtp', 'dub', 'quota', 'anime', 'approval', 'email'])('settings search finds %s', (query) => {
     expect(searchSettings(query, SETTINGS_SECTIONS).map((match) => match.section.id)).toContain('requests');
+  });
+
+  it.each(['prowlarr', 'indexers', 'lidarr', 'qbittorrent', 'nzbget'])('finds the connector setup for %s', (query) => {
+    const matches = searchSettings(query, visibleSections({ role: 'admin' }));
+    const entry = matches.flatMap((match) => match.entries).find((row) => row.id === 'requests.integrations');
+    expect(entry).toBeDefined();
+    expect(pageForRow(entry!.id)?.id).toBe('integrations');
   });
 
   it('shows each service local address and port with guidance for new users', async () => {

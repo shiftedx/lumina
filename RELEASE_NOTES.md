@@ -1,5 +1,14 @@
 # Release notes
 
+## Lumina 0.6.1
+
+- **Integrations:** Connect qBittorrent 5.3 using its successful no-content login and port-qualified session cookie. Legacy login remains supported; protected reads and complete snapshots are still required before enabling observation.
+- **Settings:** Find Prowlarr, indexers, Lidarr, qBittorrent and NZBGet through Settings search, with the supported services named in Connections → Integrations.
+- **Web:** Keep the metadata editor clear of the fixed header and preserve ownership when starting playback or autosaving edits.
+- **Native preview source:** Improve Apple TV Library, Requests and remote focus, honor Reduce Motion, and handle hero flicks. Native apps remain separate preview builds; this server release does not install or update them.
+
+**Upgrade:** Schema remains 44; no database migration from 0.6.0. Back up application data and retain the running image before updating. See the [operator guide](docker/README.md#upgrades).
+
 ## Lumina 0.6.0
 
 - **Apple TV preview:** Browse available libraries from a dedicated hub, reach media requests from labeled navigation, and approve TV sign-in from an already authenticated phone without retyping the server address.

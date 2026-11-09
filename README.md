@@ -56,12 +56,11 @@ Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you 
   <img src="docs/assets/library.jpg" alt="Lumina Movies library showing the Blender open-movie demo">
 </p>
 
-## In 0.6.0
+## In 0.6.1
 
-- **Apple TV preview:** A dedicated Library hub, labeled navigation, media requests, and QR sign-in approved from an already signed-in iPhone or iPad.
-- **iPhone and iPad preview:** Streaming recommendations and a live grid when the server admin enables streaming, plus fixes for Home scrolling, landscape controls, and playback through rotation.
-- **Web:** Collection filters, clearer playback settings, a compact chapter and moments timeline, and improved streaming discovery.
-- **Server:** Less work on Home and polling requests, better artwork recovery, and clearer language availability for media requests.
+- **qBittorrent 5.3:** Support its newer login response while retaining authenticated read and snapshot checks.
+- **Find integrations:** Search Settings for Prowlarr, indexers and the other infrastructure connectors.
+- **Web polish:** Keep metadata editing clear of the header and preserve playback/autosave ownership.
 
 Native Apple previews have [separate build instructions](apple/README.md). The screenshots show a public demo library; see [artwork credits](CREDITS.md).
 
@@ -69,19 +68,19 @@ See the [release notes](RELEASE_NOTES.md) for changes and upgrade details.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.6.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.6.0`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.6.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.6.1`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.0/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.0/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.6.1/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.6.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.6.1/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

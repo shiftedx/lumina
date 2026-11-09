@@ -219,7 +219,8 @@ its release group has visible linked tracks in an enabled root. Uncertain add/se
 outcomes are retained and never automatically dispatched again.
 
 Prowlarr observation is read-only; it retains indexer configuration and credentials.
-qBittorrent uses WebUI cookie login and a complete `sync/maindata` snapshot; NZBGet uses
+qBittorrent uses WebUI cookie login (legacy `200 Ok.`/`SID` and modern `204`/`QBT_SID_<port>`
+responses are supported) and a complete `sync/maindata` snapshot; NZBGet uses
 Basic-authenticated JSON-RPC reads. To correlate transfers, bind an arr server and
 its exact configured download-client name, then require matching native download IDs.
 Unmatched and ambiguous jobs stay labeled and owner-only. These views expose reduced

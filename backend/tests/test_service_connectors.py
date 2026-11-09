@@ -13,7 +13,7 @@ from support import make_user
 
 @pytest.fixture
 def provider():  # noqa: ANN201
-    state = {"kind": "qbittorrent", "down": False, "partial": False, "requests": [], "many": 1001}
+    state = {"kind": "qbittorrent", "down": False, "partial": False, "requests": [], "cookies": [], "many": 1001}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):  # noqa: ANN002, ANN201
@@ -30,10 +30,13 @@ def provider():  # noqa: ANN201
             url = urlparse(self.path)
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             state["requests"].append((self.command, self.path, body))
+            if self.command == "GET":
+                state["cookies"].append(self.headers.get("Cookie"))
             value, raw = {}, False
             code = 503 if state["down"] else 200
             if url.path.endswith("auth/login"):
-                value, raw = "Ok.", True
+                code = state.get("login_status", code)
+                value, raw = state.get("login_body", "Ok."), True
             elif url.path.endswith("app/version"):
                 value, raw = "v5.0.0", True
             elif url.path.endswith("app/webapiVersion"):
@@ -59,8 +62,8 @@ def provider():  # noqa: ANN201
                 value = []
             payload = value.encode() if raw else json.dumps(value).encode()
             self.send_response(code)
-            if url.path.endswith("auth/login"):
-                self.send_header("Set-Cookie", "SID=fixture; Path=/")
+            if url.path.endswith("auth/login") and state.get("login_cookie", "SID=fixture"):
+                self.send_header("Set-Cookie", state.get("login_cookie", "SID=fixture") + "; Path=/")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -103,6 +106,37 @@ def test_qbittorrent_probe_correlates_exact_manager_identity_and_preserves_stale
     assert client.post(f"/api/admin/connectors/{identity}/refresh").json()["stale"] is True
     assert client.get(f"/api/admin/connectors/{identity}").json()["total"] == 1
     assert {method for method, path, _ in state["requests"] if not path.endswith("auth/login")} == {"GET"}
+
+
+@pytest.mark.parametrize(("status", "body", "cookie", "accepted"), [
+    (200, "Ok.", "SID=fixture", True),
+    (204, "", "SID=fixture", True),
+    (204, "", "QBT_SID_8080=fixture", True),
+    (200, "Fails.", "SID=fixture", False),
+    (401, "Unauthorized", "QBT_SID_8080=fixture", False),
+    (403, "Forbidden", "SID=fixture", False),
+    (302, "", "SID=fixture", False),
+    (200, "<html>Sign in</html>", "SID=fixture", False),
+    (200, "Ok.", "", False),
+    (204, "", "", False),
+    (204, "", "unrelated=fixture", False),
+    (204, "", "QBT_SID_8080=", False),
+])
+def test_qbittorrent_login_contract(api_client, db_factory, provider, status, body, cookie, accepted):  # noqa: ANN001, ANN201
+    client, identity, state = setup(api_client, db_factory, provider, "qbittorrent")
+    state.update(login_status=status, login_body=body, login_cookie=cookie)
+    response = client.post(f"/api/admin/connectors/{identity}/refresh")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["enabled"] is accepted
+    reads = [path for method, path, _ in state["requests"] if method == "GET"]
+    if accepted:
+        assert result["last_error"] is None
+        assert state["cookies"] and all(value == cookie for value in state["cookies"])
+        assert any(path.endswith("sync/maindata?rid=0") for path in reads)
+    else:
+        assert result["last_error"]
+        assert not reads
 
 
 def test_nzbget_uses_read_only_rpc_and_hides_paths(api_client, db_factory, provider):  # noqa: ANN001, ANN201

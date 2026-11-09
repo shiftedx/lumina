@@ -71,10 +71,10 @@ def _selected(row: dict, keys: tuple[str, ...]) -> dict:
     return {key: row[key] for key in keys if _number(row.get(key)) is not None}
 
 
-def _raw(client: httpx.Client, method: str, path: str, **send: Any) -> bytes:
+def _raw(client: httpx.Client, method: str, path: str, *, success_codes: tuple[int, ...] = (200,), **send: Any) -> bytes:
     try:
         with client.stream(method, path, **send) as response:
-            if response.status_code != 200:
+            if response.status_code not in success_codes:
                 raise ConnectorError(f"Connector endpoint returned HTTP {response.status_code}")
             payload = bytearray()
             for chunk in response.iter_bytes():
@@ -98,8 +98,11 @@ def _qbit(connector: ServiceConnector) -> tuple[str, dict]:
                       follow_redirects=False, trust_env=False, headers={"Referer": connector.base_url}) as client:
         if not connector.username or not connector.password:
             raise ConnectorError("Configure qBittorrent WebUI username and password")
-        reply = _raw(client, "POST", "api/v2/auth/login", data={"username": connector.username, "password": connector.password})
-        if reply.strip() != b"Ok." or not client.cookies.get("SID"):
+        reply = _raw(client, "POST", "api/v2/auth/login", success_codes=(200, 204), data={"username": connector.username, "password": connector.password})
+        # Modern WebUI versions return 204 and name the session cookie QBT_SID_<port>.
+        session = any(cookie.value and (cookie.name == "SID" or cookie.name.startswith("QBT_SID_"))
+                      for cookie in client.cookies.jar)
+        if reply.strip() not in (b"Ok.", b"") or not session:
             raise ConnectorError("qBittorrent authentication failed")
         version = _raw(client, "GET", "api/v2/app/version").decode("utf-8")
         api = _raw(client, "GET", "api/v2/app/webapiVersion").decode("utf-8")

@@ -71,7 +71,7 @@ def _selected(row: dict, keys: tuple[str, ...]) -> dict:
     return {key: row[key] for key in keys if _number(row.get(key)) is not None}
 
 
-def _raw(client: httpx.Client, method: str, path: str, *, success_codes: tuple[int, ...] = (200,), **send: Any) -> bytes:
+def _raw(client: httpx.Client, method: str, path: str, *, success_codes: tuple[int, ...] = (200,), **send: Any) -> tuple[int, bytes]:
     try:
         with client.stream(method, path, **send) as response:
             if response.status_code not in success_codes:
@@ -81,7 +81,7 @@ def _raw(client: httpx.Client, method: str, path: str, *, success_codes: tuple[i
                 payload.extend(chunk)
                 if len(payload) > MAX_BYTES:
                     raise ConnectorError("Connector response exceeded the size limit")
-        return bytes(payload)
+        return response.status_code, bytes(payload)
     except httpx.HTTPError:
         raise ConnectorError("Connector endpoint is unreachable") from None
 
@@ -98,15 +98,19 @@ def _qbit(connector: ServiceConnector) -> tuple[str, dict]:
                       follow_redirects=False, trust_env=False, headers={"Referer": connector.base_url}) as client:
         if not connector.username or not connector.password:
             raise ConnectorError("Configure qBittorrent WebUI username and password")
-        reply = _raw(client, "POST", "api/v2/auth/login", success_codes=(200, 204), data={"username": connector.username, "password": connector.password})
+        status, reply = _raw(client, "POST", "api/v2/auth/login", success_codes=(200, 204), data={"username": connector.username, "password": connector.password})
+        sessions = {cookie.name for cookie in client.cookies.jar if cookie.value}
         # Modern WebUI versions return 204 and name the session cookie QBT_SID_<port>.
-        session = any(cookie.value and (cookie.name == "SID" or cookie.name.startswith("QBT_SID_"))
-                      for cookie in client.cookies.jar)
-        if reply.strip() not in (b"Ok.", b"") or not session:
+        ports = [name.removeprefix("QBT_SID_") for name in sessions if name.startswith("QBT_SID_")]
+        modern_session = any(port.isascii() and port.isdecimal() and len(port) <= 5 and 1 <= int(port) <= 65535 for port in ports)
+        legacy = status == 200 and reply.strip() == b"Ok." and "SID" in sessions
+        modern = status == 204 and not reply and modern_session
+        if not (legacy or modern):
             raise ConnectorError("qBittorrent authentication failed")
-        version = _raw(client, "GET", "api/v2/app/version").decode("utf-8")
-        api = _raw(client, "GET", "api/v2/app/webapiVersion").decode("utf-8")
-        value = _json(_raw(client, "GET", "api/v2/sync/maindata", params={"rid": 0}))
+        _, version = _raw(client, "GET", "api/v2/app/version")
+        _, api = _raw(client, "GET", "api/v2/app/webapiVersion")
+        _, payload = _raw(client, "GET", "api/v2/sync/maindata", params={"rid": 0})
+        value = _json(payload)
         if not isinstance(value, dict) or value.get("full_update") is not True or not isinstance(value.get("torrents", {}), dict):
             raise ConnectorError("qBittorrent did not return a complete snapshot")
         torrents = value.get("torrents", {})
@@ -118,7 +122,7 @@ def _qbit(connector: ServiceConnector) -> tuple[str, dict]:
                 raise ConnectorError("qBittorrent returned an invalid transfer identity")
             transfers.append({"id": identity.lower(), "state": _token(row.get("state")),
                               **_selected(row, ("progress", "size", "amount_left", "dlspeed", "upspeed", "eta"))})
-    return _version(version), {"api_version": _version(api), "transfers": transfers, "capabilities": {"observe": True, "control": False}}
+    return _version(version.decode("utf-8")), {"api_version": _version(api.decode("utf-8")), "transfers": transfers, "capabilities": {"observe": True, "control": False}}
 
 
 def _version(value: Any) -> str:

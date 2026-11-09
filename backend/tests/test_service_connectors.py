@@ -38,9 +38,9 @@ def provider():  # noqa: ANN201
                 code = state.get("login_status", code)
                 value, raw = state.get("login_body", "Ok."), True
             elif url.path.endswith("app/version"):
-                value, raw = "v5.0.0", True
+                value, raw = state.get("version", "v5.0.0"), True
             elif url.path.endswith("app/webapiVersion"):
-                value, raw = "2.11.0", True
+                value, raw = state.get("api_version", "2.11.0"), True
             elif url.path.endswith("sync/maindata"):
                 value = {"full_update": not state["partial"], "torrents": {"a" * 40: {"state": "downloading", "progress": .5, "name": "PRIVATE", "save_path": "/secret"}}}
             elif url.path == "/jsonrpc":
@@ -60,6 +60,11 @@ def provider():  # noqa: ANN201
                 value = {"page": 1, "totalRecords": 1, "records": [{"id": 1, "movieId": 101, "downloadClient": "Household", "downloadId": "A" * 40}]}
             else:
                 value = []
+            if self.command == "GET" and url.path.startswith("/api/v2/") and state.get("require_session"):
+                if self.headers.get("Cookie") != state["login_cookie"]:
+                    code = 403
+                else:
+                    code = state.get("read_status", {}).get(url.path, code)
             payload = value.encode() if raw else json.dumps(value).encode()
             self.send_response(code)
             if url.path.endswith("auth/login") and state.get("login_cookie", "SID=fixture"):
@@ -92,8 +97,11 @@ def setup(api_client, db_factory, provider, kind, **extra):  # noqa: ANN001, ANN
     return client, response.json()["id"], state
 
 
-def test_qbittorrent_probe_correlates_exact_manager_identity_and_preserves_stale_snapshot(api_client, db_factory, provider):  # noqa: ANN001, ANN201
+@pytest.mark.parametrize("modern_login", [False, True])
+def test_qbittorrent_probe_correlates_exact_manager_identity_and_preserves_stale_snapshot(api_client, db_factory, provider, modern_login):  # noqa: ANN001, ANN201
     client, identity, state = setup(api_client, db_factory, provider, "qbittorrent", settings={"arr_clients": [{"server_id": "arr", "client_name": "Household"}]})
+    if modern_login:
+        state.update(login_status=204, login_body="", login_cookie="QBT_SID_8080=fixture", require_session=True)
     with db_factory() as db:
         db.add(ArrServer(id="arr", kind="radarr", name="Radarr", base_url=provider[0], api_key="key", enabled=True))
         db.commit()
@@ -110,7 +118,7 @@ def test_qbittorrent_probe_correlates_exact_manager_identity_and_preserves_stale
 
 @pytest.mark.parametrize(("status", "body", "cookie", "accepted"), [
     (200, "Ok.", "SID=fixture", True),
-    (204, "", "SID=fixture", True),
+    (204, "", "SID=fixture", False),
     (204, "", "QBT_SID_8080=fixture", True),
     (200, "Fails.", "SID=fixture", False),
     (401, "Unauthorized", "QBT_SID_8080=fixture", False),
@@ -121,10 +129,16 @@ def test_qbittorrent_probe_correlates_exact_manager_identity_and_preserves_stale
     (204, "", "", False),
     (204, "", "unrelated=fixture", False),
     (204, "", "QBT_SID_8080=", False),
+    (204, "", "QBT_SID_invalid=fixture", False),
+    (204, "", "QBT_SID_0=fixture", False),
+    (204, "", "QBT_SID_65536=fixture", False),
+    (204, "", "QBT_SID_=fixture", False),
+    (200, "", "QBT_SID_8080=fixture", False),
+    (200, "Ok.", "QBT_SID_8080=fixture", False),
 ])
 def test_qbittorrent_login_contract(api_client, db_factory, provider, status, body, cookie, accepted):  # noqa: ANN001, ANN201
     client, identity, state = setup(api_client, db_factory, provider, "qbittorrent")
-    state.update(login_status=status, login_body=body, login_cookie=cookie)
+    state.update(login_status=status, login_body=body, login_cookie=cookie, require_session=True, version="v5.3.0", api_version="2.16.2")
     response = client.post(f"/api/admin/connectors/{identity}/refresh")
     assert response.status_code == 200
     result = response.json()
@@ -132,11 +146,35 @@ def test_qbittorrent_login_contract(api_client, db_factory, provider, status, bo
     reads = [path for method, path, _ in state["requests"] if method == "GET"]
     if accepted:
         assert result["last_error"] is None
+        assert result["version"] == "v5.3.0"
         assert state["cookies"] and all(value == cookie for value in state["cookies"])
         assert any(path.endswith("sync/maindata?rid=0") for path in reads)
     else:
         assert result["last_error"]
         assert not reads
+
+
+@pytest.mark.parametrize(("path", "status"), [
+    ("app/version", 403), ("app/webapiVersion", 403), ("sync/maindata", 403),
+    ("app/version", 204), ("app/webapiVersion", 204), ("sync/maindata", 204),
+])
+def test_qbittorrent_requires_protected_reads_after_modern_login(api_client, db_factory, provider, path, status):  # noqa: ANN001, ANN201
+    client, identity, state = setup(api_client, db_factory, provider, "qbittorrent")
+    state.update(login_status=204, login_body="", login_cookie="QBT_SID_8080=fixture", require_session=True,
+                 read_status={f"/api/v2/{path}": status})
+    result = client.post(f"/api/admin/connectors/{identity}/refresh").json()
+    assert result["enabled"] is False
+    assert result["last_error"] == f"Connector endpoint returned HTTP {status}"
+
+
+def test_qbittorrent_modern_login_keeps_bounded_snapshot_reads(api_client, db_factory, provider, monkeypatch):  # noqa: ANN001, ANN201
+    from app.services import infrastructure_connectors
+    monkeypatch.setattr(infrastructure_connectors, "MAX_BYTES", 16)
+    client, identity, state = setup(api_client, db_factory, provider, "qbittorrent")
+    state.update(login_status=204, login_body="", login_cookie="QBT_SID_8080=fixture", require_session=True)
+    result = client.post(f"/api/admin/connectors/{identity}/refresh").json()
+    assert result["enabled"] is False
+    assert result["last_error"] == "Connector response exceeded the size limit"
 
 
 def test_nzbget_uses_read_only_rpc_and_hides_paths(api_client, db_factory, provider):  # noqa: ANN001, ANN201

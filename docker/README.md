@@ -520,8 +520,32 @@ cleanup to exclude retained pins and their images. For `docker-gc`, put the
 container-name pattern `lumina-.*rollback` in its
 `/etc/docker-gc-exclude-containers` file (mounted from persistent host storage).
 It keeps images referenced by excluded containers. Keep database/key backups
-separately; an image pin is not a data backup. Retain pins until their rollback
-window ends and remove their cleanup exclusions when retiring them.
+separately; an image pin is not a data backup.
+
+After **every successful production deployment**, verify container health and the
+public application workflow, then run the completion hook from the source checkout:
+
+```bash
+python3 scripts/finalize-deployment.py lumina /path/to/persistent/.production-images.json
+```
+
+The hook automatically keeps **three distinct known-good production images total**:
+the healthy running image and the two preceding verified images. Only those two
+previous images need stopped rollback pins. Repeated completion calls for the same
+image do not consume another history entry. Failed health checks leave retention
+unchanged. Cleanup retires older pins for that container and prunes unreferenced
+Lumina images; Docker preserves images used by other containers. Database, key and
+media backups remain separate and untouched. Preserve the cleanup exclusion for
+the remaining rollback pins.
+
+Keep the history file outside disposable release checkouts. A fresh installation
+can start without a history file; the hook builds its history as deployments pass.
+For an existing installation, initialize it once from verified deployment records
+as `{"images": ["sha256:<current>", "sha256:<previous>", "sha256:<older>"]}`,
+newest first. Use full Docker image IDs, not tags, and omit unavailable history.
+The hook refuses to infer known-good history from old pin creation dates. Deployment
+scripts and deployment agents must call this hook only after their verification
+succeeds; do not run it during startup or after a failed rollout.
 
 ### Rollback after a schema upgrade
 

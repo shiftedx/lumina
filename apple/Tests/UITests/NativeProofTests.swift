@@ -1536,6 +1536,59 @@ class NativeProofJourney: XCTestCase {
             XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle },
                           "Wide Previous must return to the prior album track.")
             try attachFrame(named: "Wide player keeps square artwork and persistent transport")
+        } else if usesStandardPhonePushedChrome {
+            XCTAssertEqual(artwork.frame.width, artwork.frame.height, accuracy: 2,
+                           "Phone artwork must show the whole square cover.")
+            XCTAssertGreaterThanOrEqual(artwork.frame.minX, window.minX + 20)
+            XCTAssertLessThanOrEqual(artwork.frame.maxX, window.maxX - 20)
+            let title = element("nowPlayingTitle")
+            let previous = element("audioPreviousButton")
+            let next = element("audioNextButton")
+            let close = element("closePlayerButton")
+            let airPlay = element("audioAirPlayButton")
+            let cast = element("musicChromecastButton")
+            XCTAssertGreaterThanOrEqual(close.frame.minY, window.minY + 44,
+                                       "The phone player header must clear the status area.")
+            for control in [title, timeline, transport, previous, next, queue, close, airPlay, cast] {
+                try waitForExistence(control, timeout: 15, named: "phone player \(control.identifier)")
+                XCTAssertTrue(hasVisibleFrame(control), "Phone player must show \(control.identifier) without scrolling.")
+                XCTAssertGreaterThanOrEqual(control.frame.minY, window.minY)
+                XCTAssertLessThanOrEqual(control.frame.maxY, window.maxY - 20,
+                                         "Phone controls must clear the home indicator.")
+            }
+            XCTAssertGreaterThanOrEqual(title.frame.minY, artwork.frame.maxY)
+            XCTAssertGreaterThanOrEqual(transport.frame.minY, timeline.frame.maxY)
+            try await Task.sleep(for: .seconds(1.2))
+            XCTAssertTrue(hasVisibleFrame(timeline), "Phone track progress must remain visible while idle.")
+            try activate(transport)
+            XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" })
+            let slider = application!.sliders["Track position"]
+            try waitForHittable(slider, timeout: 10, named: "phone track position")
+            slider.adjust(toNormalizedSliderPosition: 0.6)
+            _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= 45 }
+            try activate(transport)
+            XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Pause" })
+            try activate(next)
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioSecondTrackTitle })
+            try activate(previous)
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle })
+            try activate(queue)
+            try waitForExistence(element("audioQueueScreen"), timeout: 10, named: "phone play queue")
+            try activate(element("audioQueueDoneButton"))
+            XCTAssertTrue(disappears(element("audioQueueScreen"), timeout: 10))
+            artwork.swipeLeft()
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioSecondTrackTitle })
+            artwork.swipeRight()
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle })
+            let beforeClose = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+            try closePlayer()
+            try waitForHittable(element("nowPlayingBar"), timeout: 15, named: "current track after closing player")
+            try activate(element("nowPlayingBar"))
+            try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "reopened phone player")
+            XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+            _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= beforeClose }
+            XCTAssertTrue(hasVisibleFrame(timeline), "Reopening the player must retain visible progress.")
+            try attachFrame(named: "Phone player with whole cover and visible track details and transport")
         } else {
             let back = application!.buttons.matching(identifier: "BackButton").firstMatch
             XCTAssertFalse(element("closePlayerButton").exists, "Music must not invent a second back control.")
@@ -1544,25 +1597,15 @@ class NativeProofJourney: XCTestCase {
             try waitForHittable(transport, timeout: 15, named: "Navigation Play/Pause")
             XCTAssertFalse(element("audioPreviousButton").exists)
             XCTAssertFalse(element("audioNextButton").exists)
-            if usesStandardPhonePushedChrome {
-                XCTAssertFalse(hasVisibleFrame(back),
-                               "The standard-phone player must use its leading-edge Back gesture instead of a visible Back button.")
-                let header = element("standardPhoneNavigationHeader")
-                try waitForExistence(header, timeout: 15, named: "standard-phone music navigation header")
-                XCTAssertTrue(hasVisibleFrame(header))
-                XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
-                               "Queue and Play/Pause must share the standard-phone navigation header.")
+            XCTAssertTrue(back.exists, "Music must use the app's standard navigation back button.")
+            if queue.frame.minY > back.frame.maxY {
+                XCTAssertLessThan(queue.frame.midY, transport.frame.midY,
+                                  "Queue must be the first action in the navigation rail.")
+                XCTAssertEqual(transport.frame.midX, queue.frame.midX, accuracy: 3,
+                               "Play/Pause must share the navigation rail with Queue.")
             } else {
-                XCTAssertTrue(back.exists, "Music must use the app's standard navigation back button.")
-                if queue.frame.minY > back.frame.maxY {
-                    XCTAssertLessThan(queue.frame.midY, transport.frame.midY,
-                                      "Queue must be the first action in the navigation rail.")
-                    XCTAssertEqual(transport.frame.midX, queue.frame.midX, accuracy: 3,
-                                   "Play/Pause must share the navigation rail with Queue.")
-                } else {
-                    XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
-                                   "Play/Pause must share the navigation bar with Queue.")
-                }
+                XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
+                               "Play/Pause must share the navigation bar with Queue.")
             }
             XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Track progress must fade while artwork is idle.")
             artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
@@ -5928,6 +5971,12 @@ class NativeProofJourney: XCTestCase {
             }
             let identified = element("compactCategory-\(category)")
             let title = category == "tv" ? "Shows" : category.capitalized
+            if let menu = visibleMenu,
+               !waitUntil(timeout: 3, condition: { self.hasVisibleFrame(identified) || self.hasVisibleFrame(self.menuAction(title)) }) {
+                // The native toolbar can settle after the tab's first visible frame.
+                // Retry the public menu once before declaring its category absent.
+                menu.tap()
+            }
             let choice = identified.exists ? identified : menuAction(title)
             guard waitUntil(timeout: 15, condition: { self.hasVisibleFrame(choice) }) else {
                 throw ProofFailure.timeout("The Library \(title) menu choice did not become visible.")

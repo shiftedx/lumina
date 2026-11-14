@@ -743,3 +743,42 @@ archives, signed Organizer references, matching symbols, source snapshot/input
 hashes, release manifest, checksums, validation/export logs and What to Test.
 Earlier packages, including build 55's upload evidence, remain preserved. Owned
 temporary build caches were removed after validation.
+
+
+### General TestFlight iOS package 57, 2026-11-14
+
+**iOS 0.1.0 (57) is distribution-signed and selected in Xcode Organizer for the
+owner to upload. This operation uploaded no build and deployed no server changes.**
+It uses general TestFlight, Internal Only disabled, fixed build numbering and
+included symbols. Select **Lumina iOS 0.1.0 (57) — Signed for Upload** and
+Distribute App in Organizer. tvOS was not repackaged for this iOS music update.
+
+Built from clean merged main `1ada1b42c13fdf38b3452665a6df678f58ac7876`, including
+the standard-iPhone Now Playing layout from [PR #321](https://github.com/shiftedx/lumina/pull/321)
+and automatic music catalog paging from [PR #322](https://github.com/shiftedx/lumina/pull/322).
+All 988 native source-input hashes remained unchanged during archive/export.
+The three PrismCore locks retain the same immutable revision.
+
+The focused iPhone player workflow passed full-cover/control bounds and safe
+areas, persistent seeking, pause/resume, queue, track buttons/swipes, and
+close/reopen continuity. A second focused workflow reached and opened the final
+album in a 56-album real-server fixture by scrolling alone. All 27 broker checks
+and both packaging safeguards passed. Source archive, signed IPA, signed
+Organizer reference and staged copy passed local identity/version, device-family,
+artwork/privacy, fixture exclusion, signatures and executable/dSYM UUID checks.
+Xcode command-line distribution export succeeded using the existing signing setup.
+
+The broader music-toolbar navigation test still timed out opening Home Browse →
+Movies; direct player close/reopen passed. The earlier repository gate stopped
+on three unexpected skips from an unconfigured generated M2TS corpus (5,939
+passed, 23 skipped, no test failures); later browser gates did not run. Frontend
+unit tests separately passed all 2,854 cases. No new physical-device, receiver,
+HDR/audio/energy qualification ran. Local signing does not establish Apple upload
+acceptance, processing, beta approval or tester availability.
+
+Preserve ignored `apple/Distribution/0.1.0-57/`: signed IPA, source and signed
+Organizer archives, matching symbols, source snapshot/input hashes, manifest,
+checksums, validation/export logs, focused XCResults and What to Test. The staged
+copy is in the user's Xcode Archives directory for November 14. Prior release
+packages remain preserved. The source revision above identifies the binaries;
+this later release-record update changes documentation only.

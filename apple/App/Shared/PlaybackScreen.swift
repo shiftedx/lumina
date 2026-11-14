@@ -554,30 +554,24 @@ struct PlaybackScreen: View {
             #endif
         }
         #if !os(tvOS)
-        .ignoresSafeArea(.container, edges: requestedPlayback.request.item.isAudio ? .top : [])
+        .ignoresSafeArea(.container, edges: requestedPlayback.request.item.isAudio && !usesStandardPhonePushedChrome ? .top : [])
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if requestedPlayback.request.item.isAudio {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if !usesExpandedAudioLayout { audioHeaderActions }
+                    if !usesExpandedAudioLayout && !usesStandardPhonePushedChrome { audioHeaderActions }
                 }
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarVisibility(requestedPlayback.request.item.isAudio && !usesExpandedAudioLayout ? .visible : .hidden, for: .navigationBar)
+        .toolbarVisibility(requestedPlayback.request.item.isAudio && !usesExpandedAudioLayout && !usesStandardPhonePushedChrome ? .visible : .hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .statusBarHidden(!requestedPlayback.request.item.isAudio && !videoSystemOverlaysVisible)
         .persistentSystemOverlays(requestedPlayback.request.item.isAudio || videoSystemOverlaysVisible ? .visible : .hidden)
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
-        #if os(iOS)
-        .standardPhonePushedChrome(isEnabled: requestedPlayback.request.item.isAudio && !usesExpandedAudioLayout,
-                                   foreground: .white, background: .black) {
-            audioHeaderActions
-        }
-        #endif
         .preferredColorScheme(.dark)
         .sheet(isPresented: $queuePresented) { audioQueue }
         #if os(tvOS)
@@ -928,6 +922,8 @@ struct PlaybackScreen: View {
         GeometryReader { geometry in
             if expandedAudioFits(geometry.size) {
                 expandedAudioStage(in: geometry)
+            } else if usesStandardPhonePushedChrome {
+                phoneAudioStage(in: geometry)
             } else {
                 compactAudioStage
             }
@@ -940,6 +936,106 @@ struct PlaybackScreen: View {
     }
 
     private var usesExpandedAudioLayout: Bool { expandedAudioFits(audioStageSize) }
+
+    private func phoneAudioStage(in geometry: GeometryProxy) -> some View {
+        let top: CGFloat = 8
+        // Reserve room for metadata and transport before assigning space to the cover.
+        let side = max(120, min(geometry.size.width - 48, geometry.size.height - top - 420))
+        return ScrollView {
+            VStack(spacing: 0) {
+                VStack(spacing: 12) {
+                    HStack {
+                        Button { finish() } label: {
+                            LuminaIcon(glyph: .chevronDown, size: 24)
+                                .frame(width: 44, height: 44).contentShape(.rect)
+                        }
+                        .accessibilityLabel("Close player")
+                        .accessibilityIdentifier("closePlayerButton")
+                        Spacer()
+                        Text("Now playing").font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Spacer()
+                        Color.clear.frame(width: 44, height: 44)
+                    }
+                    CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 1_600)) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        LuminaTheme.theater.overlay { LuminaIcon(glyph: .music, size: 64) }
+                    }
+                    .frame(width: side, height: side)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Album artwork for \(playback.request.item.album ?? playback.request.item.name)")
+                    .accessibilityValue(playback.request.item.name)
+                    .accessibilityIdentifier("audioAlbumArtwork")
+                    .accessibilityAction(named: "Next track") { skipAudioTrack(offset: 1) }
+                    .accessibilityAction(named: "Previous track") { skipAudioTrack(offset: -1) }
+                    .gesture(AudioArtworkSwipe(onSkip: skipAudioTrack))
+                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(playback.request.item.name)
+                            .font(LuminaTheme.editorial(28, relativeTo: .title2))
+                            .accessibilityIdentifier("nowPlayingTitle")
+                        Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                            .font(.body).foregroundStyle(.white.opacity(0.8))
+                        if let album = playback.request.item.album {
+                            Text(album).font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    audioTimeline
+                    expandedAudioTransport
+                    HStack {
+                        Button { queuePresented = true } label: {
+                            Label("Queue", glyph: .queue)
+                                .frame(minWidth: 44, minHeight: 44).contentShape(.rect)
+                        }
+                        .accessibilityIdentifier("audioQueueButton")
+                        expandedAudioRoutes
+                    }
+                }
+                .frame(minHeight: max(0, geometry.size.height - top - 16))
+                .padding(.top, top)
+                .padding(.bottom, 16)
+                VStack(alignment: .leading, spacing: 16) {
+                    if let error = displayedError ?? playback.syncError {
+                        Text(error).font(.callout)
+                    }
+                    Text(playback.request.methodLabel).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("audioPlaybackMethod")
+                    NativeAudioOptions(session: audioSession, playback: playback)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 16)
+            }
+            .padding(.horizontal, 24)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("audioPlayerStage")
+        .sheet(isPresented: $audioOptionsPresented) { audioOptionsSheet }
+    }
+
+    private var audioOptionsSheet: some View {
+        NavigationStack {
+            ScrollView {
+                NativeAudioOptions(session: audioSession, playback: playback, showsLyrics: false)
+                    .padding(24)
+            }
+            .background(LuminaTheme.theater)
+            .navigationTitle("Listening options")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { audioOptionsPresented = false }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("audioOptionsSheet")
+    }
 
     private func expandedAudioStage(in geometry: GeometryProxy) -> some View {
         let gutter: CGFloat = geometry.size.width >= 1_100 ? 56 : 32
@@ -1060,24 +1156,7 @@ struct PlaybackScreen: View {
         .accessibilityAction(.escape) { finish() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("audioPlayerStage")
-        .sheet(isPresented: $audioOptionsPresented) {
-            NavigationStack {
-                ScrollView {
-                    NativeAudioOptions(session: audioSession, playback: playback, showsLyrics: false)
-                        .padding(24)
-                }
-                .background(LuminaTheme.theater)
-                .navigationTitle("Listening options")
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { audioOptionsPresented = false }
-                    }
-                }
-            }
-            .preferredColorScheme(.dark)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("audioOptionsSheet")
-        }
+        .sheet(isPresented: $audioOptionsPresented) { audioOptionsSheet }
     }
 
     private func expandedAudioArtwork(side: CGFloat) -> some View {

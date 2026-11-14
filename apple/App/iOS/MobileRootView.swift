@@ -4230,7 +4230,11 @@ private struct AudioLibraryView: View {
                         }
                     }
                 } else {
-                    MusicGrid(items: store.audioItems, store: store, identifierPrefix: "audioItem")
+                    MusicGrid(items: store.audioItems, store: store, identifierPrefix: "audioItem") { item in
+                        if store.audioHasMore, !store.isAudioBusy, item.id == store.audioItems.suffix(6).first?.id {
+                            Task { await store.loadMoreAudio() }
+                        }
+                    }
                     if store.audioHasMore {
                         Button {
                             Task { await store.loadMoreAudio() }
@@ -4516,6 +4520,7 @@ private struct MusicGrid: View {
     let items: [MediaItem]
     let store: LuminaStore
     let identifierPrefix: String
+    var onItemAppear: (MediaItem) -> Void = { _ in }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var widthClass
     @State private var lastVisibleItemID: String?
@@ -4538,7 +4543,10 @@ private struct MusicGrid: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: item))
                 .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
-                .onAppear { lastVisibleItemID = item.id }
+                .onAppear {
+                    lastVisibleItemID = item.id
+                    onItemAppear(item)
+                }
             }
         }
         .nativeAudioPlayer(playback: $presentedPlayback, store: store)

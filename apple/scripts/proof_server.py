@@ -1337,6 +1337,29 @@ def make_music(media_root: Path, artwork: Path | None = None) -> None:
         shutil.copyfile(folder / "cover.jpg", folder.parent / "artist.jpg")
 
 
+def make_music_catalogue(media_root: Path) -> None:
+    """Copy the generated tone into enough tagged albums to cross a native page."""
+    from mutagen.mp4 import MP4
+
+    source = media_root / "Music" / AUDIO_ARTIST / f"{AUDIO_ALBUM} (2026)"
+    cover = next(source.glob("cover.*"))
+    for number in range(1, 56):
+        artist = f"ZZ Music Artist {number:03d}"
+        album = f"ZZ Music Album {number:03d}"
+        title = f"ZZ Music Track {number:03d}"
+        folder = media_root / "Music" / artist / album
+        folder.mkdir(parents=True)
+        track = folder / f"01 {title}.m4a"
+        shutil.copyfile(source / f"01 {AUDIO_TRACK}.m4a", track)
+        tagged = MP4(track)
+        tagged["©nam"] = [title]
+        tagged["©alb"] = [album]
+        tagged["©ART"] = [artist]
+        tagged["aART"] = [artist]
+        tagged.save()
+        shutil.copyfile(cover, folder / cover.name)
+
+
 def make_performance_posters(media_root: Path, count: int) -> list[Path]:
     """Generate a bounded local set of distinct poster images for cache and decode profiling."""
     if count == 0:
@@ -1527,7 +1550,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         run_id = run.id
 
     drive(run_id)
-    if os.environ.get("LUMINA_NATIVE_LONG_SERIES") == "1":
+    if os.environ.get("LUMINA_NATIVE_LONG_SERIES") == "1" or os.environ.get("LUMINA_NATIVE_MUSIC_CATALOGUE") == "1":
         # This fixture exceeds the startup probe batch; finish its generated files
         # before API verification instead of racing the background warmer.
         from app.services.media_probe import MediaProbeService
@@ -1692,6 +1715,8 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "episodeCreditsStartSeconds": EPISODE_CREDITS_START_SECONDS,
             "audioAlbumID": uuid.UUID(titles[("album", AUDIO_ALBUM)]).hex,
             "audioAlbumTitle": AUDIO_ALBUM,
+            "audioPaginationAlbumID": uuid.UUID(titles[("album", "ZZ Music Album 055")]).hex
+                if ("album", "ZZ Music Album 055") in titles else None,
             "audioArtistID": uuid.UUID(titles[("artist", AUDIO_ARTIST)]).hex,
             "audioTrackID": uuid.UUID(items[AUDIO_TRACK]).hex,
             "audioTrackTitle": AUDIO_TRACK,
@@ -2084,6 +2109,8 @@ def main() -> None:
             print(f"Adding {performance_catalogue} synthetic performance-catalog movies...", flush=True)
             make_performance_catalogue(state_root / "media", performance_catalogue, performance_posters)
         make_music(state_root / "media", artwork=artwork.get("observatory.png"))
+        if os.environ.get("LUMINA_NATIVE_MUSIC_CATALOGUE") == "1":
+            make_music_catalogue(state_root / "media")
         make_show(state_root / "media")
         if performance_series:
             print(f"Adding {performance_series} synthetic performance-catalog series...", flush=True)

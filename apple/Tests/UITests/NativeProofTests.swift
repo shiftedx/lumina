@@ -383,6 +383,13 @@ final class NativeLibraryCatalogScrollingTests: NativeProofJourney {
 }
 
 @MainActor
+final class NativeMusicCatalogScrollingTests: NativeProofJourney {
+    func testMusicLoadsNextPageWhileScrolling() throws {
+        try journeyMusicLoadsNextPageWhileScrolling()
+    }
+}
+
+@MainActor
 final class NativeLibraryWarmReturnTests: NativeProofJourney {
     func testLibraryTabReturnsToRetainedRootsAndClearsArtworkCache() throws {
         try journeyNativeLibraryWarmReturn()
@@ -5749,6 +5756,32 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
+    #if os(iOS)
+    func journeyMusicLoadsNextPageWhileScrolling() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let lastAlbumID = try XCTUnwrap(fixture.audioPaginationAlbumID,
+                                       "The music scrolling fixture must exceed the 50-album page.")
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let library = element("audioScreen")
+        let lastAlbum = element("audioItem-\(lastAlbumID)")
+        try waitForExistence(element("audioItem-\(fixture.audioAlbumID)"), timeout: 20, named: "first album page")
+        for _ in 0..<24 where !hasVisibleFrame(lastAlbum) {
+            library.swipeUp(velocity: .fast)
+        }
+        try waitForHittable(lastAlbum, timeout: 15, named: "album beyond the first 50 results")
+        XCTAssertFalse(element("audioLoadMoreButton").exists,
+                       "Scrolling must load the final music page without pressing Load more.")
+        try attachFrame(named: "Music automatically loads albums beyond the first page")
+        try activate(lastAlbum)
+        try waitForExistence(element("musicCollectionScreen"), timeout: 15, named: "automatically loaded album")
+        completed = true
+    }
+    #endif
+
     func journeyCompleteCatalogSupportsFastPosterScrolling() throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -12271,6 +12304,7 @@ private struct ProofFixture: Decodable {
     let episodeCreditsStartSeconds: Double
     let audioAlbumID: String
     let audioAlbumTitle: String
+    let audioPaginationAlbumID: String?
     let audioArtistID: String
     let audioTrackID: String
     let audioTrackTitle: String

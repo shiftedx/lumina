@@ -35,6 +35,8 @@ COLLECTIONS_FIXTURE_ENV = "LUMINA_NATIVE_COLLECTIONS_FIXTURE"
 
 def proof_server_environment(test_class: str) -> dict[str, str]:
     """Return class-scoped faults for disposable native journeys."""
+    if test_class == "NativeMusicCatalogScrollingTests":
+        return {"LUMINA_NATIVE_MUSIC_CATALOGUE": "1"}
     if test_class in {"NativeLibraryCatalogScrollingTests", "NativeTVLibraryAlphabetTests"}:
         return {"LUMINA_NATIVE_PERF_CATALOGUE_COUNT": "120"}
     if test_class == "NativeTVEpisodeRemoteNavigationTests":
@@ -111,6 +113,7 @@ class FixtureBroker:
             environment.pop(REQUESTS_METRICS_ENV, None)
             environment.pop(METADATA_REFRESH_METRICS_ENV, None)
             environment.pop(COLLECTIONS_FIXTURE_ENV, None)
+            environment.pop("LUMINA_NATIVE_MUSIC_CATALOGUE", None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
             environment.update(proof_server_environment(fixture_test_class(key)))
             # Do not retain the server's output: its errors may include the fixture path.

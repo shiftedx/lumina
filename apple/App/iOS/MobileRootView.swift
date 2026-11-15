@@ -589,7 +589,7 @@ private struct ConnectionView: View {
                     .frame(width: 40, height: 25)
                     .luminaBrandMarkBaseline()
                 Text("LUMINA")
-                    .font(LuminaTheme.editorial(28, relativeTo: .title2))
+                    .font(LuminaTheme.heading(28, relativeTo: .title2))
                     .tracking(2.4)
             }
             Text(showManual ? "Sign in" : "Connect")
@@ -2369,7 +2369,7 @@ private struct NativeHomeLayoutEditor: View {
                 Button("Cancel") { dismiss() }.disabled(layout.isSaving)
                     .accessibilityIdentifier("homeLayoutCancelButton")
                 Spacer()
-                Text("Edit Home").font(LuminaTheme.editorial(22, relativeTo: .title3))
+                Text("Edit Home").font(LuminaTheme.heading(22, relativeTo: .title3))
                 Spacer()
                 Button("Done") {
                     Task { if await layout.save(reset ? nil : draft) { dismiss() } }
@@ -4088,7 +4088,7 @@ private struct EpisodeDownloadPicker: View {
                 } header: {
                     HStack {
                         Text(seasons.first { $0.id == seasonID }?.name ?? "Episodes")
-                            .font(LuminaTheme.editorial(26, relativeTo: .title2))
+                            .font(LuminaTheme.heading(26, relativeTo: .title2))
                             .foregroundStyle(LuminaTheme.ink)
                         Spacer()
                         Button(wholeSeasonSelected ? "Deselect season" : "Select whole season") {
@@ -4380,7 +4380,7 @@ private struct MusicCollectionView: View {
     private var collectionBody: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(item.name)
-                .font(LuminaTheme.editorial(34, relativeTo: .largeTitle))
+                .font(LuminaTheme.heading(34, relativeTo: .largeTitle))
                 .accessibilityAddTraits(.isHeader)
             if !item.displaySubtitle.isEmpty {
                 Text(item.displaySubtitle).foregroundStyle(LuminaTheme.muted)
@@ -4428,7 +4428,7 @@ private struct MusicCollectionView: View {
                             .foregroundStyle(LuminaTheme.muted)
                             .frame(minWidth: 24, alignment: .leading)
                         Text(track.name)
-                            .font(LuminaTheme.editorial(18, relativeTo: .body))
+                            .font(LuminaTheme.heading(18, relativeTo: .body))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                         if track.durationSeconds > 0 {
@@ -5614,9 +5614,8 @@ private struct EmptyLibraryView: View {
                 .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityHidden(true)
             Text("Your video library is quiet.")
-                .font(.system(.title2, design: .serif))
+                .font(.title2)
                 .fontWeight(.semibold)
-                .italic()
             Text("Add video to Lumina, then refresh to see it here.")
                 .foregroundStyle(LuminaTheme.muted)
             Button("Refresh", action: onRefresh)

@@ -3480,7 +3480,6 @@ struct TVMessageView: View {
         VStack(spacing: 24) {
             Text(title)
                 .font(TVTypography.sectionTitle)
-                .italic()
                 .foregroundStyle(LuminaTheme.ink)
             Text(message)
                 .font(TVTypography.body)

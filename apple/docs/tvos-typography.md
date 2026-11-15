@@ -1,11 +1,11 @@
 # Lumina tvOS typography
 
-The tvOS interface uses **SF Pro for UI text** and **Newsreader Italic for page and media hero titles**. Official title artwork is still preferred when present; its accessible name remains text. Use the named roles in `TVTypography` rather than choosing a new point size in a screen.
+The tvOS interface uses **SF Pro throughout the interface**. Official title artwork is still preferred when present; its accessible name remains text. Use the named roles in `TVTypography` rather than choosing a new point size in a screen.
 
 | Role | Default | Typeface and weight | Use |
 | --- | ---: | --- | --- |
-| Hero title | 52 pt | Newsreader Italic | Featured Home and Requests titles; movie and series billboards |
-| Page title | 48 pt | Newsreader Italic | Settings and music detail or Now Playing headings |
+| Hero title | 52 pt | SF Pro regular | Featured Home and Requests titles; movie and series billboards |
+| Page title | 48 pt | SF Pro regular | Settings and music detail or Now Playing headings |
 | Section heading | 31 pt | SF Pro semibold | Shelf headings, results headings, settings sections, and empty-state titles |
 | Body and fields | 29 pt | SF Pro regular | Synopsis, guidance, form input, settings labels, and secondary actions |
 | Primary action | 29 pt | SF Pro semibold | Play, Resume, View title, confirmation, and other primary controls |
@@ -14,7 +14,7 @@ The tvOS interface uses **SF Pro for UI text** and **Newsreader Italic for page 
 | Metadata | 23 pt | SF Pro regular | Year, runtime, episode context, counts, format, values, and timestamps |
 | Status | 23 pt | SF Pro semibold | Availability, request state, and short contextual labels |
 
-These are default logical points, not screenshot pixels. SF Pro roles use native text styles, and Newsreader uses relative Dynamic Type styles. Use 29 pt for reading text and reserve 23 pt for short supporting text. Apple’s [typography guidance](https://developer.apple.com/design/human-interface-guidelines/typography) lists 29 pt as the tvOS default and 23 pt as the recommended minimum. Pairing codes use the system monospaced face. System keyboard, alerts, pickers, and AVKit transport retain their platform styles.
+These are default logical points, not screenshot pixels. SF Pro roles use native text styles and scaled system headings. Use 29 pt for reading text and reserve 23 pt for short supporting text. Apple’s [typography guidance](https://developer.apple.com/design/human-interface-guidelines/typography) lists 29 pt as the tvOS default and 23 pt as the recommended minimum. Pairing codes use the system monospaced face. System keyboard, alerts, pickers, and AVKit transport retain their platform styles.
 
 - Keep labels readable at rest. Use focus outlines and selection indicators for navigation state; color alone must not carry status.
 - Give text over artwork a dark backing or gradient. Check both bright and dark artwork.

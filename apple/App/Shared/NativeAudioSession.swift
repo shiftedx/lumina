@@ -48,6 +48,7 @@ final class NativeAudioSession {
     private(set) var message: String?
     private(set) var busy = false
     private(set) var playbackMode = NativeMusicTransport.Mode.streaming
+    private(set) var playbackQuality: MusicPlaybackQuality?
     var compatibility = false { didSet { persistPreferences() } }
     var normalization = true { didSet { configureTransport(); persistPreferences() } }
     var crossfadeSeconds = 0.0 {
@@ -321,6 +322,7 @@ final class NativeAudioSession {
             transport.onTrack = { [weak self, weak model] request, index in
                 guard let self, let model, self.playback === model else { return }
                 model.receiveAudioTrack(request, index: index)
+                self.playbackQuality = nil
                 self.snapshot.currentIndex = index
                 self.snapshot.entryIndex = self.logicalIndex(for: index)
                 self.loadLyrics()
@@ -342,6 +344,10 @@ final class NativeAudioSession {
                 self.enforceSleepDeadline()
             }
             transport.onMode = { [weak self] mode in self?.playbackMode = mode }
+            transport.onQuality = { [weak self, weak model] quality in
+                guard let self, let model, self.playback === model else { return }
+                self.playbackQuality = quality
+            }
             transport.onUnsupportedAudio = { [weak self, weak model, weak transport] in
                 guard let self, let model, let transport, self.playback === model,
                       !self.compatibleAudioIDs.contains(model.request.item.id) else { return }

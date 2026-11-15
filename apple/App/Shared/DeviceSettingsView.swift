@@ -220,7 +220,7 @@ struct LuminaSettingsSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(LuminaTheme.editorial(22, relativeTo: .title3))
+            Text(title).font(LuminaTheme.heading(22, relativeTo: .title3))
                 .accessibilityAddTraits(.isHeader)
             content
         }

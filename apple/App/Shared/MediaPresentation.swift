@@ -451,7 +451,7 @@ struct MediaBillboard<Actions: View>: View {
                     #if os(tvOS)
                     .font(TVTypography.body)
                     #else
-                    .font(LuminaTheme.editorial(18, relativeTo: .body))
+                    .font(LuminaTheme.heading(18, relativeTo: .body))
                     #endif
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
@@ -537,7 +537,7 @@ struct MediaBillboard<Actions: View>: View {
         #if os(tvOS)
         TVTypography.heroTitle
         #else
-        LuminaTheme.editorial((compact ? 34 : 58) * (featured ? 0.75 : 1) * 0.8, relativeTo: .largeTitle, italic: true).weight(.bold)
+        LuminaTheme.heading((compact ? 34 : 58) * (featured ? 0.75 : 1) * 0.8, relativeTo: .largeTitle).weight(.bold)
         #endif
     }
     private var topInset: CGFloat {
@@ -963,7 +963,7 @@ struct MusicCollectionSpotlight: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(item.name)
-                .font(LuminaTheme.editorial(28, relativeTo: .title2))
+                .font(LuminaTheme.heading(28, relativeTo: .title2))
                 .fixedSize(horizontal: false, vertical: true)
             if !item.displaySubtitle.isEmpty {
                 Text(item.displaySubtitle)

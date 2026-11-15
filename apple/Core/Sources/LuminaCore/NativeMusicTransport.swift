@@ -37,6 +37,12 @@ public final class NativeMusicTransport {
     public var onChange: ((State) -> Void)?
     public var onTrack: ((PlaybackRequest, Int) -> Void)?
     public var onMode: ((Mode) -> Void)?
+    public private(set) var quality: MusicPlaybackQuality? {
+        didSet { onQuality?(quality) }
+    }
+    public var onQuality: ((MusicPlaybackQuality?) -> Void)?
+    private var qualityTask: Task<Void, Never>?
+    private var qualityProbeID: ObjectIdentifier?
     public var onUnsupportedAudio: (() -> Void)?
     public var allowsAdvance: ((Int, Int?) -> Bool)?
     public var onBlockedAdvance: ((Int, Int?) -> Void)?
@@ -84,6 +90,7 @@ public final class NativeMusicTransport {
     }
 
     isolated deinit {
+        qualityTask?.cancel()
         if let streamObserver { streaming?.removeTimeObserver(streamObserver) }
         progressiveAssets.values.forEach { $0.cancel() }
     }
@@ -272,6 +279,7 @@ public final class NativeMusicTransport {
     public func stop() { pause(); stopRuntime(); state.finished = true; onChange?(state) }
 
     private func stopRuntime() {
+        qualityTask?.cancel(); qualityTask = nil; qualityProbeID = nil; quality = nil
         generation += 1
         wantsPlayback = false; blockedAdvance = nil; pausedAt = nil; playbackStartsAt = 0
         lastTickState = nil
@@ -317,6 +325,41 @@ public final class NativeMusicTransport {
             length: Double(count) / rate)
         applyGain(index: index, node: 0, envelope: 1)
         nodes[0].play(at: AVAudioTime(hostTime: start))
+        reportDecodedQuality(audio, node: 0)
+    }
+
+    private func reportDecodedQuality(_ audio: PreparedAudio, node: Int) {
+        let bytes = (try? audio.file.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Double.init)
+        let rate = audio.duration > 0 ? bytes.map { $0 * 8 / audio.duration } : nil
+        quality = MusicPlaybackQuality(input: MusicAudioFormat(audio.file.fileFormat, estimatedBitRate: rate),
+            processed: MusicAudioFormat(nodes[node].outputFormat(forBus: 0)))
+    }
+
+    private func reportStreamingQuality(_ item: AVPlayerItem) {
+        let identifier = ObjectIdentifier(item)
+        guard item.status == .readyToPlay, qualityProbeID != identifier else { return }
+        qualityTask?.cancel(); qualityProbeID = identifier; quality = nil
+        let input = progressiveAssets[identifier]
+        qualityTask = Task { [weak self, weak item] in
+            guard let item else { return }
+            do {
+                guard let track = try await item.asset.loadTracks(withMediaType: .audio).first,
+                      let description = try await track.load(.formatDescriptions).first else { return }
+                let format = AVAudioFormat(cmAudioFormatDescription: description)
+                let estimated = (try? await track.load(.estimatedDataRate)).map(Double.init) ?? 0
+                let duration = (try? await item.asset.load(.duration))?.seconds ?? 0
+                let bytes: Int64?
+                if let input { bytes = await input.contentLength() }
+                else if let asset = item.asset as? AVURLAsset, asset.url.isFileURL {
+                    bytes = (try? asset.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+                } else { bytes = nil }
+                let average = duration.isFinite && duration > 0 ? bytes.map { Double($0) * 8 / duration } : nil
+                guard let self, !Task.isCancelled,
+                      self.streaming?.currentItem === item else { return }
+                self.quality = MusicPlaybackQuality(input: MusicAudioFormat(format,
+                    estimatedBitRate: estimated > 0 ? estimated : average), processed: nil)
+            } catch { /* Unknown format metadata must not interrupt playback. */ }
+        }
     }
 
     private func prepareNext() {
@@ -412,6 +455,7 @@ public final class NativeMusicTransport {
                 prepareNext()
             }
             if mode == .progressive { updateProgressiveBuffers(streaming) }
+            if let item = streaming.currentItem { reportStreamingQuality(item) }
             // AVQueuePlayer can remove a failed item before the next clock callback.
             // Retain the current occurrence until its failure has been inspected.
             if (streaming.currentItem ?? currentStreamItem)?.status == .failed {
@@ -442,6 +486,7 @@ public final class NativeMusicTransport {
             retiring = current; current = queued; next = nil
             state.index = queued.index; state.position = 0
             if let request = requests[queued.index] { onTrack?(request, queued.index) }
+            reportDecodedQuality(queued.audio, node: queued.node)
         }
         guard let current else { return }
         let since = now >= current.hostStart ? AVAudioTime.seconds(forHostTime: now - current.hostStart) : 0

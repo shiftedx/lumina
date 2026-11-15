@@ -39,9 +39,6 @@ targets:
       - path: Resources/GoogleCast
         excludes: [README.md, SHA256SUMS]
         buildPhase: resources
-      - path: Fonts
-        excludes: [README.md]
-        buildPhase: resources
     dependencies:
       - package: LuminaCore
       - package: GoogleCast
@@ -67,9 +64,6 @@ targets:
       - path: Assets/LuminaMediaIcons.xcassets
       - path: Assets/tvOS.xcassets
       - path: Notices
-        buildPhase: resources
-      - path: Fonts
-        excludes: [README.md]
         buildPhase: resources
     dependencies:
       - package: LuminaCore

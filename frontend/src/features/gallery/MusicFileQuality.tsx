@@ -1,4 +1,4 @@
-import { AudioLines, ChevronDown } from '../../luminaIcons';
+import { ChevronDown } from '../../luminaIcons';
 import type { AlbumAudioQuality, FileAudioQuality } from '../../types';
 
 export function audioCodec(codec: string): string {
@@ -20,10 +20,10 @@ export function fileQualityLabel(quality: FileAudioQuality): string {
     audioBitrate(quality.bitrate_kbps)].filter(Boolean).join(' · ');
 }
 
-function albumFormat(quality: AlbumAudioQuality): string {
+function albumFormat(quality: AlbumAudioQuality, showPartial = true): string {
   const format = quality.codecs.length > 1 ? `Mixed formats · ${quality.codecs.map(audioCodec).join(' + ')}` : quality.codecs[0] ? audioCodec(quality.codecs[0]) : 'Format unavailable';
   const resolution = audioResolution(quality.codecs.length > 1 ? [] : quality.bit_depths, quality.sample_rates);
-  return [format, resolution, !quality.formats_complete && quality.codecs.length ? 'Partial file metadata' : null].filter(Boolean).join(' · ');
+  return [format, resolution, showPartial && !quality.formats_complete && quality.codecs.length ? 'Partial file metadata' : null].filter(Boolean).join(' · ');
 }
 
 export function albumQualityLabel(quality: AlbumAudioQuality): string {
@@ -34,9 +34,9 @@ export function AlbumCardQuality({ quality }: { quality: AlbumAudioQuality }) {
   return <span className="g-album-card-quality"><span>{albumFormat(quality)}</span><span>{audioBitrate(quality.bitrate_kbps)}{quality.bitrate_kbps ? ' avg' : ''}</span></span>;
 }
 
-export function AlbumFileQuality({ quality }: { quality: AlbumAudioQuality }) {
+export function AlbumFileQuality({ quality, label = 'Source file details' }: { quality: AlbumAudioQuality; label?: string }) {
   return <details className="g-album-file-quality">
-    <summary><AudioLines aria-hidden="true" /><span><span>{albumFormat(quality)}</span><span>{audioBitrate(quality.bitrate_kbps)}{quality.bitrate_kbps ? ' avg' : ''} · Source files</span></span><ChevronDown aria-hidden="true" /></summary>
+    <summary aria-label={`${label}: ${albumQualityLabel(quality)}`} data-focus-item><span className="g-quality-format">{albumFormat(quality, false)}</span><span className="g-quality-rate">{quality.bitrate_kbps ? audioBitrate(quality.bitrate_kbps) : 'Details'}<ChevronDown aria-hidden="true" /></span></summary>
     <div className="g-album-file-facts">
       <dl>
         <div><dt>Format</dt><dd>{quality.codecs.map(audioCodec).join(' + ') || 'Unavailable'}</dd></div>

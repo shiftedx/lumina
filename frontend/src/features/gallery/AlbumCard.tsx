@@ -12,7 +12,7 @@ import { cardColour, countNoun } from './galleryModel';
 import type { LoadPriority } from './imageLoader';
 import { useIntentPrefetch } from './PosterCard';
 import { rememberSummary } from './titleCache';
-import { AlbumCardQuality, albumQualityLabel } from './MusicFileQuality';
+import { AlbumCardQuality, AlbumFileQuality, albumQualityLabel } from './MusicFileQuality';
 import './music.css';
 
 export type AlbumCardProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'onClick' | 'title' | 'type'> & {
@@ -26,7 +26,7 @@ export type AlbumCardProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'chil
   sizes: string;
   /** Album: title and "Artist · 2019"; artist: name and "4 albums". False on phone. */
   caption?: boolean;
-  /** False on the artist's own page, where an album's byline is its year alone. */
+  /** False on the artist page: title/year align above an independent file-quality disclosure. */
   showArtist?: boolean;
 };
 
@@ -51,7 +51,7 @@ export function AlbumCard({ title, onOpen, priority, enabled = true, position = 
     <button
       {...button}
       aria-label={albumLabel(title)}
-      className={`g-poster g-album${className ? ` ${className}` : ''}`}
+      className={`g-poster g-album${!showArtist ? ' has-aligned-caption' : ''}${className ? ` ${className}` : ''}`}
       onBlur={(event) => { intent.cancel(); onBlur?.(event); }}
       onClick={() => { rememberSummary(title); onOpen(title); }}
       onFocus={(event) => { intent.start(); onFocus?.(event); }}
@@ -60,8 +60,9 @@ export function AlbumCard({ title, onOpen, priority, enabled = true, position = 
       type="button"
     >
       <GalleryArt alt="" art={title.poster} card={{ name: title.name, year: title.type === 'album' ? title.year : null }} colour={cardColour(title, 'square')} enabled={enabled} kind="square" position={position} priority={priority} sizes={sizes} />
-      {caption ? <span aria-hidden="true" className="g-caption"><span className="g-caption-title">{title.name}</span>{byline ? <span className="g-caption-year">{byline}</span> : null}{title.type === 'album' && title.audio_quality ? <AlbumCardQuality quality={title.audio_quality} /> : null}</span> : null}
+      {caption ? <span aria-hidden="true" className="g-caption">{!showArtist ? <span className="g-caption-title-row"><span className="g-caption-title">{title.name}</span>{byline ? <span className="g-caption-year">{byline}</span> : null}</span> : <><span className="g-caption-title">{title.name}</span>{byline ? <span className="g-caption-year">{byline}</span> : null}</>}{showArtist && title.type === 'album' && title.audio_quality ? <AlbumCardQuality quality={title.audio_quality} /> : null}</span> : null}
     </button>
+    {caption && !showArtist && title.type === 'album' && title.audio_quality ? <AlbumFileQuality label={`File details for ${title.name}`} quality={title.audio_quality} /> : null}
     <ArtMenu subject={{ kind: 'title', title }} />
     </ArtHost>
   );

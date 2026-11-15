@@ -49,8 +49,14 @@ it('surfaces source quality on an artist album card and names mixed or partial m
   const album = albumSummary('mixed-album', { audio_quality: { track_count: 8, codecs: ['aac', 'flac'], bit_depths: [24], sample_rates: [44100, 96000], bitrate_kbps: 1468, formats_complete: true } });
   const view = render(<AlbumCard onOpen={onOpen} priority={2} showArtist={false} sizes="200px" title={album} />);
   expect(screen.getByText(/Mixed formats · AAC \+ FLAC/)).toBeTruthy();
-  expect(screen.getByText('1,468 kbps avg')).toBeTruthy();
-  await userEvent.click(screen.getByRole('button', { name: /Mixed formats/ }));
+  const disclosure = screen.getByLabelText(/File details for Album One/);
+  expect(disclosure.textContent).toContain('1,468 kbps');
+  await userEvent.click(disclosure);
+  expect(disclosure.parentElement?.hasAttribute('open')).toBe(true);
+  expect(screen.getByText('Average bitrate')).toBeTruthy();
+  expect(onOpen).not.toHaveBeenCalled();
+  await userEvent.click(disclosure);
+  await userEvent.click(screen.getByRole('button', { name: /^Album One by Artist A/ }));
   expect(onOpen).toHaveBeenCalledWith(album);
   view.rerender(<AlbumCard onOpen={onOpen} priority={2} sizes="200px" title={{ ...album, audio_quality: { ...album.audio_quality!, bitrate_kbps: null, formats_complete: false } }} />);
   expect(screen.getByText(/Partial file metadata/)).toBeTruthy();

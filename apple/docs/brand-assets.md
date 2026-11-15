@@ -12,7 +12,7 @@ This is the shared identity contract for Lumina's web, iOS, and tvOS surfaces. I
 
 The native generator's `#D2A875` sunrise and `#111112` charcoal literals are **generator inputs**, not replacement canonical values. Its explicitly sRGB bitmap context transforms them into the approved rendered `#DBB688`/`#151517` output. Do not “correct” those literals or regenerate icons merely to make the source text match the rendered values; compare generated pixels with the approved assets first.
 
-Native iOS and tvOS interface text uses the system SF Pro family, including page titles and wordmarks. Publisher book typography and user-selected subtitle fonts remain content preferences. The website retains its existing typography.
+Native iOS and tvOS interface text uses the system SF Pro family, including page titles and wordmarks. Publisher book typography and user-selected subtitle fonts remain content preferences. The website retains its existing typography outside the music artist and album detail views. Those views use the shared system sans-serif stack for the approved Artwork atmosphere layout, including headings, album captions and track names.
 
 For tvOS interface fonts and point sizes, see the [tvOS typography matrix](tvos-typography.md).
 

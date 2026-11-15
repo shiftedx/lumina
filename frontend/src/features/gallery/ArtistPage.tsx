@@ -1,16 +1,16 @@
 /**
- * The artist page: the artist image and kicker, Play all and Shuffle all over every album
+ * The artist page: portrait and artist details beside the artwork-led album gallery. Play all and Shuffle all queue every album
  * in page order, and a grid of the artist's albums, newest first as served. GalleryTitlePage renders it for an
  * artist.
  */
-import { type KeyboardEvent, type Ref, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, type Ref, useState } from 'react';
 import { ChevronLeft, Play, Shuffle, Pencil } from '../../luminaIcons';
 
 import type { TitleDetail, TitleSummary } from '../../types';
 import { AlbumCard } from './AlbumCard';
 import { setAlbumQueue, shuffled } from './albumQueue';
 import { GalleryArt } from './GalleryArt';
-import { cardColour, countNoun } from './galleryModel';
+import { cardColour, countNoun, safeColour } from './galleryModel';
 import { loadTitle } from './titleCache';
 import { useMediaQuery } from './WallGrid';
 import './music.css';
@@ -67,34 +67,34 @@ export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onK
   }
 
   return (
-    <div className={`gallery g-artist-page soundstage-artist${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown}>
+    <div className={`gallery g-artist-page soundstage-artist${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--music-cover-colour': safeColour(artist.poster?.dominant) ?? 'var(--g-paper-2)' } as CSSProperties}>
       <button aria-label={`Back to ${backLabel}`} className="g-back g-label" data-focus-item onClick={onBack} type="button"><ChevronLeft aria-hidden="true" /> {backLabel}</button>
       <div className="soundstage-layout">
         <aside aria-label={`${artist.name} portrait`} className="soundstage-portrait">
-          <GalleryArt alt="" art={artist.poster} card={{ name: artist.name }} colour={cardColour(artist, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1023px) 32vw, 520px" />
+          <GalleryArt alt="" art={artist.poster} card={{ name: artist.name }} colour={cardColour(artist, 'square')} kind="square" priority={1} sizes="(max-width: 899px) 380px, 360px" />
           {detail?.music?.origin ? <p className="soundstage-origin">{detail.music.origin}</p> : null}
           <ArtistPhotoCredit music={detail?.music} />
+          <header className="g-artist-text">
+            <h1 className="soundstage-title" ref={headingRef} tabIndex={-1}>{artist.name}</h1>
+            <p className="g-label">{kicker}</p>
+            <div className="g-album-actions" data-focus-row>
+              <button className="g-button is-primary g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(false)} type="button"><Play aria-hidden="true" /> Play all</button>
+              <button className="g-button g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(true)} type="button"><Shuffle aria-hidden="true" /> Shuffle all</button>
+              {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(artist.id)} type="button"><Pencil aria-hidden="true" /> Edit artist</button> : null}
+            </div>
+            {artist.overview ? <div className="music-biography"><p aria-hidden="true" className="music-biography-preview">{artist.overview}</p><details><summary>About the artist</summary><p>{artist.overview}</p></details></div> : null}
+            {detail?.music?.biography_url ? <p className="music-note"><a href={detail.music.biography_url} rel="noreferrer noopener" target="_blank">Biography from Wikipedia</a></p> : null}
+            {artist.genres.length ? <p className="soundstage-genres">{artist.genres.join(' · ')}</p> : null}
+            {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
+          </header>
         </aside>
         <div className="soundstage-content">
-        <header className="g-artist-text">
-          <p className="g-label">{kicker}</p>
-          <h1 className="soundstage-title" ref={headingRef} tabIndex={-1}>{artist.name}</h1>
-          {artist.overview ? <p className="soundstage-biography">{artist.overview}</p> : null}
-          {detail?.music?.biography_url ? <p className="music-note"><a href={detail.music.biography_url} rel="noreferrer noopener" target="_blank">Biography from Wikipedia</a></p> : null}
-          {artist.genres.length ? <p className="soundstage-genres">{artist.genres.join(' · ')}</p> : null}
-          <div className="g-album-actions" data-focus-row>
-            <button className="g-button is-primary g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(false)} type="button"><Play aria-hidden="true" /> Play all</button>
-            <button className="g-button g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(true)} type="button"><Shuffle aria-hidden="true" /> Shuffle all</button>
-            {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(artist.id)} type="button"><Pencil aria-hidden="true" /> Edit artist</button> : null}
-          </div>
-          {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
-        </header>
         <div className="soundstage-records">
       {albums === null ? null : albums.length ? (
         <section aria-labelledby="g-artist-albums" className="g-artist-albums">
           <h2 className="g-chapter" id="g-artist-albums">Albums <span className="g-label">{albums.length}</span></h2>
           <ul className="g-album-grid" data-focus-row>
-            {albums.map((album, index) => <li key={album.id}><AlbumCard data-focus-item onOpen={onOpenTitle} position={index} priority={2} showArtist={false} sizes="(max-width: 599px) 33vw, 200px" title={album} /></li>)}
+            {albums.map((album, index) => <li key={album.id}><AlbumCard data-focus-item onOpen={onOpenTitle} position={index} priority={2} showArtist={false} sizes="(max-width: 599px) calc(100vw - 48px), (max-width: 899px) 45vw, 480px" title={album} /></li>)}
           </ul>
         </section>
       ) : <p className="g-album-note">Nothing by this artist is available right now.</p>}

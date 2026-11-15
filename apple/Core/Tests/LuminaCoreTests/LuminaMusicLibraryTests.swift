@@ -9,6 +9,38 @@ final class LuminaMusicLibraryTests: XCTestCase {
         MusicURLProtocol.handler = nil
     }
 
+    func testCollectionFileQualityUsesOneNativeReadAndSeparatesMixedAndUnknownFacts() async throws {
+        let requests = MusicRequests()
+        let library = library()
+        library.configure(session: session())
+        let album: [String: Any] = ["track_count": 2, "codecs": ["aac", "flac"], "bit_depths": [24],
+            "sample_rates": [44100, 96000], "bitrate_kbps": 1028, "formats_complete": true]
+        MusicURLProtocol.handler = { transport in
+            requests.append(transport.request)
+            transport.respond(["album": album, "albums": ["native-album": album, "partial-album": ["track_count": 2, "codecs": ["flac"], "bit_depths": [24], "sample_rates": [96000], "bitrate_kbps": NSNull(), "formats_complete": false]], "tracks": [
+                "native-track": ["codec": "flac", "bitrate_kbps": 1800, "bit_depth": 24, "sample_rate": 96000],
+                "unknown-track": ["codec": NSNull(), "bitrate_kbps": NSNull(), "bit_depth": NSNull(), "sample_rate": NSNull()]]])
+        }
+        let result = try await library.fileQuality(for: "native-album")
+        XCTAssertEqual(requests.all.count, 1)
+        XCTAssertEqual(requests.all[0].url?.path, "/Lumina/Music/titles/native-album/quality")
+        XCTAssertEqual(requests.all[0].httpMethod, "GET")
+        XCTAssertTrue(requests.all[0].value(forHTTPHeaderField: "Authorization")?.contains("Token=\"music-test-token-alice\"") == true)
+        XCTAssertTrue(result.albums["partial-album"]?.formatSummary.contains("Partial file metadata") == true)
+        XCTAssertEqual(result.albums["partial-album"]?.bitrateSummary, "Bitrate unavailable")
+        XCTAssertEqual(result.album?.codecs, ["aac", "flac"])
+        XCTAssertEqual(result.albums["native-album"]?.sampleRates, [44100, 96000])
+        XCTAssertTrue(result.album?.formatSummary.contains("Mixed formats") == true)
+        XCTAssertFalse(result.album?.formatSummary.contains("24-bit") == true, "A mixed AAC/FLAC album must not imply every track is 24-bit")
+        XCTAssertEqual(result.tracks["native-track"]?.bitDepth, 24)
+        XCTAssertEqual(result.tracks["native-track"]?.bitrateKbps, 1800)
+        XCTAssertTrue(result.tracks["native-track"]?.summary.contains("96 kHz") == true)
+        XCTAssertEqual(result.tracks["unknown-track"]?.summary, "Format unavailable · Bitrate unavailable")
+        MusicURLProtocol.handler = { $0.respond([:], status: 404) }
+        do { _ = try await library.fileQuality(for: "native-album"); XCTFail("Old-server availability must remain distinguishable from file quality") }
+        catch MusicAPIError.http(let status) { XCTAssertEqual(status, 404) }
+    }
+
     func testPlaylistCreateRefreshesSmartListsAndSurfacesRevisionAndOwnerErrors() async throws {
         let requests = MusicRequests()
         let library = library()

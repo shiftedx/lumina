@@ -11,6 +11,7 @@
 		018BCDC4C4249F4ADDA89769 /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 91193C60B39E98FA6332ED6A /* LuminaCore */; };
 		03EEBCB2BF01A87B568C6149 /* GoogleCastNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 6093A778C97EC805E77CEFF8 /* GoogleCastNotices.txt */; };
 		0504DB85CFD9BB123C8A2685 /* CastRequestAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8754CAA4FEF3446D210609D1 /* CastRequestAwaiter.swift */; };
+		0EE258C5E5FBDE47FEADBCFB /* NativeMusicFileQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = E837B6F21FC276631A5101FA /* NativeMusicFileQuality.swift */; };
 		107C0C096ADB400C94C2FCBD /* GoogleSansBold.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 8771476AFC629E08564F4F23 /* GoogleSansBold.bundle */; };
 		11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		17E1BC6B6D28688D68D12D3B /* LuminaMediaIcons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FFD5E1F5785018A9E72B1FC6 /* LuminaMediaIcons.xcassets */; };
@@ -49,6 +50,7 @@
 		7AADFE0CF515C62B11270709 /* QueuePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACC561F4F7F700F23190053 /* QueuePresentation.swift */; };
 		7E57656D52C553086482A864 /* MusicTimelineSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94848C088786263CC1C9FC8D /* MusicTimelineSlider.swift */; };
 		7F717D172FB4056DA14D3917 /* QueuePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACC561F4F7F700F23190053 /* QueuePresentation.swift */; };
+		811F7E184F2618909019E5E0 /* NativeMusicFileQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = E837B6F21FC276631A5101FA /* NativeMusicFileQuality.swift */; };
 		8206E66CCFC9D02DCDC3C5C9 /* NativeAudioLyrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */; };
 		8B7032E2E35B8FB0A4118862 /* LuminaMediaIcons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FFD5E1F5785018A9E72B1FC6 /* LuminaMediaIcons.xcassets */; };
 		8B74E6061DDF6554EF33B879 /* NativeAudioLyrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */; };
@@ -170,6 +172,7 @@
 		D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSettingsView.swift; sourceTree = "<group>"; };
 		DC06E868B79D3D0A996963C8 /* NativeMediaAbout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaAbout.swift; sourceTree = "<group>"; };
 		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
+		E837B6F21FC276631A5101FA /* NativeMusicFileQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicFileQuality.swift; sourceTree = "<group>"; };
 		EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountSettingsView.swift; sourceTree = "<group>"; };
 		EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackDiagnostics.swift; sourceTree = "<group>"; };
 		F1C8E5BC9779879C7362257E /* NativeMusicAirPlayButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicAirPlayButton.swift; sourceTree = "<group>"; };
@@ -260,6 +263,7 @@
 				46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */,
 				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
 				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
+				E837B6F21FC276631A5101FA /* NativeMusicFileQuality.swift */,
 				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
 				A3640EBFF7724B2754322126 /* NativeRemotePlayer.swift */,
 				EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */,
@@ -617,6 +621,7 @@
 				8206E66CCFC9D02DCDC3C5C9 /* NativeAudioLyrics.swift in Sources */,
 				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
 				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
+				811F7E184F2618909019E5E0 /* NativeMusicFileQuality.swift in Sources */,
 				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
 				6B2C8EE7A521B9E2DDA0321C /* NativeRemotePlayer.swift in Sources */,
 				FBB930AA525BD4B5D3863447 /* PlaybackDiagnostics.swift in Sources */,
@@ -656,6 +661,7 @@
 				35EAE0A2C947B2332D3EAF7F /* NativeMetadataEditor.swift in Sources */,
 				5F1BFB9E8D7F345739B01208 /* NativeMusicAirPlayButton.swift in Sources */,
 				DF70A83102C482A30F51A6DC /* NativeMusicCasting.swift in Sources */,
+				0EE258C5E5FBDE47FEADBCFB /* NativeMusicFileQuality.swift in Sources */,
 				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,
 				A7C80413AEF1649CBA55A8C1 /* NativeRemotePlayer.swift in Sources */,
 				FFE152FE4201A2D038064057 /* NativeRequestsView.swift in Sources */,

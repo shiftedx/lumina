@@ -153,9 +153,11 @@ def test_opt_in_revocation_and_browser_credentials_do_not_cross_boundary(native)
     with db_module.SessionLocal.begin() as db:
         db.delete(db.scalar(select(DeviceToken).where(DeviceToken.token_digest == session_digest(ALICE_TOKEN))))
     assert call(native, "GET", "/session").status_code == 401
+    assert call(native, "GET", f"/titles/{ALBUM}/quality").status_code == 401
     with db_module.SessionLocal.begin() as db:
         db.scalar(select(AppSettings)).jellyfin_enabled = False
     assert call(native, "GET", "/playlists", token=BOB_TOKEN).status_code == 404
+    assert call(native, "GET", f"/titles/{ALBUM}/quality", token=BOB_TOKEN).status_code == 404
 
 
 def test_sonos_uses_acknowledged_handoff_owner_control_and_revoke(native, monkeypatch):  # noqa: ANN001
@@ -184,3 +186,34 @@ def test_sonos_uses_acknowledged_handoff_owner_control_and_revoke(native, monkey
     assert_native_track(conflict.json()["detail"]["session"]["queue"][0])
     assert call(native, "POST", f"/cast/{ticket}/control", json={"action": "stop"}).status_code == 200
     assert call(native, "GET", f"/cast/{ticket}/status").status_code == 404
+
+
+def test_native_collection_quality_reuses_visible_weighted_source_facts(native):  # noqa: ANN001
+    from app.models import LibraryItemArtifact, MediaArtifact
+
+    with db_module.SessionLocal.begin() as db:
+        for item_id, duration, codec, depth, rate, bitrate in [
+            (ONE, 100, "flac", 24, 96000, 1800000), (TWO, 300, "aac", 32, 44100, 256000),
+            (HIDDEN, 100, "hidden", 64, 192000, 99000000),
+        ]:
+            db.get(LibraryItem, item_id).duration = duration
+            artifact = db.scalar(select(MediaArtifact).join(LibraryItemArtifact, LibraryItemArtifact.artifact_id == MediaArtifact.id).where(LibraryItemArtifact.library_item_id == item_id))
+            artifact.probe = {"audio_codec": codec, "streams": [{"type": "audio", "codec": codec, "sample_rate": rate, "bit_depth": depth, "bit_rate": bitrate}]}
+    album = call(native, "GET", f"/titles/{jellyfin_id(ALBUM)}/quality")
+    assert album.status_code == 200
+    quality = album.json()
+    assert quality["album"] == {"track_count": 2, "codecs": ["aac", "flac"], "bit_depths": [24], "sample_rates": [44100, 96000], "bitrate_kbps": 642, "formats_complete": True}
+    assert set(quality["tracks"]) == {jellyfin_id(ONE), jellyfin_id(TWO)}
+    assert quality["tracks"][jellyfin_id(ONE)]["bit_depth"] == 24
+    assert quality["tracks"][jellyfin_id(TWO)]["bit_depth"] is None
+    artist = call(native, "GET", f"/titles/{ARTIST}/quality").json()
+    assert artist["albums"] == {jellyfin_id(ALBUM): quality["album"]}
+    assert artist["album"] is None and artist["tracks"] == {}
+    assert call(native, "GET", f"/titles/{ALBUM}/quality", token=None).status_code == 401
+    assert call(native, "GET", f"/titles/{ONE}/quality").status_code == 404
+    assert call(native, "GET", f"/titles/{uid(999999)}/quality").status_code == 404
+    with db_module.SessionLocal.begin() as db:
+        for item_id in (ONE, TWO):
+            db.get(LibraryItem, item_id).visibility = "private"
+            db.get(LibraryItem, item_id).user_id = BOB
+    assert call(native, "GET", f"/titles/{ALBUM}/quality").status_code == 404

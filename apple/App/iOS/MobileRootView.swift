@@ -4323,6 +4323,7 @@ private struct MusicCollectionView: View {
     let store: LuminaStore
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var children: [MediaItem] = []
+    @State private var fileQuality: MusicCollectionFileQuality?
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var albumPlayback: PlaybackModel?
@@ -4388,6 +4389,9 @@ private struct MusicCollectionView: View {
             if let overview = item.overview, !overview.isEmpty {
                 Text(overview).font(.body)
             }
+            if let quality = fileQuality?.album {
+                NativeAlbumFileQuality(quality: quality)
+            }
             if children.contains(where: \.isAudio) {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) { albumActions }
@@ -4412,7 +4416,7 @@ private struct MusicCollectionView: View {
             } else if item.type == "MusicAlbum", children.allSatisfy(\.isAudio) {
                 albumTracks
             } else {
-                MusicGrid(items: children, store: store, identifierPrefix: "musicItem")
+                MusicGrid(items: children, store: store, identifierPrefix: "musicItem", fileQuality: fileQuality?.albums ?? [:])
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4427,10 +4431,15 @@ private struct MusicCollectionView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(LuminaTheme.muted)
                             .frame(minWidth: 24, alignment: .leading)
-                        Text(track.name)
-                            .font(LuminaTheme.heading(18, relativeTo: .body))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(track.name)
+                                .font(LuminaTheme.heading(18, relativeTo: .body))
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let quality = fileQuality?.tracks[track.id] {
+                                NativeTrackFileQuality(quality: quality)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         if track.durationSeconds > 0 {
                             Text(Duration.seconds(track.durationSeconds).formatted(.time(pattern: .minuteSecond)))
                                 .font(.caption.monospacedDigit())
@@ -4448,7 +4457,7 @@ private struct MusicCollectionView: View {
                 .disabled(preparingPlayback || audioSession.busy)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: track))
-                .accessibilityValue(track.durationSeconds > 0 ? Duration.seconds(track.durationSeconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide)) : "")
+                .accessibilityValue([track.durationSeconds > 0 ? Duration.seconds(track.durationSeconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide)) : "", fileQuality?.tracks[track.id]?.summary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
                 .accessibilityIdentifier("musicItem-\(track.id)")
             }
         }
@@ -4510,7 +4519,16 @@ private struct MusicCollectionView: View {
         loading = true
         errorMessage = nil
         defer { loading = false }
-        do { children = try await store.musicChildren(of: item) }
+        async let quality = try? await store.music.fileQuality(for: item.id)
+        do {
+            let loaded = try await store.musicChildren(of: item)
+            guard !Task.isCancelled else { return }
+            children = loaded
+            loading = false
+            let facts = await quality
+            guard !Task.isCancelled else { return }
+            fileQuality = facts
+        }
         catch { errorMessage = "This music collection could not load. Check your connection and try again." }
     }
 }
@@ -4520,6 +4538,7 @@ private struct MusicGrid: View {
     let items: [MediaItem]
     let store: LuminaStore
     let identifierPrefix: String
+    var fileQuality: [String: MusicAlbumFileQuality] = [:]
     var onItemAppear: (MediaItem) -> Void = { _ in }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var widthClass
@@ -4542,6 +4561,7 @@ private struct MusicGrid: View {
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: item))
+                .accessibilityValue(fileQuality[item.id]?.accessibilitySummary ?? "")
                 .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                 .onAppear {
                     lastVisibleItemID = item.id
@@ -4569,8 +4589,13 @@ private struct MusicGrid: View {
     }
 
     private func card(_ item: MediaItem) -> some View {
-        MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix,
-                  loadFraming: { await store.artworkFraming(for: $0) })
+        VStack(alignment: .leading, spacing: 8) {
+            MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix,
+                      loadFraming: { await store.artworkFraming(for: $0) })
+            if let quality = fileQuality[item.id] {
+                NativeAlbumFileQualityCaption(quality: quality)
+            }
+        }
     }
 
     private func playTrack(_ item: MediaItem) {

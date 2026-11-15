@@ -210,7 +210,7 @@ struct NativeAudioOptions: View {
 }
 
 /// Keep the expansion action and accessibility identity on the heading button alone.
-private struct NativeAudioDisclosure<Content: View>: View {
+struct NativeAudioDisclosure<Content: View>: View {
     let title: String
     let identifier: String
     let focusRequest: Int?

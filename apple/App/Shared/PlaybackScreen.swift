@@ -942,7 +942,7 @@ struct PlaybackScreen: View {
     private func phoneAudioStage(in geometry: GeometryProxy) -> some View {
         let top: CGFloat = 8
         // Reserve room for metadata and transport before assigning space to the cover.
-        let side = max(120, min(geometry.size.width - 48, geometry.size.height - top - 420))
+        let side = max(120, min(geometry.size.width - 48, geometry.size.height - top - 444))
         return ScrollView {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {

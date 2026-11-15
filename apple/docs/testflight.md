@@ -828,3 +828,37 @@ and What to Test. A validated signed copy is staged in Xcode Archives for
 November 14. Owned disposable build caches and the dedicated proof simulator and
 fixture broker were removed; all prior packages remain preserved. This later
 release record changes documentation only; the binary source revision is above.
+
+
+### tvOS follow-up for general TestFlight build 58, 2026-11-14
+
+**tvOS 0.1.0 (58) is distribution-signed and selected in Xcode Organizer for the
+owner to upload.** iOS 58 remains preserved and staged separately, so both
+platforms have a signed SF Pro package. Select **Lumina tvOS 0.1.0 (58) — Signed
+for Upload** and Distribute App. Keep Internal Only disabled and retain build
+number 58. No upload or server deployment occurred during this operation.
+
+The TV binary uses clean merged main `4365848e1a9230594c7d472e691263de1361e7fb`.
+All native runtime inputs match signed iOS 58 byte for byte; only the release
+documentation differs from its recorded source. This includes the app-wide SF Pro
+change from [PR #324](https://github.com/shiftedx/lumina/pull/324). The established
+TV player layout remains; the standard-iPhone retouch is iOS-specific. PrismCore
+and the native dependency locks are unchanged.
+
+The Release device archive, signed IPA, signed Organizer reference and staged
+copy passed identity/version, TV device-family, artwork/top-shelf/privacy,
+fixture exclusion, signatures and matching executable/dSYM checks. All 990
+source-input hashes stayed unchanged through archive/export. The IPA has no
+Newsreader resource. Both signing/framework-stub safeguards passed; the matching
+runtime's successful tvOS simulator build evidence is retained. No full suite,
+new TV UI workflow or physical Apple TV/receiver qualification ran. Local signing
+does not establish Apple upload acceptance, processing, review or tester access.
+
+Preserve ignored `apple/Distribution/0.1.0-58-tvOS/`: signed IPA, original source
+and signed Organizer archives, matching symbols, source snapshot/input hashes,
+manifest/checksums, validation/export logs, qualification and What to Test. A
+validated signed copy is staged in Xcode Archives for November 14, with version
+58, the signing team and Distribute App visibly available. Checksums for both the
+new TV package and the existing iOS 58 package passed. The owned TV build cache
+was removed; all prior packages remain preserved. This release record changes
+documentation only; the TV binary source revision is above.

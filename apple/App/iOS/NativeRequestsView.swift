@@ -331,7 +331,7 @@ struct NativeRequestsView: View {
                                       maximumWidth: compact ? 280 : 440,
                                       maximumHeight: compact ? 88 : 140) {
                         Text(item.title)
-                            .font(LuminaTheme.editorial(compact ? 32 : 46, relativeTo: .largeTitle, italic: true))
+                            .font(LuminaTheme.heading(compact ? 32 : 46, relativeTo: .largeTitle))
                             .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                     }
                 }.buttonStyle(.plain).accessibilityLabel(item.title).accessibilityIdentifier("requestDetails-\(item.id)")
@@ -458,7 +458,7 @@ private struct RequestDetailSheet: View {
                             LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
                             MediaTitleArtwork(name: current.title, url: current.logoURL) {
                                 Text(current.title)
-                                    .font(LuminaTheme.editorial(38, relativeTo: .largeTitle, italic: true))
+                                    .font(LuminaTheme.heading(38, relativeTo: .largeTitle))
                             }
                             .padding(.vertical, 24)
                             .padding(.leading, 24 + geometry.safeAreaInsets.leading)

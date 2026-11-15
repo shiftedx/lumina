@@ -28,7 +28,7 @@ struct NativeAccountSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text("Settings").font(LuminaTheme.editorial(36, relativeTo: .largeTitle)).fixedSize(horizontal: true, vertical: false)
+                    Text("Settings").font(LuminaTheme.heading(36, relativeTo: .largeTitle)).fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 12)
                     Text(store.session?.username ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }

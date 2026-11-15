@@ -97,7 +97,7 @@ struct NativeAudioLyrics: View {
     }
 
     private func cueFont(_ index: Int) -> Font {
-        prominent ? .largeTitle.bold() : LuminaTheme.editorial(index == activeCue ? 28 : 24, relativeTo: .body)
+        prominent ? .largeTitle.bold() : LuminaTheme.heading(index == activeCue ? 28 : 24, relativeTo: .body)
     }
 
     private func cueColor(_ index: Int) -> Color {

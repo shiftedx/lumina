@@ -1,11 +1,11 @@
-# Bundled Newsreader fonts
+# Historical Newsreader fonts
 
-The native iOS and tvOS apps use the same Newsreader Latin variable fonts as the web gallery. These TrueType files are lossless decompressions of the existing repository assets:
+The native iOS and tvOS apps now use the system SF Pro family app-wide. These historical files are retained for provenance and are not bundled or registered by either native target. The web gallery retains Newsreader. These TrueType files are lossless decompressions of the existing repository assets:
 
 - `frontend/public/fonts/Newsreader-Latin-variable.woff2` → `apple/Fonts/Newsreader-Latin-variable.ttf`
 - `frontend/public/fonts/Newsreader-Italic-Latin-variable.woff2` → `apple/Fonts/Newsreader-Italic-Latin-variable.ttf`
 
-The conversion changes the web-font container to an uncompressed TrueType container; it does not redraw outlines, rename the font, or create static weight instances. The original PostScript names remain `Newsreader-16ptRegular` and `Newsreader-16ptItalic`, which `LuminaTheme.editorial` selects with native text-size scaling.
+The conversion changes the web-font container to an uncompressed TrueType container; it does not redraw outlines, rename the font, or create static weight instances. The original PostScript names remain `Newsreader-16ptRegular` and `Newsreader-16ptItalic`, formerly selected by the native editorial headings.
 
 To reproduce from the repository root with Python and `fontTools[woff]` installed:
 
@@ -20,6 +20,6 @@ for name in ("Newsreader-Latin-variable", "Newsreader-Italic-Latin-variable"):
     font.close()
 ```
 
-Both files are application resources registered through `UIAppFonts` in `apple/Config/Info.plist` for iOS and tvOS. They are Latin subsets; Core Text uses system fallback fonts for glyphs outside their coverage. This does not claim identical glyph coverage or layout across platforms.
+SF Pro comes from the operating system; no downloaded font or custom registration is needed. Publisher typography inside books and user-selected subtitle fonts remain content preferences.
 
 `OFL.txt` is included unchanged from `frontend/public/fonts/OFL.txt`. Newsreader remains under the SIL Open Font License recorded there. Keep that license with redistributed font resources. No network font download is required by the app.

@@ -11,16 +11,22 @@ final class NativeMusicTransportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.url) }
         let tracks = [fixture.track, fixture.track]
         var occurrences: [Int] = []
+        var formats: [MusicPlaybackQuality] = []
         let transport = transport(tracks: tracks, url: fixture.url)
         defer { transport.stop() }
         transport.onTrack = { _, index in occurrences.append(index) }
+        transport.onQuality = { if let quality = $0 { formats.append(quality) } }
         await transport.start()
         XCTAssertNil(transport.state.error)
         XCTAssertEqual(transport.mode, .decoded)
+        XCTAssertEqual(transport.quality?.processed?.sampleRate, 48_000)
+        XCTAssertEqual(transport.quality?.processed?.bitDepth, 32)
+        XCTAssertEqual(transport.quality?.processed?.bitRate, 3_072_000)
         let confirmed = await transport.confirmPlaying()
         XCTAssertTrue(confirmed)
         try await observe(timeout: 5) { transport.state.index == 1 }
         XCTAssertEqual(occurrences, [0, 1], "The repeated recording is a distinct queue occurrence")
+        XCTAssertEqual(formats.count, 2, "Each occurrence must publish its quality even when the format is identical.")
         XCTAssertTrue(transport.state.playing)
         try await observe(timeout: 5) { transport.state.finished }
         XCTAssertFalse(transport.state.playing)
@@ -664,13 +670,14 @@ final class NativeMusicTransportTests: XCTestCase {
         let position = transport.state.position
         transport.configure(repeatMode: "off", crossfade: 3, normalize: true, volume: 0)
         try await observe(timeout: 3) { transport.mode == .decoded && transport.state.playing }
+        XCTAssertEqual(transport.quality?.processed?.sampleRate, 48_000)
         XCTAssertGreaterThanOrEqual(transport.state.position, position - 0.05)
         XCTAssertEqual(events, 1)
         XCTAssertNil(transport.state.error)
     }
 
     func testProgressiveFLACStartsFromTheExtensionlessAudioEndpoint() async throws {
-        var fixture = try audioFixture(duration: 3, sampleRate: 44_100, flac: true)
+        var fixture = try audioFixture(duration: 3, sampleRate: 96_000, flac: true)
         fixture.track.codec = "flac"
         defer { try? FileManager.default.removeItem(at: fixture.url) }
         let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), mime: "audio/flac", delay: 0)
@@ -681,8 +688,34 @@ final class NativeMusicTransportTests: XCTestCase {
         await transport.start()
         let confirmed = await transport.confirmPlaying(timeout: 5)
         XCTAssertTrue(confirmed, transport.state.error ?? "FLAC did not start")
-        try await observe(timeout: 5) { transport.state.position > 0.2 }
+        try await observe(timeout: 5) { transport.quality != nil }
+        let quality = try XCTUnwrap(transport.quality)
+        XCTAssertEqual(quality.input.codec, "FLAC")
+        XCTAssertEqual(quality.input.sampleRate, 96_000)
+        XCTAssertEqual(quality.input.bitDepth, 24)
+        XCTAssertGreaterThan(quality.input.bitRate ?? 0, 0)
+        XCTAssertNil(quality.processed, "An original progressive FLAC must not claim the engine's 48 kHz output.")
+        transport.pause()
+        XCTAssertEqual(transport.quality, quality)
+        transport.stop()
+        XCTAssertNil(transport.quality, "Stopping must clear the previous track's quality.")
         XCTAssertNil(transport.state.error)
+    }
+
+    func testDecodedHighResolutionFLACReportsSourceAndEngineFormatsSeparately() async throws {
+        let fixture = try audioFixture(duration: 3, sampleRate: 96_000, flac: true)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let transport = transport(tracks: [fixture.track], url: fixture.url)
+        defer { transport.stop() }
+        await transport.start()
+        XCTAssertNil(transport.state.error)
+        XCTAssertEqual(transport.quality?.input.codec, "FLAC")
+        XCTAssertEqual(transport.quality?.input.sampleRate, 96_000)
+        XCTAssertEqual(transport.quality?.input.bitDepth, 24)
+        XCTAssertGreaterThan(transport.quality?.input.bitRate ?? 0, 0)
+        XCTAssertEqual(transport.quality?.processed?.sampleRate, 48_000)
+        XCTAssertEqual(transport.quality?.playback.codec, "PCM Float")
+        XCTAssertEqual(transport.quality?.playback.bitRate, 3_072_000)
     }
 
     func testInvalidProgressiveAudioIsAnErrorRatherThanACompletedTrack() async throws {
@@ -927,7 +960,7 @@ final class NativeMusicTransportTests: XCTestCase {
             }
         }
         let settings: [String: Any] = flac ? [AVFormatIDKey: kAudioFormatFLAC, AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channelCount, AVEncoderBitDepthHintKey: 16] : aac ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channelCount, AVEncoderBitDepthHintKey: 24] : aac ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: channelCount, AVEncoderBitRateKey: 128_000] : format.settings
         let file = try AVAudioFile(forWriting: url, settings: settings)
         try file.write(from: buffer)

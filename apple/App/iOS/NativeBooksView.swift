@@ -552,7 +552,7 @@ struct NativeBookCover: View {
                 else {
                     VStack(spacing: 12) {
                         Image(systemName: "book.closed").font(.title)
-                        Text(title).font(.system(.headline, design: .serif)).multilineTextAlignment(.center).lineLimit(4)
+                        Text(title).font(.system(.headline)).multilineTextAlignment(.center).lineLimit(4)
                         if !author.isEmpty { Text(author).font(.caption).lineLimit(2) }
                     }.foregroundStyle(.primary).padding(12)
                 }

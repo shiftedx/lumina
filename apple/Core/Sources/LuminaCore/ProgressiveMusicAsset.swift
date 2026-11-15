@@ -14,6 +14,7 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
     private var paused = false
     private var readAheadLimited = false
     private var seeks = 0
+    private var resourceLength: Int64?
     private let failed: @Sendable (UUID, URLError.Code) -> Void
 
     private final class Load {
@@ -63,6 +64,12 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
     // A paused seek still needs metadata/audio bytes. Overlapping seeks share this lease.
     func beginSeek() { queue.async { [self] in seeks += 1; updateTransfers() } }
     func endSeek() { queue.async { [self] in seeks -= 1; updateTransfers() } }
+
+    func contentLength() async -> Int64? {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in continuation.resume(returning: resourceLength) }
+        }
+    }
 
     private func updateTransfers() {
         guard !stopped else { return }
@@ -143,6 +150,7 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
             guard total > 0, total <= Int64(MusicPlaybackPolicy.maximumTrackBytes), load.offset < total else {
                 throw URLError(.dataLengthExceedsMaximum)
             }
+            resourceLength = total
             if let info = load.request.contentInformationRequest {
                 info.contentType = response.mimeType.flatMap { UTType(mimeType: $0)?.identifier }
                 info.contentLength = total

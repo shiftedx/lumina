@@ -1554,9 +1554,10 @@ class NativeProofJourney: XCTestCase {
             let close = element("closePlayerButton")
             let airPlay = element("audioAirPlayButton")
             let cast = element("musicChromecastButton")
+            let quality = element("audioQualityButton")
             XCTAssertGreaterThanOrEqual(close.frame.minY, window.minY + 44,
                                        "The phone player header must clear the status area.")
-            for control in [title, timeline, transport, previous, next, queue, close, airPlay, cast] {
+            for control in [title, timeline, transport, previous, next, queue, close, airPlay, cast, quality] {
                 try waitForExistence(control, timeout: 15, named: "phone player \(control.identifier)")
                 XCTAssertTrue(hasVisibleFrame(control), "Phone player must show \(control.identifier) without scrolling.")
                 XCTAssertGreaterThanOrEqual(control.frame.minY, window.minY)
@@ -1565,6 +1566,16 @@ class NativeProofJourney: XCTestCase {
             }
             XCTAssertGreaterThanOrEqual(title.frame.minY, artwork.frame.maxY)
             XCTAssertGreaterThanOrEqual(transport.frame.minY, timeline.frame.maxY)
+            XCTAssertGreaterThanOrEqual(queue.frame.minY, transport.frame.maxY + 28,
+                                       "Listening utilities belong below transport with clear separation.")
+            XCTAssertGreaterThan(queue.frame.midY, window.minY + window.height * 0.84,
+                                 "The utility row should use the bottom of the phone viewport.")
+            XCTAssertTrue(waitUntil(timeout: 10) { (quality.value as? String)?.contains("kbps") == true },
+                          "Playback quality must come from the active native stream.")
+            try activate(quality)
+            try waitForExistence(element("audioPlaybackFormat"), timeout: 10, named: "active playback format")
+            XCTAssertTrue(element("audioSourceQuality").exists)
+            try activate(menuAction("Done"))
             try await Task.sleep(for: .seconds(1.2))
             XCTAssertTrue(hasVisibleFrame(timeline), "Phone track progress must remain visible while idle.")
             try activate(transport)

@@ -6,9 +6,26 @@ public enum LuminaTheme {
     /// Shared iOS media-page inset; hero artwork may deliberately bleed through it.
     public static let contentGutter: CGFloat = 20
 
-    /// The same licensed Newsreader face used by the web gallery, scaled with native text settings.
-    public static func editorial(_ size: CGFloat, relativeTo style: Font.TextStyle = .title2, italic: Bool = false) -> Font {
-        .custom(italic ? "Newsreader-16ptItalic" : "Newsreader-16ptRegular", size: size, relativeTo: style)
+    /// SF Pro headings retain the existing hierarchy and the user's native text-size preference.
+    public static func heading(_ size: CGFloat, relativeTo style: Font.TextStyle = .title2) -> Font {
+        let textStyle: UIFont.TextStyle
+        switch style {
+        #if os(tvOS)
+        case .largeTitle: textStyle = .title1
+        #else
+        case .largeTitle: textStyle = .largeTitle
+        #endif
+        case .title: textStyle = .title1
+        case .title2: textStyle = .title2
+        case .title3: textStyle = .title3
+        case .headline: textStyle = .headline
+        case .subheadline: textStyle = .subheadline
+        case .caption: textStyle = .caption1
+        case .caption2: textStyle = .caption2
+        case .footnote: textStyle = .footnote
+        default: textStyle = .body
+        }
+        return .system(size: UIFontMetrics(forTextStyle: textStyle).scaledValue(for: size))
     }
 
     public static let theater = Color(red: 11 / 255, green: 11 / 255, blue: 13 / 255)
@@ -153,8 +170,8 @@ extension View {
 #if os(tvOS)
 /// Semantic living-room type roles. See apple/docs/tvos-typography.md.
 enum TVTypography {
-    static let heroTitle = LuminaTheme.editorial(52, relativeTo: .largeTitle, italic: true)
-    static let pageTitle = LuminaTheme.editorial(48, relativeTo: .title, italic: true)
+    static let heroTitle = LuminaTheme.heading(52, relativeTo: .largeTitle)
+    static let pageTitle = LuminaTheme.heading(48, relativeTo: .title)
     static let sectionTitle = Font.callout.weight(.semibold)
     static let body = Font.body.weight(.regular)
     static let action = Font.body.weight(.semibold)

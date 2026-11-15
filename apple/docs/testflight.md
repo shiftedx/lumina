@@ -782,3 +782,49 @@ checksums, validation/export logs, focused XCResults and What to Test. The stage
 copy is in the user's Xcode Archives directory for November 14. Prior release
 packages remain preserved. The source revision above identifies the binaries;
 this later release-record update changes documentation only.
+
+
+### General TestFlight package 58, 2026-11-14
+
+**iOS 0.1.0 (58) is distribution-signed and selected in Xcode Organizer for the
+owner to upload. This operation uploaded no build and deployed no server changes.**
+Select **Lumina iOS 0.1.0 (58) — Signed for Upload** and Distribute App. General
+TestFlight is enabled: keep Internal Only disabled and retain build number 58.
+Symbols are included. tvOS was built for the simulator but was not repackaged.
+
+The binaries use clean merged main `e6417d860a47d9f15630397a96d8bb2d796b7eeb`,
+including [PR #324](https://github.com/shiftedx/lumina/pull/324): SF Pro throughout
+native iOS/tvOS UI, the retouched iPhone music player, a lower utility row with
+opaque backing to prevent overlap, and a native seek thumb visible only during
+contact. The quality button reads the actual active codec, available bit depth,
+sample rate and average bitrate. FLAC input and processed engine PCM output are
+separate; remote receiver quality stays unreported. Device route details do not
+certify bit-perfect/DAC delivery. Earlier standard-phone and automatic library
+paging fixes remain included.
+
+Four focused Core checks passed for direct 24-bit/96 kHz FLAC, source/engine
+format separation, duplicate queue occurrences and processing-mode transitions.
+The final standard iPhone workflow passed quality details, utility separation,
+seeking, pause/resume, queue, track steps/swipes, close/reopen continuity and Stop.
+The resting timeline screenshot has no thumb or lower overlap. The final tvOS
+simulator build and both signing/framework-stub safeguards passed. An intermediate
+navigation run timed out opening Library → Music; the final playback run passed.
+No full suite or new physical-device/receiver qualification ran.
+
+The Release source archive, signed IPA, signed Organizer reference and staged
+copy passed identity/version, device-family, artwork/privacy, fixture exclusion,
+signature and matching executable/dSYM checks. All 990 native source-input hashes
+stayed unchanged through archive/export, and the IPA contains no Newsreader
+resource. The PrismCore revision is unchanged. During staging, Xcode showed prior
+iOS 57 **Uploaded to Apple** today at 5:53 PM; that upload was observed only.
+Build 58 was selected with the signing team and Distribute App available. Local
+signing does not establish Apple upload acceptance, processing, beta review or
+tester availability.
+
+Preserve ignored `apple/Distribution/0.1.0-58/`: exact signed IPA, original source
+and signed Organizer archives, matching symbols, source snapshot/input hashes,
+manifest/checksums, validation/export logs, focused playback XCResult/screenshot
+and What to Test. A validated signed copy is staged in Xcode Archives for
+November 14. Owned disposable build caches and the dedicated proof simulator and
+fixture broker were removed; all prior packages remain preserved. This later
+release record changes documentation only; the binary source revision is above.

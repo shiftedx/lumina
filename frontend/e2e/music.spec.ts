@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-import { albumDetail, albumSummary, albumTrack, userData } from '../src/test/galleryFixtures';
+import { albumDetail, albumSummary, albumTrack, artistSummary, titleDetail, userData } from '../src/test/galleryFixtures';
 import type { TitleDetail } from '../src/types';
 
 import { mockGalleryWall } from './gallery-mock';
@@ -312,3 +312,48 @@ for (const [scheme, viewport] of [['dark', { width: 1920, height: 1080 }], ['lig
     await noSeriousAxe(page, `album palette ${scheme} ${viewport.width}`);
   });
 }
+
+test('source file quality stays visible from artist to album on desktop and phones', async ({ page }) => {
+  const quality = { track_count: 3, codecs: ['aac', 'flac'], bit_depths: [24], sample_rates: [44100, 96000], bitrate_kbps: 1200, formats_complete: true };
+  const album = albumDetail(albumSummary('album-1', { child_count: 3, audio_quality: quality }), [
+    albumTrack(1, { audio_quality: { codec: 'flac', bitrate_kbps: 1800, bit_depth: 24, sample_rate: 96000 } }),
+    albumTrack(2, { audio_quality: { codec: 'flac', bitrate_kbps: 1600, bit_depth: 24, sample_rate: 96000 } }),
+    albumTrack(3, { audio_quality: { codec: 'aac', bitrate_kbps: 256, bit_depth: null, sample_rate: 44100 } }),
+  ]);
+  await mockApi(page, { sidebar_collapsed: true });
+  await mockGalleryWall(page);
+  await mockMusic(page);
+  await page.route('**/api/titles/album-1', (route) => route.fulfill({ json: album }));
+  await page.route('**/api/titles/artist-1', (route) => route.fulfill({ json: titleDetail(artistSummary(), { children: [album] }) }));
+  await page.goto('/audio');
+  await signIn(page);
+  await expect(page.getByRole('button', { name: 'Artists', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const [width, scheme] of [[1440, 'dark'], [390, 'light'], [320, 'dark']] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await page.goto('/audio/title/artist-1');
+    const card = page.getByRole('button', { name: /Album One by Artist A.*Mixed formats.*1,200 kbps average/ });
+    await expect(card).toBeVisible();
+    await expect(card.getByText('1,200 kbps avg')).toBeVisible();
+    await expect(card.getByText('Album One', { exact: true })).toBeVisible();
+    expect(await card.locator('.g-caption').evaluate((caption) => {
+      const box = caption.getBoundingClientRect();
+      return [...caption.children].every((child) => child.getBoundingClientRect().bottom <= box.bottom + 1);
+    })).toBe(true);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `../output/music-quality/artist-${width}-${scheme}.png`, fullPage: true });
+    await card.click();
+    await expect(page.getByRole('heading', { name: 'Album One', exact: true })).toBeVisible();
+    const source = page.locator('.g-album-file-quality');
+    await expect(source.getByText(/Mixed formats · AAC \+ FLAC/).first()).toBeVisible();
+    await source.locator('summary').click();
+    await expect(source.getByText('24-bit (where reported)', { exact: true })).toBeVisible();
+    await expect(source.getByText('44.1–96 kHz', { exact: true })).toBeVisible();
+    const row = page.getByRole('button', { name: /Play 1\. Song 1.*FLAC.*24-bit.*96 kHz.*1,800 kbps/ });
+    await expect(row.getByText('1,800 kbps')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Play 3\. Song 3.*AAC.*44.1 kHz.*256 kbps/ })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `../output/music-quality/album-${width}-${scheme}.png`, fullPage: true });
+    await noSeriousAxe(page, `file quality ${width} ${scheme}`);
+  }
+});

@@ -201,10 +201,10 @@ describe('WallGrid', () => {
     const { store } = await loadedStore(DEFAULT_WALL);
     const { container } = grid(store, DEFAULT_WALL, { label: 'Albums', metricLabel: 'albums', shape: 'square' });
     await screen.findByRole('button', { name: /^Title 0\b/ });
-    // 1200 px wide: 6 columns of 180 px; a square row is 180 + 44 caption = 224 px high, plus a 24 px gap.
+    // 1200 px wide: 6 columns of 180 px; a square album row reserves 180 + 132 for title and file quality = 312 px high, plus a 24 px gap.
     const row = container.querySelector<HTMLElement>('.g-row[data-row="1"]');
-    expect(row?.style.height).toBe('224px');
-    expect(row?.style.top).toBe('248px');
+    expect(row?.style.height).toBe('312px');
+    expect(row?.style.top).toBe('336px');
     expect(container.querySelectorAll('.g-row[data-row="0"] .g-album')).toHaveLength(6);
     expect(container.querySelector('.g-feature')).toBeNull();
     expect(container.querySelector('.g-poster-frame')).toBeNull();

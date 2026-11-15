@@ -262,3 +262,6 @@
 @media (max-width: 680px) { :root { --g-media-title-size: 2.125rem; } }
 
 @media (max-width: 680px) { :root { --g-topbar: 64px; } }
+
+/* Album rows reserve space for the title, year and source-file quality. */
+.gallery .g-grid.has-audio-facts { --g-caption-height: 132px; }

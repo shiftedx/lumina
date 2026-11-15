@@ -11,6 +11,7 @@ import type { AlbumTrack, TitleDetail, TitleSummary } from '../../types';
 import { errorMessage, formatDuration } from '../../utils';
 import { setAlbumQueue, shuffled, trackLabel } from './albumQueue';
 import { GalleryArt } from './GalleryArt';
+import { AlbumFileQuality, audioBitrate, audioCodec, fileQualityLabel } from './MusicFileQuality';
 import { cardColour, countNoun, type GalleryTheme, readableAccent, safeColour } from './galleryModel';
 import { useMediaQuery } from './WallGrid';
 import './music.css';
@@ -66,7 +67,7 @@ export function trackButtonLabel(track: AlbumTrack): string {
   const state = track.user_data.played ? 'played'
     : left === null ? null
       : left < 60 ? 'less than a minute left' : `${minutes} minute${minutes === 1 ? '' : 's'} left`;
-  return [`Play ${trackLabel(track)}`, track.artist ? `by ${track.artist}` : null, track.duration_seconds ? formatDuration(track.duration_seconds) : null, state].filter(Boolean).join(', ');
+  return [`Play ${trackLabel(track)}`, track.artist ? `by ${track.artist}` : null, track.duration_seconds ? formatDuration(track.duration_seconds) : null, state, track.audio_quality ? fileQualityLabel(track.audio_quality) : null].filter(Boolean).join(', ');
 }
 
 /** The album's discs in served order; a track with no disc is its own group. */
@@ -86,12 +87,13 @@ function TrackRow({ track, onPlay }: { track: AlbumTrack; onPlay: (track: AlbumT
   const percent = left === null ? 0 : Math.max(4, Math.min(100, (track.user_data.position_seconds / (track.duration_seconds as number)) * 100));
   const time = left !== null ? (left < 60 ? '<1 min left' : `${Math.round(left / 60)} min left`) : track.duration_seconds ? formatDuration(track.duration_seconds) : '';
   return (
-    <button aria-label={trackButtonLabel(track)} className="g-track" data-focus-item onClick={() => onPlay(track)} type="button">
+    <button aria-label={trackButtonLabel(track)} className={`g-track${track.audio_quality ? ' has-file-quality' : ''}`} data-focus-item onClick={() => onPlay(track)} type="button">
       <span aria-hidden="true" className="g-track-number"><span className="g-track-index">{track.number == null ? '–' : String(track.number).padStart(2, '0')}</span><Play className="g-track-glyph" /></span>
       <span aria-hidden="true" className="g-track-name">
         <span className="g-track-title">{track.name}</span>
         {track.artist ? <span className="g-label">{track.artist}</span> : null}
       </span>
+      {track.audio_quality ? <span aria-hidden="true" className="g-track-file-quality"><span>{track.audio_quality.codec ? audioCodec(track.audio_quality.codec) : 'Format unavailable'}{track.audio_quality.bit_depth ? ` · ${track.audio_quality.bit_depth}-bit` : ''}{track.audio_quality.sample_rate ? ` / ${track.audio_quality.sample_rate / 1000} kHz` : ''}</span><span>{audioBitrate(track.audio_quality.bitrate_kbps)}</span></span> : null}
       <span aria-hidden="true" className="g-track-duration">{track.user_data.played ? <Check /> : null}{time}</span>
       {left !== null ? <span aria-hidden="true" className="g-track-progress"><span style={{ width: `${percent}%` }} /></span> : null}
     </button>
@@ -198,6 +200,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
           {artist ? <p className="g-album-artist">by {linked ? <a data-focus-item href={`/title/${encodeURIComponent(album.parent_id as string)}`} onClick={openArtist}>{artist}</a> : artist}</p> : null}
           {album.genres.length ? <p className="g-label">{album.genres.slice(0, 3).join(' · ')}</p> : null}
           {album.overview ? <p className="soundstage-album-overview">{album.overview}</p> : null}
+          {album.audio_quality ? <AlbumFileQuality quality={album.audio_quality} /> : null}
           <div className="g-album-actions" data-focus-row>
             <button className="g-button is-primary g-button-text g-album-play" data-focus-item disabled={!playable} onClick={() => {
               if (!tracks?.length) return;

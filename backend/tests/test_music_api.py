@@ -526,3 +526,65 @@ def test_lyrics_retry_recovers_a_cached_failure_but_does_not_duplicate_pending_w
         db.commit()
     client.get(f'/api/music/tracks/{TRACKS[0]}/lyrics?retry=true')
     assert calls[-1] == {}
+
+
+def test_album_file_quality_is_visible_track_weighted_and_batched(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    from sqlalchemy import event
+    from app.services.titles import TitleService
+
+    facts = [("flac", 24, 96000, 1800000, 100), ("alac", 16, 44100, 900000, 200), ("aac", 32, 44100, 256000, 300)]
+    with factory() as db:
+        for item_id, (codec, depth, rate, bitrate, duration) in zip(TRACKS, facts, strict=True):
+            db.get(LibraryItem, item_id).duration = duration
+            artifact = db.scalar(select(MediaArtifact).join(LibraryItemArtifact, LibraryItemArtifact.artifact_id == MediaArtifact.id).where(LibraryItemArtifact.library_item_id == item_id))
+            artifact.probe = {"audio_codec": codec, "duration": duration, "streams": [
+                {"type": "video", "codec": "mjpeg", "bit_rate": 999999999},
+                {"type": "audio", "codec": codec, "bit_depth": depth, "sample_rate": rate, "bit_rate": bitrate},
+            ]}
+        # Neither a private nor a missing track can affect the public album's quality.
+        for item_id in (PRIVATE_TRACK, MISSING_TRACK):
+            artifact = db.scalar(select(MediaArtifact).join(LibraryItemArtifact, LibraryItemArtifact.artifact_id == MediaArtifact.id).where(LibraryItemArtifact.library_item_id == item_id))
+            artifact.probe = {"audio_codec": "hidden", "streams": [{"type": "audio", "codec": "hidden", "sample_rate": 192000, "bit_depth": 64, "bit_rate": 99000000}]}
+        db.commit()
+
+    client = client_for(ALICE)
+    album = client.get(f"/api/titles/{ALBUM}")
+    assert album.status_code == 200
+    data = album.json()
+    quality = data["audio_quality"]
+    assert quality == {"track_count": 3, "codecs": ["aac", "alac", "flac"], "bit_depths": [16, 24], "sample_rates": [44100, 96000], "bitrate_kbps": 728, "formats_complete": True}
+    assert data["tracks"][0]["audio_quality"] == {"codec": "flac", "bitrate_kbps": 1800, "bit_depth": 24, "sample_rate": 96000}
+    assert data["tracks"][2]["audio_quality"]["bit_depth"] is None, "A decoder's float precision is not a lossy file's bit depth"
+    artist = client.get(f"/api/titles/{ARTIST}").json()
+    assert next(row for row in artist["children"] if row["id"] == ALBUM)["audio_quality"] == quality
+    catalog = client.get("/api/titles?type=album").json()
+    assert next(row for row in catalog["items"] if row["id"] == ALBUM)["audio_quality"] == quality
+
+    with factory() as db:
+        service = TitleService(db)
+        user = db.get(User, ALICE)
+        albums = [db.get(MediaTitle, ALBUM), db.get(MediaTitle, SECOND_ALBUM)]
+        service.load(user, albums, with_artwork=False)
+        counts = []
+        for page in ([albums[0]], albums):
+            queries = []
+            def capture(_conn, _cursor, sql, _params, _context, _many):  # noqa: ANN001, ANN202
+                if sql.lstrip().upper().startswith("SELECT"):
+                    queries.append(sql)
+            event.listen(db.bind, "before_cursor_execute", capture)
+            try:
+                batch = service.load(user, page, with_artwork=False)
+            finally:
+                event.remove(db.bind, "before_cursor_execute", capture)
+            assert batch.audio_quality[ALBUM].bitrate_kbps == 728
+            counts.append(len(queries))
+        assert counts[0] == counts[1], "Album cards must not fetch quality one album at a time"
+        artifact = db.scalar(select(MediaArtifact).join(LibraryItemArtifact, LibraryItemArtifact.artifact_id == MediaArtifact.id).where(LibraryItemArtifact.library_item_id == TRACKS[0]))
+        artifact.probe = {"audio_codec": "flac", "streams": [{"type": "audio", "codec": "flac", "sample_rate": "invalid", "bit_depth": True, "bit_rate": -1}]}
+        artifact.size = None
+        db.commit()
+    partial = client.get(f"/api/titles/{ALBUM}").json()["audio_quality"]
+    assert partial["bitrate_kbps"] is None, "Do not average only the known tracks and imply full album coverage"
+    assert partial["formats_complete"] is False
+    assert partial["sample_rates"] == [44100]

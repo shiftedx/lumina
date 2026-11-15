@@ -157,6 +157,22 @@ class TitleArt(BaseModel):
     accent: str | None = None  # "#rrggbb"
 
 
+class FileAudioQuality(BaseModel):
+    codec: str | None = None
+    bitrate_kbps: float | None = None
+    bit_depth: int | None = None
+    sample_rate: int | None = None
+
+
+class AlbumAudioQuality(BaseModel):
+    track_count: int
+    codecs: list[str] = Field(default_factory=list)
+    bit_depths: list[int] = Field(default_factory=list)
+    sample_rates: list[int] = Field(default_factory=list)
+    bitrate_kbps: float | None = None
+    formats_complete: bool = False
+
+
 class TitleSummary(BaseModel):
     id: str
     type: TitleType
@@ -187,6 +203,7 @@ class TitleSummary(BaseModel):
     category: TitleCategory | None = None  # movie, series, season, episode; None for boxset, album, artist
     artist_name: str | None = None  # album: its artist title's name
     child_count: int | None = None  # album: visible tracks; artist: visible albums
+    audio_quality: AlbumAudioQuality | None = None
     reco: RecoAnnotation | None = None  # set only by title-rows and similar
 
 
@@ -279,6 +296,7 @@ class AlbumTrack(BaseModel):
     name: str
     artist: str | None = None  # only when it differs (case-insensitively) from the album artist
     duration_seconds: int | None = None
+    audio_quality: FileAudioQuality | None = None
     user_data: TitleUserData  # from the member's progress row on this item
 
 

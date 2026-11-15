@@ -75,7 +75,8 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
   const columns = wallColumns(width, gap, phone);
   const layout: WallLayout = { columns, featured: featured && shape === 'poster' && wallFeatured(query, columns, phone) };
   const posterWidth = Math.max(1, (width - gap * (columns - 1)) / columns);
-  const rowHeight = Math.round(posterWidth * (shape === 'poster' ? 1.5 : 1) + 44);
+  const captionHeight = metricLabel === 'albums' ? 132 : 44;
+  const rowHeight = Math.round(posterWidth * (shape === 'poster' ? 1.5 : 1) + captionHeight);
   const pitch = rowHeight + gap;
   const loaded = store.total !== null;
   const total = store.total ?? rowStart(LOADING_ROWS, layout);
@@ -273,7 +274,7 @@ export function WallGrid({ store, query, label, metricLabel, shape = 'poster', f
     <div
       aria-busy={!loaded}
       aria-label={label}
-      className="g-grid"
+      className={`g-grid${metricLabel === 'albums' ? ' has-audio-facts' : ''}`}
       onBlur={(event) => {
         const left = event.target;
         if (box.current?.contains(event.relatedTarget as Node | null)) return;

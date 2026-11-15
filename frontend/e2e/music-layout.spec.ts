@@ -13,6 +13,7 @@ test('albums use the artist wall width, show recent items and expose the full ca
   await page.route('**/api/music/albums/recently-played**', (route) => route.fulfill({ json: { items: Array.from({ length: 6 }, (_, index) => albumSummary(`played-${index}`, { name: `Played ${index}` })) } }));
   await page.goto('/audio');
   await signIn(page);
+  await page.getByRole('button', { name: 'Albums', exact: true }).click();
   const albums = page.locator('.g-music-browse');
   const recent = page.getByRole('region', { name: 'Recently played' });
   await expect(recent.getByRole('button', { name: /^Played 5/ })).toBeVisible();

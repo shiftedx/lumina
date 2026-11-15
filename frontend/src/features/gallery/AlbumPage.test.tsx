@@ -184,3 +184,16 @@ describe('AlbumPage', () => {
     expect(api.getMusicQueue).toHaveBeenCalledWith({ title_id: 'album-1' });
   });
 });
+
+it('shows album file quality and per-track resolution without changing track playback', async () => {
+  const track = albumTrack(1, { audio_quality: { codec: 'flac', bit_depth: 24, sample_rate: 96000, bitrate_kbps: 1842 } });
+  const detail = albumDetail(albumSummary('quality-album', { audio_quality: { track_count: 1, codecs: ['flac'], bit_depths: [24], sample_rates: [96000], bitrate_kbps: 1842, formats_complete: true } }), [track]);
+  const { props } = albumPage(detail);
+  const disclosure = screen.getAllByText('FLAC · 24-bit / 96 kHz').find((element) => element.closest('summary'))!.closest('summary')!;
+  await userEvent.click(disclosure);
+  expect(disclosure.parentElement?.hasAttribute('open')).toBe(true);
+  expect(screen.getByText('1,842 kbps avg · Source files')).toBeTruthy();
+  expect(screen.getByText(/These are source-file facts; playback output may differ/)).toBeTruthy();
+  await userEvent.click(screen.getByRole('button', { name: /Play 1\. Song 1.*FLAC.*24-bit.*96 kHz.*1,842 kbps/ }));
+  expect(props.onPlay).toHaveBeenCalledWith('track-1');
+});

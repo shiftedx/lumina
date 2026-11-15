@@ -125,7 +125,8 @@ def test_a_members_private_album_is_invisible_to_others(music, api_client) -> No
 def test_album_and_artist_pages_are_a_fixed_number_of_queries(music, api_client) -> None:  # noqa: ANN001
     factory, _root = music
     alice = member(api_client, factory, ALICE)
-    # +1 since 2.9.0 (album 7, artist 6): art_scope reads the member's access row once per request (a PK get, memoized) to bind a restricted
-    # member's art signatures to their access; nothing earlier on this page reads that row, and admins skip it.
-    assert selects(factory, lambda: alice.get(f"/api/titles/{ALBUM}").raise_for_status()) <= 7
-    assert selects(factory, lambda: alice.get(f"/api/titles/{ARTIST}").raise_for_status()) <= 6  # +1 likewise
+    # Includes the member's art-scope lookup and one page-wide audio-quality query.
+    # test_album_file_quality_is_visible_track_weighted_and_batched also checks
+    # that loading more albums does not add queries.
+    assert selects(factory, lambda: alice.get(f"/api/titles/{ALBUM}").raise_for_status()) <= 8
+    assert selects(factory, lambda: alice.get(f"/api/titles/{ARTIST}").raise_for_status()) <= 7

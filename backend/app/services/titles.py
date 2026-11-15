@@ -1073,7 +1073,7 @@ class TitleService:
 
     def music_detail(self, user: User, title: MediaTitle) -> TitleDetail:
         """An album with its tracks, or an artist with its albums. Music titles have
-        no versions, extras, people, boxset or match. With the route's title lookup: album 7 SELECTs, artist 6."""
+        no versions, extras, people, boxset or match. With the route's title lookup: album 8 SELECTs, artist 7."""
         albums = self.children(user, title)  # an artist's; [] for an album (no query)
         batch = self.load(user, [title, *albums])
         artist = batch.titles.get(title.parent_id) if title.type == "album" else None

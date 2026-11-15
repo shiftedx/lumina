@@ -92,8 +92,8 @@ describe('check-styles after integration', () => {
     const css = '.a { font-size: 9px; }\n.b { font: 600 10px / 1 var(--g-sans); }\n.c { font-size: 11px; }\n:root { --g-type-label: 600 10px / 1.3 var(--g-sans); }';
     expect(smallTextHits(css).map((hit) => hit.line)).toEqual([1, 2]);
   });
-  it('holds all routes to the 83 KB release budget', () => {
-    expect(CSS_BUDGET).toBe(83 * 1024);
+  it('holds all routes to the 84 KB release budget including music file quality', () => {
+    expect(CSS_BUDGET).toBe(84 * 1024);
     expect(CORE_BUDGET).toBe(7.4 * 1024);
   });
   it('holds tokens, UI, and brand to 7.4 KB', () => {

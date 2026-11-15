@@ -35,15 +35,15 @@ export type MusicTabProps = {
 };
 
 export type MusicView = 'albums' | 'artists' | 'saved';
-const VIEWS: ReadonlyArray<[MusicView, string]> = [['albums', 'Albums'], ['artists', 'Artists'], ['saved', 'Saved audio']];
+const VIEWS: ReadonlyArray<[MusicView, string]> = [['artists', 'Artists'], ['albums', 'Albums'], ['saved', 'Saved audio']];
 const SHELF_LIMIT = 24;
 
-/** The tab's view and the rest of its address, which belongs to that view's wall; an unknown view is Albums. */
+/** The tab's view and the rest of its address, which belongs to that view's wall; an unknown view is Artists. */
 export function parseMusicState(state: string | undefined): { view: MusicView; wall: string; hasExplicitView: boolean } {
   const params = new URLSearchParams(state ?? '');
   const asked = params.get('view');
   params.delete('view');
-  return { view: VIEWS.find(([value]) => value === asked)?.[0] ?? 'albums', wall: params.toString(), hasExplicitView: asked !== null && VIEWS.some(([value]) => value === asked) };
+  return { view: VIEWS.find(([value]) => value === asked)?.[0] ?? 'artists', wall: params.toString(), hasExplicitView: asked !== null && VIEWS.some(([value]) => value === asked) };
 }
 
 /** An explicit selection survives a remembered default. */
@@ -91,7 +91,7 @@ function MusicSearch({ query, onChange, onOpen }: { query: string; onChange: (qu
   </section>;
 }
 
-export function MusicTab({ tools, state, onWallChange, lenses, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'albums', onBrowseViewChange }: MusicTabProps) {
+export function MusicTab({ tools, state, onWallChange, lenses, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'artists', onBrowseViewChange }: MusicTabProps) {
   const parsed = parseMusicState(state);
   const view = parsed.hasExplicitView || state ? parsed.view : preferredView;
   const wall = parsed.wall;

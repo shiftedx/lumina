@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from '../../api';
-import { albumSummary, librarySections, stillItem, titlePage } from '../../test/galleryFixtures';
+import { albumSummary, artistSummary, librarySections, stillItem, titlePage } from '../../test/galleryFixtures';
 import type { LibrarySections } from '../../types';
 import { resetImageLoader } from './imageLoader';
 import { MusicTab, parseMusicState, serializeMusicState } from './MusicTab';
@@ -26,16 +26,17 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('MusicTab', () => {
-  it('renders the Music masthead under the tab row, counting albums and artists and naming the sort', async () => {
-    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([albumSummary()], { total: 1 }));
+  it('opens Music on Artists first, with Albums second and explicit navigation available', async () => {
+    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([artistSummary()], { total: 1 }));
     vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
     tab();
     expect(screen.getByRole('navigation', { name: 'Library' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Music' })).toBeTruthy();
-    expect(screen.getByText('110 albums · 108 artists')).toBeTruthy();
+    expect(screen.getByText(/^110 albums · 108 artists/)).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Show' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Albums' }).getAttribute('aria-pressed')).toBe('true');
-    expect((await screen.findAllByRole('button', { name: 'Album One by Artist A, 2019, 12 tracks' })).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Artists' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(screen.getByRole('group', { name: 'Show' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Artists', 'Albums']);
+    expect(await screen.findByRole('button', { name: 'Artist A, 4 albums' })).toBeTruthy();
   });
 
   it('switches views through the address, keeping each view’s own wall keys', async () => {
@@ -55,8 +56,8 @@ describe('MusicTab', () => {
   });
 
   it('drops an unknown view and keeps Saved audio only when there is saved audio', () => {
-    expect(parseMusicState('view=bogus&sort=year')).toEqual({ view: 'albums', wall: 'sort=year', hasExplicitView: false });
-    expect(parseMusicState(undefined)).toEqual({ view: 'albums', wall: '', hasExplicitView: false });
+    expect(parseMusicState('view=bogus&sort=year')).toEqual({ view: 'artists', wall: 'sort=year', hasExplicitView: false });
+    expect(parseMusicState(undefined)).toEqual({ view: 'artists', wall: '', hasExplicitView: false });
     expect(serializeMusicState('artists', 'sort=created')).toBe('view=artists&sort=created');
     expect(serializeMusicState('albums', 'sort=year')).toBe('view=albums&sort=year');
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
@@ -70,7 +71,7 @@ describe('MusicTab', () => {
     const saved = [stillItem('audio-1', { kind: 'audio', title: 'Harbor walk (audio)' })];
     const library = vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: saved, next_cursor: null });
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([albumSummary()], { total: 1 }));
-    const { onPlay, onWallChange } = tab();
+    const { onPlay, onWallChange } = tab('view=albums');
     await userEvent.click(await screen.findByRole('button', { name: /^Harbor walk \(audio\)/ }));
     expect(onPlay).toHaveBeenCalledWith(saved[0]);
     expect(library).toHaveBeenCalledWith({ kind: 'audio', sort: 'recent', limit: 24 });
@@ -94,7 +95,7 @@ describe('MusicTab', () => {
     vi.spyOn(api, 'listRecentlyPlayedAlbums').mockResolvedValue({ items: played });
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([added], { total: 1 }));
     vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
-    tab();
+    tab('view=albums');
     expect(await screen.findByRole('heading', { level: 2, name: 'Recently played' })).toBeTruthy();
     expect(within(screen.getByRole('region', { name: 'Recently played' })).getAllByRole('button', { name: /^Played/ })).toHaveLength(6);
     expect(screen.getByRole('heading', { level: 2, name: 'Recently added' })).toBeTruthy();
@@ -107,24 +108,24 @@ describe('MusicTab', () => {
   it('reports saved audio errors and retries without hiding the catalog', async () => {
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
     vi.spyOn(api, 'listLibrary').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [stillItem('saved', { kind: 'audio' })], next_cursor: null });
-    tab();
+    tab('view=albums');
     expect(await screen.findByText('Saved audio could not be loaded.')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'All albums' })).toBeTruthy();
     await userEvent.click(within(screen.getByRole('region', { name: 'Saved audio' })).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: /^Harbor walk at dawn/ })).toBeTruthy();
   });
 
-  it('uses the remembered view only for bare Music and keeps an explicit Albums choice in the address', async () => {
+  it('honors a remembered Albums choice and keeps explicit addresses authoritative', async () => {
     const remembered = vi.fn();
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([], { total: 0 }));
     vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
-    const first = tab('', librarySections(), { preferredView: 'artists', onBrowseViewChange: remembered });
-    expect(screen.getByRole('button', { name: 'Artists' }).getAttribute('aria-pressed')).toBe('true');
-    await userEvent.click(screen.getByRole('button', { name: 'Albums' }));
-    expect(remembered).toHaveBeenCalledWith('albums');
-    expect(first.onWallChange).toHaveBeenLastCalledWith('view=albums');
+    const first = tab('', librarySections(), { preferredView: 'albums', onBrowseViewChange: remembered });
+    expect(screen.getByRole('button', { name: 'Albums' }).getAttribute('aria-pressed')).toBe('true');
+    await userEvent.click(screen.getByRole('button', { name: 'Artists' }));
+    expect(remembered).toHaveBeenCalledWith('artists');
+    expect(first.onWallChange).toHaveBeenLastCalledWith('view=artists');
     forgetWallStores();
-    tab('sort=name', librarySections(), { preferredView: 'artists' });
+    tab('view=albums&sort=name', librarySections(), { preferredView: 'artists' });
     expect(screen.getAllByRole('button', { name: 'Albums' }).at(-1)?.getAttribute('aria-pressed')).toBe('true');
   });
 });

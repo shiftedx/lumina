@@ -9,6 +9,7 @@ struct TVMusicDetailView: View {
     let onOpen: (MediaItem) -> Void
 
     @Environment(NativeAudioSession.self) private var audioSession
+    @State private var fileQuality: MusicCollectionFileQuality?
     @State private var currentItem: MediaItem
     @State private var album: MediaItem?
     @State private var artist: MediaItem?
@@ -148,7 +149,7 @@ struct TVMusicDetailView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 42) {
                         ForEach(artistAlbums) { album in
-                            TVMusicAlbumCard(item: album, store: store) { onOpen(album) }
+                            TVMusicAlbumCard(item: album, store: store, quality: fileQuality?.albums[album.id]) { onOpen(album) }
                                 .focused($focusedControl, equals: .albumCard(album.id))
                                 .accessibilityIdentifier("musicItem-\(album.id)")
                         }
@@ -238,6 +239,9 @@ struct TVMusicDetailView: View {
                 }
             }
 
+            if let quality = fileQuality?.album {
+                NativeAlbumFileQuality(quality: quality)
+            }
             if albumTracks.isEmpty {
                 emptyMusicContent(title: "No tracks available", message: "Try refreshing this album.")
             } else {
@@ -249,12 +253,13 @@ struct TVMusicDetailView: View {
                             TVMusicTrackRow(
                                 track: track,
                                 isCurrent: isCurrentTrack(track),
-                                duration: formattedDuration(track.durationSeconds)
+                                duration: formattedDuration(track.durationSeconds),
+                                quality: fileQuality?.tracks[track.id]
                             )
                         }
                         .buttonStyle(LuminaQuietActionStyle(selected: isCurrentTrack(track)))
                         .focused($focusedControl, equals: .track(track.id))
-                        .accessibilityLabel(trackAccessibilityLabel(track))
+                        .accessibilityLabel([trackAccessibilityLabel(track), fileQuality?.tracks[track.id]?.summary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
                         .accessibilityValue(isCurrentTrack(track) ? (audioSession.playback?.isPlaying == true ? "Playing" : "Paused") : "")
                         .accessibilityIdentifier("musicItem-\(track.id)")
                     }
@@ -303,6 +308,7 @@ struct TVMusicDetailView: View {
         albumTracks = []
         artistAlbums = []
         selectedTrackID = nil
+        fileQuality = nil
         defer { loading = false }
 
         do {
@@ -343,6 +349,13 @@ struct TVMusicDetailView: View {
                 errorMessage = "This music item is unavailable."
             }
             guard !Task.isCancelled else { return }
+            loading = false
+            let collectionID = album?.id ?? (currentItem.type == "MusicArtist" ? currentItem.id : nil)
+            if let collectionID {
+                let facts = try? await store.music.fileQuality(for: collectionID)
+                guard !Task.isCancelled else { return }
+                fileQuality = facts
+            }
             if let selectedTrackID, albumTracks.contains(where: { $0.id == selectedTrackID }) {
                 focusedControl = .track(selectedTrackID)
             }
@@ -437,6 +450,7 @@ private struct TVMusicTrackRow: View {
     let track: MediaItem
     let isCurrent: Bool
     let duration: String
+    let quality: MusicFileQuality?
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
@@ -455,6 +469,9 @@ private struct TVMusicTrackRow: View {
                         .font(TVTypography.metadata)
                         .foregroundStyle(isFocused ? Color.black.opacity(0.7) : LuminaTheme.muted)
                         .lineLimit(1)
+                }
+                if let quality {
+                    NativeTrackFileQuality(quality: quality)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -475,6 +492,7 @@ private struct TVMusicTrackRow: View {
 private struct TVMusicAlbumCard: View {
     let item: MediaItem
     let store: LuminaStore
+    let quality: MusicAlbumFileQuality?
     let action: () -> Void
 
     var body: some View {
@@ -488,12 +506,14 @@ private struct TVMusicAlbumCard: View {
                     .font(TVTypography.metadata)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(1)
+                if let quality { NativeAlbumFileQualityCaption(quality: quality) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(TVArtworkButtonStyle(aspect: 1))
         .accessibilityLabel("Open album \(item.name)")
+        .accessibilityValue(quality?.accessibilitySummary ?? "")
     }
 }
 

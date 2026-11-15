@@ -126,6 +126,10 @@ import Observation
         return tracks
     }
 
+    public func fileQuality(for collectionID: String) async throws -> MusicCollectionFileQuality {
+        try await request("titles/\(try safeID(collectionID))/quality")
+    }
+
     public func track(for item: MediaItem) async throws -> MusicTrack {
         if let track = metadata[item.id] { return track }
         let track: MusicTrack = try await request("tracks/\(try safeID(item.id))")

@@ -157,3 +157,25 @@ def receiver_renew(ticket_id: str, caller: Caller, db: Db) -> dict:
 @router.delete("/receiver/tickets/{ticket_id}")
 def receiver_revoke(ticket_id: str, caller: Caller, db: Db) -> Response:
     return music_receiver.revoke_native(ticket_id, caller.user, db, issuer_device_id=caller.token_id)
+
+
+@router.get("/titles/{title_id}/quality")
+def collection_quality(title_id: str, caller: Caller, db: Db) -> dict:
+    """One member-scoped file-quality read for an album or its artist's discography."""
+    from app.services.titles import TitleService
+
+    service = TitleService(db)
+    title = service.get_visible(_id(title_id), caller.user)
+    if title is None or title.type not in ("album", "artist"):
+        raise HTTPException(404, "Music collection not found")
+    children = service.children(caller.user, title)
+    batch = service.load(caller.user, [title, *children], with_artwork=False)
+    album = batch.audio_quality.get(title.id)
+    tracks = service.tracks(caller.user, title, None) if title.type == "album" else []
+    return {
+        "album": album.model_dump() if album else None,
+        "albums": {jellyfin_id(child.id): batch.audio_quality[child.id].model_dump()
+                   for child in children if child.id in batch.audio_quality},
+        "tracks": {jellyfin_id(track.item_id): track.audio_quality.model_dump()
+                   for track in tracks if track.audio_quality is not None},
+    }

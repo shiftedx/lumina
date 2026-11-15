@@ -120,6 +120,11 @@ final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourne
 }
 
 @MainActor
+final class NativeMusicFileQualityTests: NativeProofJourney {
+    func testAlbumAndArtistExposeSourceFileQuality() throws { try journeyMusicFileQuality() }
+}
+
+@MainActor
 final class NativeAudioFormatRecoveryTests: NativeProofJourney {
     func testRejectedSourceRecoversWithCompatibleAudioAndShowsLyrics() async throws {
         try await journeyAlbumPlayStartsFromIdle(requiresCompatibleAudio: true)
@@ -3782,6 +3787,67 @@ class NativeProofJourney: XCTestCase {
         #endif
         let title = element("nowPlayingTitle")
         return title.exists ? title.label : ""
+    }
+
+    func journeyMusicFileQuality() throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        #if os(iOS)
+        try activate(element("musicOptionsMenu"))
+        try activate(application!.buttons["Artists"].firstMatch)
+        let artist = element("audioItem-\(fixture.audioArtistID)")
+        try waitForExistence(artist, timeout: 20, named: "artist in music catalog")
+        try activate(artist)
+        let artistAlbum = element("musicItem-\(fixture.audioAlbumID)")
+        try waitForExistence(artistAlbum, timeout: 20, named: "artist album")
+        application!.swipeUp()
+        XCTAssertTrue(waitUntil(timeout: 20) { (artistAlbum.value as? String)?.contains("kbps avg") == true })
+        XCTAssertTrue((artistAlbum.value as? String)?.contains("AAC") == true)
+        try attachFrame(named: "Artist albums with quiet source-file captions")
+        try activate(artistAlbum)
+        #else
+        try activate(revealMusicAlbum(fixture, named: "file-quality album"))
+        #endif
+        let summary = element("musicAlbumSourceQuality")
+        try waitForExistence(summary, timeout: 25, named: "album source-file summary")
+        XCTAssertTrue((summary.value as? String)?.contains("AAC") == true)
+        XCTAssertTrue((summary.value as? String)?.contains("kHz") == true)
+        XCTAssertTrue((summary.value as? String)?.contains("kbps avg") == true)
+        let details = element("musicFileDetails")
+        try revealMusicControl(details)
+        try activate(details)
+        XCTAssertTrue(waitUntil(timeout: 10) { (details.value as? String) == "Expanded" })
+        try waitForExistence(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Bit depth, Not reported")).firstMatch, timeout: 10, named: "truthful lossy bit-depth readout")
+        #if os(iOS)
+        application!.swipeUp()
+        #endif
+        try attachFrame(named: "Album source-file details expanded")
+        try revealMusicControl(details)
+        try activate(details)
+        let track = element("musicItem-\(fixture.audioTrackID)")
+        try waitForExistence(track, timeout: 15, named: "track source-file facts")
+        #if os(tvOS)
+        XCTAssertTrue(track.label.contains("AAC"))
+        XCTAssertTrue(track.label.contains("kbps"))
+        try activate(track)
+        XCTAssertTrue(waitUntil(timeout: 25) { (track.value as? String) == "Playing" })
+        try activate(element("musicArtistButton"))
+        let artistAlbum = element("musicItem-\(fixture.audioAlbumID)")
+        try waitForExistence(artistAlbum, timeout: 20, named: "artist album")
+        XCTAssertTrue(waitUntil(timeout: 20) { (artistAlbum.value as? String)?.contains("kbps avg") == true })
+        XCTAssertTrue((artistAlbum.value as? String)?.contains("AAC") == true)
+        try attachFrame(named: "Artist albums with quiet source-file captions")
+        try activate(artistAlbum)
+        try waitForExistence(element("musicAlbumSourceQuality"), timeout: 20, named: "album quality after artist navigation")
+        #else
+        XCTAssertTrue((track.value as? String)?.contains("AAC") == true)
+        XCTAssertTrue((track.value as? String)?.contains("kbps") == true)
+        #endif
+        completed = true
     }
 
     private func revealMusicControl(_ control: XCUIElement) throws {

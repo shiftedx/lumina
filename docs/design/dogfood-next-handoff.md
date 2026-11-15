@@ -14,11 +14,44 @@ Current continuation handoff, November 1, 2026. Use this for the owner's next na
 
 Give concise progress updates while working. Carry the request through implementation and verification; ask only for information or access that actually blocks the next action. The final report states the result, merged PR, focused checks and material limits. If no new issue accompanies this handoff, report readiness and wait: the previous batch is complete.
 
+## Latest production deployment, November 14, 2026
+
+Production is healthy on `lumina:music-08f2e2e8`, from clean merged main
+`08f2e2e8fcb0527b9b74b8cb61bd20f187059ab2`. This includes Quiet detail music
+file information [PR #328](https://github.com/shiftedx/lumina/pull/328) and the
+Artists-first default [PR #327](https://github.com/shiftedx/lumina/pull/327), with
+Albums second and the member’s last explicit choice remembered. This supersedes
+older deployment statuses in this handoff; no new native package was created.
+
+The immutable application layer uses the previously running 0.6.1 image as its
+recorded base. Backend dependencies, entrypoint and schema remain unchanged.
+All 94 frontend assets and 315 backend files match the packaged merged source;
+public health/bootstrap/frontend and JS/CSS content checks passed. Anonymous media
+access remains denied. Visibility-scoped live reads verified file-quality
+summaries for 12 albums and track details for 16 tracks. Two responsive browser
+workflows passed at desktop, 390 px and 320 px in dark/light with serious
+accessibility checks; 48 focused frontend tests, 219 contract/queue checks, the
+new weighted/private/partial/batched HTTP workflow, typechecking, production build
+and style checks passed. No full suite or physical-device qualification ran.
+
+A consistent database snapshot passed integrity and checksum verification;
+protected configuration and signing material remain preserved. Effective Compose
+configuration changed only its image, with environment values, data/media mounts,
+ports, device access and security settings checked unchanged. Schema stays 44.
+Two initial verification attempts restored the prior image because the ad hoc
+check treated Docker environment/bind ordering as meaningful; semantic checks
+were corrected, and the final rollout passed. Deployment finalization verified
+three known-good images total and two stopped, isolated, healthcheck-disabled
+rollback pins with cleanup exclusions intact. Ignored evidence is retained in
+`output/music-quality-deployment/`; database/configuration backups and all native
+release archives/symbols remain preserved. This later update changes documentation
+only; the deployed runtime revision is above.
+
 ## Preserve the current behavior
 
 - **Web music file quality (Quiet detail):** album headers have an expandable source-file summary; track rows expose codec, bitrate, bit depth and sample rate, and album cards expose known format/resolution and average bitrate from artist and album views. Album bitrate is weighted by visible track duration and omitted if any track lacks a valid bitrate/duration. Mixed formats and partial metadata remain explicit. Album summaries are batched in one visibility-scoped query per page; private, missing and extra tracks do not contribute. Caption/virtual-row heights reserve space for all readouts. No schema, audio encoding or native package change. Focused API, component, virtual-grid, responsive browser/a11y and build/style checks cover it.
 
-- **Web music starts with Artists (source after app build 58):** the initial and missing/invalid member preference now resolves to Artists, and Artists precedes Albums in the browse tabs. Explicit URLs and a member’s saved Albums/Artists choice remain authoritative; choosing a tab still saves that preference. Focused MusicTab/workspace/autosave contracts and frontend typechecking cover this change. This is web source only; no server deployment or new native package was requested. The owner selected Quiet detail; source-file readouts are implemented alongside this default and await the combined deployment below.
+- **Web music starts with Artists (source after app build 58):** the initial and missing/invalid member preference now resolves to Artists, and Artists precedes Albums in the browse tabs. Explicit URLs and a member’s saved Albums/Artists choice remain authoritative; choosing a tab still saves that preference. Focused MusicTab/workspace/autosave contracts and frontend typechecking cover this change. This web change and the selected Quiet detail readouts are deployed together at the revision above; native packages remain unchanged.
 
 - **Native video quality recovery (included in staged build 40):** Automatic subtitles stay implicit for locally packaged MKV/qualified M2TS originals; explicit tracks, language preferences and Off remain authoritative. A startup packaging format failure first requests server HLS with the current device capabilities, source, quality and resume position retained. Only a further format failure uses the final H.264/SDR tier; Dolby conversion-evidence failures retain conservative recovery. Start Over preserves the recovery tier. Real-source local decode and focused negotiation/workflow evidence do not certify physical HDR output. This native fix requires no server deployment.
 - **Connection form centering (source after build 36):** center the existing Connect form as a group in the available viewport on iPad and standard iPhones, using the established standard-phone predicate. Preserve interior field/text alignment, keyboard scrolling, QR/manual/help behavior and Duo’s existing wide-leading/narrow-bottom layout. The asymmetric left artwork shade belongs only to the offset Duo layout.

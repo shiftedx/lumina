@@ -1,5 +1,15 @@
 # Release notes
 
+## Lumina 0.7.0
+
+- **Web music:** Browse redesigned artist and album pages with larger covers, artwork-derived atmosphere and system sans typography. Artist details sit beneath the portrait; album titles and years share an aligned row, with compact, expandable file-quality details below.
+- **File quality:** Inspect source format, bitrate, bit depth and sample rate across albums, tracks and artist discographies. Mixed and incomplete metadata stay explicit; album average bitrates use complete, duration-weighted track data. Source-file information remains distinct from playback/output quality.
+- **Music navigation:** Start on Artists, remember each member's last explicit Artists/Albums choice, and honor explicitly linked views.
+- **Native preview source:** Use SF Pro throughout iOS and tvOS, improve the music player on standard iPhones, show actual playback-quality information, keep the scrub thumb visible only during interaction, and separate secondary controls from transport controls. Add automatic iOS music pagination and source-file details on native artist and album views. Native apps remain separate preview builds; this server release does not install or update them.
+- **Deployment:** Finalize deployments with the current image and at most two prior known-good images, retaining stopped rollback pins and cleanup exclusions.
+
+**Upgrade:** Schema remains 44; no database migration from 0.6.1. Back up application data and retain the running image before updating. See the [operator guide](docker/README.md#upgrades).
+
 ## Lumina 0.6.1
 
 - **Integrations:** Connect qBittorrent 5.3 using its successful no-content login and port-qualified session cookie. Legacy login remains supported; protected reads and complete snapshots are still required before enabling observation.

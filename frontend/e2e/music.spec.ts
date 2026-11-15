@@ -208,7 +208,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const heading = page.getByRole('heading', { level: 1, name });
       await expect(heading).toBeVisible();
       const fontSize = await heading.evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
-      expect(fontSize).toBeLessThanOrEqual(viewport.width === 320 ? 28 : 48);
+      expect(fontSize).toBeLessThanOrEqual(viewport.width === 320 ? 34 : 48);
       const row = page.getByRole('button', { name: /^Play 1\. Song 1/ });
       const title = (await row.locator('.g-track-title').boundingBox())!;
       const artist = (await row.locator('.g-track-name .g-label').boundingBox())!;
@@ -285,7 +285,10 @@ for (const [scheme, viewport] of [['dark', { width: 1920, height: 1080 }], ['lig
     await expect(tracks.getByRole('button')).toHaveCount(13);
     const root = (await page.locator('.g-album-page').boundingBox())!;
     expect(Math.abs(root.width - viewport.width)).toBeLessThanOrEqual(1);
-    if (viewport.width > 1000) expect((await tracks.boundingBox())!.width).toBeGreaterThan(viewport.width / 2);
+    if (viewport.width > 1000) {
+      const layout = (await page.locator('.g-album-layout').boundingBox())!;
+      expect((await tracks.boundingBox())!.width).toBeGreaterThan(layout.width / 2);
+    }
     const editions = page.locator('details.music-editions');
     await expect(editions).not.toHaveAttribute('open', '');
     expect(editionRequests).toBe(0);

@@ -264,6 +264,7 @@ test('Music: See all, the Artists view kept across a page, and an album opened o
   await mockTitleDetails(page);
   await expect(page).toHaveURL(/\/audio$/);
   const views = page.getByRole('group', { name: 'Show' });
+  await views.getByRole('button', { name: 'Albums' }).click();
   await views.getByRole('button', { name: 'Artists' }).click();
   await expect(page).toHaveURL(/\/audio\?view=artists/);
   await page.locator('.g-album').first().click();

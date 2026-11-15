@@ -1241,6 +1241,22 @@ export interface TitleArt {
   accent?: string | null;
 }
 
+export interface FileAudioQuality {
+  codec?: string | null;
+  bitrate_kbps?: number | null;
+  bit_depth?: number | null;
+  sample_rate?: number | null;
+}
+
+export interface AlbumAudioQuality {
+  track_count: number;
+  codecs: string[];
+  bit_depths: number[];
+  sample_rates: number[];
+  bitrate_kbps?: number | null;
+  formats_complete: boolean;
+}
+
 export interface TitleSummary {
   id: string;
   type: TitleType;
@@ -1271,6 +1287,7 @@ export interface TitleSummary {
   category?: TitleCategory | null;
   artist_name?: string | null;
   child_count?: number | null;
+  audio_quality?: AlbumAudioQuality | null;
   /** Set only by /api/home/title-rows and /api/titles/{id}/similar. */
   reco?: RecoAnnotation | null;
 }
@@ -1362,6 +1379,7 @@ export interface AlbumTrack {
   name: string;
   artist?: string | null;
   duration_seconds?: number | null;
+  audio_quality?: FileAudioQuality | null;
   user_data: TitleUserData;
 }
 

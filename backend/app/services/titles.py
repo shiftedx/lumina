@@ -21,7 +21,7 @@ from sqlalchemy import Float, Integer, and_, case, cast, false, func, literal, l
 from sqlalchemy.orm import Session, aliased, defer
 
 from app.media_schemas import (
-    AlbumTrack, GenreFacet, LibraryUpNext, ResolutionFacet, TitleArt, TitleDetail, TitleExtra, TitleFacets, TitleLetter, TitleMatch, TitleResolution, TitleSummary,
+    AlbumAudioQuality, AlbumTrack, GenreFacet, LibraryUpNext, ResolutionFacet, TitleArt, TitleDetail, TitleExtra, TitleFacets, TitleLetter, TitleMatch, TitleResolution, TitleSummary,
     TitleUserData, TitleVersion, YearRange,
 )
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberFavorite, MusicTrackOverride, PlaybackProgress, StorageRoot, TitleArtwork, TitleUpload, User
@@ -32,6 +32,7 @@ from app.services.audio_tags import embedded_picture
 from app.services.library import LibraryService, decode_library_cursor, encode_library_cursor
 from app.services.media_artifacts import artifact_file
 from app.services.playback import PlaybackProgressService
+from app.services.music_quality import album_audio_quality, file_audio_quality, positive
 from app.services.title_metadata import title_people
 from app.services import art_urls, hero_framing, member_access, tmdb
 
@@ -381,6 +382,7 @@ class TitleBatch:
     progress: dict[str, PlaybackProgress] = field(default_factory=dict)  # item id -> the member's row
     favorites: set[str] = field(default_factory=set)
     folder_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)  # folder -> (children, leaves, unplayed)
+    audio_quality: dict[str, AlbumAudioQuality] = field(default_factory=dict)
     folder_watched: dict[str, datetime] = field(default_factory=dict)  # series/season -> latest episode last_watched_at
     artwork: dict[tuple[str, str], TitleArtwork] = field(default_factory=dict)  # (title id, image type) -> row, page titles only
     art_scope: str = ""  # member_access.art_scope of the member the page is for: binds their /api/art signatures
@@ -471,7 +473,7 @@ class TitleService:
         self, user: User, titles: Iterable[MediaTitle], *, with_artifacts: bool = False, with_metadata: bool = False,
         with_artwork: bool = True,
     ) -> TitleBatch:
-        """Ancestors, versions (+artifacts), progress, favorites, folder counts and art rows for ``titles``: ≤ 7 queries."""
+        """Ancestors, versions (+artifacts), progress, favorites, folder counts, audio quality and art rows, loaded set-based."""
         batch = TitleBatch(titles={title.id: title for title in titles}, art_scope=member_access.art_scope(self.db, user))
         page = list(batch.titles.values())
         if not page:
@@ -483,9 +485,27 @@ class TitleService:
         batch.progress = self.progress_for(user, [item.id for items in batch.versions.values() for item in items])
         batch.favorites = self.favorites_for(user, [title.id for title in page])
         self._load_folder_counts(batch, user, [title for title in page if title.type in FOLDER_TYPES or title.type in MUSIC_TITLE_TYPES])
+        self._load_album_audio_quality(batch, user, [title.id for title in page if title.type == "album"])
         if with_artwork:
             self._load_artwork(batch, page, user)
         return batch
+
+    def _load_album_audio_quality(self, batch: TitleBatch, user: User, album_ids: list[str]) -> None:
+        """One visibility-scoped query for all albums on a page; never one request per card."""
+        if not album_ids:
+            return
+        rows = self.db.execute(
+            select(LibraryItem.title_id, LibraryItem.duration, MediaArtifact.probe, MediaArtifact.size)
+            .outerjoin(LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id)
+            .outerjoin(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
+            .where(LibraryItem.title_id.in_(album_ids), LibraryItem.extra_type.is_(None),
+                   LibraryItem.status != "missing", LibraryService.visible_predicate(user))
+        )
+        grouped = {album_id: [] for album_id in album_ids}
+        for album_id, duration, probe, size in rows:
+            seconds = positive(duration) or positive(probe.get("duration") if isinstance(probe, dict) else None)
+            grouped[album_id].append((file_audio_quality(probe, size, seconds), seconds))
+        batch.audio_quality = {album_id: album_audio_quality(tracks) for album_id, tracks in grouped.items()}
 
     def _load_artwork(self, batch: TitleBatch, page: list[MediaTitle], user: User) -> None:
         """The page's title_artwork rows (one primary-key query); stale or missing ones go to the rendition pass."""
@@ -850,6 +870,7 @@ class TitleService:
             poster=batch.art(title, "Primary", preview=True), backdrop=batch.art(title, "Backdrop", preview=False),
             artist_name=artist.name if artist else None,
             child_count=batch.folder_counts.get(title.id, (0, 0, 0))[0] if title.type in MUSIC_TITLE_TYPES else None,
+            audio_quality=batch.audio_quality.get(title.id),
         )
 
     def detail(self, user: User, title: MediaTitle) -> TitleDetail:
@@ -1028,7 +1049,7 @@ class TitleService:
         artist_name = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.artist"), TRACK_ARTIST)
         track_name = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.title"), LibraryItem.title)
         rows = self.db.execute(
-            select(LibraryItem, progress, disc, number, artist_name, cast(func.json_extract(MediaArtifact.probe, "$.duration"), Float), track_name)
+            select(LibraryItem, progress, disc, number, artist_name, MediaArtifact.probe, track_name, MediaArtifact.size)
             .options(defer(LibraryItem.metadata_json))
             .outerjoin(MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id)
             .outerjoin(progress, and_(progress.item_id == LibraryItem.id, progress.user_id == user.id))
@@ -1043,15 +1064,16 @@ class TitleService:
             AlbumTrack(
                 item_id=item.id, disc=disc, number=number, name=name,
                 artist=artist if isinstance(artist, str) and artist.casefold() != same else None,
-                duration_seconds=round(item.duration or probe or 0) or None,
+                duration_seconds=round(positive(item.duration) or positive(probe.get("duration") if isinstance(probe, dict) else None) or 0) or None,
+                audio_quality=file_audio_quality(probe, size, item.duration),
                 user_data=user_data_from(row, favorite=False),
             )
-            for item, row, disc, number, artist, probe, name in rows
+            for item, row, disc, number, artist, probe, name, size in rows
         ]
 
     def music_detail(self, user: User, title: MediaTitle) -> TitleDetail:
         """An album with its tracks, or an artist with its albums. Music titles have
-        no versions, extras, people, boxset or match. With the route's title lookup: album 6 SELECTs, artist 5."""
+        no versions, extras, people, boxset or match. With the route's title lookup: album 7 SELECTs, artist 6."""
         albums = self.children(user, title)  # an artist's; [] for an album (no query)
         batch = self.load(user, [title, *albums])
         artist = batch.titles.get(title.parent_id) if title.type == "album" else None

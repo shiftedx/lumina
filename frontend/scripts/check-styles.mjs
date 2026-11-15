@@ -22,7 +22,8 @@ const KB = 1024;
 // JavaScript ceilings remain unchanged; shared A control/scrim roles use the bounded core allowance below.
 // Direct A layouts across the web app add ~4 KB gzip, including lazy Books and artwork stages.
 // The member activity modal adds a 14-day visualization and responsive account controls (<1 KB gzip).
-export const CSS_BUDGET = 83 * KB;
+// Album source-file summaries, disclosures and track readouts add lazy music CSS.
+export const CSS_BUDGET = 84 * KB;
 export const CORE_BUDGET = 7.4 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };

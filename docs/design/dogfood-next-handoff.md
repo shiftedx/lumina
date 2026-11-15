@@ -14,7 +14,37 @@ Current continuation handoff, November 1, 2026. Use this for the owner's next na
 
 Give concise progress updates while working. Carry the request through implementation and verification; ask only for information or access that actually blocks the next action. The final report states the result, merged PR, focused checks and material limits. If no new issue accompanies this handoff, report readiness and wait: the previous batch is complete.
 
-## Latest production deployment, November 14, 2026
+## Latest production deployment, November 15, 2026
+
+Production is healthy on `lumina:native-music-d9f71929`, from clean merged main
+`d9f7192983deef0e500c3be4e42797a8e727d80b`. The native Quiet detail adapter from
+[PR #330](https://github.com/shiftedx/lumina/pull/330) is deployed, alongside the
+existing web music quality readouts and Artists-first preference behavior.
+
+The iOS and tvOS source now includes album summaries, expandable format/bitrate/
+bit-depth/sample-rate details, per-track facts and artist album captions. The TV
+readout uses the wider track column so playback controls retain their position
+and remote navigation remains reachable. Both focused simulator workflows pass,
+including TV playback and artist navigation; seven native HTTP workflows and the
+focused Core request/decoding contract pass. Mixed, partial and unknown source
+facts remain explicit. No full suite or physical-device qualification ran.
+These native changes need later signed builds; both staged build-58 packages and
+all archives/symbols remain unchanged.
+
+All 94 frontend assets and 315 backend files match the packaged merged source.
+Public health/bootstrap/frontend and JS/CSS checks passed; anonymous media and
+native file-quality access remain denied. Visibility-scoped live reads checked
+12 album summaries, 16 track details, and the native adapter for an album with
+16 tracks and its artist's 8 album summaries. Compose changed only its image;
+environment, mounts, ports, devices and security settings remain unchanged.
+Schema stays 44. A consistent database snapshot passed integrity and portable
+checksum verification; protected configuration and key files remain backed up.
+Deployment finalization verified three known-good images total and two stopped,
+isolated rollback pins with cleanup exclusions preserved. Ignored evidence is
+retained in `output/native-music-file-quality/`; owned proof servers, simulators
+and temporary native build directories have been cleaned up.
+
+## Previous web deployment, November 14, 2026
 
 Production is healthy on `lumina:music-08f2e2e8`, from clean merged main
 `08f2e2e8fcb0527b9b74b8cb61bd20f187059ab2`. This includes Quiet detail music
@@ -49,7 +79,7 @@ only; the deployed runtime revision is above.
 
 ## Preserve the current behavior
 
-- **Native music file quality (source after build 58):** iOS and tvOS album pages show compact source-format/resolution and duration-weighted average bitrate, expandable File details, and per-track source facts. Artist album cards carry the same captions. Mixed/partial/unknown facts stay explicit; lossy decoder bit depth is not presented as source depth. One authenticated native collection read reuses the web summaries and visibility rules, with no per-card requests. Existing server versions omit optional readouts without breaking browsing. This needs the matching server adapter and new native packages; the staged build-58 archives remain unchanged.
+- **Native music file quality (source after build 58):** iOS and tvOS album pages show compact source-format/resolution and duration-weighted average bitrate, expandable File details, and per-track source facts. Artist album cards carry the same captions. Mixed/partial/unknown facts stay explicit; lossy decoder bit depth is not presented as source depth. One authenticated native collection read reuses the web summaries and visibility rules, with no per-card requests. Existing server versions omit optional readouts without breaking browsing. The matching server adapter is deployed at the revision above; native UI still needs new packages. The staged build-58 archives remain unchanged.
 
 - **Web music file quality (Quiet detail):** album headers have an expandable source-file summary; track rows expose codec, bitrate, bit depth and sample rate, and album cards expose known format/resolution and average bitrate from artist and album views. Album bitrate is weighted by visible track duration and omitted if any track lacks a valid bitrate/duration. Mixed formats and partial metadata remain explicit. Album summaries are batched in one visibility-scoped query per page; private, missing and extra tracks do not contribute. Caption/virtual-row heights reserve space for all readouts. No schema, audio encoding or native package change. Focused API, component, virtual-grid, responsive browser/a11y and build/style checks cover it.
 

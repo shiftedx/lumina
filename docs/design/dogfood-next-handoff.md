@@ -14,7 +14,42 @@ Current continuation handoff, November 1, 2026. Use this for the owner's next na
 
 Give concise progress updates while working. Carry the request through implementation and verification; ask only for information or access that actually blocks the next action. The final report states the result, merged PR, focused checks and material limits. If no new issue accompanies this handoff, report readiness and wait: the previous batch is complete.
 
-## Latest production deployment, November 15, 2026
+## Latest production deployment, November 15, 2026 — Artwork atmosphere
+
+Production is healthy on `lumina:music-atmosphere-0b65989f`, from clean merged main
+`0b65989f326753646fc46d06ac6bb72de4a6c4d1`. The approved **Title + year** caption
+layout in **Artwork atmosphere** is live on web artist and album views through
+[PR #332](https://github.com/shiftedx/lumina/pull/332). Artist details now sit below
+the portrait beside larger album covers; album details sit under their cover
+beside the track list. Both use artwork-derived atmosphere and system sans
+music-detail typography. Year and title share a row, with format/resolution and
+right-aligned bitrate in a separate expandable row. Partial/missing facts stay
+honest inside details; the average meaning remains in the accessible label and
+Average bitrate field. Existing artist/album playback, credits, editing,
+artwork menus and enrichment are preserved.
+
+Nineteen focused component tests passed. Five focused browser workflows covered
+artist-to-album quality, playback/Media Session, shuffle, Back and keyboard focus;
+the responsive quality workflow checked 1440, 1024, 768, 390 and 320 px with
+serious accessibility checks, long titles and mixed/partial/unknown file facts.
+A local visual pass used the owner-supplied reference artwork. Typechecking,
+production build and style checks passed; aggregate CSS is 83.0 KB gzip within
+the existing 84 KB limit. No full suite or native package build ran.
+
+All 94 frontend assets and 315 backend files match the packaged merged source;
+backend content is unchanged from the preceding deployment. Public HTML asset
+references, public health/bootstrap, every JS/CSS hash, protected media/native
+access and live file-summary reads passed verification. The image is the only
+Compose change; schema remains 44. A consistent database snapshot passed
+integrity and portable checksum checks; protected configuration and keys remain
+backed up. Finalization verified the current plus two prior known-good images,
+with exactly two stopped, isolated rollback pins and cleanup exclusions retained.
+Owned local browser servers exited; source packages, logs, screenshots and
+verification evidence are kept under `output/music-artwork-atmosphere-deployment/`,
+`output/music-quality/` and `output/music-atmosphere-proof/`. Native archives and
+symbols are untouched. This deployment supersedes the records below.
+
+## Previous native adapter deployment, November 15, 2026
 
 Production is healthy on `lumina:native-music-d9f71929`, from clean merged main
 `d9f7192983deef0e500c3be4e42797a8e727d80b`. The native Quiet detail adapter from

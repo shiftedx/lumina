@@ -116,7 +116,7 @@ function playbackMaxHeightFromUiPrefs(uiPrefs: Record<string, unknown> | undefin
 
 export function musicBrowseViewFromUiPrefs(prefs: Record<string, unknown> | undefined): 'albums' | 'artists' {
   const stored = prefs?.music_browse;
-  return stored && typeof stored === 'object' && 'view' in stored && stored.view === 'artists' ? 'artists' : 'albums';
+  return stored && typeof stored === 'object' && 'view' in stored && stored.view === 'albums' ? 'albums' : 'artists';
 }
 
 export type PlaybackPrefs = Pick<WorkspacePreferences, 'normalizeLoudness' | 'autoSkip' | 'profanity'>;
@@ -375,7 +375,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       profanity: DEFAULT_PROFANITY,
       homeShelves: null,
       settingsAdvanced: false,
-      musicBrowseView: 'albums',
+      musicBrowseView: 'artists',
     },
   };
 }
@@ -717,7 +717,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           profanity: settings ? profanityFromUiPrefs(settings.ui_prefs) : state.preferences.profanity,
           // Home layout: the member's own, or nothing; never the previous member's on this browser.
           homeShelves: settings ? homeShelvesFromUiPrefs(settings.ui_prefs) : sameUser ? state.preferences.homeShelves : null,
-          musicBrowseView: settings ? musicBrowseViewFromUiPrefs(settings.ui_prefs) : sameUser ? state.preferences.musicBrowseView : 'albums',
+          musicBrowseView: settings ? musicBrowseViewFromUiPrefs(settings.ui_prefs) : sameUser ? state.preferences.musicBrowseView : 'artists',
           settingsAdvanced: settings ? uiPref(settings.ui_prefs, 'settings_advanced', false) : sameUser && state.preferences.settingsAdvanced,
         },
       };

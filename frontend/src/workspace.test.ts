@@ -174,7 +174,7 @@ describe('workspaceReducer', () => {
 
     expect(payload.ui_prefs).toEqual({
       density: 'compact', sidebar_collapsed: true, streaming_providers: ['twitch'], theater_mode: false, autoplay_up_next: true, theme: 'system', player_volume: 1, playback_max_height: null,
-      normalize_loudness: true, auto_skip: { intro: false, credits: false, recap: false }, captions: { size: 'medium', background: 'shadow' }, profanity: { enabled: false, words: [] }, home_shelves: null, settings_advanced: false, music_browse: { view: 'albums' },
+      normalize_loudness: true, auto_skip: { intro: false, credits: false, recap: false }, captions: { size: 'medium', background: 'shadow' }, profanity: { enabled: false, words: [] }, home_shelves: null, settings_advanced: false, music_browse: { view: 'artists' },
     });
   });
 
@@ -865,6 +865,9 @@ describe('workspaceReducer realtime batch', () => {
 describe('authenticated music browsing preference', () => {
   it('validates known views, preserves sibling preferences, saves only changes and isolates members', () => {
     const saved = { ...settings, ui_prefs: { theme: 'dark', music_browse: { view: 'artists', future: true }, home_shelves: [] } };
+    expect(createInitialWorkspaceState().preferences.musicBrowseView).toBe('artists');
+    expect(resolve().preferences.musicBrowseView).toBe('artists');
+    expect(resolve({ userSettings: { ...settings, ui_prefs: { music_browse: { view: 'albums' } } } }).preferences.musicBrowseView).toBe('albums');
     const state = resolve({ userSettings: saved });
     expect(state.preferences.musicBrowseView).toBe('artists');
     expect(workspaceSettingsChanges(state).ui_prefs).not.toHaveProperty('music_browse');
@@ -872,8 +875,8 @@ describe('authenticated music browsing preference', () => {
     expect(workspaceSettingsChanges(changed).ui_prefs).toMatchObject({ music_browse: { view: 'albums', future: true } });
     expect(workspaceSettingsChanges(changed).ui_prefs).not.toHaveProperty('home_shelves');
     for (const music_browse of [null, 'artists', [], { view: 'saved' }, { view: 5 }]) {
-      expect(resolve({ userSettings: { ...settings, ui_prefs: { music_browse } } }).preferences.musicBrowseView).toBe('albums');
+      expect(resolve({ userSettings: { ...settings, ui_prefs: { music_browse } } }).preferences.musicBrowseView).toBe('artists');
     }
-    expect(resolve({ currentUser: otherUser, userSettings: null }, state).preferences.musicBrowseView).toBe('albums');
+    expect(resolve({ currentUser: otherUser, userSettings: null }, state).preferences.musicBrowseView).toBe('artists');
   });
 });

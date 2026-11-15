@@ -1,5 +1,5 @@
 /**
- * The album page: a sticky 1:1 cover beside the kicker, title, artist line, genres, Play,
+ * The album page: a 1:1 cover above the title, artist line, file facts, genres, Play,
  * Shuffle and Favorite, and the tracklist by disc. GalleryTitlePage renders it for an album and keeps the fetch, the
  * summary cache, focus and Back.
  */
@@ -19,7 +19,7 @@ import { MusicEnrichment, MusicVideoRail } from '../music/MusicExtras';
 import { MusicEditions } from '../music/MusicEditions';
 import { MusicTrackEditor } from '../music/MusicTrackEditor';
 
-const COVER_SIZES = '(max-width: 599px) 300px, (max-width: 1023px) 280px, 400px';
+const COVER_SIZES = '(max-width: 899px) 380px, 420px';
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 
 export type AlbumPageProps = {
@@ -155,7 +155,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
   const resume = tracks ? resumeTrack(tracks) : null;
   const length = tracks?.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0) ?? 0;
   const count = tracks?.length ?? album.child_count ?? null;
-  const kicker = ['Album', album.year ? String(album.year) : null, count === null ? null : countNoun(count, ['track', 'tracks']), length ? albumLength(length) : null].filter(Boolean).join(' · ');
+  const kicker = ['Album', count === null ? null : countNoun(count, ['track', 'tracks']), length ? albumLength(length) : null].filter(Boolean).join(' · ');
   const favorite = album.user_data.is_favorite;
   const playable = Boolean(tracks?.length);
   const artist = album.artist_name ?? null;
@@ -188,46 +188,49 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
   };
 
   return (
-    <div className={`gallery g-album-page soundstage-album${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--album-cover-colour': safeColour(album.poster?.dominant) ?? 'var(--g-paper-2)', '--g-accent': readableAccent(safeColour(album.poster?.accent) ?? safeColour(album.poster?.dominant), galleryTheme()) } as CSSProperties}>
+    <div className={`gallery g-album-page soundstage-album${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--music-cover-colour': safeColour(album.poster?.dominant) ?? 'var(--g-paper-2)', '--g-accent': readableAccent(safeColour(album.poster?.accent) ?? safeColour(album.poster?.dominant), galleryTheme()) } as CSSProperties}>
       <button aria-label={`Back to ${backLabel}`} className="g-back g-label" data-focus-item onClick={onBack} type="button"><ChevronLeft aria-hidden="true" /> {backLabel}</button>
       <div className="g-album-layout">
-        <div className="g-album-cover">
+        <aside aria-label="Album details" className="g-album-cover">
           <GalleryArt alt="" art={album.poster} card={{ name: album.name, year: album.year }} colour={cardColour(album, 'square')} kind="square" priority={1} sizes={COVER_SIZES} />
-        </div>
-        <div className="g-album-body">
-          <p className="g-label">{kicker}</p>
-          <h1 className="g-album-title" ref={headingRef} tabIndex={-1}>{album.name}</h1>
-          {artist ? <p className="g-album-artist">by {linked ? <a data-focus-item href={`/title/${encodeURIComponent(album.parent_id as string)}`} onClick={openArtist}>{artist}</a> : artist}</p> : null}
-          {album.genres.length ? <p className="g-label">{album.genres.slice(0, 3).join(' · ')}</p> : null}
-          {album.overview ? <p className="soundstage-album-overview">{album.overview}</p> : null}
-          {album.audio_quality ? <AlbumFileQuality quality={album.audio_quality} /> : null}
-          <div className="g-album-actions" data-focus-row>
-            <button className="g-button is-primary g-button-text g-album-play" data-focus-item disabled={!playable} onClick={() => {
-              if (!tracks?.length) return;
-              if (resume) play(resume, tracks, resume.user_data.position_seconds);
-              else play(tracks[0]);
-            }} type="button">
-              <Play aria-hidden="true" /> <span>{resume ? `Resume · ${trackLabel(resume)}` : 'Play'}</span>
-            </button>
-            {phone
-              ? <button aria-label="Shuffle" className="g-icon-button" data-focus-item disabled={!playable} onClick={shuffle} type="button"><Shuffle aria-hidden="true" /></button>
-              : <button className="g-button g-button-text" data-focus-item disabled={!playable} onClick={shuffle} type="button"><Shuffle aria-hidden="true" /> Shuffle</button>}
-            {phone
-              ? <button aria-label="Favorite" aria-pressed={favorite} className="g-icon-button" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /></button>
-              : <button aria-pressed={favorite} className="g-button g-button-text" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /> Favorite</button>}
-            {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(album.id)} type="button"><Pencil aria-hidden="true" /> Edit details</button> : null}
-            {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
+          <div className="g-album-body">
+            <div className="g-album-heading"><h1 className="g-album-title" ref={headingRef} tabIndex={-1}>{album.name}</h1>{album.year ? <span className="g-album-year">{album.year}</span> : null}</div>
+            <p className="g-label">{kicker}</p>
+            {artist ? <p className="g-album-artist">by {linked ? <a data-focus-item href={`/title/${encodeURIComponent(album.parent_id as string)}`} onClick={openArtist}>{artist}</a> : artist}</p> : null}
+            {album.genres.length ? <p className="g-label">{album.genres.slice(0, 3).join(' · ')}</p> : null}
+            {album.audio_quality ? <AlbumFileQuality label={`File details for ${album.name}`} quality={album.audio_quality} /> : null}
+            <div className="g-album-actions" data-focus-row>
+              <button className="g-button is-primary g-button-text g-album-play" data-focus-item disabled={!playable} onClick={() => {
+                if (!tracks?.length) return;
+                if (resume) play(resume, tracks, resume.user_data.position_seconds);
+                else play(tracks[0]);
+              }} type="button">
+                <Play aria-hidden="true" /> <span>{resume ? `Resume · ${trackLabel(resume)}` : 'Play'}</span>
+              </button>
+              {phone
+                ? <button aria-label="Shuffle" className="g-icon-button" data-focus-item disabled={!playable} onClick={shuffle} type="button"><Shuffle aria-hidden="true" /></button>
+                : <button className="g-button g-button-text" data-focus-item disabled={!playable} onClick={shuffle} type="button"><Shuffle aria-hidden="true" /> Shuffle</button>}
+              {phone
+                ? <button aria-label="Favorite" aria-pressed={favorite} className="g-icon-button" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /></button>
+                : <button aria-pressed={favorite} className="g-button g-button-text" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /> Favorite</button>}
+              {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(album.id)} type="button"><Pencil aria-hidden="true" /> Edit details</button> : null}
+              {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
+            </div>
+            {album.overview ? <div className="music-biography"><p aria-hidden="true" className="music-biography-preview">{album.overview}</p><details><summary>About this album</summary><p>{album.overview}</p></details></div> : null}
+            {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
           </div>
-          {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
-        </div>
-        <section aria-label={`${album.name} track list`} className="g-album-track-panel">
-          {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
-        </section>
-        <div className="g-album-extra-panel">
-          {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
-          <MusicVideoRail hideEmpty id={album.id} onWatch={onWatchVideo} />
-          <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
-        </div>
+        </aside>
+        <div className="g-album-content">
+          <section aria-label={`${album.name} track list`} className="g-album-track-panel">
+            <h2 className="g-chapter">Tracks{count === null ? null : <span className="g-label">{count}</span>}</h2>
+            {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
+          </section>
+          <div className="g-album-extra-panel">
+            {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
+            <MusicVideoRail hideEmpty id={album.id} onWatch={onWatchVideo} />
+            <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
+          </div>
+          </div>
       </div>
       <MusicTrackEditor albumId={album.id} albumName={album.name} onClose={() => setManagingTracks(false)} onRefreshed={onRefreshed} open={managingTracks} user={user ?? { role: 'viewer', can_edit_details: canEdit }} />
     </div>

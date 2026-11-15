@@ -42,7 +42,7 @@ test('album playback stays on its Audio page and Next updates the player and Med
   page.on('pageerror', (error) => errors.push(error.message));
   await open(page, '/title/album-1');
   await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
-  await expect(page.getByText('Album · 2019 · 3 tracks · 5 min')).toBeVisible();
+  await expect(page.getByText('Album · 3 tracks · 5 min')).toBeVisible();
   const cover = await page.locator('.g-album-cover .g-art-square').boundingBox();
   expect(Math.round(cover!.width)).toBe(Math.round(cover!.height));
   await page.getByRole('button', { name: 'Play 1. Song 1, 1:30' }).click();
@@ -324,18 +324,52 @@ test('source file quality stays visible from artist to album on desktop and phon
   await mockGalleryWall(page);
   await mockMusic(page);
   await page.route('**/api/titles/album-1', (route) => route.fulfill({ json: album }));
-  await page.route('**/api/titles/artist-1', (route) => route.fulfill({ json: titleDetail(artistSummary(), { children: [album] }) }));
+  await page.route('**/api/titles/artist-1', (route) => route.fulfill({ json: titleDetail(artistSummary(), { overview: 'A long artist biography that remains available without pushing the albums below the portrait. '.repeat(8), children: [album,
+    albumSummary('album-2', { name: 'An Album With a Particularly Long Name That Still Needs Room Beneath Its Cover', audio_quality: { ...quality, codecs: ['flac'], bit_depths: [], sample_rates: [44100], bitrate_kbps: null, formats_complete: false } }),
+    albumSummary('album-3', { name: 'Third release', audio_quality: { ...quality, codecs: ['alac'], bit_depths: [16], sample_rates: [44100], bitrate_kbps: 720 } }),
+    albumSummary('album-4', { name: 'Unreported file facts', audio_quality: { ...quality, codecs: [], bit_depths: [], sample_rates: [], bitrate_kbps: null, formats_complete: false } }),
+  ] }) }));
   await page.goto('/audio');
   await signIn(page);
   await expect(page.getByRole('button', { name: 'Artists', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  for (const [width, scheme] of [[1440, 'dark'], [390, 'light'], [320, 'dark']] as const) {
+  for (const [width, scheme] of [[1440, 'dark'], [1024, 'light'], [768, 'dark'], [390, 'light'], [320, 'dark']] as const) {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     await page.goto('/audio/title/artist-1');
     const card = page.getByRole('button', { name: /Album One by Artist A.*Mixed formats.*1,200 kbps average/ });
     await expect(card).toBeVisible();
-    await expect(card.getByText('1,200 kbps avg')).toBeVisible();
+    const about = page.getByText('About the artist', { exact: true });
+    await about.click();
+    await expect(about.locator('..')).toHaveAttribute('open', '');
+    await about.click();
+    const partial = page.getByLabel(/File details for An Album With a Particularly Long Name/);
+    await partial.click();
+    await expect(partial.locator('..').getByText('Bitrate unavailable', { exact: true })).toBeVisible();
+    await partial.click();
+    const artistFacts = card.locator('..').locator('.g-album-file-quality');
+    await expect(artistFacts.locator('summary').getByText('1,200 kbps', { exact: true })).toBeVisible();
+    await artistFacts.locator('summary').click();
+    await expect(artistFacts.getByText('Average bitrate')).toBeVisible();
+    await expect(page).toHaveURL(/artist-1/);
+    await artistFacts.locator('summary').click();
     await expect(card.getByText('Album One', { exact: true })).toBeVisible();
+    const portraitArt = page.locator('.soundstage-portrait > .g-art');
+    const artistHeading = page.getByRole('heading', { level: 1, name: 'Artist A' });
+    const portraitBox = (await portraitArt.boundingBox())!;
+    const headingBox = (await artistHeading.boundingBox())!;
+    expect(headingBox.y).toBeGreaterThanOrEqual(portraitBox.y + portraitBox.height);
+    expect(Math.abs(headingBox.x - portraitBox.x)).toBeLessThanOrEqual(1);
+    if (width >= 1024) {
+      expect((await card.locator('.g-art-square').boundingBox())!.width).toBeGreaterThan(240);
+      const year = (await card.locator('.g-caption-year').boundingBox())!;
+      const title = (await card.locator('.g-caption-title').boundingBox())!;
+      expect(Math.abs(year.y - title.y)).toBeLessThan(8);
+      const format = (await artistFacts.locator('.g-quality-format').boundingBox())!;
+      const rate = (await artistFacts.locator('.g-quality-rate').boundingBox())!;
+      expect(rate.y >= format.y + format.height - 1 || rate.x >= format.x + format.width - 1).toBe(true);
+      expect(Math.abs(rate.x + rate.width - ((await card.boundingBox())!.x + (await card.boundingBox())!.width))).toBeLessThanOrEqual(1);
+    }
+
     expect(await card.locator('.g-caption').evaluate((caption) => {
       const box = caption.getBoundingClientRect();
       return [...caption.children].every((child) => child.getBoundingClientRect().bottom <= box.bottom + 1);
@@ -344,6 +378,10 @@ test('source file quality stays visible from artist to album on desktop and phon
     await page.screenshot({ path: `../output/music-quality/artist-${width}-${scheme}.png`, fullPage: true });
     await card.click();
     await expect(page.getByRole('heading', { name: 'Album One', exact: true })).toBeVisible();
+    const albumCover = (await page.locator('.g-album-cover > .g-art').boundingBox())!;
+    const albumHeading = (await page.getByRole('heading', { level: 1, name: 'Album One' }).boundingBox())!;
+    expect(albumHeading.y).toBeGreaterThanOrEqual(albumCover.y + albumCover.height);
+    expect(Math.abs(albumHeading.x - albumCover.x)).toBeLessThanOrEqual(1);
     const source = page.locator('.g-album-file-quality');
     await expect(source.getByText(/Mixed formats · AAC \+ FLAC/).first()).toBeVisible();
     await source.locator('summary').click();

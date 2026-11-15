@@ -47,7 +47,8 @@ describe('AlbumPage', () => {
       albumTrack(1, { item_id: 'track-d2', disc: 2, name: 'Closing', duration_seconds: 1440 }),
     ];
     const { container, props } = albumPage(albumDetail(albumSummary('album-1', { genres: ['Folk', 'Pop', 'Jazz', 'Rock'] }), tracks));
-    expect(screen.getByText('Album · 2019 · 3 tracks · 1 h 12 min')).toBeTruthy();
+    expect(screen.getByText('Album · 3 tracks · 1 h 12 min')).toBeTruthy();
+    expect(screen.getByText('2019')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Album One' })).toBeTruthy();
     expect(screen.getByText('Folk · Pop · Jazz')).toBeTruthy();
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent).filter((text) => text?.startsWith('Disc'))).toEqual(['Disc 1', 'Disc 2']);
@@ -164,7 +165,10 @@ describe('AlbumPage', () => {
       discography: [{ id: 'edition-1', name: 'Album One Expanded', year: '2021', type: 'Album' }],
     } });
     albumPage(detail, { canEdit: true, onEdit, onWatchVideo, user: { id: 'owner', role: 'admin', can_edit_details: true } });
-    expect(screen.getByText('Recorded in a quiet room.')).toBeTruthy();
+    const about = screen.getByText('About this album');
+    await userEvent.click(about);
+    expect(about.parentElement?.hasAttribute('open')).toBe(true);
+    expect(about.parentElement?.textContent).toContain('Recorded in a quiet room.');
     expect(screen.getByRole('heading', { name: 'Release details' })).toBeTruthy();
     expect(screen.getByText('Night Records')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Credits' })).toBeTruthy();
@@ -192,7 +196,8 @@ it('shows album file quality and per-track resolution without changing track pla
   const disclosure = screen.getAllByText('FLAC · 24-bit / 96 kHz').find((element) => element.closest('summary'))!.closest('summary')!;
   await userEvent.click(disclosure);
   expect(disclosure.parentElement?.hasAttribute('open')).toBe(true);
-  expect(screen.getByText('1,842 kbps avg · Source files')).toBeTruthy();
+  expect(disclosure.textContent).toContain('1,842 kbps');
+  expect(screen.getByText('Average bitrate')).toBeTruthy();
   expect(screen.getByText(/These are source-file facts; playback output may differ/)).toBeTruthy();
   await userEvent.click(screen.getByRole('button', { name: /Play 1\. Song 1.*FLAC.*24-bit.*96 kHz.*1,842 kbps/ }));
   expect(props.onPlay).toHaveBeenCalledWith('track-1');

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import threading
+import time
 from uuid import UUID
 import math
 from typing import Any
@@ -19,6 +21,7 @@ from app.services.local_ai import LocalAiError, bounded_json_request
 from app.services.requests.arr import ArrClient, ArrError, MAX_BYTES
 
 logger = logging.getLogger(__name__)
+LIDARR_ALBUM_OBSERVATION_SECONDS = 300
 
 
 class ConnectorError(RuntimeError):
@@ -91,6 +94,91 @@ def _json(payload: bytes) -> Any:
         return json.loads(payload)
     except (ValueError, UnicodeError):
         raise ConnectorError("Connector returned malformed JSON") from None
+
+
+def _lidarr_album_rows(client: Any, artist_id: int) -> tuple[list[dict], int]:
+    """Read one filtered album response under the existing per-request cap."""
+    from app.services.lidarr import MAX_BYTES as LIDARR_MAX_BYTES
+
+    try:
+        with httpx.Client(
+            base_url=client.base_url.rstrip("/") + "/", timeout=httpx.Timeout(15, connect=5),
+            follow_redirects=False, trust_env=False,
+        ) as request_client, request_client.stream(
+            "GET", "api/v1/album", params={"artistId": artist_id},
+            headers={"X-Api-Key": client.api_key},
+        ) as response:
+            if response.status_code != 200:
+                raise ConnectorError(f"Lidarr endpoint returned HTTP {response.status_code}")
+            payload = bytearray()
+            for chunk in response.iter_bytes():
+                payload.extend(chunk)
+                if len(payload) > LIDARR_MAX_BYTES:
+                    raise ConnectorError("Lidarr response exceeded the size limit")
+    except httpx.HTTPError:
+        raise ConnectorError("Lidarr endpoint is unreachable") from None
+    rows = _rows(_json(bytes(payload)))
+    return rows, len(payload)
+
+
+def _lidarr_albums(client: Any, artists: list[dict]) -> list[dict]:
+    from app.services.lidarr import MAX_PAGED_BYTES, MAX_PAGED_RECORDS
+
+    artist_ids: list[int] = []
+    seen_artist_ids: set[int] = set()
+    for artist in artists:
+        identity = artist.get("id")
+        if type(identity) is not int or identity <= 0 or identity in seen_artist_ids:
+            raise ConnectorError("Lidarr returned an invalid artist identity")
+        seen_artist_ids.add(identity)
+        artist_ids.append(identity)
+    if not artist_ids:
+        fresh_artists = _rows(client.call("GET", "artist", array=True))
+        if fresh_artists:
+            raise ConnectorError("Lidarr artist list changed during observation")
+        return []
+
+    albums: list[dict] = []
+    seen_album_ids: set[int] = set()
+    bytes_seen = 0
+    record_count = 0
+    deadline = time.monotonic() + LIDARR_ALBUM_OBSERVATION_SECONDS
+    for offset in range(0, len(artist_ids), 2):
+        if time.monotonic() >= deadline:
+            raise ConnectorError("Lidarr album observation exceeded its time limit")
+        batch = artist_ids[offset:offset + 2]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(_lidarr_album_rows, client, artist_id) for artist_id in batch]
+            results = [future.result() for future in futures]
+        batch_records: list[dict] = []
+        batch_ids: set[int] = set()
+        batch_bytes = 0
+        for artist_id, (rows, response_bytes) in zip(batch, results):
+            batch_bytes += response_bytes
+            for row in rows:
+                album_id, row_artist_id = row.get("id"), row.get("artistId")
+                if (type(album_id) is not int or album_id <= 0 or type(row_artist_id) is not int
+                        or row_artist_id != artist_id or album_id in seen_album_ids or album_id in batch_ids):
+                    raise ConnectorError("Lidarr returned an invalid album identity")
+                batch_ids.add(album_id)
+                batch_records.append(row)
+        if (record_count + len(batch_records) > MAX_PAGED_RECORDS
+                or bytes_seen + batch_bytes > MAX_PAGED_BYTES):
+            raise ConnectorError("Lidarr returned too many albums")
+        record_count += len(batch_records)
+        bytes_seen += batch_bytes
+        seen_album_ids.update(batch_ids)
+        albums.extend(batch_records)
+
+    if time.monotonic() >= deadline:
+        raise ConnectorError("Lidarr album observation exceeded its time limit")
+    # Catch artists added or removed while the bounded batches were in flight.
+    fresh_artists = _rows(client.call("GET", "artist", array=True))
+    fresh_ids = [row.get("id") for row in fresh_artists]
+    if (any(type(identity) is not int or identity <= 0 for identity in fresh_ids)
+            or len(set(fresh_ids)) != len(fresh_ids) or set(fresh_ids) != seen_artist_ids):
+        raise ConnectorError("Lidarr artist list changed during observation")
+    return albums
 
 
 def _qbit(connector: ServiceConnector) -> tuple[str, dict]:
@@ -168,7 +256,8 @@ def observe(connector: ServiceConnector) -> tuple[str, dict]:
         client = LidarrClient.of(connector)
         try:
             result = client.test()
-            artists, albums = _rows(client.call("GET", "artist", array=True)), _rows(client.call("GET", "album", array=True))
+            artists = _rows(client.call("GET", "artist", array=True))
+            albums = _lidarr_albums(client, artists)
             queue, history = client.paged("queue"), client.paged("history")
         except LidarrError as exc:
             raise ConnectorError(str(exc)) from None

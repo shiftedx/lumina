@@ -862,3 +862,38 @@ validated signed copy is staged in Xcode Archives for November 14, with version
 new TV package and the existing iOS 58 package passed. The owned TV build cache
 was removed; all prior packages remain preserved. This release record changes
 documentation only; the TV binary source revision is above.
+
+### General TestFlight package 59, 2026-11-15
+
+**iOS and tvOS 0.1.0 (59) are distribution-signed and staged in Xcode Archives for
+the owner to upload.** Both use clean merged source
+`6d49906075460694d2b7ebd5c6482c1b0f8ebc0d`, the source of public server v0.7.0.
+Production is now verified on that public image. Neither native app was uploaded.
+
+These packages add the native album/artist Quiet detail source-file information
+from [PR #330](https://github.com/shiftedx/lumina/pull/330) to the SF Pro and player
+work included in build 58. Album summaries, expandable format/bitrate/bit-depth/
+sample-rate facts, per-track facts and artist album captions distinguish source
+files from active playback/output quality. Mixed, partial and unknown facts
+remain explicit. Earlier build-58 packages are preserved.
+
+The focused Core collection-quality request/decoding contract and both archive
+signing/framework safeguards passed. Native runtime inputs are unchanged since
+the retained passing iOS/tvOS file-quality simulator workflows; their case-level
+logs accompany the package. Both Release device archives, distribution-signed
+IPAs, signed Organizer references and staged copies passed local validation.
+Executable/dSYM UUIDs match on both platforms, neither IPA contains Newsreader,
+and 992 tracked native source-input hashes remained unchanged through archive
+and export. All 1,031 package-file checksums passed. No full suite or new physical
+device, receiver or DAC qualification ran. Local validation does not establish
+Apple upload acceptance, processing, beta review or tester availability.
+
+Preserve ignored `apple/Distribution/0.1.0-59/`, including source and signed
+archives, both IPAs, matching symbols, source snapshot, manifests, checksums,
+qualification and What to Test. Xcode Archives has separate signed iOS and tvOS
+entries named **Lumina <platform> 0.1.0 (59) — Signed for Upload**. The active
+Apple Accounts window changed during UI inspection and was left unchanged;
+selection of the new entries was not confirmed. Open the appropriate signed
+Organizer copy or select its staged archive, then choose Distribute App → App
+Store Connect → Upload. Keep Internal Only disabled and retain build number 59.
+The owned build-59 DerivedData is disposable; archive/symbol packages remain.

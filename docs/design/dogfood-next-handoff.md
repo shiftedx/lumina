@@ -14,7 +14,39 @@ Current continuation handoff, November 1, 2026. Use this for the owner's next na
 
 Give concise progress updates while working. Carry the request through implementation and verification; ask only for information or access that actually blocks the next action. The final report states the result, merged PR, focused checks and material limits. If no new issue accompanies this handoff, report readiness and wait: the previous batch is complete.
 
-## Latest production deployment, November 15, 2026 — Artwork atmosphere
+## Latest production deployment and native packages, November 15, 2026
+
+Production is healthy on the public **`ghcr.io/shiftedx/lumina:0.7.0`** image,
+from release tag `v0.7.0` and clean merged source
+`6d49906075460694d2b7ebd5c6482c1b0f8ebc0d`. The running image matches the public
+manifest digest `sha256:64ffecb0908cb26366f8663a30c3797e0927443c9dffbf132e6da067aa86d350`.
+This supersedes the custom-image deployment below. Public health and bootstrap,
+the public HTML asset references, all JS/CSS hashes, 94 frontend files and 315
+backend files passed verification against the release build/source. Live reads
+checked 12 album summaries, 16 track details and the native adapter for 16 album
+tracks and 8 artist albums. Anonymous media/native access remains denied. A
+follow-up confirmed runtime version 0.7.0, the existing household and zero
+container restarts.
+
+Compose changed only the image; environment, mounts, ports, device access and
+security settings are preserved. Schema stays 44. A fresh consistent database
+snapshot passed full integrity, portable DELETE-journal and independent SHA-256
+checks; configuration and five protected key files are backed up. Deployment
+finalization verified the current plus two prior known-good images, exactly two
+stopped isolated rollback pins, and retained cleanup exclusions. Ignored rollout
+evidence is preserved under `output/public-0.7.0-deployment/`.
+
+Both **iOS and tvOS 0.1.0 (59)** are distribution-signed, locally validated and
+staged in Xcode Archives for the owner to upload. Both use the same clean source
+revision as the server release and include the latest native album/artist source
+file details, SF Pro and player refinements. The package preserves unsigned
+source archives, signed IPAs, signed Organizer copies, matching symbols, source
+snapshot/input hashes, qualification and What to Test in ignored
+`apple/Distribution/0.1.0-59/`. General TestFlight is enabled; Internal Only and
+automatic build-number changes are disabled. Neither app was uploaded. See the
+[build 59 distribution record](../../apple/docs/testflight.md#general-testflight-package-59-2026-11-15).
+
+## Previous production deployment, November 15, 2026 — Artwork atmosphere
 
 Production is healthy on `lumina:music-atmosphere-0b65989f`, from clean merged main
 `0b65989f326753646fc46d06ac6bb72de4a6c4d1`. The approved **Title + year** caption

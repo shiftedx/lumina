@@ -88,7 +88,7 @@ for (const width of [1440, 390, 320]) {
     await expect(page.getByRole('button', { name: 'Albums', exact: true })).toHaveAttribute('aria-pressed', 'true');
     expect(preferences.music_browse.view).toBe('artists');
     await page.goto('/audio?sort=name');
-    await expect(page.getByRole('button', { name: 'Albums', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Artists', exact: true })).toHaveAttribute('aria-pressed', 'true');
     const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].map((node) => ({ class: node.className, right: node.getBoundingClientRect().right })).filter((node) => node.right > innerWidth + 1).slice(0, 15));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), JSON.stringify(overflow)).toBe(true);
     const requested = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/search' && new URL(request.url()).searchParams.get('q') === 'Album');

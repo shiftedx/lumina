@@ -90,6 +90,7 @@ test('saved audio and recent albums report errors and recover on retry', async (
   });
   await page.goto('/audio');
   await signIn(page);
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Albums', exact: true }).click();
   const saved = page.getByRole('region', { name: 'Saved audio' });
   await expect(saved.getByText('Saved audio could not be loaded.')).toBeVisible();
   await expect(page.getByText(/Some recent albums could not be loaded/)).toBeVisible();

@@ -1,5 +1,12 @@
 # Release notes
 
+## Lumina 0.7.1
+
+- **Lidarr libraries:** Observe albums by artist so larger collections can refresh without exceeding a single-response limit. Reads retain per-response and aggregate limits, validate identities, and share a cancellable five-minute deadline. Failed or incomplete observations preserve the last successful snapshot.
+- **Verification:** Repair stale music workflow, layout and release-budget assertions, stabilize UTC activity-summary and WebKit playback test fixtures, and document the generated media fixture prerequisite for the full gate.
+
+**Upgrade:** Schema remains 44; no database migration from 0.7.0. Back up application data and retain the running image before updating. See the [operator guide](docker/README.md#upgrades).
+
 ## Lumina 0.7.0
 
 - **Web music:** Browse redesigned artist and album pages with larger covers, artwork-derived atmosphere and system sans typography. Artist details sit beneath the portrait; album titles and years share an aligned row, with compact, expandable file-quality details below.

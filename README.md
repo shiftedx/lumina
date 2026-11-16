@@ -56,11 +56,9 @@ Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you 
   <img src="docs/assets/library.jpg" alt="Lumina Movies library showing the Blender open-movie demo">
 </p>
 
-## In 0.7.0
+## In 0.7.1
 
-- **Music, closer to the artwork:** Larger album covers, artwork-derived atmosphere, and title + year captions on artist and album pages.
-- **Know your files:** Expandable format, bitrate, bit depth and sample rate, with honest mixed and missing metadata handling.
-- **Your music library:** Start on Artists and remember your last Artists/Albums choice.
+- **Lidarr libraries:** Refresh larger album collections through bounded artist reads, with a shared deadline and preservation of the last successful snapshot when the provider fails.
 
 Native Apple previews have [separate build instructions](apple/README.md). The screenshots show a public demo library; see [artwork credits](CREDITS.md).
 
@@ -68,19 +66,19 @@ See the [release notes](RELEASE_NOTES.md) for changes and upgrade details.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.7.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.7.0`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.7.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.7.1`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.7.0/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.7.0/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.7.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.7.1/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.7.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.7.1/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

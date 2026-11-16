@@ -109,16 +109,14 @@ async function mockApi(page: Page, requests: string[], mode: 'transcode' | 'dire
 }
 
 async function openWatch(page: Page, label = '180p · MPEG4 / AC3 · Transcoded') {
-  await page.goto('/');
+  // Sign in on the durable watch link. Navigating away from Home immediately
+  // after login can abort its startup requests and surface WebKit page errors.
+  await page.goto(`/watch/library/${item.id}`);
   const card = page.locator('.g-auth');
   await page.getByLabel('Username').fill(user.username);
   await page.getByLabel('Password', { exact: true }).fill('correct-horse');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
-  // This fixture proves the player negotiation path. Home intentionally has no
-  // "recently saved" rail until the member has activity, so open the fixture
-  // through the same durable watch URL a library card uses.
-  await page.goto(`/watch/library/${item.id}`);
   await expect(page.getByText(label).first()).toBeVisible({ timeout: 20_000 });
 }
 

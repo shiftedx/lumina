@@ -14,7 +14,33 @@ Current continuation handoff, November 1, 2026. Use this for the owner's next na
 
 Give concise progress updates while working. Carry the request through implementation and verification; ask only for information or access that actually blocks the next action. The final report states the result, merged PR, focused checks and material limits. If no new issue accompanies this handoff, report readiness and wait: the previous batch is complete.
 
-## Latest production deployment and native packages, November 15, 2026
+## Latest production deployment, November 15, 2026 — 0.7.1
+
+Production is healthy on **`ghcr.io/shiftedx/lumina:0.7.1`**, from release tag
+`v0.7.1` and merged source `31c7debe94dbc05990b62b58cdbbd248500cf38a`.
+The running image matches public manifest digest
+`sha256:81e3658c6c663650a95689f003d9cc36dcc8417341bbf14c5d87f32875162159`.
+This deploys the bounded, cancellable Lidarr album observation from [PR #335](https://github.com/shiftedx/lumina/pull/335).
+Public health/bootstrap, HTML asset references, every JS/CSS hash, all 94 frontend
+files and 315 backend files passed verification. Live reads checked 12 album
+summaries, 16 track details and native quality for 16 album tracks and 8 artist
+albums. Anonymous media/native access remains denied. This instance has no
+configured Lidarr connector; provider behavior is covered by the release's
+service-boundary regressions. Runtime version 0.7.1, schema 44 and zero restarts
+were confirmed after deployment.
+
+Compose changed only the image, preserving environment, mounts, ports, devices
+and security settings. A fresh consistent database backup passed full integrity,
+portable DELETE-journal and independent SHA-256 checks; stable protected files,
+signing material and configuration copies were verified. Backups now use the
+persistent NVMe volume: the initial root-volume attempt ran out of space, and
+its incomplete database copy plus unused Docker build cache were removed before
+retrying. Existing backups remain retained. Deployment finalization verified
+the current plus two prior known-good images, two stopped isolated rollback
+pins and cleanup exclusions. Ignored evidence is retained under
+`output/public-0.7.1-deployment/`. Native build-59 packages remain unchanged.
+
+## Previous production deployment and latest native packages, November 15, 2026 — 0.7.0
 
 Production is healthy on the public **`ghcr.io/shiftedx/lumina:0.7.0`** image,
 from release tag `v0.7.0` and clean merged source
@@ -31,7 +57,7 @@ container restarts.
 Compose changed only the image; environment, mounts, ports, device access and
 security settings are preserved. Schema stays 44. A fresh consistent database
 snapshot passed full integrity, portable DELETE-journal and independent SHA-256
-checks; configuration and five protected key files are backed up. Deployment
+checks; configuration and five small application files are backed up. Deployment
 finalization verified the current plus two prior known-good images, exactly two
 stopped isolated rollback pins, and retained cleanup exclusions. Ignored rollout
 evidence is preserved under `output/public-0.7.0-deployment/`.

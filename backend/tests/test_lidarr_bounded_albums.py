@@ -1,5 +1,8 @@
 from __future__ import annotations
+import asyncio
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 import threading
 import time
 import unittest
@@ -26,32 +29,43 @@ class LidarrBoundedAlbumsTests(unittest.TestCase):
                     if oversized_unfiltered: return httpx.Response(200, content=b"[" + b" " * (16 * 1024 * 1024) + b"]")
                     return httpx.Response(200, json=[row for rows in albums_by_artist.values() for row in rows])
                 aid = int(request.url.params["artistId"])
-                state["active"] += 1; state["max_active"] = max(state["max_active"], state["active"])
-                time.sleep(.01)
-                try:
-                    if aid == fail_artist: return httpx.Response(500)
-                    return httpx.Response(200, json=albums_by_artist.get(aid, []))
-                finally: state["active"] -= 1
+                if aid == fail_artist: return httpx.Response(500)
+                return httpx.Response(200, json=albums_by_artist.get(aid, []))
             return httpx.Response(404)
-        real_client = httpx.Client
+        async def async_respond(request):
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                await asyncio.sleep(.01)
+                return respond(request)
+            finally:
+                state["active"] -= 1
+        real_client, real_async_client = httpx.Client, httpx.AsyncClient
         def mock_client(*args, **kwargs):
             kwargs["transport"] = httpx.MockTransport(respond)
             return real_client(*args, **kwargs)
+        def mock_async_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(async_respond)
+            return real_async_client(*args, **kwargs)
+        mock_client.async_client = mock_async_client
         connector = ServiceConnector(id="connector", kind="lidarr", name="Lidarr", base_url="http://lidarr.example", api_key="fixture-key", settings={})
         return connector, state, mock_client
 
     def observe(self, fixture):
         connector, state, mock_client = fixture
-        with patch.object(connectors.httpx, "Client", side_effect=mock_client), patch.object(LidarrClient, "test", return_value={"version": "2.0"}), patch.object(LidarrClient, "paged", return_value=[]):
+        with patch.object(connectors.httpx, "Client", side_effect=mock_client), patch.object(connectors.httpx, "AsyncClient", side_effect=mock_client.async_client), patch.object(LidarrClient, "test", return_value={"version": "2.0"}), patch.object(LidarrClient, "paged", return_value=[]):
             return connectors.observe(connector), state
 
     def test_all_albums_retrieved_per_artist_with_two_request_window(self):
-        fixture = self.setup_fixture()
+        fixture = self.setup_fixture(albums_by_artist={
+            artist_id: [{"id": artist_id * 11, "artistId": artist_id, "title": "One"}]
+            for artist_id in range(1, 5)
+        })
         result, state = self.observe(fixture)
-        self.assertEqual([row["id"] for row in result[1]["albums"]], [11, 22])
+        self.assertEqual([row["id"] for row in result[1]["albums"]], [11, 22, 33, 44])
         self.assertEqual(result[1]["albums"][0]["title"], "One")
         album_requests = [r for r in state["requests"] if r[1].endswith("/album")]
-        self.assertCountEqual([r[2] for r in album_requests], [{"artistId": "1"}, {"artistId": "2"}])
+        self.assertCountEqual([r[2] for r in album_requests], [{"artistId": str(i)} for i in range(1, 5)])
         self.assertLessEqual(state["max_active"], 2)
         self.assertTrue(all(method == "GET" for method, _, _ in state["requests"]))
 
@@ -99,21 +113,82 @@ class LidarrBoundedAlbumsTests(unittest.TestCase):
         with patch.object(lidarr, "MAX_PAGED_RECORDS", 1):
             with self.assertRaises(connectors.ConnectorError): self.observe(fixture)
 
-    def test_per_artist_reader_preserves_complete_album_rows(self):
-        fixture = self.setup_fixture()
-        _, _, mock_client = fixture
-        connector = fixture[0]
-        with patch.object(connectors.httpx, "Client", side_effect=mock_client):
-            rows, byte_count = connectors._lidarr_album_rows(LidarrClient.of(connector), 1)
-        self.assertEqual(rows, [{"id": 11, "artistId": 1, "title": "One", "extra": {"keep": True}}])
-        self.assertGreater(byte_count, 0)
+    def test_observation_preserves_complete_album_rows(self):
+        expected = [{"id": 11, "artistId": 1, "title": "One", "extra": {"keep": True}}]
+        connector, _, mock_client = self.setup_fixture(albums_by_artist={1: expected})
+        with patch.object(connectors.httpx, "AsyncClient", side_effect=mock_client.async_client):
+            rows = connectors._lidarr_albums(LidarrClient.of(connector), [{"id": 1}])
+        self.assertEqual(rows, expected)
 
-    def test_album_observation_deadline_stops_before_next_batch(self):
-        fixture = self.setup_fixture(albums_by_artist={1: [], 2: [], 3: []})
-        with patch.object(connectors, "LIDARR_ALBUM_OBSERVATION_SECONDS", 1), \
-             patch.object(connectors.time, "monotonic", side_effect=[0, 2]):
-            with self.assertRaisesRegex(connectors.ConnectorError, "time limit"):
-                self.observe(fixture)
-        self.assertFalse(any(path.endswith("/album") for _, path, _ in fixture[1]["requests"]))
+    def test_deadline_cancels_slow_streams_and_membership_rereads(self):
+        for phase in ("album", "artist", "empty"):
+            with self.subTest(phase=phase):
+                state = {"artist_calls": 0, "album_ids": []}
+                active: set[int] = set()
+                lock = threading.Lock()
+                started = threading.Event()
+                closed = threading.Event()
+
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self, *_args):
+                        pass
+
+                    def do_GET(self):
+                        url = urlsplit(self.path)
+                        if url.path.endswith("/artist"):
+                            state["artist_calls"] += 1
+                            rows = [] if phase == "empty" else [{"id": i} for i in (1, 2, 3)]
+                            slow = phase != "album" and state["artist_calls"] > 1
+                        else:
+                            artist_id = int(parse_qs(url.query)["artistId"][0])
+                            state["album_ids"].append(artist_id)
+                            rows = [{"id": artist_id, "artistId": artist_id}]
+                            slow = phase == "album"
+                        self.send_response(200)
+                        self.end_headers()
+                        if not slow:
+                            self.wfile.write(json.dumps(rows).encode())
+                            return
+                        identity = threading.get_ident()
+                        with lock:
+                            active.add(identity)
+                        started.set()
+                        try:
+                            self.wfile.write(b"[")
+                            # Every chunk arrives well inside HTTPX's inactivity timeout.
+                            for _ in range(100):
+                                self.wfile.write(b" ")
+                                self.wfile.flush()
+                                time.sleep(.01)
+                            self.wfile.write(b"]")
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        finally:
+                            with lock:
+                                active.discard(identity)
+                                if not active:
+                                    closed.set()
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                connector = ServiceConnector(kind="lidarr", base_url=f"http://127.0.0.1:{server.server_port}", api_key="fixture-key", settings={})
+                try:
+                    with patch.object(LidarrClient, "test", return_value={"version": "2.0"}), \
+                         patch.object(LidarrClient, "paged", return_value=[]), \
+                         patch.object(connectors, "LIDARR_ALBUM_OBSERVATION_SECONDS", .15):
+                        before = time.monotonic()
+                        with self.assertRaisesRegex(connectors.ConnectorError, "time limit"):
+                            connectors.observe(connector)
+                        elapsed = time.monotonic() - before
+                    self.assertTrue(started.is_set())
+                    self.assertLess(elapsed, .75)
+                    self.assertTrue(closed.wait(.5), "Timed-out responses must release their sockets")
+                    if phase == "album":
+                        self.assertCountEqual(state["album_ids"], [1, 2])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join()
 
 if __name__ == "__main__": unittest.main()

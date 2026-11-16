@@ -209,6 +209,11 @@ Credentials are write-only. Changing the endpoint requires new credentials; remo
 credentials disables the connector. Backups omit these credentials, so re-enter and
 test them after restoring. A failed refresh keeps the previous snapshot stale.
 
+Lidarr album observation reads by artist with at most two requests in flight,
+a 16 MiB response cap, 64 MiB/100,000-album aggregate limits and a five-minute
+deadline covering album reads and the final artist-membership check. A failed,
+oversized or timed-out read retains the previous snapshot as stale.
+
 Lidarr uses `/api/v1` and an API key. Choose a root folder, quality profile and
 metadata profile for new artists, plus remote/local path mappings. Members request
 albums by MusicBrainz artist and release-group identity; every acquisition requires

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import partial
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models import PlaybackHistory
 from app.security import hash_password, utcnow
+from app.services import activity
 from support import make_user
 from test_v1_sessions import PASSWORD, client, factory, login  # noqa: F401
 
@@ -19,10 +22,12 @@ def _history(id: str, user_id: str, ended_at, watched_seconds: float) -> Playbac
     )
 
 
-def test_member_activity_is_own_utc_14_day_recorded_session_summary(client, factory) -> None:  # noqa: ANN001
-    now = utcnow().replace(microsecond=0)
+@pytest.mark.parametrize("hour", [0, 12, 23])
+def test_member_activity_is_own_utc_14_day_recorded_session_summary(client, factory, monkeypatch, hour) -> None:  # noqa: ANN001
+    now = datetime(2026, 1, 15, hour, 30)
+    monkeypatch.setattr(activity, "member_summary", partial(activity.member_summary, now=now))
     recent = now - timedelta(days=1)
-    today = now - timedelta(hours=1)
+    today = now.replace(hour=0, minute=0)
     with factory.begin() as db:
         db.add(make_user("member", username="member", password_hash=hash_password(PASSWORD)))
         db.add_all((

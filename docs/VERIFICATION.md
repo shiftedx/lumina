@@ -17,6 +17,21 @@ runs full with four isolated workers. Qualify both twice before release; command
 budgets, retained prerequisite skips and audit evidence are in
 [backend readiness](BACKEND_READINESS.md).
 
+The full backend tier also requires the generated M2TS corpus. With FFmpeg/libx265
+and `dovi_tool` 2.3.4 available, generate it once outside Git, then configure its
+path for every full gate run:
+
+```bash
+mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-m2ts-fixtures \
+  --positives-only --cold-seek-duration-seconds 96 \
+  --cold-seek-variable-gop-pattern 288,24,72
+LUMINA_DV_M2TS_FIXTURES=/tmp/lumina-m2ts-fixtures mise exec -- make check
+```
+
+The full tier rejects skips caused by an unconfigured corpus; do not add them
+to its allowed skips. Regenerate the corpus if its temporary directory is removed.
+
 Install all pinned engines once: `cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
 The tier runner allocates fresh loopback ports and private fixture/output roots;
 see its printed artifact path and pass/fail times. Legacy `make e2e-mocked` and

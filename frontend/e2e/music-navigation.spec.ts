@@ -85,6 +85,7 @@ test('Movies, Music, and Books are direct destinations while the music queue kee
   await expect(page).toHaveURL(/\/audio$/);
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Albums', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recently added', exact: true })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/audio-browse-desktop.png`, fullPage: true });
 
@@ -144,6 +145,7 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     await mockFirstClassMusic(page);
     await page.goto('/audio');
     await signIn(page);
+    await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Albums', exact: true }).click();
     const soundstage = page.getByRole('region', { name: 'A room full of records' });
     await expect(page.getByRole('heading', { name: 'Recently added', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Recently played', exact: true }).getByText('Album One', { exact: true })).toBeVisible();

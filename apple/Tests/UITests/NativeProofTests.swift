@@ -1502,7 +1502,10 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try waitForExistence(element("musicHomeBrowseButton"), timeout: 25, named: "Music Home")
         try waitForExistence(element("musicHomeEditButton"), timeout: 20, named: "shelf editor")
-        try activate(element("musicHomeEditButton"))
+        let edit = element("musicHomeEditButton")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            edit.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        } else { try activate(edit) }
         try waitForExistence(element("musicHomeToggle-downloads"), timeout: 20, named: "Downloads shelf setting")
         let downloads = element("musicHomeToggle-downloads")
         downloads.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()

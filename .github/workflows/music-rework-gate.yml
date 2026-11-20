@@ -1,0 +1,64 @@
+name: Music Rework full gate
+on:
+  push:
+    branches: ["music-rework/355-compatible-runner"]
+permissions:
+  contents: read
+jobs:
+  check:
+    name: make check (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            browser_workers: 3
+          - runner: macos-15-intel
+            browser_workers: 4
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: fcffcc694887cd9da5c2586d2f0d3bb098978b03
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - name: Install locked dependencies and browser engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          sw_vers
+          uname -m
+          ffmpeg -version
+          mise exec -- python -c 'import sqlite3,sys; print(sys.version, sqlite3.sqlite_version)'
+          mise exec -- make bootstrap
+          cd frontend
+          mise exec -- npx playwright install chromium firefox webkit
+      - name: Generate the documented synthetic M2TS corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 -o "$RUNNER_TEMP/dovi.zip" https://github.com/quietvoid/dovi_tool/releases/download/2.3.4/dovi_tool-2.3.4-universal-macOS.zip
+          printf '%s  %s\n' 30d4f512eb67b7f1632cd28be5c62989bedad23f4710578aafc20c384b48ece6 "$RUNNER_TEMP/dovi.zip" | shasum -a 256 --check
+          unzip -j "$RUNNER_TEMP/dovi.zip" "*/dovi_tool" -d "$RUNNER_TEMP/dovi" || unzip -j "$RUNNER_TEMP/dovi.zip" dovi_tool -d "$RUNNER_TEMP/dovi"
+          "$RUNNER_TEMP/dovi/dovi_tool" --version
+          mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py --dovi-tool "$RUNNER_TEMP/dovi/dovi_tool" --output "$RUNNER_TEMP/lumina-m2ts" --positives-only --cold-seek-duration-seconds 96 --cold-seek-variable-gop-pattern 288,24,72
+      - name: Run all make check targets
+        shell: bash
+        env:
+          E2E_TIER_WORKERS: ${{ matrix.browser_workers }}
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          export LUMINA_DV_M2TS_FIXTURES="$RUNNER_TEMP/lumina-m2ts"
+          mise exec -- make check BACKEND_WORKERS=2 E2E_TIER_WORKERS="$E2E_TIER_WORKERS" BACKEND_OUTPUT="$RUNNER_TEMP/lumina-backend" E2E_OUTPUT="$RUNNER_TEMP/lumina-browser"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gate-reports-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/lumina-backend/report.json
+            ${{ runner.temp }}/lumina-browser/full-report.json
+          if-no-files-found: ignore
+          retention-days: 30

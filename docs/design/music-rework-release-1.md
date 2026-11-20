@@ -36,6 +36,8 @@ After the Browse focus correction in `939ba44`, `testMusicBrowsePlayAndNextTimin
 
 On iPhone 17 / iOS 26.5, `testMusicBrowsePlayAndNextTiming` at `f7ff414` passed in 113.104 s, including Stop. The timing harness tapped the visible Play and Next buttons by coordinate when XCTest reported them unhittable. Browse was **23,249 ms**, First Audio **5,441 ms** and Next **4,724 ms** under concurrent host workloads. Relative to the recorded #343 samples of 13,242 / 4,599 / 4,334 ms, Next was within 15%, while Browse and First Audio exceeded their limits. [iPhone timing markers](evidence/music-home/ios-release-1.json).
 
+In a matched rerun with the same button controls, the #343 baseline measured **12,965 / 4,447 / 3,919 ms** and the candidate **17,869 / 4,730 / 3,870 ms**. First Audio and Next met the 15% limit. The full Browse path took 4,904 ms longer in XCTest and included an additional Browse action after Home. A separate `testMusicHomeReadyTiming` run reached the visible, enabled Resume control in **13,679 ms**, 5.5% above baseline Browse readiness and within the #343 Browse-or-Home limit. The player stayed closed. These are individual simulator samples. [Matched markers](evidence/music-home/ios-release-1.json).
+
 ## Staging gates
 
 1. Complete [Finamp mobile verification](finamp-compatibility.md), [physical-device qualification](../../apple/docs/device-validation.md) and the full repository check on the release revision. Record iPhone/iPad VoiceOver and Dynamic Type, phone background/lock, AirPlay and Cast receiver checks, Apple TV Siri Remote focus and Play/Pause, and disconnected retained and purged downloads.

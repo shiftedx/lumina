@@ -44,5 +44,113 @@
       "timestamp": 1795195212.224937
     }
   ],
-  "notes": "Single #343 fixture sample on November 20, 2026 with concurrent host workloads. The test-only harness selected the public Play and Next controls by button identifier, using a coordinate tap if the button was visible and enabled but XCTest reported it unhittable. The journey verified playback and Stop."
+  "notes": "Single #343 fixture sample on November 20, 2026 with concurrent host workloads. The test-only harness selected the public Play and Next controls by button identifier, using a coordinate tap if the button was visible and enabled but XCTest reported it unhittable. The journey verified playback and Stop.",
+  "paired_retest": {
+    "result": "both passed",
+    "baseline": {
+      "source": "a45332351a27d795f2f7e63ba0a9b4331086d0de",
+      "case_seconds": 79.417,
+      "markers": [
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_browse",
+          "timestamp": 1795195613.316611
+        },
+        {
+          "elapsed_ms": 12965,
+          "event": "ready",
+          "phase": "music_baseline_browse",
+          "timestamp": 1795195626.281739
+        },
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_first_audio",
+          "timestamp": 1795195633.747478
+        },
+        {
+          "elapsed_ms": 4447,
+          "event": "ready",
+          "phase": "music_baseline_first_audio",
+          "timestamp": 1795195638.193983
+        },
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_manual_next",
+          "timestamp": 1795195638.194028
+        },
+        {
+          "elapsed_ms": 3919,
+          "event": "ready",
+          "phase": "music_baseline_manual_next",
+          "timestamp": 1795195642.113141
+        }
+      ]
+    },
+    "candidate": {
+      "source": "f7ff414af38c5c4b2a7a1cb3b99ee6c7158c2cbc",
+      "case_seconds": 84.955,
+      "markers": [
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_browse",
+          "timestamp": 1795195743.3390431
+        },
+        {
+          "elapsed_ms": 17869,
+          "event": "ready",
+          "phase": "music_baseline_browse",
+          "timestamp": 1795195761.2075539
+        },
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_first_audio",
+          "timestamp": 1795195769.1654
+        },
+        {
+          "elapsed_ms": 4730,
+          "event": "ready",
+          "phase": "music_baseline_first_audio",
+          "timestamp": 1795195773.894942
+        },
+        {
+          "elapsed_ms": 0,
+          "event": "begin",
+          "phase": "music_baseline_manual_next",
+          "timestamp": 1795195773.8949819
+        },
+        {
+          "elapsed_ms": 3870,
+          "event": "ready",
+          "phase": "music_baseline_manual_next",
+          "timestamp": 1795195777.765259
+        }
+      ]
+    },
+    "notes": "Both runs used the same iPhone 17 iOS 26.5 simulator, fixture, Play/Next selectors and fallback tap. The #343 baseline harness source adds fixture and test wiring to unchanged baseline app code. The candidate full Browse path includes the new Music Home Browse action."
+  },
+  "home_ready_retest": {
+    "source": "f7ff414af38c5c4b2a7a1cb3b99ee6c7158c2cbc",
+    "test": "NativeMusicBaselineTimingTests/testMusicHomeReadyTiming",
+    "case_seconds": 54.047,
+    "markers": [
+      {
+        "elapsed_ms": 1,
+        "event": "begin",
+        "phase": "music_home_ready",
+        "timestamp": 1795195932.334999
+      },
+      {
+        "elapsed_ms": 13679,
+        "event": "ready",
+        "phase": "music_home_ready",
+        "timestamp": 1795195946.013229
+      }
+    ],
+    "notes": "Fresh #343 fixture. The timed interval starts in signed-in Home and ends when the native Music Home Resume action is visible and enabled. The player remains closed."
+  }
 }

@@ -2487,6 +2487,15 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
         let resumed = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= max(0, paused - 2) }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= resumed + 2 }
+        XCUIRemote.shared.press(.playPause)
+        try await Task.sleep(for: .seconds(2))
+        app.terminate()
+        app.launchArguments.append("--ui-testing-purge-current-audio")
+        app.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "offline launch after cache purge")
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("tvMusicHomeUnavailable"), timeout: 30, named: "recoverable missing download")
+        XCTAssertFalse(element("tvMusicHomeResume").exists, "A purged file cannot offer offline Resume.")
     }
 
     func journeyTVMusicBrowseAndAutoHideBar() async throws {

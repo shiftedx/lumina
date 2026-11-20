@@ -2283,7 +2283,7 @@ class NativeProofJourney: XCTestCase {
         let album = try revealMusicAlbum(fixture, named: "album for Instant Mix")
         try activate(album)
         try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album detail")
-        let radio = element("tvInstantMix-\(fixture.audioTrackID)")
+        let radio = element("tvTrackRadio-\(fixture.audioTrackID)")
         try waitForExistence(radio, timeout: 20, named: "track radio")
         let before = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         try activate(radio)

@@ -298,7 +298,7 @@ struct TVMusicDetailView: View {
         .buttonStyle(LuminaQuietActionStyle())
         .focused($focusedControl, equals: focus)
         .accessibilityLabel("\(kind == .track ? "Track Radio" : "Instant Mix") from \(item.name)")
-        .accessibilityIdentifier("tvInstantMix-\(item.id)")
+        .accessibilityIdentifier(focus == .mix ? "tvInstantMix-current" : "tvTrackRadio-\(item.id)")
     }
 
     private var artworkItem: MediaItem { album ?? currentItem }

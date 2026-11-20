@@ -192,6 +192,35 @@ def test_native_music_home_has_compact_resume_and_shared_layout(native):  # noqa
     assert call(native, "PUT", "/home/layout", json={"order": ["mixes", "mixes"]}).status_code == 422
 
 
+def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(native, monkeypatch):  # noqa: ANN001
+    def get(path, *, token=ALICE_TOKEN, **params):  # noqa: ANN001, ANN202
+        return native.get(path, params=params, headers=mediabrowser(token))
+
+    views = get(f"/Users/{jellyfin_id(ALICE)}/Views").json()["Items"]
+    music = next(view for view in views if view["CollectionType"] == "music")
+    scope = {"ParentId": music["Id"], "Recursive": "true"}
+    assert music["Type"] == "CollectionFolder"
+    assert [album["Id"] for album in get("/Items", IncludeItemTypes="MusicAlbum", **scope).json()["Items"]] == [jellyfin_id(ALBUM)]
+    assert [artist["Id"] for artist in get("/Artists/AlbumArtists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
+    assert [artist["Id"] for artist in get("/Artists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
+    assert get("/Items", IncludeItemTypes="Movie", **scope).json()["Items"] == []
+    assert get("/Items", IncludeItemTypes="MusicAlbum", AlbumArtistIds=HIDDEN, **scope).json()["Items"] == []
+    songs = get("/Items", IncludeItemTypes="Audio", ArtistIds=jellyfin_id(ARTIST), **scope).json()["Items"]
+    assert {song["Id"] for song in songs} == {jellyfin_id(ONE), jellyfin_id(TWO)}
+    assert [song["Id"] for song in get("/Items", IncludeItemTypes="Audio", Ids=f"{ONE},{HIDDEN}", **scope).json()["Items"]] == [jellyfin_id(ONE)]
+
+    with db_module.SessionLocal.begin() as db:
+        db.add(MemberAccess(user_id=BOB, sections=["movies"]))
+    assert "music" not in {view["CollectionType"] for view in get("/UserViews", token=BOB_TOKEN).json()["Items"]}
+    assert get(f"/Items/{music['Id']}", token=BOB_TOKEN).status_code == 404
+    assert get("/Items", token=BOB_TOKEN, IncludeItemTypes="Audio", **scope).json()["Items"] == []
+
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert "music" not in {view["CollectionType"] for view in get("/UserViews").json()["Items"]}
+    assert get("/Items", IncludeItemTypes="Audio", **scope).json()["Items"] == []
+    assert get("/Items", IncludeItemTypes="Audio").json()["Items"], "Legacy explicit Audio browse stays available"
+
+
 def test_music_rework_switch_preserves_queue_and_layout(native, monkeypatch):  # noqa: ANN001
     assert call(native, "GET", "/home/capability", token=None).status_code == 401
     assert call(native, "GET", "/home/capability").json() == {"enabled": True}

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, aliased, defer
 from sqlalchemy.sql import operators, visitors
 from sqlalchemy.sql.elements import BinaryExpression, BindParameter
 
+from app.config import settings
 from app.media_schemas import TitlePerson, TitleUserData
 from app.models import AppSettings, DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, MemberFavorite, MusicTrackOverride, PlaybackProgress, StorageRoot, User
 from app.schemas import PlaybackProgressUpdateRequest
@@ -47,7 +48,9 @@ FROM_JF_TYPES = {name.lower(): kind for kind, name in JF_TYPES.items()}
 VIEWS = {
     "movies": ("Movies", "movies"), "tvshows": ("Shows", "tvshows"), "anime": ("Anime", "tvshows"),
     "boxsets": ("Collections", "boxsets"), "channels": ("Channels", "tvshows"), "playlists": ("Playlists", "playlists"),
+    "music": ("Music", "music"),
 }
+MUSIC_VIEW_ID = synthetic_id("view:music")
 VIEW_IDS = {synthetic_id(f"view:{view}"): view for view in VIEWS}
 VIEW_OF_TYPE = {"movie": "movies", "series": "tvshows", "boxset": "boxsets"}
 VIEW_TYPES = {"movies": {"movie"}, "tvshows": {"series", "season", "episode"}, "anime": {"series", "season", "episode"}, "boxsets": {"boxset"}}
@@ -418,6 +421,9 @@ class ItemsQuery(BaseModel):
 
     parentid: str | None = Field(None, max_length=64)
     luminacollectionid: str | None = Field(None, max_length=64)
+    artistids: list[str] = []
+    albumartistids: list[str] = []
+    albumids: list[str] = []
     includeitemtypes: list[str] = []
     excludeitemtypes: list[str] = []
     recursive: bool = False
@@ -503,7 +509,7 @@ class Entity:
 
 
 # A title view's Sections (ADR 0019): anime films stay in Movies, so Anime alone still lists Movies.
-VIEW_SECTIONS = {"movies": {"movies", "anime"}, "tvshows": {"shows"}, "anime": {"anime"}}
+VIEW_SECTIONS = {"movies": {"movies", "anime"}, "tvshows": {"shows"}, "anime": {"anime"}, "music": {"music"}}
 
 
 def section_allows_view(db: Session, user: User, view: str) -> bool:
@@ -512,11 +518,21 @@ def section_allows_view(db: Session, user: User, view: str) -> bool:
     return access is None or access.sections is None or view not in VIEW_SECTIONS or bool(VIEW_SECTIONS[view] & access.sections)
 
 
+def music_view_available(db: Session, user: User) -> bool:
+    return settings.music_rework_enabled and section_allows_view(db, user, "music") and db.scalar(
+        select(LibraryItem.id).where(
+            LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(user),
+        ).limit(1)
+    ) is not None
+
+
 def resolve(db: Session, user: User, raw_id: object) -> Entity | None:
     """Visibility-first id resolution. None means 404: unknown, invalid and invisible look the same."""
     entity_id = parse_item_id(raw_id)
     if entity_id is None:
         return None
+    if entity_id == MUSIC_VIEW_ID:
+        return Entity(entity_id, view="music") if music_view_available(db, user) else None
     if entity_id in VIEW_IDS:
         view = VIEW_IDS[entity_id]
         return Entity(entity_id, view=view) if section_allows_view(db, user, view) else None
@@ -582,6 +598,8 @@ class JellyfinMapper:
             views.append("boxsets")
         if self.db.scalar(select(LibraryItem.id).where(*CHANNEL_ITEM, LibraryService.visible_predicate(self.user)).limit(1)):
             views.append("channels")
+        if music_view_available(self.db, self.user):
+            views.append("music")
         return [self.view_dto(view) for view in views]
 
     def entity_dto(self, entity: Entity) -> dict:
@@ -774,8 +792,13 @@ class JellyfinMapper:
             return None
         start, limit = q.startindex, q.page_limit()
         parent = resolve(self.db, self.user, q.parentid) if q.parentid else None
-        if q.parentid and (parent is None or parent.title is None or parent.title.type not in ("album", "artist")):
+        if q.parentid and (parent is None or (parent.view != "music" and (parent.title is None or parent.title.type not in ("album", "artist")))):
             return query_result([], 0, start)
+        if parent is not None and parent.view == "music":
+            parent = None
+        artist_ids = q.csv("artistids") or q.csv("albumartistids")
+        album_ids = q.csv("albumids")
+        item_ids = q.csv("ids")
         term = (q.searchterm or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         if asked == {"audio"}:
             title = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.title"), LibraryItem.title)
@@ -785,8 +808,17 @@ class JellyfinMapper:
                 LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(self.user),
             )
             if parent is not None:
-                album_ids = select(MediaTitle.id).where(MediaTitle.parent_id == parent.id) if parent.title.type == "artist" else [parent.id]
-                stmt = stmt.where(LibraryItem.title_id.in_(album_ids))
+                children = select(MediaTitle.id).where(MediaTitle.parent_id == parent.id) if parent.title.type == "artist" else [parent.id]
+                stmt = stmt.where(LibraryItem.title_id.in_(children))
+            if artist_ids:
+                albums = select(MediaTitle.id).where(MediaTitle.type == "album", MediaTitle.parent_id.in_(
+                    [parse_item_id(value) for value in artist_ids[:MAX_PAGE]],
+                ))
+                stmt = stmt.where(LibraryItem.title_id.in_(albums))
+            if album_ids:
+                stmt = stmt.where(LibraryItem.title_id.in_([parse_item_id(value) for value in album_ids[:MAX_PAGE]]))
+            if item_ids:
+                stmt = stmt.where(LibraryItem.id.in_([parse_item_id(value) for value in item_ids[:MAX_PAGE]]))
             if term:
                 stmt = stmt.where(title.ilike(f"%{term}%", escape="\\"))
             order = [func.lower(title), LibraryItem.id]
@@ -799,6 +831,10 @@ class JellyfinMapper:
         stmt = select(MediaTitle).where(MediaTitle.type.in_([kinds[kind] for kind in asked if kind != "audio"]), self.titles.visible(self.user))
         if parent is not None:
             stmt = stmt.where(MediaTitle.parent_id == parent.id)
+        if artist_ids:
+            stmt = stmt.where(MediaTitle.parent_id.in_([parse_item_id(value) for value in artist_ids[:MAX_PAGE]]))
+        if item_ids:
+            stmt = stmt.where(MediaTitle.id.in_([parse_item_id(value) for value in item_ids[:MAX_PAGE]]))
         if term:
             stmt = stmt.where(MediaTitle.name.ilike(f"%{term}%", escape="\\"))
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -1004,6 +1040,8 @@ class JellyfinMapper:
         if parent is None:
             wanted = wanted or {"movie", "series", "boxset"}
         elif parent.view is not None:
+            if parent.view == "music":
+                return None
             wanted = (wanted or {VIEW_DEFAULT[parent.view]}) & VIEW_TYPES[parent.view]
             if parent.view in VIEW_CATEGORY:  # Shows and Anime split by category; seasons and episodes carry their series'
                 stmt = stmt.where(MediaTitle.category == VIEW_CATEGORY[parent.view])

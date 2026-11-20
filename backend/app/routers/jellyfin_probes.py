@@ -24,7 +24,7 @@ from app.routers.jellyfin_auth import JELLYFIN_SERVER_NAME, PREFIX, session_info
 from app.security import client_ip
 from app.services import jellyfin as jf, music_library, music_playlists, screen_time
 from app.services.connected_apps import jellyfin_server_id, jellyfin_user, require_jellyfin_enabled
-from app.services.media_titles import jellyfin_id, synthetic_id
+from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
 from app.services.titles import TitleService
 
 router = APIRouter(prefix=PREFIX, dependencies=[Depends(require_jellyfin_enabled)])
@@ -56,8 +56,6 @@ def stamp(moment: datetime) -> str:
 @router.get("/videos/{item_id}/additionalparts")  # also for an unknown id: Roku asks before it knows the item exists
 @router.get("/items/{item_id}/intros")
 @router.get("/users/{uid}/items/{item_id}/intros")
-@router.get("/artists")
-@router.get("/artists/albumartists")
 @router.get("/shows/upcoming")
 @router.get("/trailers")
 @router.get("/channels")
@@ -66,6 +64,16 @@ def stamp(moment: datetime) -> str:
 @router.get("/livetv/programs/recommended")
 def empty_result(_user: Caller) -> dict:
     return jf.query_result([], 0)
+
+
+@router.get("/artists")
+@router.get("/artists/albumartists")
+def music_artists(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> dict:
+    if parse_item_id(query.parentid) != jf.MUSIC_VIEW_ID:
+        return jf.query_result([], 0, query.startindex)
+    return jf.JellyfinMapper(db, user, query.csv("fields")).music_items(
+        query.model_copy(update={"includeitemtypes": ["MusicArtist"]}),
+    )
 
 
 @router.get("/items/{item_id}/instantmix")

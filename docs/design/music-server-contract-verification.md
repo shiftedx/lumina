@@ -58,3 +58,17 @@ mise exec -- node frontend/scripts/verify-music-home.mjs "$LUMINA_NATIVE_FIXTURE
 ```
 
 The verifier uses authenticated owner and member browser contexts at desktop and phone widths. It completes the fixture owner's media setup, then exercises `/audio?pane=home`, keyboard focus and shelf editing, layout persistence and isolation, explicit Resume at 0:23 with duplicates and Wait, browsing during playback, saved browse preference, legacy artist and album links, and a real device download. The existing `/audio` browse entry point and playback preferences remain in use. Mixes opens the existing presets and playlists until #351 adds contextual mix actions.
+
+## Capability and legacy fallback
+
+`GET /api/me/music-home/capability` and `GET /Lumina/Music/home/capability` return `{"enabled":true}` or `{"enabled":false}` using their respective authenticated sessions. Old servers return 404. Connectivity and authentication failures leave capability unconfirmed. Set `LUMINA_MUSIC_REWORK_ENABLED=false` to disable Home, its layout writes and contextual preview routes without modifying library browse, presets, playback, queue revisions, saved layouts or downloads.
+
+## Offline checkpoint verification
+
+On a freshly started #343 proof server with the production web build, run this in installed Chrome.
+
+```sh
+mise exec -- node frontend/scripts/verify-music-offline-resume.mjs "$LUMINA_NATIVE_FIXTURE"
+```
+
+The verifier saves audio from the real player, restarts Chrome using the disposable profile, opens the cached shell while disconnected, and checks that playback starts only on explicit Resume. A second session updates the authoritative revision. The browser reconnects, chooses Keep this device and verifies the local seek was committed with the duplicate occurrences and Wait entry intact. The offline shell resumes the selected downloaded occurrence. The unchanged logical queue stays available for the connected player.

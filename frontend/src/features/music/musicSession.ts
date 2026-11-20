@@ -5,6 +5,7 @@ import { shuffled } from '../gallery/albumQueue';
 import { forgetMusicCast, musicCast, restoreSharedMusicCast, stopMusicCast } from './musicCastSession';
 import { MAX_AUDIO_BYTES, MAX_DECODED_AUDIO_BYTES, MusicEngine, type MusicEngineState, type MusicRepeatMode, type MusicSource } from './musicEngine';
 import { offlineTrack } from './musicOffline';
+import { readMusicCheckpoint, storeMusicCheckpoint } from './musicCheckpoint';
 import { recordMusicListening, setListeningExportOwner } from './musicListeningExport';
 import { getMusicSharedSession, putMusicSharedSession, type MusicQueueEntry, type MusicSharedSnapshot } from './musicSharedSession';
 import { MusicStream } from './musicStream';
@@ -87,24 +88,14 @@ const queueNeedsStreaming = (queue: readonly MusicTrack[]): boolean => queue.som
 });
 const activeController = (): PlaybackController | null => state.mode === 'streaming' ? stream : engine;
 
-function validStoredTrack(value: unknown): value is MusicTrack {
-  if (!value || typeof value !== 'object') return false;
-  const track = value as Partial<MusicTrack>;
-  return typeof track.id === 'string'
-    && /^[a-zA-Z0-9_-]{1,64}$/.test(track.id)
-    && track.audio_url === `/api/music/tracks/${track.id}/audio`
-    && typeof track.title === 'string'
-    && typeof track.artist === 'string'
-    && typeof track.album_artist === 'string'
-    && typeof track.album === 'string'
-    && Array.isArray(track.genres);
-}
-
-function persist(): void {
+function persist(localOutput = !musicCast() && !outputTransfer): void {
   if (!state.owner) return;
-  try {
-    localStorage.setItem(`lumina:music:queue:${state.owner}`, JSON.stringify({ queue: state.queue, index: state.playback.index, position: state.playback.position, revision: state.sharedRevision, repeat: state.repeat, shuffle: state.shuffle, dirty: sharedDirty }));
-  } catch { /* full storage does not interrupt playback */ }
+  storeMusicCheckpoint(state.owner, {
+    queue: state.queue, index: state.playback.index, position: state.playback.position,
+    revision: state.sharedRevision, repeat: state.repeat, shuffle: state.shuffle, dirty: sharedDirty,
+    entries: state.sharedEntries, entryIndex: state.sharedEntryIndex, unavailablePolicy: state.unavailablePolicy,
+    localOutput,
+  });
 }
 
 export function setMusicOwner(owner: string | null): void {
@@ -133,16 +124,18 @@ export function setMusicOwner(owner: string | null): void {
   }
   state = { ...state, owner, queue: [], playback: EMPTY_PLAYBACK, mode: 'gapless', shuffle: false, sharedRevision: null, sharedConflict: null, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: null, unavailablePolicy: 'skip' };
   if (owner) {
-    try {
-      const stored = JSON.parse(localStorage.getItem(`lumina:music:queue:${owner}`) || 'null') as { queue?: unknown; index?: unknown; position?: unknown; revision?: unknown; repeat?: unknown; shuffle?: unknown; dirty?: unknown } | null;
-      if (stored && Array.isArray(stored.queue) && stored.queue.length > 0 && stored.queue.length <= 5000 && stored.queue.every(validStoredTrack)) {
-        const index = Number.isInteger(stored.index) ? Number(stored.index) : 0;
-        const position = typeof stored.position === 'number' && Number.isFinite(stored.position) && stored.position >= 0 ? stored.position : 0;
-        state = { ...state, queue: stored.queue, repeat: stored.repeat === 'all' || stored.repeat === 'one' ? stored.repeat : 'off', shuffle: stored.shuffle === true, sharedRevision: Number.isInteger(stored.revision) ? Number(stored.revision) : null, playback: { ...EMPTY_PLAYBACK, index: Math.max(0, Math.min(index, stored.queue.length - 1)), position } };
-        // Cache entries from before shared sessions are a one-time ID-only migration.
-        sharedDirty = stored.dirty === true || stored.revision === undefined;
-      }
-    } catch { /* an old or malformed saved queue starts empty */ }
+    const stored = readMusicCheckpoint(owner);
+    if (stored) {
+      state = {
+        ...state, queue: stored.queue, repeat: stored.repeat === 'all' || stored.repeat === 'one' ? stored.repeat : 'off',
+        shuffle: stored.shuffle === true, sharedRevision: Number.isInteger(stored.revision) ? Number(stored.revision) : null,
+        sharedEntries: stored.entries ?? [], sharedEntryIndex: stored.entryIndex ?? null,
+        unavailablePolicy: stored.unavailablePolicy === 'wait' ? 'wait' : 'skip',
+        playback: { ...EMPTY_PLAYBACK, index: stored.index, position: stored.position },
+      };
+      // Cache entries from before shared sessions are a one-time ID-only migration.
+      sharedDirty = stored.dirty === true || stored.revision === undefined;
+    }
     try {
       const until = Number(localStorage.getItem(`lumina:music:sleep:${owner}`));
       if (Number.isFinite(until) && until > Date.now()) setMusicSleepTimer((until - Date.now()) / 60_000);
@@ -181,7 +174,7 @@ export function applyMusicSharedSnapshot(snapshot: MusicSharedSnapshot): void {
       volume: null, queued: Math.max(1, indices.length) });
   }
   sharedDirty = false;
-  persist();
+  persist(snapshot.active_output.kind === 'browser');
 }
 
 function conflictSnapshot(error: unknown): MusicSharedSnapshot | null {

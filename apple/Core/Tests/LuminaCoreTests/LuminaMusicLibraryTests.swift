@@ -97,6 +97,42 @@ final class LuminaMusicLibraryTests: XCTestCase {
         XCTAssertNil(library.homeState.content)
     }
 
+    func testOfflineHomeKeepsOnlyMemberLayoutAndSavedOccurrence() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let connected = library(root: root)
+        connected.configure(session: session())
+        MusicURLProtocol.handler = { transport in
+            if transport.request.url?.lastPathComponent == "capability" { transport.respond(["enabled": true]); return }
+            transport.respond([
+                "layout": ["order": ["downloads", "resume"], "hidden": ["mixes"]],
+                "recent": [], "playlists": [playlistJSON()], "mixes": [["kind": "rotation", "name": "Rotation"]],
+            ])
+        }
+        await connected.refreshHome()
+        let snapshot = try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(snapshotJSON(revision: 6, position: 23)))
+        connected.persistCheckpoint(snapshot: snapshot)
+        await connected.flushCheckpoint()
+
+        let cold = library(root: root)
+        cold.configure(session: session())
+        await cold.refreshOfflineHome(isDownloaded: { _ in false })
+        XCTAssertEqual(cold.homeCapability, .available)
+        XCTAssertEqual(cold.homeState.content?.layout.order.first, .downloads)
+        XCTAssertEqual(cold.homeState.content?.resume?.currentIndex, 2)
+        XCTAssertEqual(cold.homeState.content?.resume?.state, .unavailable)
+        XCTAssertEqual(cold.homeState.content?.resume?.positionSeconds, 23)
+        XCTAssertEqual(cold.homeState.content?.playlists.count, 0)
+        XCTAssertNil(cold.homeState.content?.resume?.track.artworkURL)
+
+        await cold.refreshOfflineHome(isDownloaded: { _ in true })
+        XCTAssertEqual(cold.homeState.content?.resume?.state, .playable)
+        cold.configure(session: session(user: "bob"))
+        await cold.refreshOfflineHome(isDownloaded: { _ in true })
+        XCTAssertEqual(cold.homeCapability, .unknown)
+        XCTAssertNil(cold.homeState.content)
+    }
+
     func testCollectionFileQualityUsesOneNativeReadAndSeparatesMixedAndUnknownFacts() async throws {
         let requests = MusicRequests()
         let library = library()

@@ -6,6 +6,7 @@ struct NativeAudioOptions: View {
     let playback: PlaybackModel
     var focusLyricsRequest: Int? = nil
     var showsLyrics: Bool = true
+    @State private var radio: NativeMixSeed?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -32,6 +33,12 @@ struct NativeAudioOptions: View {
             }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
+                    if playback.store.music.homeCapability == .available && !playback.store.isOffline {
+                        Button("Track Radio") {
+                            radio = NativeMixSeed(kind: .track, itemID: playback.request.item.id, name: playback.request.item.name)
+                        }
+                        .accessibilityIdentifier("nativeNowPlayingTrackRadio")
+                    }
                     Text(hasRemoteOutput ? "Remote output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(sourceFormat ?? "Source format information is unavailable.")
@@ -132,6 +139,14 @@ struct NativeAudioOptions: View {
         .buttonStyle(.plain)
         #endif
         .tint(LuminaTheme.ink)
+        .sheet(item: $radio) { seed in
+            NativeContextualMixView(store: playback.store, audio: session, seed: seed, onPlay: { _ in })
+        }
+        .task(id: playback.store.music.sessionIdentity) {
+            if playback.store.music.homeCapability == .unknown && !playback.store.isOffline {
+                await playback.store.music.refreshHomeCapability()
+            }
+        }
     }
 
     private var albumItems: [MediaItem] {
@@ -258,4 +273,159 @@ struct NativeAudioDisclosure<Content: View>: View {
 
 private extension Array {
     subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+struct NativeMixSeed: Identifiable {
+    let kind: MusicMixSeedKind
+    let itemID: String
+    let name: String
+
+    var id: String { "\(kind.rawValue):\(itemID)" }
+    var action: String { kind == .track ? "Track Radio" : "Instant Mix" }
+}
+
+struct NativeContextualMixView: View {
+    @Environment(\.dismiss) private var dismiss
+    let store: LuminaStore
+    let audio: NativeAudioSession
+    let seed: NativeMixSeed
+    var onPlay: (PlaybackModel) -> Void
+
+    @State private var preview: MusicMixPreview?
+    @State private var failure: String?
+    @State private var notice: String?
+    @State private var loading = false
+    @State private var working = false
+    @State private var confirming = false
+    @State private var saving = false
+    @State private var playlistName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if loading {
+                        ProgressView("Preparing mix")
+                    } else if let preview {
+                        if preview.items.isEmpty {
+                            Text("No matching tracks are available.")
+                        } else {
+                            Text("\(preview.items.count) tracks")
+                            actions(preview)
+                        }
+                    } else if let failure {
+                        Text(failure)
+                        Button("Try again") { Task { await load() } }
+                    }
+                } header: {
+                    Text(preview?.seed.name ?? seed.name)
+                }
+                if let notice { Text(notice).accessibilityIdentifier("nativeMixNotice") }
+                if preview != nil, let failure { Text(failure).accessibilityIdentifier("nativeMixError") }
+                if let preview, !preview.items.isEmpty {
+                    Section("Preview order") {
+                        ForEach(preview.items) { item in
+                            VStack(alignment: .leading) {
+                                Text(item.track.title)
+                                if !item.track.artist.isEmpty { Text(item.track.artist).font(.subheadline) }
+                                Text(reason(for: item.reason)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(seed.action)
+            .accessibilityIdentifier("nativeMixPreview")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .task(id: store.music.sessionIdentity) { await load() }
+            .alert("Replace the listening queue?", isPresented: $confirming) {
+                Button("Play Mix", role: .destructive) {
+                    guard let preview else { return }
+                    run {
+                        let model = try await audio.playMix(preview, store: store)
+                        dismiss()
+                        onPlay(model)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This starts the preview from its first track and replaces the current queue.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func actions(_ preview: MusicMixPreview) -> some View {
+        Button("Play Mix") { confirming = true }
+            .disabled(working || !audio.canEditMixQueue)
+            .accessibilityIdentifier("nativeMixPlay")
+        Button("Add to Queue") {
+            run {
+                let saved = try await audio.appendMix(preview.items, store: store)
+                notice = saved == nil ? "These tracks are already queued or the queue is full." : "Mix added to the queue."
+            }
+        }
+        .disabled(working || !audio.canEditMixQueue)
+        .accessibilityIdentifier("nativeMixAppend")
+        Button("Save as Playlist") {
+            playlistName = preview.seed.name + " Mix"
+            saving = true
+        }
+        .disabled(working || saving)
+        .accessibilityIdentifier("nativeMixSave")
+        if saving {
+            TextField("Playlist name", text: $playlistName)
+            Button("Save Playlist") {
+                let name = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                run {
+                    _ = try await store.music.savePlaylist(name: name, shared: false,
+                                                          itemIDs: preview.items.map(\.id), rules: nil, revision: nil)
+                    saving = false
+                    notice = "Playlist saved."
+                }
+            }
+            .disabled(working || playlistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel") { saving = false }.disabled(working)
+        }
+        if !audio.canEditMixQueue {
+            Text("Check the current queue and output in Now Playing before changing playback.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func reason(for match: MusicMixReason) -> String {
+        switch match.code {
+        case .seedTrack: "From this album"
+        case .sameArtist: "Same artist"
+        case .sharedGenre: match.genre.map { "Shared genre: \($0)" } ?? "Shared genre"
+        }
+    }
+
+    private func load() async {
+        loading = true
+        preview = nil
+        failure = nil
+        notice = nil
+        defer { loading = false }
+        do {
+            let value = try await store.music.contextualMix(kind: seed.kind, seedID: seed.itemID)
+            guard !Task.isCancelled else { return }
+            preview = value
+        } catch {
+            if !Task.isCancelled { failure = error.localizedDescription }
+        }
+    }
+
+    private func run(_ action: @escaping @MainActor () async throws -> Void) {
+        working = true
+        failure = nil
+        notice = nil
+        Task {
+            defer { working = false }
+            do { try await action() }
+            catch { failure = error.localizedDescription }
+        }
+    }
 }

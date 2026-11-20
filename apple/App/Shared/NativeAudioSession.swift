@@ -91,6 +91,7 @@ final class NativeAudioSession {
     private var transport: NativeMusicTransport?
     private var dirty = false
     private var syncing = false
+    private var writingMixQueue = false
     private var syncAgain = false
     private var syncAgainRestoreTaskID: Int?
     private var generation = 0
@@ -237,6 +238,17 @@ final class NativeAudioSession {
     }
 
     func play(tracks: [LuminaCore.MusicTrack], index: Int = 0, store: LuminaStore, shuffle: Bool = false) async throws -> PlaybackModel {
+        try await play(tracks: tracks, index: index, store: store, shuffle: shuffle, generated: [:])
+    }
+
+    func playMix(_ mix: MusicMixPreview, store: LuminaStore) async throws -> PlaybackModel {
+        guard canEditMixQueue, !store.isOffline, !mix.items.isEmpty else { throw URLError(.resourceUnavailable) }
+        let reasons = Dictionary(mix.items.map { ($0.id, $0.reason.code) }, uniquingKeysWith: { first, _ in first })
+        return try await play(tracks: mix.items.map(\.track), index: 0, store: store, shuffle: false, generated: reasons)
+    }
+
+    private func play(tracks: [LuminaCore.MusicTrack], index: Int, store: LuminaStore, shuffle: Bool,
+                      generated: [String: MusicMixReasonCode]) async throws -> PlaybackModel {
         guard !busy, !transferring else { throw URLError(.cancelled) }
         guard !isRemoteOutput else {
             message = NativeAudioOutputError.returnRequired.localizedDescription
@@ -271,7 +283,9 @@ final class NativeAudioSession {
         self.store = store; identity = owner
         if ownerChanged { restorePreferences(owner: owner) }
         snapshot = MusicListeningSnapshot(revision: revision, queue: orderedTracks, currentIndex: selectedIndex,
-            shuffle: shuffle, entries: orderedTracks.map { MusicQueueEntry(kind: "track", itemID: $0.id) }, entryIndex: selectedIndex)
+            shuffle: shuffle, entries: orderedTracks.map {
+                MusicQueueEntry(kind: "track", itemID: $0.id, provenance: generated[$0.id].map { .init(reason: $0) })
+            }, entryIndex: selectedIndex)
         self.tracks = orderedTracks
         let model = PlaybackModel(request: request, store: store, queue: orderedTracks.map(\.mediaItem), queueIndex: selectedIndex)
         busy = false; transferring = false
@@ -661,13 +675,79 @@ final class NativeAudioSession {
         return model
     }
 
+    var canEditMixQueue: Bool {
+        !busy && !transferring && !restoringPausedQueue && !isRemoteOutput && !isSonos
+            && pendingSpeakerStop == nil && conflict == nil
+    }
+
+    func appendMix(_ items: [MusicMixPreview.Item], store: LuminaStore) async throws -> MusicListeningSnapshot? {
+        guard canEditMixQueue, !store.isOffline, identity == store.music.sessionIdentity,
+              !writingMixQueue, !syncing else { throw URLError(.resourceUnavailable) }
+        if dirty { await syncNow() }
+        guard canEditMixQueue, !dirty, !syncing, !writingMixQueue, let owner = identity,
+              owner == store.music.sessionIdentity else { throw URLError(.resourceUnavailable) }
+
+        let queue = snapshot
+        let entries = queue.entries.isEmpty ? queue.queue.map { MusicQueueEntry(kind: "track", itemID: $0.id) } : queue.entries
+        var included = Set(entries.compactMap(\.itemID))
+        for entry in entries { included.formUnion(entry.tracks?.map(\.id) ?? []) }
+        let capacity = max(0, 5_000 - entries.count)
+        let additions = items.filter { included.insert($0.id).inserted }.prefix(capacity)
+        guard !additions.isEmpty else { return nil }
+
+        let appended = entries + additions.map {
+            MusicQueueEntry(kind: "track", itemID: $0.id, provenance: .init(reason: $0.reason.code))
+        }
+        let token = generation
+        writingMixQueue = true
+        defer {
+            writingMixQueue = false
+            if dirty && token == generation && owner == identity && conflict == nil { changed() }
+        }
+        do {
+            let saved = try await store.music.saveSession(itemIDs: queue.queue.map(\.id),
+                currentIndex: queue.currentIndex, positionSeconds: queue.positionSeconds, repeatMode: queue.repeatMode,
+                shuffle: queue.shuffle, baseRevision: queue.revision, entries: appended,
+                entryIndex: queue.entryIndex, unavailablePolicy: queue.unavailablePolicy)
+            guard token == generation, owner == identity, owner == store.music.sessionIdentity else { throw CancellationError() }
+
+            // Do not replace the playing transport. The server can reproject an
+            // acquisition or prune tracks while resolving the append.
+            if playback != nil && !saved.queue.map(\.id).starts(with: tracks.map(\.id)) {
+                conflict = saved
+                message = "The shared queue changed while playing. Choose which queue to keep."
+                throw MusicAPIError.conflict(saved)
+            }
+            if playback == nil {
+                snapshot = saved
+                tracks = saved.queue
+            } else {
+                snapshot.queue = saved.queue
+                snapshot.entries = saved.entries
+                snapshot.revision = saved.revision
+                if waitingForEntry == nil, let index = snapshot.currentIndex { snapshot.entryIndex = logicalIndex(for: index) }
+                tracks = saved.queue
+                playback?.configureAudioQueue(tracks.map(\.mediaItem), index: snapshot.currentIndex ?? 0, repeatMode: snapshot.repeatMode)
+                transport?.replaceUpcoming(tracks)
+            }
+            persist()
+            return saved
+        } catch MusicAPIError.conflict(let server) {
+            if token == generation, owner == identity, owner == store.music.sessionIdentity {
+                conflict = server
+                message = "Your saved queue differs from the server. Choose which queue to keep."
+            }
+            throw MusicAPIError.conflict(server)
+        }
+    }
+
     func syncNow(restoreTaskID: Int? = nil) async {
         if syncing {
             syncAgain = true
             syncAgainRestoreTaskID = restoreTaskID
             return
         }
-        guard !transferring, !isSonos, conflict == nil, dirty, let store, !store.isOffline, let owner = identity,
+        guard !transferring, !writingMixQueue, !isSonos, conflict == nil, dirty, let store, !store.isOffline, let owner = identity,
               isCurrentRestoreTask(restoreTaskID), !Task.isCancelled else { return }
         syncing = true
         defer {
@@ -853,6 +933,10 @@ final class NativeAudioSession {
             message = "Reorder after requested albums finish importing."; return
         }
         let item = tracks.remove(at: from); tracks.insert(item, at: to)
+        if snapshot.entries.indices.contains(from), snapshot.entries.indices.contains(to) {
+            let entry = snapshot.entries.remove(at: from)
+            snapshot.entries.insert(entry, at: to)
+        }
         playback?.reflectQueueMove(from: from, to: to)
         queueEdited()
     }
@@ -860,11 +944,16 @@ final class NativeAudioSession {
         guard !transferring else { return }
         guard !isSonos, !isRemoteOutput, tracks.indices.contains(index), index > (playback?.queueIndex ?? -1) else { return }
         guard !snapshot.entries.contains(where: { $0.kind != "track" }) else { message = "Refresh requested albums before removing entries."; return }
-        tracks.remove(at: index); playback?.reflectQueueRemoval(at: index); queueEdited()
+        tracks.remove(at: index)
+        if snapshot.entries.indices.contains(index) { snapshot.entries.remove(at: index) }
+        playback?.reflectQueueRemoval(at: index)
+        queueEdited()
     }
     private func queueEdited() {
         snapshot.queue = tracks
-        snapshot.entries = tracks.map { MusicQueueEntry(kind: "track", itemID: $0.id) }
+        if snapshot.entries.count != tracks.count {
+            snapshot.entries = tracks.map { MusicQueueEntry(kind: "track", itemID: $0.id) }
+        }
         snapshot.entryIndex = playback?.queueIndex
         playback?.configureAudioQueue(tracks.map(\.mediaItem), index: playback?.queueIndex ?? 0, repeatMode: snapshot.repeatMode)
         transport?.replaceUpcoming(tracks)

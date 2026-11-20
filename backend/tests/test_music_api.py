@@ -173,6 +173,14 @@ def test_contextual_mix_preview_orders_reasons_and_hides_ineligible_tracks(music
     assert empty.json()["items"] == [] and empty.json()["exhausted"]
     assert alice.get("/api/music/mixes/radio", params={"seed_id": TRACKS[0]}).status_code == 200
 
+    with factory() as db:
+        db.add(MusicTrackOverride(item_id=TRACKS[0], fields={"genres": ["123"]}))
+        db.get(MediaTitle, lonely_album).metadata_json = {"genres": [123]}
+        db.commit()
+    numeric_genre = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert numeric_genre.status_code == 200
+    assert lonely_track not in {entry["id"] for entry in numeric_genre.json()["items"]}
+
 
 def test_contextual_mix_enforces_preview_and_exclusion_caps(music_world) -> None:  # noqa: ANN001
     factory, client_for, _root = music_world

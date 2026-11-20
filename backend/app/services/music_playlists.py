@@ -151,11 +151,11 @@ def _visible_music_query(user: User):
 
 def _visible_genres(db: Session, user: User, predicate) -> list[str]:  # noqa: ANN001
     genres = _genre_expression()
-    values = func.json_each(genres).table_valued("key", "value")
+    values = func.json_each(genres).table_valued("key", "value", "type")
     rows = db.execute(
         _visible_music_query(user).with_only_columns(values.c.value, maintain_column_froms=True)
         .join(values, true())
-        .where(predicate, values.c.key < 30)
+        .where(predicate, values.c.key < 30, values.c.type == "text")
         .distinct()
         .order_by(func.lower(values.c.value), values.c.value)
         .limit(30)
@@ -190,9 +190,10 @@ def _ranked_candidates(
 ) -> list[LibraryItem]:
     genre_values = [genre.casefold() for genre in genres]
     genre_expression = _genre_expression()
-    values = func.json_each(genre_expression).table_valued("key", "value")
+    values = func.json_each(genre_expression).table_valued("key", "value", "type")
     genre_match = exists(select(1).select_from(values).where(
         values.c.key < 30,
+        values.c.type == "text",
         func.lower(func.substr(values.c.value, 1, 64)).in_(genre_values),
     )) if genre_values else false()
     artist_match = MediaTitle.parent_id == artist_id if artist_id else false()

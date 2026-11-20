@@ -48,3 +48,9 @@ The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,8
 - Apple TV passed shelf editing, explicit Resume, focus return from the player, Track Radio dismissal and forced-offline cold resume plus simulated file purge. The final Browse shortcut album-return focus fix compiled. Its simulator journey and the physical Siri Remote gate remain pending.
 - Chrome fixture journeys passed Home, contextual mix actions, a real two-browser continuation revision conflict, complete album download and offline cold restart with reconnect conflict resolution. The disabled Home deep link preserved browse and the existing queue.
 - The standalone iOS Finamp trial passed track InstantMix, original download and offline playback with the fixture stopped. The Android trial and timed lyrics gap remain tracked in #354.
+
+## Repository checks
+
+- Flutter-built Finamp and the Lumina Apple simulator runs are separate from the repository gate. The final tvOS source compiled for the generic simulator destination.
+- Backend full check after the Music view fix passed 5,971 tests with 20 allowed skips. A subsequent full run reported 5,971 passes, 20 skips and one caption-enrichment scheduler failure. The scheduler passed two focused retries. The final Finamp library, original-file and feature-flag checks passed.
+- Frontend typecheck, production build, CSS budget and 2,877 unit tests passed. The broad Playwright tier reported 739 passes, two failures, two skips and 34 cases that did not run. The metadata editor and real-stack household failures each passed in focused reruns. The full repository gate remains open until a complete run passes.

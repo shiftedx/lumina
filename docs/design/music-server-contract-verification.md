@@ -1,6 +1,6 @@
 # Music Home and contextual mix server verification
 
-Implementation tickets [#344](https://github.com/shiftedx/lumina/issues/344) and [#345](https://github.com/shiftedx/lumina/issues/345). Product behavior and UI acceptance are in the [workflow contract](music-home-and-queue-workflows.md).
+Implementation tickets [#344](https://github.com/shiftedx/lumina/issues/344), [#345](https://github.com/shiftedx/lumina/issues/345) and [#346](https://github.com/shiftedx/lumina/issues/346). Product behavior and UI acceptance are in the [workflow contract](music-home-and-queue-workflows.md).
 
 ## Client endpoints
 
@@ -16,6 +16,14 @@ Home includes canonical `layout`, compact `resume`, up to 12 `recent` album summ
 
 Contextual mix takes `seed_kind=track|album|artist`, `seed_id` and optional repeated `exclude_item_ids`. The response has `seed`, `items` and `exhausted`. Items use the existing track shape plus a reason with `code` and its identifying metadata. Up to 100 items are returned. `exhausted` means all eligible results fit after exclusions, including an empty result. An album's tracks come first in disc and track order. A missing or invisible seed returns 404. A visible seed can return no matches. Preview reads leave the queue intact.
 
+## Generated queue entries
+
+Use `GET` and `PUT /api/me/music-session` on web and `GET` and `PUT /Lumina/Music/session` on native. Use `base_revision` and the existing conflict flow for writes.
+
+A generated logical track entry can include `provenance: {source: "contextual_mix", reason: "seed_track" | "same_artist" | "shared_genre"}`. Copy the reason code from the contextual mix response. The server stores those two fields in the existing queue references. Each visible generated track is eligible for one occurrence. Any intentional manual occurrence of the same item takes precedence and all manual duplicates keep their order. Hidden or missing entries are pruned before returning or storing the queue. Acquisition entries and Wait continue to use the existing logical queue policy.
+
+Older clients can read the queue and ignore provenance. A logical rewrite omitting provenance turns those entries into ordinary tracks while preserving the acquisition entries it sends. A flat rewrite keeps its playable order, cursor and position and drops logical acquisition intent as before. Use logical entries for any client that manages acquisitions. Web checkpoints now preserve the optional field. Native codecs can add it in #348.
+
 ## Shared fixture check
 
 From the root, start the [disposable proof server](music-home-baseline.md#run-the-shared-server) with `LUMINA_MUSIC_HOME_FIXTURE=1`. Pass its private manifest to the verifier in a second terminal.
@@ -24,7 +32,7 @@ From the root, start the [disposable proof server](music-home-baseline.md#run-th
 mise exec -- backend/.venv/bin/python scripts/e2e/verify_music_server.py "$LUMINA_NATIVE_FIXTURE"
 ```
 
-The verifier signs into the same catalog through both surfaces. It checks cross-client layout changes and reset, per-member Resume and recent listening, shared playlist visibility, stable ranked mixes, ordered discs, exclusions, empty results, and private seed isolation. It uses the published synthetic fixture only and prints check outcomes without credentials.
+The verifier signs into the same catalog through both surfaces. It checks cross-client layout changes and reset, per-member Resume and recent listening, shared playlist visibility, stable ranked mixes, ordered discs, exclusions, empty results, and private seed isolation. The provenance check adds a hidden item ahead of the selected occurrence and checks the same cursor after reload, along with duplicate pruning, cross-client rewrites, stale conflict responses and the legacy downgrade. It uses the published synthetic fixture only and prints check outcomes without credentials.
 
 ## Recorded evidence
 
@@ -38,3 +46,5 @@ mise exec -- backend/.venv/bin/python -m pytest -q \
   backend/tests/test_jellyfin_home_layout.py backend/tests/test_v1_sessions.py \
   backend/tests/test_media_contract.py
 ```
+
+- #346 passed 72 focused backend queue, library and output tests plus 27 browser session unit tests. The live fixture passed the web/native queue checks.

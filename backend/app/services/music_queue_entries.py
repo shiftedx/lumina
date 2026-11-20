@@ -33,10 +33,10 @@ def _track_ref(value: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(item_id, str) or not (0 < len(item_id) <= 64 and item_id.isascii() and item_id.replace("_", "").replace("-", "").isalnum()):
         return None
     provenance = value.get("provenance")
-    if isinstance(provenance, dict) and provenance.get("source") == "contextual_mix" and provenance.get("reason") in {
-        "seed_track", "same_artist", "shared_genre",
-    }:
-        return {"kind": "track", "item_id": item_id, "provenance": {"source": "contextual_mix", "reason": provenance["reason"]}}
+    if isinstance(provenance, dict) and provenance.get("source") == "contextual_mix":
+        reason = provenance.get("reason")
+        if isinstance(reason, str) and reason in {"seed_track", "same_artist", "shared_genre"}:
+            return {"kind": "track", "item_id": item_id, "provenance": {"source": "contextual_mix", "reason": reason}}
     return {"kind": "track", "item_id": item_id}
 
 
@@ -78,7 +78,7 @@ def valid_refs(values: Any) -> list[dict[str, Any]]:
     return valid_refs_with_indices(values)[0]
 
 
-def _visible_track_items(db: Session, user: User, refs: list[dict[str, str]]) -> dict[str, LibraryItem]:
+def _visible_track_items(db: Session, user: User, refs: list[dict[str, Any]]) -> dict[str, LibraryItem]:
     ids = list(dict.fromkeys(ref["item_id"] for ref in refs if ref["kind"] == "track"))
     if not ids:
         return {}

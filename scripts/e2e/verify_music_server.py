@@ -13,6 +13,8 @@ WEB_HOME = "/api/me/music-home"
 NATIVE_HOME = "/Lumina/Music/home"
 WEB_MIX = "/api/music/contextual-mix"
 NATIVE_MIX = "/Lumina/Music/contextual-mix"
+WEB_SESSION = "/api/me/music-session"
+NATIVE_SESSION = "/Lumina/Music/session"
 DEFAULT_SHELVES = ["resume", "recent", "playlists", "downloads", "mixes"]
 
 
@@ -114,6 +116,52 @@ def verify_mixes(
     print("#345 PASS track/artist/album seeds, reasons/order, exclusions, exhaustion, private seeds, legacy mixes")
 
 
+def verify_queue_provenance(owner: httpx.Client, native: httpx.Client, fixture: dict) -> None:
+    original = read(owner, WEB_SESSION)
+    first = str(UUID(fixture["audioTrackID"]))
+    second = str(UUID(fixture["audioSecondTrackID"]))
+    hidden = str(UUID(fixture["musicHomePrivateTrackID"]))
+    request = {"kind": "acquisition", "request_id": fixture["musicHomeWaitRequestID"]}
+    manual = {"kind": "track", "item_id": first}
+    provenance = {"source": "contextual_mix", "reason": "same_artist"}
+    generated = {"kind": "track", "item_id": second, "provenance": provenance}
+
+    body = {
+        "base_revision": original["revision"], "item_ids": [first, first], "current_index": 1,
+        "entry_index": 2, "position_seconds": 23, "repeat": "off", "shuffle": False,
+        "active_output": {"kind": "browser"}, "unavailable_policy": "wait",
+        "entries": [manual, {**generated, "item_id": hidden}, manual, request,
+                    generated, generated, {**generated, "item_id": first}],
+    }
+    saved = owner.put(WEB_SESSION, json=body).raise_for_status().json()
+    assert saved["current_index"] == saved["entry_index"] == 1 and saved["position_seconds"] == 23
+    assert [track["id"] for track in saved["queue"]] == [first, first]
+    assert [entry.get("item_id") for entry in saved["entries"]] == [first, first, None, second]
+    assert saved["entries"][2]["request_id"] == request["request_id"]
+    assert saved["entries"][3]["provenance"] == provenance and hidden not in repr(saved)
+
+    native_read = read(native, NATIVE_SESSION)
+    assert native_read["entries"][3]["provenance"] == provenance
+    assert native_read["revision"] == saved["revision"]
+    assert native_read["entry_index"] == 1 and native_read["position_seconds"] == 23
+    stale = native.put(NATIVE_SESSION, json=body)
+    assert stale.status_code == 409 and stale.json()["detail"]["session"]["entries"][3]["provenance"] == provenance
+    native_write = {**body, "base_revision": native_read["revision"], "entry_index": 1,
+                    "entries": [manual, manual, request, generated]}
+    native.put(NATIVE_SESSION, json=native_write).raise_for_status()
+    upgraded = read(owner, WEB_SESSION)
+    assert upgraded["entries"][3]["provenance"] == provenance
+
+    legacy_entries = [manual, manual, request, {"kind": "track", "item_id": second}]
+    legacy = {**body, "base_revision": upgraded["revision"], "current_index": 0,
+              "entry_index": 0, "entries": legacy_entries}
+    replaced = native.put(NATIVE_SESSION, json=legacy).raise_for_status().json()
+    assert replaced["entries"][3].get("provenance") is None
+    assert replaced["position_seconds"] == 23 and replaced["unavailable_policy"] == "wait"
+    assert [track["id"] for track in replaced["queue"]] == [first, first]
+    print("#346 PASS web/native provenance, stale revision, visibility, duplicate pruning, Wait, legacy downgrade")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixture", type=Path, help="private JSON from LUMINA_MUSIC_HOME_FIXTURE=1")
@@ -132,6 +180,7 @@ def main() -> None:
         native_login(native_member, *member_credentials, "music-contract-member")
         verify_home(owner, native_owner, member, fixture)
         verify_mixes(owner, native_owner, member, native_member, fixture)
+        verify_queue_provenance(owner, native_owner, fixture)
 
 
 if __name__ == "__main__":

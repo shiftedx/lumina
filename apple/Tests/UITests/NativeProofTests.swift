@@ -1417,6 +1417,11 @@ class NativeProofJourney: XCTestCase {
 
     func journeyPhoneContextualMix() async throws {
         let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Audio", screen: "audioScreen")
@@ -1428,9 +1433,13 @@ class NativeProofJourney: XCTestCase {
         try activate(instant)
         try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "mix preview")
         try waitForExistence(element("nativeMixSave"), timeout: 20, named: "mix actions")
+        let beforeSave = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         try activate(element("nativeMixSave"))
         try waitForExistence(application!.textFields["Playlist name"], timeout: 10, named: "playlist name")
-        try activate(application!.buttons["Cancel"])
+        try activate(application!.buttons["Save Playlist"])
+        try waitForExistence(element("nativeMixNotice"), timeout: 20, named: "playlist saved")
+        let afterSave = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        XCTAssertEqual(beforeSave?["revision"] as? Int, afterSave?["revision"] as? Int, "Saving a mix must not change the queue.")
         try activate(application!.buttons["Close"])
         let collection = element("musicCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "album after closing mix")

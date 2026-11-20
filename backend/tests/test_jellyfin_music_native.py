@@ -118,6 +118,31 @@ def test_native_session_round_trips_bounded_generated_provenance(native):  # noq
     assert restored.json()["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "same_artist"}
 
 
+def test_instant_mix_returns_visible_bounded_audio_for_music_seeds(native):  # noqa: ANN001
+    headers = mediabrowser(ALICE_TOKEN)
+    def mix(seed, **params):  # noqa: ANN001, ANN202
+        return native.get(f"/Items/{jellyfin_id(seed)}/InstantMix", headers=headers, params=params)
+
+    for seed in (ONE, ALBUM, ARTIST):
+        response = mix(seed, userId=jellyfin_id(ALICE), limit=100, enableImages=True,
+                       enableImageTypes="Primary,Disc,Thumb,Art")
+        assert response.status_code == 200
+        rows = response.json()["Items"]
+        assert {row["Id"] for row in rows} == {jellyfin_id(ONE), jellyfin_id(TWO)}
+        assert all(row["Type"] == "Audio" and row["MediaType"] == "Audio" for row in rows)
+    assert mix(ONE).json()["Items"][0]["Id"] == jellyfin_id(ONE)
+    assert len(mix(ALBUM, limit=1).json()["Items"]) == 1
+    assert mix(ALBUM, limit=0).json()["Items"] == []
+    with db_module.SessionLocal.begin() as db:
+        db.add(MediaTitle(id=uid(888), type="artist", key="native:empty", root_id=ROOT, name="Empty Artist"))
+    assert mix(uid(888)).json()["Items"] == []
+    assert mix(HIDDEN).json()["Items"] == []
+    assert mix(uid(99999)).json()["Items"] == []
+    assert native.get(f"/Users/{jellyfin_id(BOB)}/Items/{jellyfin_id(ONE)}/InstantMix", headers=headers).status_code == 404
+    assert mix(ONE, userId=jellyfin_id(BOB)).status_code == 404
+    assert native.get(f"/Items/{jellyfin_id(ONE)}/InstantMix").status_code == 401
+
+
 def test_native_metadata_lyrics_mixes_and_queue_mapping(native):  # noqa: ANN001
     track = call(native, "GET", f"/tracks/{jellyfin_id(ONE)}").json()
     assert_native_track(track)

@@ -21,7 +21,7 @@ from app.media_schemas import TitleUserData
 from app.models import DeviceToken, MediaTitle, User
 from app.routers.jellyfin_auth import JELLYFIN_SERVER_NAME, PREFIX, session_info
 from app.security import client_ip
-from app.services import jellyfin as jf
+from app.services import jellyfin as jf, music_library, music_playlists
 from app.services.connected_apps import jellyfin_server_id, jellyfin_user, require_jellyfin_enabled
 from app.services.media_titles import jellyfin_id, synthetic_id
 from app.services.titles import TitleService
@@ -54,8 +54,6 @@ def stamp(moment: datetime) -> str:
 
 @router.get("/videos/{item_id}/additionalparts")  # also for an unknown id: Roku asks before it knows the item exists
 @router.get("/items/{item_id}/intros")
-@router.get("/items/{item_id}/instantmix")
-@router.get("/users/{uid}/items/{item_id}/instantmix")
 @router.get("/users/{uid}/items/{item_id}/intros")
 @router.get("/artists")
 @router.get("/artists/albumartists")
@@ -67,6 +65,21 @@ def stamp(moment: datetime) -> str:
 @router.get("/livetv/programs/recommended")
 def empty_result(_user: Caller) -> dict:
     return jf.query_result([], 0)
+
+
+@router.get("/items/{item_id}/instantmix")
+@router.get("/users/{uid}/items/{item_id}/instantmix")
+def instant_mix(item_id: str, user: Caller, db: Db, limit: int = Query(100, ge=0)) -> dict:
+    """Return visible music candidates as Jellyfin Audio DTOs, bounded to 100."""
+    entity = jf.resolve(db, user, item_id)
+    kind = ("track" if entity and entity.item and entity.item.kind in ("track", "audio") else
+            entity.title.type if entity and entity.title and entity.title.type in ("album", "artist") else None)
+    if not kind or not limit:
+        return jf.query_result([], 0)
+    preview = music_playlists.contextual_mix(db, user, seed_kind=kind, seed_id=entity.id, exclude_item_ids=[])
+    ids = ([entity.id] if kind == "track" else []) + [item.id for item in preview.items]
+    items = music_library.visible_tracks(db, user, ids[:min(limit, 100)])
+    return jf.query_result(jf.JellyfinMapper(db, user).item_dtos(items), len(items))
 
 
 @router.get("/movies/recommendations")

@@ -2947,6 +2947,10 @@ private struct TVAudioView: View {
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("audioScreen")
+        .task(id: store.music.sessionIdentity) {
+            await store.music.refreshHomeCapability()
+            if store.music.homeCapability == .available { await store.music.refreshHome() }
+        }
         .task(id: lastVisibleItemID, priority: .utility) {
             await store.prefetchArtwork(after: lastVisibleItemID, in: store.audioItems, maxWidth: 760)
         }
@@ -3005,7 +3009,7 @@ private struct TVMusicHome: View {
             if store.music.homeCapability == .available {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack {
-                        Text("Music Home").font(TVTypography.sectionTitle)
+                        Text("Music Home").font(TVTypography.sectionTitle).accessibilityIdentifier("tvMusicHome")
                         Spacer()
                         if let home {
                             Button("Edit Home") { editLayout = home.layout; editing = true }
@@ -3033,7 +3037,6 @@ private struct TVMusicHome: View {
                 .padding(.horizontal, 80)
                 .padding(.vertical, 24)
                 .focusSection()
-                .accessibilityIdentifier("tvMusicHome")
                 .sheet(isPresented: $editing, onDismiss: { focusedAction = "edit" }) {
                     if let editLayout { TVMusicHomeEditor(store: store, layout: editLayout) }
                 }
@@ -3045,10 +3048,6 @@ private struct TVMusicHome: View {
                 }
                 .nativeAudioPlayer(playback: $playback, store: store)
             }
-        }
-        .task(id: store.music.sessionIdentity) {
-            await store.music.refreshHomeCapability()
-            if store.music.homeCapability == .available { await store.music.refreshHome() }
         }
     }
 
@@ -3072,7 +3071,8 @@ private struct TVMusicHome: View {
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(track.title ?? "Saved track")
-                                Text("\(track.artist ?? "Unknown artist") · \(Int(resume.positionSeconds)) seconds").font(TVTypography.body)
+                                Text("\(track.artist ?? "Unknown artist") · Track \((resume.currentIndex ?? 0) + 1) · \(Int(resume.positionSeconds)) seconds")
+                                    .font(TVTypography.body)
                             }
                         }
                         .focused($focusedAction, equals: "resume")
@@ -3156,7 +3156,7 @@ private struct TVMusicHomeEditor: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text("Edit Music Home").font(TVTypography.sectionTitle)
+                Text("Edit Music Home").font(TVTypography.sectionTitle).accessibilityIdentifier("tvMusicHomeEditor")
                 ForEach(Array(layout.order.enumerated()), id: \.element) { index, shelf in
                     HStack {
                         Text(title(shelf)).frame(width: 320, alignment: .leading)
@@ -3195,7 +3195,6 @@ private struct TVMusicHomeEditor: View {
         .foregroundStyle(LuminaTheme.ink)
         .buttonStyle(LuminaQuietActionStyle())
         .defaultFocus($focusedAction, "done")
-        .accessibilityIdentifier("tvMusicHomeEditor")
     }
 
     private func title(_ shelf: MusicHomeShelf) -> String {

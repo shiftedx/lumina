@@ -21,6 +21,9 @@ final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
     func testContextualMix() async throws { try await journeyPhoneContextualMix() }
     func testOfflineHomeResume() async throws { try await journeyPhoneOfflineMusicHome() }
+    func testOfflineReconnectKeepsDeviceQueue() async throws {
+        try await journeyPhoneOfflineMusicHome(reconnect: true)
+    }
     func testExplicitHomeResume() async throws { try await journeyPhoneExplicitHomeResume() }
 }
 @MainActor
@@ -1388,7 +1391,7 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 20 }
     }
 
-    func journeyPhoneOfflineMusicHome() async throws {
+    func journeyPhoneOfflineMusicHome(reconnect: Bool = false) async throws {
         let fixture = try loadFixture()
         let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID)
         try launchAndResetSession()
@@ -1420,6 +1423,99 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "resumed offline playback")
         XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 20 }
+        guard reconnect else { return }
+
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+
+        // Pause after actual downloaded playback so the on-device checkpoint is dirty
+        // while the connection is deliberately unavailable.
+        try revealMusicControl(element("audioPlayPauseButton"))
+        try activate(element("audioPlayPauseButton"))
+        guard waitUntil(timeout: 10, condition: {
+            self.element("audioPlayPauseButton").label == "Play"
+        }) else {
+            throw ProofFailure.ui("The offline queue did not retain its local paused checkpoint.")
+        }
+        // A different authenticated client now owns a competing server revision.
+        try await api.replaceProofMusicSession(identity: identity,
+                                                itemIDs: [fixture.audioSecondTrackID, fixture.audioSecondTrackID, fixture.audioTrackID],
+                                                position: 12)
+        // Exercise the production background checkpoint before simulating a
+        // terminated process; a direct foreground termination can interrupt
+        // the asynchronous checkpoint writer before it receives its flush.
+        try backgroundApplication()
+        try await Task.sleep(for: .seconds(3))
+        app.terminate()
+        app.launchArguments = ["--ui-testing"]
+        app.launchEnvironment["LUMINA_UI_TEST_NAMESPACE"] = isolationID
+        app.launch()
+
+        // Reconnect returns to the library shell rather than presenting playback.
+        // Surface the deliberately paused conflict through the shared-queue section.
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "connected Home after offline relaunch")
+        let competing = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        XCTAssertEqual((competing?["queue"] as? [[String: Any]])?.compactMap { ($0["id"] as? String)?.replacingOccurrences(of: "-", with: "").lowercased() },
+                       [fixture.audioSecondTrackID, fixture.audioSecondTrackID, fixture.audioTrackID].map { $0.replacingOccurrences(of: "-", with: "").lowercased() },
+                       "The server revision must remain competing until the device resolution is chosen.")
+        XCTAssertEqual(competing?["position_seconds"] as? Int, 12)
+        // Home becomes visible before its reconnect navigation refresh has finished.
+        // The conflict must be reachable from the real Library destination, not a
+        // test-only deep link or a stale offline view.
+        try waitForExistence(destinationControl("Library"), timeout: 45, named: "connected Library navigation")
+        try selectDestination("Audio", screen: "audioScreen")
+        try openMusicLibrarySection("queue")
+        let useServer = element("libraryUseServerQueueButton")
+        let keepDevice = element("libraryKeepDeviceQueueButton")
+        try waitForExistence(useServer, timeout: 20, named: "visible reconnect server choice")
+        try waitForExistence(keepDevice, timeout: 20, named: "visible reconnect Keep this device choice")
+        XCTAssertEqual(keepDevice.label, "Keep this device's queue")
+        XCTAssertTrue(hasVisibleFrame(keepDevice) && keepDevice.isEnabled,
+                      "Keep this device must be visibly actionable in the Queue screen.")
+        if keepDevice.isHittable {
+            try activate(keepDevice)
+        } else {
+            // iOS 26.5 can leave the just-pushed Queue screen's real button
+            // visibly enabled while XCTest reports its AX element unhittable.
+            // Keep this physical fallback limited to the asserted Queue action.
+            let frame = keepDevice.frame
+            let window = try applicationWindow()
+            window.coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - window.frame.minX) / window.frame.width,
+                dy: (frame.midY - window.frame.minY) / window.frame.height
+            )).tap()
+        }
+        guard waitUntil(timeout: 20, condition: {
+            !self.element("libraryUseServerQueueButton").exists && !self.element("libraryKeepDeviceQueueButton").exists
+        }) else {
+            throw ProofFailure.ui("Keeping this device did not resolve the reconnect conflict.")
+        }
+
+        try await waitForDeviceQueueToRepublish(api: api, identity: identity, fixture: fixture)
+    }
+
+    private func waitForDeviceQueueToRepublish(api: ProofAPI, identity: APIIdentity, fixture: ProofFixture) async throws {
+        let deadline = Date().addingTimeInterval(20)
+        repeat {
+            if let saved = try? await api.musicJSON(identity: identity, path: "session") as? [String: Any],
+               let entries = saved["entries"] as? [[String: Any]] {
+                let normalizedTrackID = fixture.audioTrackID.replacingOccurrences(of: "-", with: "").lowercased()
+                let duplicates = entries.filter { entry in
+                    entry["kind"] as? String == "track"
+                        && (entry["item_id"] as? String)?.replacingOccurrences(of: "-", with: "").lowercased() == normalizedTrackID
+                }
+                if duplicates.count == 2,
+                   entries.contains(where: { $0["kind"] as? String == "acquisition" }),
+                   saved["unavailable_policy"] as? String == "wait" {
+                    return
+                }
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        } while Date() < deadline
+        throw ProofFailure.ui("Keeping this device did not republish duplicate occurrences and the Wait queue boundary.")
     }
 
     func journeyPhoneContextualMix() async throws {
@@ -4521,6 +4617,34 @@ class NativeProofJourney: XCTestCase {
         #endif
     }
 
+    #if os(iOS)
+    /// Music Home's Browse row is a full-width List button. iOS 26.5 can
+    /// report that visible row as unhittable even though a physical center tap
+    /// reaches the catalog, so retain the platform exception in one verified
+    /// transition instead of spreading coordinate workarounds through journeys.
+    private func browseFromMusicHome() throws {
+        let browse = element("musicHomeBrowseButton")
+        guard browse.waitForExistence(timeout: 3) else {
+            return
+        }
+        guard hasVisibleFrame(browse), browse.isEnabled else {
+            throw ProofFailure.ui("Music Home Browse must be visible and enabled before selection.")
+        }
+        if browse.isHittable {
+            browse.tap()
+        } else {
+            let frame = browse.frame
+            let window = try applicationWindow()
+            window.coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - window.frame.minX) / window.frame.width,
+                dy: (frame.midY - window.frame.minY) / window.frame.height
+            )).tap()
+        }
+        try waitForExistence(element("musicOptionsMenu"), timeout: 20,
+                              named: "music catalog after Music Home Browse")
+    }
+    #endif
+
     private func startMusicCollectionPlayback() throws {
         let play = element("musicPlayButton")
         try waitForExistence(play, timeout: 20, named: "loaded album play action")
@@ -4542,8 +4666,22 @@ class NativeProofJourney: XCTestCase {
     /// before continuing so a TV Menu press cannot leave it immediately.
     private func openMusicLibrarySection(_ section: String) throws {
         #if os(iOS)
-        if element("musicHomeBrowseButton").exists { try activate(element("musicHomeBrowseButton")) }
-        try activate(element("musicOptionsMenu"))
+        try browseFromMusicHome()
+        // iOS 26.5 can expose the visible toolbar menu without AX hit-testing.
+        // Keep its one physical fallback localized to the real options control;
+        // the destination link below still proves the public Queue route.
+        let options = element("musicOptionsMenu")
+        try waitForExistence(options, timeout: 20, named: "Music options")
+        if options.isHittable {
+            options.tap()
+        } else {
+            let frame = options.frame
+            let window = try applicationWindow()
+            window.coordinate(withNormalizedOffset: CGVector(
+                dx: (frame.midX - window.frame.minX) / window.frame.width,
+                dy: (frame.midY - window.frame.minY) / window.frame.height
+            )).tap()
+        }
         #endif
         try activate(element("musicLibrary-\(section)"))
         try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "\(section) music library")

@@ -11,7 +11,7 @@ assert(origin.protocol === 'http:' && origin.hostname === '127.0.0.1' && fixture
 const profile = await mkdtemp(join(tmpdir(), 'lumina-offline-resume-'));
 const expect = baseExpect.configure({ timeout: 20_000 });
 const app = '/audio?pane=home';
-const options = { baseURL: origin.origin, channel: 'chrome', args: ['--disable-audio-output'] };
+const options = { baseURL: origin.origin, channel: 'chrome', viewport: { width: 1440, height: 900 }, args: ['--disable-audio-output'] };
 const api = await request.newContext({ baseURL: origin.origin });
 const identity = { username: fixture.username, password: fixture.password };
 
@@ -33,17 +33,19 @@ try {
   await expect(resume).toBeVisible();
   await resume.click();
   const roomButton = page.getByRole('button', { name: `Open listening room for ${fixture.audioTrackTitle}`, exact: true });
-  const expand = page.getByRole('button', { name: `Expand music player for ${fixture.audioTrackTitle}`, exact: true });
-  await expect(roomButton.or(expand)).toBeVisible();
-  if (await expand.isVisible()) await expand.click();
+  await page.getByRole('region', { name: 'Music player', exact: true })
+    .getByRole('button', { name: 'Pause music', exact: true }).waitFor();
   await roomButton.click();
   const room = page.getByRole('dialog', { name: 'Listening room', exact: true });
-  await room.getByRole('button', { name: 'Save track', exact: true }).click();
+  await room.getByRole('button', { name: 'Save album', exact: true }).click();
+  await expect(room.getByText('2 tracks are ready offline.', { exact: true })).toBeVisible();
   await expect(room.getByRole('button', { name: 'Track available offline', exact: true })).toBeVisible();
   await room.getByRole('button', { name: 'Pause music', exact: true }).click();
   await expect(room.getByRole('button', { name: 'Play music', exact: true })).toBeVisible();
   await room.getByRole('button', { name: 'Close listening room', exact: true }).click();
   await page.reload();
+  const downloads = page.getByRole('region', { name: 'Downloads', exact: true });
+  await expect(downloads).toContainText('2 tracks are saved on this device.');
   await page.getByRole('link', { name: 'Open downloads' }).click();
   await expect(page.getByRole('heading', { name: 'Offline listening' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);

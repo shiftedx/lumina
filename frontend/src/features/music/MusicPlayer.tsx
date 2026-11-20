@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownToLine, ChevronDown, ChevronUp, ListMusic, Maximize2, Minimize2, Pause, Play, Repeat, SkipBack, SkipForward, Speaker, Volume2, X } from '../../luminaIcons';
 
-import { castMusic, controlMusicCast, discoverSonos, getMusicCastStatus, getMusicLyrics } from '../../api';
+import { castMusic, controlMusicCast, discoverSonos, getMusicCastStatus, getMusicLyrics, getMusicQueue } from '../../api';
 import { Menu } from '../../ui';
 import { Artwork } from '../../Artwork';
 import { formatDuration } from '../../utils';
@@ -191,9 +191,14 @@ export function MusicPlayer({ owner, hidden = false, navigationVisible = true, o
   const selections = useMemo(() => ({ track: track ? [track] : [], album: track ? queue.filter((entry) => entry.album_id ? entry.album_id === track.album_id : entry.album === track.album && entry.artist === track.artist) : [], queue }), [track?.id, queue]);
   async function saveOffline(scope: OfflineScope) {
     if (offlineProgress) return;
-    const candidates = distinct(selections[scope]).slice(0, MAX_TRANSFER); if (!candidates.length) return;
+    if (!selections[scope].length) return;
     const controller = new AbortController(); download.current = controller; setOfflineProgress({ scope, done: 0, total: 0, preparing: true }); setMessage(null);
     try {
+      const albumId = scope === 'album' ? track?.album_id : null;
+      const requested = albumId ? await getMusicQueue({ title_id: albumId }) : selections[scope];
+      controller.signal.throwIfAborted();
+      const candidates = distinct(requested).slice(0, MAX_TRANSFER);
+      if (!candidates.length) throw new Error('No tracks are available to save.');
       await enableOfflineShell(); const missing: MusicTrack[] = [];
       for (const candidate of candidates) { controller.signal.throwIfAborted(); if (!await offlineTrack(owner, candidate.id)) missing.push(candidate); }
       setOfflineProgress({ scope, done: 0, total: missing.length, preparing: false });

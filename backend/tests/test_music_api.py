@@ -132,7 +132,7 @@ def test_contextual_mix_preview_orders_reasons_and_hides_ineligible_tracks(music
                        name="Hidden album"),
         ])
         add_file(db, root, "Music/Genre/01 Folk.flac", item_id=genre_track, title_id=genre_album, owner=ALICE,
-                 title="A Folk Match", kind="track", metadata={"artist": "Genre artist", "track_number": 1})
+                 title="A Folk Match", kind="track", metadata={"artist": "Genre artist", "track_number": 1, "genres": "legacy tag"})
         add_file(db, root, "Music/Lonely/01 Solo.flac", item_id=lonely_track, title_id=lonely_album, owner=ALICE,
                  title="Solo", kind="track", metadata={"artist": "Lonely artist", "track_number": 1})
         add_file(db, root, "Music/Hidden/01 Secret.flac", item_id=hidden_track, title_id=hidden_album, owner=BOB,

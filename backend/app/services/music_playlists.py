@@ -120,18 +120,28 @@ def mix(db: Session, user: User, kind: str, seed_id: str | None = None) -> list:
 
 
 def _genre_expression():
-    overridden = func.json_type(MusicTrackOverride.fields, "$.genres").is_not(None)
-    item_genres = func.json_extract(LibraryItem.metadata_json, "$.genres")
+    override_type = func.json_type(MusicTrackOverride.fields, "$.genres")
     return case(
-        (overridden, func.json_extract(MusicTrackOverride.fields, "$.genres")),
-        (func.coalesce(func.json_array_length(item_genres), 0) > 0, item_genres),
-        else_=func.coalesce(func.json_extract(MediaTitle.metadata_json, "$.genres"), "[]"),
+        (override_type == "array", func.json_extract(MusicTrackOverride.fields, "$.genres")),
+        (override_type.is_not(None), "[]"),
+        (func.json_array_length(LibraryItem.metadata_json, "$.genres") > 0,
+         func.json_extract(LibraryItem.metadata_json, "$.genres")),
+        (func.json_type(MediaTitle.metadata_json, "$.genres") == "array",
+         func.json_extract(MediaTitle.metadata_json, "$.genres")),
+        else_="[]",
     )
 
 
 def _visible_music_query(user: User):
-    return select(LibraryItem).join(MediaTitle, MediaTitle.id == LibraryItem.title_id).outerjoin(
+    album_id = case(
+        (func.json_type(MusicTrackOverride.fields, "$.album_id").is_not(None),
+         func.json_extract(MusicTrackOverride.fields, "$.album_id")),
+        else_=LibraryItem.title_id,
+    )
+    return select(LibraryItem).outerjoin(
         MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id,
+    ).outerjoin(
+        MediaTitle, and_(MediaTitle.id == album_id, MediaTitle.type == "album"),
     ).where(
         LibraryItem.kind.in_(("track", "audio")),
         LibraryItem.status != "missing",
@@ -143,18 +153,9 @@ def _visible_genres(db: Session, user: User, predicate) -> list[str]:  # noqa: A
     genres = _genre_expression()
     values = func.json_each(genres).table_valued("key", "value")
     rows = db.execute(
-        select(values.c.value)
-        .select_from(LibraryItem)
-        .join(MediaTitle, MediaTitle.id == LibraryItem.title_id)
-        .outerjoin(MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id)
+        _visible_music_query(user).with_only_columns(values.c.value, maintain_column_froms=True)
         .join(values, true())
-        .where(
-            predicate,
-            values.c.key < 30,
-            LibraryItem.kind.in_(("track", "audio")),
-            LibraryItem.status != "missing",
-            LibraryService.visible_predicate(user),
-        )
+        .where(predicate, values.c.key < 30)
         .distinct()
         .order_by(func.lower(values.c.value), values.c.value)
         .limit(30)
@@ -254,7 +255,8 @@ def contextual_mix(
         items = _preview_items(tracks[:100], title.id, genres)
         return MusicMixPreview(seed=seed, items=items, exhausted=len(tracks) <= 100)
 
-    title_genres = [genre for genre in (title.metadata_json or {}).get("genres", []) if isinstance(genre, str)]
+    raw_genres = (title.metadata_json or {}).get("genres", [])
+    title_genres = [genre[:64] for genre in raw_genres if isinstance(genre, str)] if isinstance(raw_genres, list) else []
     genres = list(dict.fromkeys([*title_genres, *_visible_genres(db, user, MediaTitle.id == title.id)]))[:30]
     seed = MusicMixSeed(id=title.id, kind="album", name=title.name, artist_id=title.parent_id, genres=genres)
     def numbered(name: str, default: int):

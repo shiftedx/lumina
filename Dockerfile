@@ -65,7 +65,7 @@ RUN git init -q /src \
     && test "$(git -C /src rev-parse HEAD)" = "$LLAMA_CPP_COMMIT" \
     && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
          -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DBUILD_SHARED_LIBS=ON \
-         -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+         -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_USE_PREBUILT_UI=OFF \
          -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN' \
     && cmake --build /build -j"$(nproc)" --target llama-server \
     && mkdir -p /opt/lumina-llama/bin \

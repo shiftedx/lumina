@@ -2214,6 +2214,7 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         let capability = try? await api.musicJSON(identity: identity, path: "home/capability") as? [String: Any]
         let enabled = capability?["enabled"] as? Bool == true
+        if enabled { _ = try await api.musicJSON(identity: identity, path: "home/layout", method: "PUT", body: ["order": [], "hidden": []]) }
         try await api.replaceProofMusicSession(identity: identity, itemIDs: [fixture.audioSecondTrackID, fixture.audioTrackID], position: 12)
         try launchAndResetSession()
         try signIn(using: fixture)

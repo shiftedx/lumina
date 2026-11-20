@@ -3194,6 +3194,8 @@ private struct TVMusicHomeEditor: View {
                     Button("Done") { dismiss() }.focused($focusedAction, equals: "done")
                         .accessibilityIdentifier("tvMusicHomeDone")
                 }
+                .padding(.leading, 320)
+                .focusSection()
             }
             .padding(80)
         }

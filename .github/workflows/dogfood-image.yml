@@ -1,0 +1,80 @@
+name: Build Music Rework dogfood image
+
+on:
+  push:
+    branches: ["music-rework/355-dogfood-image"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: fcffcc694887cd9da5c2586d2f0d3bb098978b03
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Build the exact linux amd64 dogfood image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --load \
+            --build-arg LUMINA_SOURCE_REVISION=fcffcc694887cd9da5c2586d2f0d3bb098978b03 \
+            --tag lumina-music-rework-dogfood:fcffcc6 .
+      - name: Smoke the fresh image and collect provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=lumina-music-rework-dogfood:fcffcc6
+          container=lumina-music-rework-dogfood-smoke
+          data_dir="$RUNNER_TEMP/lumina-data"
+          mkdir -p "$data_dir" "$RUNNER_TEMP/evidence"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container" --platform linux/amd64 -v "$data_dir:/app/backend/.data" "$image"
+          for _ in $(seq 1 60); do
+            if docker exec "$container" python -c 'import json, urllib.request; health = urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=2); assert health.status == 200; bootstrap = json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/bootstrap/status", timeout=2)); assert bootstrap["needs_setup"] is True; frontend = urllib.request.urlopen("http://127.0.0.1:8765/", timeout=2); assert frontend.status == 200 and b"id=\"root\"" in frontend.read()'; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec "$container" python -c 'import json, urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=2).status == 200; assert json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/bootstrap/status", timeout=2))["needs_setup"] is True; assert b"id=\"root\"" in urllib.request.urlopen("http://127.0.0.1:8765/", timeout=2).read()'
+          docker exec "$container" sh -c 'test -s /usr/local/share/doc/lumina/LICENSE && test -s /usr/local/share/doc/lumina/CREDITS.md && test -s /usr/local/share/doc/lumina/RELEASE_NOTES.md'
+          docker exec "$container" ffmpeg -version
+          docker exec "$container" ffprobe -version
+          docker exec "$container" /opt/lumina-llama/bin/llama-server --version
+          docker exec "$container" /opt/lumina-asr/bin/python -c 'import faster_whisper, ctranslate2'
+          docker image inspect "$image" > "$RUNNER_TEMP/evidence/image-inspect.json"
+          docker inspect "$container" > "$RUNNER_TEMP/evidence/container-inspect.json"
+          docker logs "$container" > "$RUNNER_TEMP/evidence/container.log" 2>&1
+          python - "$RUNNER_TEMP/evidence/image-inspect.json" <<'PY'
+          import json
+          import sys
+
+          image = json.load(open(sys.argv[1]))[0]
+          labels = image["Config"]["Labels"]
+          assert image["Architecture"] == "amd64", image["Architecture"]
+          assert labels["org.opencontainers.image.revision"] == "fcffcc694887cd9da5c2586d2f0d3bb098978b03"
+          assert labels["org.opencontainers.image.source"] == "https://github.com/shiftedx/lumina"
+          PY
+          docker stop --time 30 "$container"
+      - name: Save compressed dogfood image and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dogfood-image"
+          docker save lumina-music-rework-dogfood:fcffcc6 | gzip -1 > "$RUNNER_TEMP/dogfood-image/lumina-fcffcc6-linux-amd64.tar.gz"
+          sha256sum "$RUNNER_TEMP/dogfood-image/lumina-fcffcc6-linux-amd64.tar.gz" | tee "$RUNNER_TEMP/dogfood-image/SHA256SUMS"
+          du -h "$RUNNER_TEMP/dogfood-image/lumina-fcffcc6-linux-amd64.tar.gz" | tee "$RUNNER_TEMP/dogfood-image/SIZE.txt"
+          cp "$RUNNER_TEMP/evidence/image-inspect.json" "$RUNNER_TEMP/dogfood-image/image-inspect.json"
+          cp "$RUNNER_TEMP/evidence/container-inspect.json" "$RUNNER_TEMP/dogfood-image/container-inspect.json"
+          cp "$RUNNER_TEMP/evidence/container.log" "$RUNNER_TEMP/dogfood-image/container.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lumina-music-rework-fcffcc6-linux-amd64
+          path: ${{ runner.temp }}/dogfood-image
+          if-no-files-found: error
+          retention-days: 7

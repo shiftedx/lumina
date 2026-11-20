@@ -34,9 +34,7 @@ The first passing Apple TV simulator run with the Browse Music shortcut measured
 
 After the Browse focus correction in `939ba44`, `testMusicBrowsePlayAndNextTiming` passed on the same tvOS 27.0 simulator and #343 fixture. **22,481 ms** Browse, **12,573 ms** First Audio and **8,412 ms** Next were within 15% of their respective baselines. This is one qualifying simulator sample. Physical-device and beta p95 cohorts remain open. [Updated Apple TV timing markers](evidence/music-home/tvos-release-1-focus-fix.json).
 
-The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,841 ms Next under concurrent qualification work. XCTest stalled after Stop and the case was interrupted. Keep those markers diagnostic. A passing iPhone timing run with a successful Stop is still required.
-
-In a later iPhone 17 diagnostic run using coordinates where XCTest reported visible controls as non-hittable, Browse took 23,119 ms and First Audio took 4,301 ms. XCTest could not activate Next and the diagnostic test changes were removed. This run does not qualify the iPhone timing budget.
+On iPhone 17 / iOS 26.5, `testMusicBrowsePlayAndNextTiming` at `f7ff414` passed in 113.104 s, including Stop. The timing harness tapped the visible Play and Next buttons by coordinate when XCTest reported them unhittable. Browse was **23,249 ms**, First Audio **5,441 ms** and Next **4,724 ms** under concurrent host workloads. Relative to the recorded #343 samples of 13,242 / 4,599 / 4,334 ms, Next was within 15%, while Browse and First Audio exceeded their limits. [iPhone timing markers](evidence/music-home/ios-release-1.json).
 
 ## Staging gates
 
@@ -45,7 +43,7 @@ In a later iPhone 17 diagnostic run using coordinates where XCTest reported visi
 3. Enable for dogfood. Verify Home, preview/append/replace, playlist save, album download, offline resume and reconnect conflict. Repeat disable and re-enable with the queue active and check the existing layout, queue, playlists and local downloads.
 4. Stage the matching iOS and tvOS TestFlight builds using [the distribution runbook](../../apple/docs/testflight.md). Record build numbers and tester availability separately. Complete the retained-image rollback verification and attach the evidence to #355.
 
-Local packaging preflight passed for iOS and tvOS Release device archives from `939ba44`. The unsigned archives used validation build `0.1.0 (355)`. The archive validator checked identity, device platform, artwork, privacy manifest, symbols, and exclusion of test fixtures and bundles. Export signing and TestFlight staging remain open.
+Local packaging preflight passed for iOS and tvOS Release device archives from `939ba44` and independently passed again from `f7ff414`. The unsigned archives used validation build `0.1.0 (355)`. The archive validator checked identity, device platform, artwork, privacy manifest, symbols, and exclusion of test fixtures and bundles. Export signing and TestFlight staging remain open.
 
 ## Physical-device evidence
 

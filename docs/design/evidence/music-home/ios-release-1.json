@@ -1,0 +1,48 @@
+{
+  "product_source": "f7ff414af38c5c4b2a7a1cb3b99ee6c7158c2cbc",
+  "xcode": "27.1",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "destination": "iPhone 17, iOS 26.5 simulator",
+  "build_configuration": "Debug",
+  "test": "NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming",
+  "result": "passed",
+  "markers": [
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795195167.362426
+    },
+    {
+      "elapsed_ms": 23249,
+      "event": "ready",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795195190.6115022
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795195202.059393
+    },
+    {
+      "elapsed_ms": 5441,
+      "event": "ready",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795195207.500824
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795195207.500877
+    },
+    {
+      "elapsed_ms": 4724,
+      "event": "ready",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795195212.224937
+    }
+  ],
+  "notes": "Single #343 fixture sample on November 20, 2026 with concurrent host workloads. The test-only harness selected the public Play and Next controls by button identifier, using a coordinate tap if the button was visible and enabled but XCTest reported it unhittable. The journey verified playback and Stop."
+}

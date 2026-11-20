@@ -1432,7 +1432,15 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(application!.textFields["Playlist name"], timeout: 10, named: "playlist name")
         try activate(application!.buttons["Cancel"])
         try activate(application!.buttons["Close"])
-        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album after closing mix")
+        let collection = element("musicCollectionScreen")
+        try waitForExistence(collection, timeout: 20, named: "album after closing mix")
+        let track = element("musicItem-\(fixture.audioTrackID)")
+        try waitForExistence(track, timeout: 20, named: "track radio seed")
+        try revealInLibraryViewport([track], in: collection)
+        track.press(forDuration: 1)
+        try activate(application!.buttons["Track Radio"])
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "track radio preview")
+        try activate(application!.buttons["Close"])
     }
 
     func journeyPhoneMusicLegacy() async throws {

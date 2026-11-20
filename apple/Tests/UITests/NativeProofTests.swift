@@ -1437,11 +1437,37 @@ class NativeProofJourney: XCTestCase {
 
     func journeyPhoneMusicLegacy() async throws {
         let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let before = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Audio", screen: "audioScreen")
-        _ = try revealMusicAlbum(fixture, named: "legacy music album")
+        let album = try revealMusicAlbum(fixture, named: "legacy music album")
         XCTAssertFalse(element("musicHomeBrowseButton").exists, "Disabled and old servers must retain the existing browse surface.")
+        let afterBrowse = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        let beforeIDs = (before?["queue"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        let afterIDs = (afterBrowse?["queue"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        XCTAssertEqual(beforeIDs, afterIDs, "Browsing must not replace the saved queue.")
+        XCTAssertEqual(before?["current_index"] as? Int, afterBrowse?["current_index"] as? Int)
+        try activate(album)
+        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "legacy album")
+        try startMusicCollectionPlayback()
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "legacy playback")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 4 }
+        try revealMusicControl(element("audioPlayPauseButton"))
+        try activate(element("audioPlayPauseButton"))
+        var savedPosition = 0.0
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if let saved = try await api.musicJSON(identity: identity, path: "session") as? [String: Any],
+               let position = saved["position_seconds"] as? Double, position >= 3 { savedPosition = position; break }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        XCTAssertGreaterThanOrEqual(savedPosition, 3, "Legacy playback must checkpoint its position.")
     }
 
     func journeyPhoneMusicHome() async throws {

@@ -131,7 +131,7 @@ struct TVMusicDetailView: View {
                         .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.muted)
                 }
-                if store.music.homeCapability == .available {
+                if store.music.homeCapability == .available && !store.isOffline {
                     instantMixButton(for: currentItem, kind: .artist, focus: .mix)
                 }
                 if let errorMessage = displayedError {
@@ -195,7 +195,7 @@ struct TVMusicDetailView: View {
             .focused($focusedControl, equals: .play)
             .defaultFocus($focusedControl, .play)
 
-            if store.music.homeCapability == .available {
+            if store.music.homeCapability == .available && !store.isOffline {
                 instantMixButton(for: currentItem, kind: currentItem.isAudio ? .track : .album, focus: .mix)
             }
 
@@ -279,7 +279,7 @@ struct TVMusicDetailView: View {
                             .accessibilityLabel([trackAccessibilityLabel(track), fileQuality?.tracks[track.id]?.summary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
                             .accessibilityValue(isCurrentTrack(track) ? (audioSession.playback?.isPlaying == true ? "Playing" : "Paused") : "")
                             .accessibilityIdentifier("musicItem-\(track.id)")
-                            if store.music.homeCapability == .available {
+                            if store.music.homeCapability == .available && !store.isOffline {
                                 instantMixButton(for: track, kind: .track, focus: .trackMix(track.id))
                             }
                         }

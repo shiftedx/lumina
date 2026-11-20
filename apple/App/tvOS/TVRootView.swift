@@ -2887,6 +2887,7 @@ private struct TVAudioView: View {
     @State private var submittedSearch: String?
     @State private var lastVisibleItemID: String?
     @State private var mountedItemIDs = Set<String>()
+    @State private var presentedMusicItem: MediaItem?
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedSearch: Bool
     @FocusState private var focusedCategory: MusicBrowseKind?
@@ -2933,7 +2934,7 @@ private struct TVAudioView: View {
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 290), spacing: 32, alignment: .top)], spacing: 48) {
                             ForEach(store.audioItems) { item in
-                                TVMediaCard(item: item, store: store) { onOpen(item) }
+                                TVMediaCard(item: item, store: store) { presentedMusicItem = item }
                                     .focused($focusedItemID, equals: item.id)
                                     .accessibilityIdentifier("audioItem-\(item.id)")
                                     .id(item.id)
@@ -2973,6 +2974,9 @@ private struct TVAudioView: View {
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("audioScreen")
+        .fullScreenCover(item: $presentedMusicItem) { item in
+            TVMusicDetailCover(item: item, store: store)
+        }
         .task(id: "\(store.music.sessionIdentity ?? "")-\(store.isOffline)") {
             if store.isOffline {
                 await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
@@ -3013,6 +3017,32 @@ private struct TVAudioView: View {
         guard let itemID, mountedItemIDs.contains(itemID) else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
+    }
+}
+
+/// Keep an Audio-grid detail in the grid's presentation hierarchy. tvOS then
+/// restores the presenting card through UIKit rather than asking the Home and
+/// Browse focus regions to compete after a root NavigationStack pop.
+private struct TVMusicDetailCover: View {
+    let item: MediaItem
+    let store: LuminaStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var path = [MediaItem]()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            TVMusicDetailView(item: item, store: store) { path.append($0) }
+                .navigationDestination(for: MediaItem.self) { nested in
+                    TVMusicDetailView(item: nested, store: store) { path.append($0) }
+                }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            NativeNowPlayingBar(store: store)
+        }
+        .onExitCommand {
+            if path.isEmpty { dismiss() }
+            else { path.removeLast() }
+        }
     }
 }
 

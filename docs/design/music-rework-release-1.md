@@ -32,6 +32,8 @@ Both web cohorts met the #343 median regression budgets. Beta p95 cohorts remain
 
 The first passing Apple TV simulator run with the Browse Music shortcut measured **25,971 ms** Browse, **14,394 ms** First Audio and **9,150 ms** Next. The corresponding #343 samples were 21,169 ms, 11,884 ms and 8,168 ms. Browse and First Audio exceeded the 15% threshold on these single samples. Next was within the threshold. Collect matched repeats on a quiet host before qualifying the budget. [Apple TV timing markers](evidence/music-home/tvos-release-1.json).
 
+After the Browse focus correction in `939ba44`, `testMusicBrowsePlayAndNextTiming` passed on the same tvOS 27.0 simulator and #343 fixture. **22,481 ms** Browse, **12,573 ms** First Audio and **8,412 ms** Next were within 15% of their respective baselines. This is one qualifying simulator sample. Physical-device and beta p95 cohorts remain open. [Updated Apple TV timing markers](evidence/music-home/tvos-release-1-focus-fix.json).
+
 The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,841 ms Next under concurrent qualification work. XCTest stalled after Stop and the case was interrupted. Keep those markers diagnostic. A passing iPhone timing run with a successful Stop is still required.
 
 In a later iPhone 17 diagnostic run using coordinates where XCTest reported visible controls as non-hittable, Browse took 23,119 ms and First Audio took 4,301 ms. XCTest could not activate Next and the diagnostic test changes were removed. This run does not qualify the iPhone timing budget.
@@ -42,6 +44,8 @@ In a later iPhone 17 diagnostic run using coordinates where XCTest reported visi
 2. Start the candidate web/server rollout with `LUMINA_MUSIC_REWORK_ENABLED=false` and a pinned [rollback image](../../docker/README.md#retaining-a-rollback-image). Record the image digest, server version and release source revision. Confirm normal music browse, controls and queue checkpoints.
 3. Enable for dogfood. Verify Home, preview/append/replace, playlist save, album download, offline resume and reconnect conflict. Repeat disable and re-enable with the queue active and check the existing layout, queue, playlists and local downloads.
 4. Stage the matching iOS and tvOS TestFlight builds using [the distribution runbook](../../apple/docs/testflight.md). Record build numbers and tester availability separately. Complete the retained-image rollback verification and attach the evidence to #355.
+
+Local packaging preflight passed for iOS and tvOS Release device archives from `939ba44`. The unsigned archives used validation build `0.1.0 (355)`. The archive validator checked identity, device platform, artwork, privacy manifest, symbols, and exclusion of test fixtures and bundles. Export signing and TestFlight staging remain open.
 
 ## Physical-device evidence
 
@@ -65,6 +69,8 @@ On November 20, `ae3714a` built from the repository Dockerfile as Linux arm64, w
 5. Restored the pinned predecessor through the normal entrypoint with the same fixture volume. The service became healthy and preserved the queue and shared playlist. Chrome opened the album catalog.
 
 This was a loopback Compose rehearsal on disposable data. The production image, dogfood setting and TestFlight builds are tracked in #355.
+
+Repeated on the release candidate `939ba44`, Linux arm64 image `sha256:c966a60d3f1f6c96a1af9bdbded7a4442286e6773ef1a6893755347cdd347d3e`. The disabled-first, feature toggle, download retention and rollback sequence all passed on a fresh #343 volume.
 
 ## Functional evidence and remaining checks
 

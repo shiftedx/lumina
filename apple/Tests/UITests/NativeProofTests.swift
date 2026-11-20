@@ -19,6 +19,7 @@ import Vision
 final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testHomeLayoutAndBrowse() async throws { try await journeyPhoneMusicHome() }
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
+    func testContextualMix() async throws { try await journeyPhoneContextualMix() }
 }
 @MainActor
 final class NativeMobileWelcomeTests: NativeProofJourney {
@@ -1367,6 +1368,25 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     #if os(iOS)
+    func journeyPhoneContextualMix() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        try activate(revealMusicAlbum(fixture, named: "album for Instant Mix"))
+        let instant = element("nativeInstantMixButton")
+        try waitForExistence(instant, timeout: 20, named: "Instant Mix")
+        try revealInLibraryViewport([instant], in: element("musicCollectionScreen"))
+        try activate(instant)
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "mix preview")
+        try waitForExistence(element("nativeMixSave"), timeout: 20, named: "mix actions")
+        try activate(element("nativeMixSave"))
+        try waitForExistence(application!.textFields["Playlist name"], timeout: 10, named: "playlist name")
+        try activate(application!.buttons["Cancel"])
+        try activate(application!.buttons["Close"])
+        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album after closing mix")
+    }
+
     func journeyPhoneMusicLegacy() async throws {
         let fixture = try loadFixture()
         try launchAndResetSession()

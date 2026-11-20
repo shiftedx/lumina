@@ -4573,6 +4573,7 @@ private struct MusicCollectionView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var albumPlayback: PlaybackModel?
+    @State private var mixSeed: NativeMixSeed?
     @State private var preparingPlayback = false
     @State private var playbackError: String?
 
@@ -4617,6 +4618,9 @@ private struct MusicCollectionView: View {
         .nativeAudioPlayer(playback: $albumPlayback, store: store) {
             Task { await store.refresh() }
         }
+        .sheet(item: $mixSeed) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed) { albumPlayback = $0 }
+        }
     }
 
     private var collectionArtwork: some View {
@@ -4643,6 +4647,12 @@ private struct MusicCollectionView: View {
                     HStack(spacing: 12) { albumActions }
                     VStack(alignment: .leading, spacing: 12) { albumActions }
                 }
+            }
+            if store.music.homeCapability == .available, item.type == "MusicAlbum" || item.type == "MusicArtist" {
+                Button("Instant Mix", glyph: .discover) {
+                    mixSeed = NativeMixSeed(kind: item.type == "MusicAlbum" ? .album : .artist, itemID: item.id, name: item.name)
+                }
+                .accessibilityIdentifier("nativeInstantMixButton")
             }
             if let playbackError {
                 Text(playbackError)
@@ -4700,6 +4710,13 @@ private struct MusicCollectionView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if store.music.homeCapability == .available {
+                        Button("Track Radio", glyph: .discover) {
+                            mixSeed = NativeMixSeed(kind: .track, itemID: track.id, name: track.name)
+                        }
+                    }
+                }
                 .disabled(preparingPlayback || audioSession.busy)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: track))
@@ -4791,6 +4808,7 @@ private struct MusicGrid: View {
     @State private var lastVisibleItemID: String?
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var presentedPlayback: PlaybackModel?
+    @State private var mixSeed: NativeMixSeed?
     @State private var startingTrack = false
     @State private var playbackError: String?
 
@@ -4816,6 +4834,9 @@ private struct MusicGrid: View {
             }
         }
         .nativeAudioPlayer(playback: $presentedPlayback, store: store)
+        .sheet(item: $mixSeed) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed) { presentedPlayback = $0 }
+        }
         .alert("Playback unavailable", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("OK") { playbackError = nil }
         } message: { Text(playbackError ?? "") }
@@ -4827,6 +4848,13 @@ private struct MusicGrid: View {
     private func itemControl(_ item: MediaItem) -> some View {
         if item.isAudio {
             Button { playTrack(item) } label: { card(item) }
+                .contextMenu {
+                    if store.music.homeCapability == .available {
+                        Button("Track Radio", glyph: .discover) {
+                            mixSeed = NativeMixSeed(kind: .track, itemID: item.id, name: item.name)
+                        }
+                    }
+                }
                 .disabled(startingTrack || audioSession.busy)
         } else {
             NavigationLink(value: item) { card(item) }

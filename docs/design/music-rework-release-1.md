@@ -32,6 +32,8 @@ Both web cohorts met the #343 median regression budgets. Beta p95 cohorts remain
 
 The first passing Apple TV simulator run with the Browse Music shortcut measured **25,971 ms** Browse, **14,394 ms** First Audio and **9,150 ms** Next. The corresponding #343 samples were 21,169 ms, 11,884 ms and 8,168 ms. Browse and First Audio exceeded the 15% threshold on these single samples. Next was within the threshold. Collect matched repeats on a quiet host before qualifying the budget. [Apple TV timing markers](evidence/music-home/tvos-release-1.json).
 
+The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,841 ms Next under concurrent qualification work. XCTest stalled after Stop and the case was interrupted. Keep those markers diagnostic. A passing iPhone timing run with a successful Stop is still required.
+
 ## Staging gates
 
 1. Complete [Finamp mobile verification](finamp-compatibility.md), [physical-device qualification](../../apple/docs/device-validation.md) and the full repository check on the release revision. Record iPhone/iPad VoiceOver and Dynamic Type, phone background/lock, AirPlay and Cast receiver checks, Apple TV Siri Remote focus and Play/Pause, and disconnected retained and purged downloads.

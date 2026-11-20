@@ -67,7 +67,7 @@ public struct TVRootView: View {
             if token == nil { audioSession.stop() }
         }
         .task(id: store.session?.accessToken) {
-            if store.session != nil { audioSession.restoreFromTVRoot(store: store) }
+            if store.session != nil { audioSession.restoreFromRoot(store: store) }
         }
         .onChange(of: store.session?.serverURL) { _, origin in
             isStandby = false

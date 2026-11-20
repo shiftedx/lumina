@@ -422,10 +422,10 @@ final class NativeAudioSession {
         await restore(store: store, restoreTaskID: nil)
     }
 
-    /// The tvOS root's `.task` is a presentation lifetime, not a retained
-    /// playback lifetime. Keep this operation owned here so a root redraw cannot
-    /// cancel a valid paused shared-queue restoration.
-    func restoreFromTVRoot(store: LuminaStore) {
+    /// A SwiftUI root task is a presentation lifetime, not a retained playback
+    /// lifetime. Keep restoration owned here so a redraw cannot cancel a valid
+    /// paused shared-queue restore after it has claimed this member's state.
+    func restoreFromRoot(store: LuminaStore) {
         let owner = store.music.sessionIdentity
         guard identity != owner || self.store == nil else { return }
         cancelRestoreTask()

@@ -105,11 +105,14 @@ struct MobileRootView: View {
         .task(id: MobileHomeSessionScope(store.session)) {
             userSettings.configure(session: store.session)
             if store.session != nil {
+                // A restored listening queue is member state required to surface
+                // a deliberate device/server conflict. Keep it session-owned so
+                // a root redraw cannot strand state after it claims restoration.
+                audioSession.restoreFromRoot(store: store)
                 if !store.isOffline {
                     await userSettings.load()
                     if userSettings.hasLoaded { appearance = userSettings.theme }
                 }
-                await audioSession.restore(store: store)
             }
         }
         .onChange(of: scenePhase) { _, phase in

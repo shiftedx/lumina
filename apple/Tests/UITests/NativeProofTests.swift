@@ -1442,6 +1442,11 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("nativeMixNotice"), timeout: 20, named: "playlist saved")
         let afterSave = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         XCTAssertEqual(beforeSave?["revision"] as? Int, afterSave?["revision"] as? Int, "Saving a mix must not change the queue.")
+        XCUIDevice.shared.press(.home)
+        application!.activate()
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "mix preview after foreground")
+        try waitForExistence(element("nativeMixPlay"), timeout: 10, named: "Play Mix after foreground")
+        try waitForExistence(element("nativeMixAppend"), timeout: 10, named: "Add to Queue after foreground")
         try activate(application!.buttons["Close"])
         let collection = element("musicCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "album after closing mix")

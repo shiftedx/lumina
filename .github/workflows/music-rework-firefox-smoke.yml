@@ -1,0 +1,47 @@
+name: Music Rework Firefox playback smoke
+
+on:
+  push:
+    branches: ["music-rework/355-firefox-hosted-smoke"]
+
+permissions:
+  contents: read
+
+jobs:
+  firefox-hls:
+    name: Firefox HLS (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: fcffcc694887cd9da5c2586d2f0d3bb098978b03
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - name: Install locked test runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ffmpeg@8
+          ffmpeg_bin="$(brew --prefix ffmpeg@8)/bin"
+          printf '%s\n' "$ffmpeg_bin" >> "$GITHUB_PATH"
+          export PATH="$ffmpeg_bin:$PATH"
+          sw_vers
+          uname -m
+          ffmpeg -version | head -1
+          mise exec -- node --version
+          mise exec -- make bootstrap
+          cd frontend
+          mise exec -- npx playwright install firefox
+          mise exec -- npx playwright --version
+      - name: Run unchanged Firefox HLS contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          cd frontend
+          mise exec -- npx playwright test e2e/v1_transcode.spec.ts -g 'test_transcode_real_browser_av firefox' --workers=1 --reporter=list

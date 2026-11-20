@@ -48,3 +48,13 @@ mise exec -- backend/.venv/bin/python -m pytest -q \
 ```
 
 - #346 passed 72 focused backend queue, library and output tests plus 27 browser session unit tests. The live fixture passed the web/native queue checks.
+
+## Web Music Home
+
+With the production web build and a fresh shared proof server, run the real browser workflow in installed Chrome.
+
+```sh
+mise exec -- node frontend/scripts/verify-music-home.mjs "$LUMINA_NATIVE_FIXTURE"
+```
+
+The verifier uses authenticated owner and member browser contexts at desktop and phone widths. It completes the fixture owner's media setup, then exercises `/audio?pane=home`, keyboard focus and shelf editing, layout persistence and isolation, explicit Resume at 0:23 with duplicates and Wait, browsing during playback, saved browse preference, legacy artist and album links, and a real device download. The existing `/audio` browse entry point and playback preferences remain in use. Mixes opens the existing presets and playlists until #351 adds contextual mix actions.

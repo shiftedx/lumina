@@ -357,7 +357,7 @@ struct NativeMusicLibraryView: View {
     }
 }
 
-private struct NativePlaylistDetail: View {
+struct NativePlaylistDetail: View {
     let store: LuminaStore
     let playlist: MusicPlaylist
     @Environment(\.dismiss) private var dismiss
@@ -418,7 +418,7 @@ private struct NativePlaylistDetail: View {
     }
 }
 
-private struct NativeMusicMixView: View {
+struct NativeMusicMixView: View {
     let store: LuminaStore
     let kind: String
     let title: String

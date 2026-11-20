@@ -36,6 +36,31 @@ jobs:
           mise exec -- make bootstrap
           cd frontend
           mise exec -- npx playwright install chromium firefox webkit
+      - name: Build the matching synthetic fixture encoder
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_tools="$RUNNER_TEMP/lumina-fixture-tools"
+          mkdir -p "$fixture_tools"
+          x265_sha=a2270c67fc2ea5a74824435cd72a9ad1441f9052d8490ab3e56ab5781bd7ad3c
+          x265_token=$(curl -fsSL 'https://ghcr.io/token?service=ghcr.io&scope=repository:homebrew/core/x265:pull' | jq -r .token)
+          curl -fsSL -H "Authorization: Bearer $x265_token" "https://ghcr.io/v2/homebrew/core/x265/blobs/sha256:$x265_sha" -o "$fixture_tools/x265.tar.gz"
+          printf '%s  %s\n' "$x265_sha" "$fixture_tools/x265.tar.gz" | shasum -a 256 --check
+          tar -xzf "$fixture_tools/x265.tar.gz" -C "$fixture_tools"
+          x265="$fixture_tools/x265/4.1"
+          sed -i '' "s|@@HOMEBREW_CELLAR@@|$fixture_tools|g" "$x265/lib/pkgconfig/x265.pc"
+          install_name_tool -id "$x265/lib/libx265.215.dylib" "$x265/lib/libx265.215.dylib"
+          codesign --force --sign - "$x265/lib/libx265.215.dylib"
+          ffmpeg_sha=05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41
+          curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$fixture_tools/ffmpeg.tar.xz"
+          printf '%s  %s\n' "$ffmpeg_sha" "$fixture_tools/ffmpeg.tar.xz" | shasum -a 256 --check
+          tar -xf "$fixture_tools/ffmpeg.tar.xz" -C "$fixture_tools"
+          cd "$fixture_tools/ffmpeg-8.0.1"
+          export PKG_CONFIG_PATH="$x265/lib/pkgconfig"
+          ./configure --prefix="$fixture_tools/ffmpeg" --disable-doc --disable-debug --disable-ffplay --disable-autodetect --enable-gpl --enable-libx265 > "$RUNNER_TEMP/fixture-ffmpeg-configure.log"
+          make -j3 > "$RUNNER_TEMP/fixture-ffmpeg-build.log" 2>&1
+          make install > /dev/null
+          "$fixture_tools/ffmpeg/bin/ffmpeg" -version | head -3
       - name: Generate the documented synthetic M2TS corpus
         shell: bash
         run: |
@@ -44,7 +69,11 @@ jobs:
           printf '%s  %s\n' 30d4f512eb67b7f1632cd28be5c62989bedad23f4710578aafc20c384b48ece6 "$RUNNER_TEMP/dovi.zip" | shasum -a 256 --check
           unzip -j "$RUNNER_TEMP/dovi.zip" "*/dovi_tool" -d "$RUNNER_TEMP/dovi" || unzip -j "$RUNNER_TEMP/dovi.zip" dovi_tool -d "$RUNNER_TEMP/dovi"
           "$RUNNER_TEMP/dovi/dovi_tool" --version
-          mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py --dovi-tool "$RUNNER_TEMP/dovi/dovi_tool" --output "$RUNNER_TEMP/lumina-m2ts" --positives-only --cold-seek-duration-seconds 96 --cold-seek-variable-gop-pattern 288,24,72
+          PATH="$RUNNER_TEMP/lumina-fixture-tools/ffmpeg/bin:$PATH" mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py --dovi-tool "$RUNNER_TEMP/dovi/dovi_tool" --output "$RUNNER_TEMP/lumina-m2ts" --positives-only --cold-seek-duration-seconds 96 --cold-seek-variable-gop-pattern 288,24,72
+      - name: Preflight the exact MEL packet offset assertions
+        shell: bash
+        run: |
+          LUMINA_DV_M2TS_FIXTURES="$RUNNER_TEMP/lumina-m2ts" backend/.venv/bin/python -m pytest backend/tests/test_probe_streams.py -k 'irap_index_uses_pes_starts_for_bl_and_el_first' -q -p no:cacheprovider
       - name: Run all make check targets
         shell: bash
         env:

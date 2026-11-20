@@ -620,12 +620,12 @@ final class NativeAudioSession {
         }
         let token = generation
         let offline = store.isOffline
-        let saved = offline ? snapshot : try await store.music.loadSession()
+        let saved = offline ? store.music.cachedSession : try await store.music.loadSession()
         guard owner == store.music.sessionIdentity, token == generation, !Task.isCancelled, offline == store.isOffline,
               (!dirty || offline), conflict == nil, !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
             throw CancellationError()
         }
-        guard resume.state == .playable, saved.activeOutput.kind == "browser",
+        guard let saved, resume.state == .playable, saved.activeOutput.kind == "browser",
               saved.revision == resume.revision, saved.entryIndex == resume.entryIndex,
               saved.currentIndex == resume.currentIndex, saved.positionSeconds == resume.positionSeconds,
               let index = saved.currentIndex, saved.queue.indices.contains(index),

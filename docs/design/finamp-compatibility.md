@@ -1,24 +1,29 @@
 # Finamp compatibility trial
 
-[#354](https://github.com/shiftedx/lumina/issues/354) remains open: the mobile client trial and playback gates have not been completed. This is a protocol and source assessment, not a supported mobile capability claim.
+[#354](https://github.com/shiftedx/lumina/issues/354) remains open: the mobile client trial and playback gates have not been completed. The iOS simulator trial below confirms a browse blocker; it is not a supported mobile capability claim.
 
 ## Source and environment
 
 The official [Finamp 1.0.2 release](https://github.com/finamp-app/finamp/releases/tag/1.0.2), source commit `e27c7b328f7937a479a1a3ba041e41df378d6e2b`, was inspected on November 19, 2026. Its [API definition](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api.dart) calls `GET /Items/{id}/InstantMix` with `userId`, `limit`, `enableImages`, and `enableImageTypes`; its [helper](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api_helper.dart) reads the query result's `Items`. The [player](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/audio_service_helper.dart) starts those items in server order. This is source evidence, not captured client traffic.
 
-The official macOS 1.0.2 binary launched on the test host, but automation of its UI failed with macOS assistive-access error `-1719`. No app login or playback was observed. An iOS simulator was available, but Flutter was not on PATH and the release did not provide an iOS simulator build; Android's `adb` was not on PATH. No iOS or Android client was run.
+The official macOS 1.0.2 binary launched on the test host, but automation of its UI failed with macOS assistive-access error `-1719`. No macOS app login or playback was observed. The release did not provide an iOS simulator binary, so the iOS trial used a debug simulator build of the tagged source.
 
-A subsequent isolated simulator-build attempt used the release's pinned Flutter 3.47.7, locked package dependencies, CocoaPods 1.16.2 and Xcode 27.1. The first build failed because the `flutter_discord_rpc` build requires `rustup`, which was absent. A separate Rust installation under `/tmp` resolved that prerequisite; the retry reached Xcode compilation but was stopped when the combined SDK, package caches, source, Rust toolchain and Xcode DerivedData reached approximately 5.32 GiB, above the 5 GB attempt limit. It did not produce a simulator app, and no simulator was created. AXe 1.8.0 was already installed, but there was no app to drive. Neither Android `adb` nor an Android emulator was found on the host; no SDK licenses were accepted or system permissions changed.
+A subsequent isolated simulator-build attempt used the release's pinned Flutter 3.47.7, locked package dependencies, CocoaPods 1.16.2 and Xcode 27.1. The first build failed because the `flutter_discord_rpc` build requires `rustup`, which was absent. A separate Rust installation under `/tmp` resolved that prerequisite; the retry reached Xcode compilation but was stopped when the combined SDK, package caches, source, Rust toolchain and Xcode DerivedData reached approximately 5.32 GiB, above the 5 GB attempt limit. After the scratch limit was raised to approximately 8 GiB, the incremental debug simulator build succeeded. AXe 1.8.0 was already installed and drove a dedicated iPhone 17 simulator running iOS 26.5. Neither Android `adb` nor an Android emulator was found on the host; no SDK licenses were accepted or system permissions changed.
 
 Finamp's [lyrics API declaration](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api.dart) uses `GET /Audio/{itemId}/Lyrics`. An authenticated protocol replay for the shared fixture's audio track returned HTTP 404 on November 19, 2026. This is a reproducible compatibility gap for the Jellyfin route; it does not establish how the Finamp UI presents the failure. Reproduce against the disposable fixture with a connected-app token and the manifest's `audioTrackID`, without recording the token or response headers.
 
 | Capability | iOS | Android | Evidence |
 | --- | --- | --- | --- |
-| Login and browse | Unverified | Unverified | No mobile client run |
+| Login | Passed on simulator | Unverified | Finamp 1.0.2 debug build authenticated to the disposable fixture |
+| Browse | Blocked on simulator | Unverified | The app reports no music libraries after login |
 | Timed lyrics | Unverified | Unverified | No mobile client run |
 | Offline downloads | Unverified | Unverified | No mobile client run |
 | Playback and reporting | Unverified | Unverified | No mobile client run |
-| InstantMix playback | Unverified | Unverified | Source-inspected endpoint and loopback protocol replay only |
+| InstantMix playback | Unverified | Unverified | iOS blocked before entry; source-inspected endpoint and loopback protocol replay only |
+
+## iOS simulator result
+
+On November 19, 2026, the dedicated iPhone 17 simulator launched the 1.0.2 debug build, selected the disposable #343 loopback server, and authenticated with the fixture owner. Finamp then presented **Select Music Libraries** with **No Music Libraries** and no selectable library. [Sanitized simulator screenshot](evidence/finamp/ios-no-music-libraries.png). A separate authenticated `GET /UserViews` replay on the same fixture returned collection types `movies` and `tvshows`, with no `music` view. Finamp's [view selector](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/screens/view_selector.dart) requires a music view. This prevents the real client from reaching browsing, timed lyrics, offline downloads, playback reporting and InstantMix; those remain unverified, not passed or failed individually. Add a visible, member-scoped Jellyfin music view and repeat the client trial before claiming those capabilities.
 
 ## Server contract and replay
 

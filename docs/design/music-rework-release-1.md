@@ -34,6 +34,8 @@ The first passing Apple TV simulator run with the Browse Music shortcut measured
 
 The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,841 ms Next under concurrent qualification work. XCTest stalled after Stop and the case was interrupted. Keep those markers diagnostic. A passing iPhone timing run with a successful Stop is still required.
 
+In a later iPhone 17 diagnostic run using coordinates where XCTest reported visible controls as non-hittable, Browse took 23,119 ms and First Audio took 4,301 ms. XCTest could not activate Next and the diagnostic test changes were removed. This run does not qualify the iPhone timing budget.
+
 ## Staging gates
 
 1. Complete [Finamp mobile verification](finamp-compatibility.md), [physical-device qualification](../../apple/docs/device-validation.md) and the full repository check on the release revision. Record iPhone/iPad VoiceOver and Dynamic Type, phone background/lock, AirPlay and Cast receiver checks, Apple TV Siri Remote focus and Play/Pause, and disconnected retained and purged downloads.
@@ -55,9 +57,9 @@ Record the tested revision, app build, device and OS, output route, network stat
 ## Functional evidence and remaining checks
 
 - The #348 enabled, disabled and actual older-server journeys exercised iPhone 17 and Apple TV 4K. Disabled and older builds retained browse, playback and queue checkpoints on both platforms.
-- iPhone Home shelf editing and explicit saved-position Resume passed. On iPad A16 at 820 × 1180 points, `testHomeLayoutAndBrowse` passed hide, reorder, reset and album browse. VoiceOver speech, large Dynamic Type and active playback through regular/compact size changes remain pending.
+- iPhone Home shelf editing and explicit saved-position Resume passed. On iPad A16 at 820 × 1180 points, `testHomeLayoutAndBrowse` passed hide, reorder, reset and album browse. At the Accessibility Large Dynamic Type setting, the iPad editor displayed all five shelf labels and actions. AXe reordered Downloads, verified the new order and reset the shelves. VoiceOver speech and active playback through regular/compact size changes remain pending. [iPad editor evidence](evidence/music-home/ipad-accessibility-large-shelves.png).
 - iPhone `testContextualMix` passed, including save with unchanged session revision and preview controls after foreground return. `testOfflineHomeResume` passed after Music Home Resume began validating the same cached member checkpoint as its offline card. The test confirmed paused launch, explicit Resume and “Downloaded audio”. Native reconnect conflict remains pending.
-- Apple TV passed shelf editing, explicit Resume, focus return from the player, Track Radio dismissal and forced-offline cold resume plus simulated file purge. The final Browse shortcut album-return focus fix compiled. Its simulator journey and the physical Siri Remote gate remain pending.
+- Apple TV passed shelf editing, explicit Resume, focus return from the player, Track Radio dismissal and forced-offline cold resume plus simulated file purge. The exact `testBrowseShortcutReturnsFocus` run fails on tvOS 27.0. Menu leaves album details and returns to Audio, but focus does not return to the album. Two experimental corrections mounted the album and exposed Home's Resume as the focused element after Back. Those production changes were reverted. The test retains a hierarchy and focus diagnostic for the next attempt. Physical Siri Remote checks remain pending.
 - Chrome fixture journeys passed Home, contextual mix actions, a real two-browser continuation revision conflict, complete album download and offline cold restart with reconnect conflict resolution. The disabled Home deep link preserved browse and the existing queue.
 - Finamp 1.0.2 passed Track InstantMix, playback reporting, original download and offline cold playback on iOS simulator and Android 15 emulator. Album and artist InstantMix also passed on the Android emulator. Both clients showed a disabled Lyrics control against the standard route's 404. [Compatibility matrix](finamp-compatibility.md).
 

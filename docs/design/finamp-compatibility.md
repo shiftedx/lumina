@@ -1,6 +1,6 @@
 # Finamp compatibility trial
 
-[#354](https://github.com/shiftedx/lumina/issues/354) covers the Finamp compatibility trial. Track InstantMix and offline playback passed on both platforms. Timed lyrics and additional seed results are listed below.
+[#354](https://github.com/shiftedx/lumina/issues/354) completed the Finamp compatibility trial. Track InstantMix and offline playback passed on both platforms. The timed lyrics gap is tracked in [#356](https://github.com/shiftedx/lumina/issues/356).
 
 ## Source and environment
 

@@ -2317,6 +2317,7 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 4 }
         XCUIRemote.shared.press(.playPause)
         let paused = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= 4 }
+        try await Task.sleep(for: .seconds(2))
         let app = try XCTUnwrap(application)
         app.terminate()
         app.launchArguments.append("--ui-testing-offline")

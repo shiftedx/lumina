@@ -1424,6 +1424,7 @@ class NativeProofJourney: XCTestCase {
         try activate(revealMusicAlbum(fixture, named: "album for Instant Mix"))
         let instant = element("nativeInstantMixButton")
         try waitForExistence(instant, timeout: 20, named: "Instant Mix")
+        element("musicCollectionScreen").swipeUp()
         try revealInLibraryViewport([instant], in: element("musicCollectionScreen"))
         try activate(instant)
         try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "mix preview")

@@ -13,6 +13,8 @@ Build the production frontend and launch a new #343 proof server per mutating br
 | iOS | `NativePhoneMusicHomeTests` against enabled, disabled and older servers. Use iPhone and regular-width iPad. Run `NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming` with the baseline runtime. |
 | tvOS | `NativeTVMusicHomeTests` against enabled, disabled and older servers. Run the timing test from the same class as iOS. Record Siri Remote workflow on an Apple TV. |
 
+Native offline and purge proofs require the test app built with `LUMINA_UI_TESTING`. Pass `LUMINA_APPLE_PROOF_FIXTURE` to the selected scheme and set `SWIFT_ACTIVE_COMPILATION_CONDITIONS` to `$(inherited) LUMINA_UI_TESTING`. Confirm the offline screen before accepting downloaded playback as evidence.
+
 Capability comparison servers use the same #343 fixture. The enabled and disabled servers use the candidate build with `LUMINA_MUSIC_REWORK_ENABLED=true` and `false`. The older server uses `a453323`, where connected-app Audio and checkpoints exist and the Home capability endpoint returns 404.
 
 ## Browser timing checkpoint

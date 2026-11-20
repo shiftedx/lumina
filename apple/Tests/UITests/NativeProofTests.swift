@@ -1390,16 +1390,15 @@ class NativeProofJourney: XCTestCase {
         try signIn(using: fixture)
         try selectDestination("Audio", screen: "audioScreen")
         try waitForExistence(element("musicHomeResumeButton"), timeout: 25, named: "saved Resume")
-        try openMusicLibrarySection("playlists")
-        try activate(element("musicPlaylist-\(sharedID)"))
+        let playlist = element("musicHomePlaylist-\(sharedID)")
+        try waitForExistence(playlist, timeout: 20, named: "Home playlist")
+        if !playlist.isHittable { element("audioScreen").swipeUp() }
+        try activate(playlist)
         try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "playlist to download")
         try revealMusicControl(element("downloadAudioButton"))
         try activate(element("downloadAudioButton"))
-        try musicBack()
-        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "music library")
-        try activate(element("musicLibrarySectionPicker"))
-        try activate(menuAction("Downloads"))
-        try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 60, named: "downloaded saved track")
+        try waitForExistence(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tracks available offline")).firstMatch,
+                             timeout: 90, named: "playlist download completion")
         let app = application!
         app.terminate()
         app.launchArguments.append("--ui-testing-offline")

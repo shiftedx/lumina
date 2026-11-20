@@ -4465,9 +4465,10 @@ private struct NativePhoneMusicHome: View {
                 if home.playlists.isEmpty { Text("No playlists yet.").foregroundStyle(.secondary) }
                 ForEach(home.playlists) { playlist in
                     NavigationLink(playlist.name) { NativePlaylistDetail(store: store, playlist: playlist) }
+                        .accessibilityIdentifier("musicHomePlaylist-\(playlist.id)")
                 }
                 NavigationLink("All playlists") { NativeMusicLibraryView(store: store, section: .playlists) }
-            }.accessibilityIdentifier("musicHomeShelf-playlists")
+            }
         case .downloads:
             Section("Downloads") {
                 let count = store.offline.downloadedItems.filter(\.isAudio).count

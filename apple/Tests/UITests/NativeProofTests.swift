@@ -362,6 +362,7 @@ final class NativeTVMusicHomeTests: NativeProofJourney {
     func testHomeAndLegacyBrowsePlayback() async throws { try await journeyTVMusicHomeAndLegacyBrowse() }
     func testOfflineMusicHomeRestoresDownloadedQueue() async throws { try await journeyTVOfflineMusicHome() }
     func testContextualMixReturnsFocus() async throws { try await journeyTVContextualMixFocus() }
+    func testBrowseShortcutReturnsFocus() throws { try journeyTVBrowseShortcutFocus() }
 }
 @MainActor
 final class NativeTVBackDuringPlaybackPreparationTests: NativeProofJourney {
@@ -2435,6 +2436,21 @@ class NativeProofJourney: XCTestCase {
             try await Task.sleep(for: .milliseconds(500))
         }
         XCTAssertGreaterThanOrEqual(checkpoint, 3, "Playback must persist a shared queue checkpoint.")
+    }
+
+    func journeyTVBrowseShortcutFocus() throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let shortcut = element("tvMusicHomeBrowse")
+        try waitForExistence(shortcut, timeout: 25, named: "Music Home browse shortcut")
+        try activate(shortcut)
+        let album = try revealMusicAlbum(fixture, named: "shortcut album")
+        try activate(album)
+        try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album detail")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 15) { album.exists && album.hasFocus }, "Back must restore the originating album focus.")
     }
 
     func journeyTVContextualMixFocus() async throws {

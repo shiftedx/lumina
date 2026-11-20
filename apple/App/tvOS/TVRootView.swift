@@ -2956,6 +2956,11 @@ private struct TVAudioView: View {
                 }
                 .padding(.bottom, 32)
             }
+            .onAppear {
+                guard isAtNavigationRoot, let itemID = browse.focusedItemID else { return }
+                pendingRestoredItemID = itemID
+                proxy.scrollTo("tvAudioBrowse", anchor: .top)
+            }
             .onChange(of: isAtNavigationRoot) { wasRoot, isRoot in
                 guard !wasRoot, isRoot, let itemID = browse.focusedItemID else { return }
                 pendingRestoredItemID = itemID

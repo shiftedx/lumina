@@ -292,6 +292,12 @@ struct NativeOfflineLibraryView: View {
                     Text(ByteCountFormatter.string(fromByteCount: store.offline.usedBytes, countStyle: .file))
                         .font(.caption.monospacedDigit()).foregroundStyle(LuminaTheme.muted)
                 }
+                if store.isOffline, store.music.homeCapability == .available {
+                    NavigationLink("Music Home") {
+                        NativePhoneMusicHome(store: store) { }
+                    }
+                    .accessibilityIdentifier("offlineMusicHomeButton")
+                }
                 if searchVisible {
                     HStack {
                         TextField("Search downloads", text: $query).submitLabel(.search)
@@ -387,7 +393,12 @@ struct NativeOfflineLibraryView: View {
             }
             NativeNowPlayingToolbar(store: store)
         }
-        .task { store.offline.refresh() }
+        .task(id: store.isOffline) {
+            store.offline.refresh()
+            if store.isOffline {
+                await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            }
+        }
         .refreshable { store.offline.refresh(); await store.refreshConnectivity() }
         .nativePlayback(request: $playbackRequest, store: store) { store.offline.refresh() }
         .accessibilityIdentifier("offlineLibraryScreen")
@@ -4354,9 +4365,11 @@ private struct NativePhoneMusicHome: View {
 
     var body: some View {
         List {
-            Section {
-                Button("Browse music", glyph: .music, action: onBrowse)
-                    .accessibilityIdentifier("musicHomeBrowseButton")
+            if !store.isOffline {
+                Section {
+                    Button("Browse music", glyph: .music, action: onBrowse)
+                        .accessibilityIdentifier("musicHomeBrowseButton")
+                }
             }
             switch store.music.homeState {
             case .idle, .loading:
@@ -4382,7 +4395,7 @@ private struct NativePhoneMusicHome: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Edit shelves", glyph: .edit) { editing = true }
                     .accessibilityIdentifier("musicHomeEditButton")
-                    .disabled(home == nil)
+                    .disabled(home == nil || store.isOffline)
             }
             NativeNowPlayingToolbar(store: store)
         }

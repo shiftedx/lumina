@@ -20,6 +20,7 @@ final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testHomeLayoutAndBrowse() async throws { try await journeyPhoneMusicHome() }
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
     func testContextualMix() async throws { try await journeyPhoneContextualMix() }
+    func testOfflineHomeResume() async throws { try await journeyPhoneOfflineMusicHome() }
 }
 @MainActor
 final class NativeMobileWelcomeTests: NativeProofJourney {
@@ -1368,6 +1369,39 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     #if os(iOS)
+    func journeyPhoneOfflineMusicHome() async throws {
+        let fixture = try loadFixture()
+        let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("musicHomeResumeButton"), timeout: 25, named: "saved Resume")
+        try openMusicLibrarySection("playlists")
+        try activate(element("musicPlaylist-\(sharedID)"))
+        try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "playlist to download")
+        try revealMusicControl(element("downloadAudioButton"))
+        try activate(element("downloadAudioButton"))
+        try musicBack()
+        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "music library")
+        try activate(element("musicLibrarySectionPicker"))
+        try activate(menuAction("Downloads"))
+        try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 60, named: "downloaded saved track")
+        let app = application!
+        app.terminate()
+        app.launchArguments.append("--ui-testing-offline")
+        app.launch()
+        try waitForExistence(element("offlineLibraryScreen"), timeout: 25, named: "offline library")
+        try waitForExistence(element("offlineMusicHomeButton"), timeout: 20, named: "offline Music Home")
+        try activate(element("offlineMusicHomeButton"))
+        let resume = element("musicHomeResumeButton")
+        try waitForExistence(resume, timeout: 20, named: "offline saved Resume")
+        XCTAssertFalse(element("audioPlayerStage").exists, "Opening offline Home must not begin playback.")
+        try activate(resume)
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "resumed offline playback")
+        XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 20 }
+    }
+
     func journeyPhoneContextualMix() async throws {
         let fixture = try loadFixture()
         try launchAndResetSession()

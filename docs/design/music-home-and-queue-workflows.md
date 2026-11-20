@@ -16,7 +16,7 @@ Implementation contract for [#344](https://github.com/shiftedx/lumina/issues/344
 
 ## Home read and preference contract for #344
 
-`GET /api/me/music-home` returns authenticated, member-scoped shelf data and the canonical layout. Reuse the recently played album projection, newest first, and existing visible playlist summaries. Cap both at 12. Return Rotation, Favorites and Unplayed as descriptors and load tracks on demand. Native uses the same service at `GET /jellyfin/lumina/music/home` and `PUT /jellyfin/lumina/music/home/layout` under its connected-app identity. Derive download availability on the device and apply current visibility before returning any catalog or session metadata.
+`GET /api/me/music-home` returns authenticated, member-scoped shelf data and the canonical layout. Reuse the recently played album projection, newest first, and existing visible playlist summaries. Cap both at 12. Return Rotation, Favorites and Unplayed as descriptors and load tracks on demand. Native uses the same service at `GET /Lumina/Music/home` and `PUT /Lumina/Music/home/layout` under its connected-app identity. Derive download availability on the device and apply current visibility before returning any catalog or session metadata.
 
 ```ts
 type MusicHomeShelf = 'resume' | 'recent' | 'playlists' | 'downloads' | 'mixes';
@@ -47,7 +47,7 @@ State handling is shared across clients.
 
 ## Contextual mix contract for #345
 
-`GET /api/music/contextual-mix?seed_kind=track|artist|album&seed_id=…&exclude_item_ids=…` returns at most 100 visible, playable tracks. Use repeatable `exclude_item_ids` query parameters, capped at 100 unique IDs. Mount the same service at `GET /jellyfin/lumina/music/contextual-mix`. This route leaves the existing `/mixes/{kind}` dispatch intact.
+`GET /api/music/contextual-mix?seed_kind=track|artist|album&seed_id=…&exclude_item_ids=…` returns at most 100 visible, playable tracks. Use repeatable `exclude_item_ids` query parameters, capped at 100 unique IDs. Mount the same service at `GET /Lumina/Music/contextual-mix`. This route leaves the existing `/mixes/{kind}` dispatch intact.
 
 ```ts
 type MusicMixReason =
@@ -91,4 +91,4 @@ At natural end of deliberate device-owned playback, an opted-in connected client
 
 ## Evidence
 
-See the [fixture and baseline record](music-home-baseline.md) for the seed, reproduction commands, samples and performance budgets. Reuse the same fixtures for the #344 and #345 contract tests.
+See the [fixture and baseline record](music-home-baseline.md) for the seed, reproduction commands, samples and performance budgets. See the [server verification runbook](music-server-contract-verification.md) for implemented paths, response details and the shared fixture check.

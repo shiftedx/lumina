@@ -2231,6 +2231,9 @@ class NativeProofJourney: XCTestCase {
             XCTAssertTrue(waitUntil(timeout: 10) { self.element("tvMusicHomeVisibility-downloads").label == "Show" })
             try activate(element("tvMusicHomeMoveUp-downloads"))
             XCTAssertTrue(waitUntil(timeout: 10) { !self.element("tvMusicHomeSaving").exists })
+            let moved = try await api.musicJSON(identity: identity, path: "home") as? [String: Any]
+            let movedLayout = moved?["layout"] as? [String: Any]
+            XCTAssertEqual((movedLayout?["order"] as? [String])?.firstIndex(of: "downloads"), 2)
             try activate(element("tvMusicHomeReset"))
             XCTAssertTrue(waitUntil(timeout: 10) { self.element("tvMusicHomeVisibility-downloads").label == "Hide" })
             try activate(element("tvMusicHomeDone"))

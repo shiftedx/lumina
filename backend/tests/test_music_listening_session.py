@@ -76,6 +76,50 @@ def test_session_round_trip_keeps_duplicates_and_intentional_rewind(listening_ap
     assert (rewound.json()["revision"], rewound.json()["position_seconds"]) == (2, 7)
 
 
+def test_generated_provenance_preserves_manual_occurrences_and_downgrades_on_legacy_rewrite(listening_api) -> None:  # noqa: ANN001
+    client, factory, _current = listening_api
+    payload = body(0, [TRACK_ONE, TRACK_TWO, TRACK_ONE], index=1, position=17)
+    payload.update({"entries": [
+        {"kind": "track", "item_id": TRACK_ONE},
+        {"kind": "track", "item_id": TRACK_ONE, "provenance": {"source": "contextual_mix", "reason": "same_artist"}},
+        {"kind": "track", "item_id": TRACK_TWO, "provenance": {"source": "contextual_mix", "reason": "shared_genre"}},
+        {"kind": "track", "item_id": TRACK_ONE},
+    ], "entry_index": 2})
+    saved = client.put(URL, json=payload)
+    assert saved.status_code == 200
+    result = saved.json()
+    assert [track["id"] for track in result["queue"]] == [TRACK_ONE, TRACK_TWO, TRACK_ONE]
+    assert result["entry_index"] == 1 and result["current_index"] == 1 and result["position_seconds"] == 17
+    assert [entry.get("provenance") for entry in result["entries"]] == [None, {"source": "contextual_mix", "reason": "shared_genre"}, None]
+
+    conflict = client.put(URL, json=body(0, [TRACK_ONE]))
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["session"]["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "shared_genre"}
+
+    with factory.begin() as db:
+        row = db.get(LibraryItem, TRACK_TWO)
+        row.visibility, row.user_id = "private", "bob"
+    pruned = client.get(URL).json()
+    assert [track["id"] for track in pruned["queue"]] == [TRACK_ONE, TRACK_ONE]
+    assert [entry.get("provenance") for entry in pruned["entries"]] == [None, None]
+    assert "Second" not in str(pruned)
+
+    # Older clients send only the flat queue. That deliberately strips optional
+    # provenance while preserving its surviving ordered occurrences and rewind.
+    legacy = client.put(URL, json=body(pruned["revision"], [TRACK_ONE, TRACK_ONE], index=1, position=7))
+    assert legacy.status_code == 200
+    assert (legacy.json()["current_index"], legacy.json()["position_seconds"]) == (1, 7)
+    assert [entry.get("provenance") for entry in legacy.json()["entries"]] == [None, None]
+
+
+def test_generated_provenance_is_bounded_to_contextual_reason_codes(listening_api) -> None:  # noqa: ANN001
+    client, _factory, _current = listening_api
+    payload = body(0, [TRACK_ONE])
+    payload.update({"entries": [{"kind": "track", "item_id": TRACK_ONE,
+                                  "provenance": {"source": "contextual_mix", "reason": "same_artist", "seed": "private"}}]})
+    assert client.put(URL, json=payload).status_code == 422
+
+
 def test_two_clients_conflict_exposes_only_current_safe_snapshot_and_owner_isolation(listening_api) -> None:  # noqa: ANN001
     client, _factory, current = listening_api
     assert client.put(URL, json=body(0, [TRACK_ONE], position=12)).status_code == 200

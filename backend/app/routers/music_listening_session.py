@@ -29,6 +29,14 @@ MusicItemId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[A-Za
 class TrackQueueEntry(MusicBody):
     kind: Literal["track"]
     item_id: MusicItemId
+    provenance: "GeneratedQueueProvenance | None" = None
+
+
+class GeneratedQueueProvenance(MusicBody):
+    """Bounded origin for an occurrence appended from a contextual mix."""
+
+    source: Literal["contextual_mix"]
+    reason: Literal["seed_track", "same_artist", "shared_genre"]
 
 
 class AcquisitionQueueEntry(MusicBody):

@@ -100,6 +100,23 @@ def test_member_queue_duplicates_rewind_conflict_and_visibility_pruning(native):
     assert pruned["revision"] == 3
 
 
+def test_native_session_round_trips_bounded_generated_provenance(native):  # noqa: ANN001
+    saved = call(native, "PUT", "/session", json={
+        **session_body(0, [ONE, TWO], 3),
+        "entries": [
+            {"kind": "track", "item_id": jellyfin_id(ONE)},
+            {"kind": "track", "item_id": jellyfin_id(TWO),
+             "provenance": {"source": "contextual_mix", "reason": "same_artist"}},
+        ],
+        "entry_index": 1,
+    })
+    assert saved.status_code == 200
+    assert saved.json()["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "same_artist"}
+    restored = call(native, "GET", "/session")
+    assert restored.status_code == 200
+    assert restored.json()["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "same_artist"}
+
+
 def test_native_metadata_lyrics_mixes_and_queue_mapping(native):  # noqa: ANN001
     track = call(native, "GET", f"/tracks/{jellyfin_id(ONE)}").json()
     assert_native_track(track)

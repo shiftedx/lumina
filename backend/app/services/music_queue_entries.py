@@ -28,22 +28,54 @@ class ResolvedQueue:
     playable_track_offsets: dict[int, int]
 
 
-def valid_refs(values: Any) -> list[dict[str, str]]:
-    """Strip every client-controlled field except bounded durable identities."""
-    result: list[dict[str, str]] = []
-    for value in values if isinstance(values, list) else []:
+def _track_ref(value: dict[str, Any]) -> dict[str, Any] | None:
+    item_id = value.get("item_id")
+    if not isinstance(item_id, str) or not (0 < len(item_id) <= 64 and item_id.isascii() and item_id.replace("_", "").replace("-", "").isalnum()):
+        return None
+    provenance = value.get("provenance")
+    if isinstance(provenance, dict) and provenance.get("source") == "contextual_mix" and provenance.get("reason") in {
+        "seed_track", "same_artist", "shared_genre",
+    }:
+        return {"kind": "track", "item_id": item_id, "provenance": {"source": "contextual_mix", "reason": provenance["reason"]}}
+    return {"kind": "track", "item_id": item_id}
+
+
+def valid_refs_with_indices(values: Any) -> tuple[list[dict[str, Any]], list[int]]:
+    """Return bounded durable refs with their source positions for cursor remapping."""
+    raw = values if isinstance(values, list) else []
+    manual_item_ids = {
+        ref["item_id"] for value in raw if isinstance(value, dict) and value.get("kind") == "track"
+        for ref in [_track_ref(value)] if ref is not None and "provenance" not in ref
+    }
+    result: list[dict[str, Any]] = []
+    source_indices: list[int] = []
+    generated_item_ids: set[str] = set()
+    for index, value in enumerate(raw):
         if not isinstance(value, dict):
             continue
-        if value.get("kind") == "track" and isinstance(value.get("item_id"), str) and 0 < len(value["item_id"]) <= 64 and value["item_id"].isascii() and value["item_id"].replace("_", "").replace("-", "").isalnum():
-            result.append({"kind": "track", "item_id": value["item_id"]})
+        if value.get("kind") == "track" and (ref := _track_ref(value)) is not None:
+            if "provenance" in ref:
+                # A contextual recommendation cannot add an occurrence already
+                # deliberately queued, even if that manual occurrence follows it.
+                if ref["item_id"] in manual_item_ids or ref["item_id"] in generated_item_ids:
+                    continue
+                generated_item_ids.add(ref["item_id"])
+            result.append(ref)
+            source_indices.append(index)
         elif value.get("kind") == "acquisition" and isinstance(value.get("request_id"), str):
             try:
                 result.append({"kind": "acquisition", "request_id": str(UUID(value["request_id"]))})
+                source_indices.append(index)
             except ValueError:
                 continue
         if len(result) == MAX_ENTRIES:
             break
-    return result
+    return result, source_indices
+
+
+def valid_refs(values: Any) -> list[dict[str, Any]]:
+    """Strip client input to durable identities and bounded generated-entry provenance."""
+    return valid_refs_with_indices(values)[0]
 
 
 def _visible_track_items(db: Session, user: User, refs: list[dict[str, str]]) -> dict[str, LibraryItem]:
@@ -91,7 +123,7 @@ def _observation_state(row: MusicAcquisition, connector: ServiceConnector | None
 
 def resolve(db: Session, user: User, refs: Any, *, policy: str, active_entry: int | None) -> ResolvedQueue:
     """Resolve logical references in their queue order, retaining refs beyond the flat playback cap."""
-    logical = valid_refs(refs)
+    logical, source_indices = valid_refs_with_indices(refs)
     visible_by_id = _visible_track_items(db, user, logical)
     request_ids = list(dict.fromkeys(ref["request_id"] for ref in logical if ref["kind"] == "acquisition"))
     acquisitions = {row.id: row for row in db.scalars(select(MusicAcquisition).where(
@@ -139,7 +171,8 @@ def resolve(db: Session, user: User, refs: Any, *, policy: str, active_entry: in
     offsets: dict[int, int] = {}
     retained: list[int] = []
     blocked = False
-    for original_index, ref in enumerate(logical):
+    for logical_index, ref in enumerate(logical):
+        original_index = source_indices[logical_index]
         resolved: list[MusicTrack] = []
         entry: dict[str, Any]
         if ref["kind"] == "track":

@@ -1395,8 +1395,10 @@ class NativeProofJourney: XCTestCase {
         element("audioScreen").swipeUp()
         playlist.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "playlist to download")
-        try revealMusicControl(element("downloadAudioButton"))
-        try activate(element("downloadAudioButton"))
+        let download = element("downloadAudioButton")
+        try waitForExistence(download, timeout: 20, named: "playlist download")
+        guard waitUntil(timeout: 20, condition: { download.isEnabled }) else { throw ProofFailure.timeout("Playlist did not load.") }
+        download.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tracks available offline")).firstMatch,
                              timeout: 90, named: "playlist download completion")
         let app = application!

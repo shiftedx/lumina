@@ -4307,7 +4307,9 @@ class NativeProofJourney: XCTestCase {
     private func revealMusicAlbum(_ fixture: ProofFixture, named name: String) throws -> XCUIElement {
         let album = element("audioItem-\(fixture.audioAlbumID)")
         #if os(tvOS)
-        if !album.exists, element("audioCategory-albums").exists {
+        if !album.exists, element("tvMusicHomeBrowse").exists {
+            try activate(element("tvMusicHomeBrowse"))
+        } else if !album.exists, element("audioCategory-albums").exists {
             XCTAssertTrue(focus(element("audioCategory-albums"), timeout: 30), "The remote must reach Music browse below Home.")
         }
         try waitForExistence(album, timeout: 25, named: name)

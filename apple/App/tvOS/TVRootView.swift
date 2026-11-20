@@ -2887,63 +2887,73 @@ private struct TVAudioView: View {
     @State private var lastVisibleItemID: String?
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedSearch: Bool
+    @FocusState private var focusedCategory: MusicBrowseKind?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                TVMusicHome(store: store, onOpen: onOpen)
-                NativeMusicLibraryLinks(store: store)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    TVMusicHome(store: store, onOpen: onOpen) {
+                        browse.kind = .albums
+                        browse.query = ""
+                        proxy.scrollTo("tvAudioBrowse", anchor: .top)
+                        focusedCategory = .albums
+                    }
+                    NativeMusicLibraryLinks(store: store)
+                        .padding(.horizontal, 80)
+                        .focusSection()
+                    HStack(spacing: 32) {
+                        HStack(spacing: 28) {
+                            ForEach(MusicBrowseKind.allCases, id: \.self) { category in
+                                Button(category.label) { browse.kind = category }
+                                    .buttonStyle(LuminaUnderlineTabStyle(selected: browse.kind == category))
+                                    .accessibilityAddTraits(browse.kind == category ? .isSelected : [])
+                                    .accessibilityIdentifier("audioCategory-\(category.rawValue)")
+                                    .focused($focusedCategory, equals: category)
+                            }
+                        }
+                        Spacer()
+                        TextField("Search music", text: $browse.query)
+                            .font(TVTypography.body)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .frame(width: 440)
+                            .accessibilityIdentifier("audioSearchField")
+                            .focused($focusedSearch)
+                    }
                     .padding(.horizontal, 80)
                     .focusSection()
-                HStack(spacing: 32) {
-                    HStack(spacing: 28) {
-                        ForEach(MusicBrowseKind.allCases, id: \.self) { category in
-                            Button(category.label) { browse.kind = category }
-                                .buttonStyle(LuminaUnderlineTabStyle(selected: browse.kind == category))
-                                .accessibilityAddTraits(browse.kind == category ? .isSelected : [])
-                                .accessibilityIdentifier("audioCategory-\(category.rawValue)")
+                    .id("tvAudioBrowse")
+                    if store.isAudioBusy && store.audioItems.isEmpty {
+                        ProgressView("Loading music…").frame(maxWidth: .infinity, minHeight: 360)
+                    } else if store.audioItems.isEmpty {
+                        TVMessageView(title: "Your music library", message: store.errorMessage ?? "Add music to Lumina, or try another search.", actionTitle: "Refresh") { Task { await store.loadAudio(kind: browse.kind, search: browse.query) } }
+                    } else {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 290), spacing: 32, alignment: .top)], spacing: 48) {
+                            ForEach(store.audioItems) { item in
+                                TVMediaCard(item: item, store: store) { onOpen(item) }
+                                    .focused($focusedItemID, equals: item.id)
+                                    .accessibilityIdentifier("audioItem-\(item.id)")
+                                    .onAppear {
+                                        lastVisibleItemID = item.id
+                                        if store.audioHasMore && item.id == store.audioItems.suffix(6).first?.id { Task { await store.loadMoreAudio() } }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 80)
+                        .padding(.top, 24)
+                        .focusSection()
+                        if store.audioHasMore {
+                            Button("Show more") { Task { await store.loadMoreAudio() } }
+                                .buttonStyle(LuminaQuietActionStyle()).padding(32)
+                        }
+                        if let error = store.errorMessage {
+                            Text(error).foregroundStyle(LuminaTheme.accentInk).padding(24)
                         }
                     }
-                    Spacer()
-                    TextField("Search music", text: $browse.query)
-                        .font(TVTypography.body)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .frame(width: 440)
-                        .accessibilityIdentifier("audioSearchField")
-                        .focused($focusedSearch)
                 }
-                .padding(.horizontal, 80)
-                .focusSection()
-                if store.isAudioBusy && store.audioItems.isEmpty {
-                    ProgressView("Loading music…").frame(maxWidth: .infinity, minHeight: 360)
-                } else if store.audioItems.isEmpty {
-                    TVMessageView(title: "Your music library", message: store.errorMessage ?? "Add music to Lumina, or try another search.", actionTitle: "Refresh") { Task { await store.loadAudio(kind: browse.kind, search: browse.query) } }
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 290), spacing: 32, alignment: .top)], spacing: 48) {
-                        ForEach(store.audioItems) { item in
-                            TVMediaCard(item: item, store: store) { onOpen(item) }
-                                .focused($focusedItemID, equals: item.id)
-                                .accessibilityIdentifier("audioItem-\(item.id)")
-                                .onAppear {
-                                    lastVisibleItemID = item.id
-                                    if store.audioHasMore && item.id == store.audioItems.suffix(6).first?.id { Task { await store.loadMoreAudio() } }
-                                }
-                        }
-                    }
-                    .padding(.horizontal, 80)
-                    .padding(.top, 24)
-                    .focusSection()
-                    if store.audioHasMore {
-                        Button("Show more") { Task { await store.loadMoreAudio() } }
-                            .buttonStyle(LuminaQuietActionStyle()).padding(32)
-                    }
-                    if let error = store.errorMessage {
-                        Text(error).foregroundStyle(LuminaTheme.accentInk).padding(24)
-                    }
-                }
+                .padding(.bottom, 32)
             }
-            .padding(.bottom, 32)
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("audioScreen")
@@ -2993,6 +3003,7 @@ private struct TVAudioView: View {
 private struct TVMusicHome: View {
     let store: LuminaStore
     let onOpen: (MediaItem) -> Void
+    let onBrowse: () -> Void
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var editing = false
     @State private var editLayout: MusicHomeLayout?
@@ -3014,6 +3025,9 @@ private struct TVMusicHome: View {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack(spacing: 40) {
                         Text("Music Home").font(TVTypography.sectionTitle).accessibilityIdentifier("tvMusicHome")
+                        Button("Browse Music", action: onBrowse)
+                            .focused($focusedAction, equals: "browse")
+                            .accessibilityIdentifier("tvMusicHomeBrowse")
                         if let home, !store.isOffline {
                             Button("Edit Home") { editLayout = home.layout; editing = true }
                                 .focused($focusedAction, equals: "edit")

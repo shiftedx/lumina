@@ -110,7 +110,15 @@ def test_native_metadata_lyrics_mixes_and_queue_mapping(native):  # noqa: ANN001
     for kind in ("unplayed", "rotation", "radio"):
         mixed = call(native, "GET", f"/mixes/{kind}", params={"seed_id": jellyfin_id(ONE)})
         assert mixed.status_code == 200 and {t["id"] for t in mixed.json()} == {ONE, TWO}
+    contextual = call(native, "GET", "/contextual-mix", params={
+        "seed_kind": "track", "seed_id": jellyfin_id(ONE), "exclude_item_ids": jellyfin_id(ONE),
+    })
+    assert contextual.status_code == 200
+    assert contextual.json()["seed"]["id"] == ONE
+    assert [(entry["id"], entry["reason"]["code"]) for entry in contextual.json()["items"]] == [(TWO, "same_artist")]
+    assert_native_track(contextual.json()["items"][0])
     assert call(native, "GET", f"/tracks/{HIDDEN}/lyrics").status_code == 404
+    assert call(native, "GET", "/contextual-mix", params={"seed_kind": "track", "seed_id": HIDDEN}).status_code == 404
 
 
 def test_download_permission_conversion_ranges_and_native_auth(native, monkeypatch, tmp_path):  # noqa: ANN001

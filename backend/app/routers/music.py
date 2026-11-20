@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import AppSettings, LibraryItem, MediaTitle, PlaybackProgress, MusicCastTicket, MusicLookup, MusicTrackOverride, User, utcnow
 from app.media_schemas import TitleSummary
-from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtworkPlan, MusicIdentify, MusicLyrics, MusicPlanApply, MusicPlaylistSave, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit, MusicVideos, MusicWriteback
+from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtworkPlan, MusicIdentify, MusicLyrics, MusicMixPreview, MusicPlanApply, MusicPlaylistSave, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit, MusicVideos, MusicWriteback
 from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
 from app.security import get_admin_user, get_current_user
@@ -459,6 +459,19 @@ def mix(kind: Literal["favorites", "unplayed", "rotation", "radio"], seed_id: st
     return music_playlists.mix(db, user, kind, seed_id)
 
 
+def contextual_mix(
+    seed_kind: Literal["track", "artist", "album"],
+    seed_id: str = Query(min_length=1, max_length=36),
+    exclude_item_ids: list[str] = Query(default=[]),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"),
+) -> MusicMixPreview:
+    screen_time.enforce(db, user, fresh=True)
+    return music_playlists.contextual_mix(
+        db, user, seed_kind=seed_kind, seed_id=seed_id, exclude_item_ids=exclude_item_ids,
+    )
+
+
 def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     music_providers.configure_artwork(artwork)
     def file_writeback(body: MusicPlanApply, user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> dict:
@@ -485,6 +498,7 @@ def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     app.add_api_route("/api/music/playlists/{playlist_id}", playlist_save, methods=["PUT"])
     app.add_api_route("/api/music/playlists/{playlist_id}", playlist_delete, methods=["DELETE"])
     app.add_api_route("/api/music/playlists/{playlist_id}/tracks", playlist_tracks, methods=["GET"])
+    app.add_api_route("/api/music/contextual-mix", contextual_mix, methods=["GET"])
     app.add_api_route("/api/music/mixes/{kind}", mix, methods=["GET"])
     app.add_api_route("/api/music/queue", queue, methods=["POST"])
     app.add_api_route("/api/music/albums/recently-played", recently_played_albums, methods=["GET"])

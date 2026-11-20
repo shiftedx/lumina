@@ -114,6 +114,86 @@ def test_queue_keeps_requested_order_and_hides_private_and_missing_tracks(music_
         assert (reply.status_code, reply.json()) == (404, {"detail": "Track not found"})
 
 
+def test_contextual_mix_preview_orders_reasons_and_hides_ineligible_tracks(music_world) -> None:  # noqa: ANN001
+    factory, client_for, root = music_world
+    genre_artist, genre_album, genre_track = uid(740), uid(741), uid(742)
+    lonely_artist, lonely_album, lonely_track = uid(750), uid(751), uid(752)
+    hidden_artist, hidden_album, hidden_track = uid(760), uid(761), uid(762)
+    with factory() as db:
+        db.add_all([
+            MediaTitle(id=genre_artist, type="artist", key="artist:genre", root_id=ROOT, name="Genre artist"),
+            MediaTitle(id=genre_album, type="album", key="album:genre", root_id=ROOT, parent_id=genre_artist,
+                       name="Genre album", metadata_json={"genres": ["FOLK"]}),
+            MediaTitle(id=lonely_artist, type="artist", key="artist:lonely", root_id=ROOT, name="Lonely artist"),
+            MediaTitle(id=lonely_album, type="album", key="album:lonely", root_id=ROOT, parent_id=lonely_artist,
+                       name="Lonely album"),
+            MediaTitle(id=hidden_artist, type="artist", key="artist:hidden", root_id=ROOT, name="Hidden artist"),
+            MediaTitle(id=hidden_album, type="album", key="album:hidden", root_id=ROOT, parent_id=hidden_artist,
+                       name="Hidden album"),
+        ])
+        add_file(db, root, "Music/Genre/01 Folk.flac", item_id=genre_track, title_id=genre_album, owner=ALICE,
+                 title="A Folk Match", kind="track", metadata={"artist": "Genre artist", "track_number": 1})
+        add_file(db, root, "Music/Lonely/01 Solo.flac", item_id=lonely_track, title_id=lonely_album, owner=ALICE,
+                 title="Solo", kind="track", metadata={"artist": "Lonely artist", "track_number": 1})
+        add_file(db, root, "Music/Hidden/01 Secret.flac", item_id=hidden_track, title_id=hidden_album, owner=BOB,
+                 visibility="private", title="Secret", kind="track", metadata={"artist": "Hidden artist", "track_number": 1})
+        db.commit()
+
+    alice = client_for(ALICE)
+    track = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert track.status_code == 200
+    payload = track.json()
+    assert payload["seed"] == {"id": TRACKS[0], "kind": "track", "name": "Song 1.1", "artist_id": ARTIST, "genres": ["Folk"]}
+    assert [entry["id"] for entry in payload["items"]] == [TRACKS[1], TRACKS[2], SECOND_TRACK, RESTRICTED_TRACK, genre_track]
+    assert len({entry["id"] for entry in payload["items"]}) == len(payload["items"])
+    assert [entry["reason"]["code"] for entry in payload["items"]] == ["same_artist", "same_artist", "same_artist", "same_artist", "shared_genre"]
+    assert payload["items"][-1]["reason"]["genre"] == "FOLK"
+    assert payload["exhausted"] and PRIVATE_TRACK not in repr(payload) and MISSING_TRACK not in repr(payload)
+
+    with factory() as db:
+        db.add(MusicTrackOverride(item_id=genre_track, fields={"genres": []}))
+        db.commit()
+    cleared = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert genre_track not in [entry["id"] for entry in cleared.json()["items"]]
+
+    excluded = alice.get("/api/music/contextual-mix", params=[
+        ("seed_kind", "track"), ("seed_id", TRACKS[0]), ("exclude_item_ids", TRACKS[1]), ("exclude_item_ids", TRACKS[1]),
+    ])
+    assert excluded.status_code == 200 and TRACKS[1] not in [entry["id"] for entry in excluded.json()["items"]]
+
+    album = alice.get("/api/music/contextual-mix", params={"seed_kind": "album", "seed_id": ALBUM})
+    assert [(entry["id"], entry["reason"]["code"]) for entry in album.json()["items"][:3]] == [
+        (TRACKS[0], "seed_track"), (TRACKS[1], "seed_track"), (TRACKS[2], "seed_track"),
+    ]
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": PRIVATE_TRACK}).status_code == 404
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": MISSING_TRACK}).status_code == 404
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "album", "seed_id": hidden_album}).json() == {"detail": "Music seed not found"}
+    empty = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": lonely_track})
+    assert empty.json()["items"] == [] and empty.json()["exhausted"]
+    assert alice.get("/api/music/mixes/radio", params={"seed_id": TRACKS[0]}).status_code == 200
+
+
+def test_contextual_mix_enforces_preview_and_exclusion_caps(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    extra_ids = [uid(10_000 + index) for index in range(101)]
+    with factory() as db:
+        db.add_all([
+            LibraryItem(id=item_id, user_id=ALICE, visibility="shared", title=f"Extra {index}", kind="track",
+                        title_id=ALBUM, status="available", metadata_json={"artist": "Artist A", "track_number": index + 10})
+            for index, item_id in enumerate(extra_ids)
+        ])
+        db.commit()
+
+    alice = client_for(ALICE)
+    preview = alice.get("/api/music/contextual-mix", params={"seed_kind": "artist", "seed_id": ARTIST})
+    assert preview.status_code == 200
+    assert len(preview.json()["items"]) == 100 and not preview.json()["exhausted"]
+    too_many = alice.get("/api/music/contextual-mix", params=[
+        ("seed_kind", "artist"), ("seed_id", ARTIST), *[("exclude_item_ids", uid(20_000 + index)) for index in range(101)],
+    ])
+    assert too_many.status_code == 422
+
+
 def test_recently_played_albums_groups_qualified_member_history_and_hides_ineligible_tracks(music_world) -> None:  # noqa: ANN001
     factory, client_for, _root = music_world
     now = utcnow()

@@ -77,6 +77,19 @@ def mix(kind: Literal["favorites", "unplayed", "rotation", "radio"], caller: Cal
     return _native(music.mix(kind, _id(seed_id) if seed_id else None, caller.user, db))
 
 
+@router.get("/contextual-mix")
+def contextual_mix(
+    seed_kind: Literal["track", "artist", "album"],
+    seed_id: str,
+    caller: Caller,
+    db: Db,
+    exclude_item_ids: list[str] = Query(default=[]),
+) -> dict:
+    return _native(music.contextual_mix(
+        seed_kind, _id(seed_id), [_id(value) for value in exclude_item_ids], caller.user, db,
+    ))
+
+
 @router.post("/queue")
 def queue(body: MusicQueueRequest, caller: Caller, db: Db) -> list:
     normalized = body.model_copy(update={"item_ids": [_id(value) for value in body.item_ids],

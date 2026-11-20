@@ -38,6 +38,8 @@ struct NativeAudioOptions: View {
                             radio = NativeMixSeed(kind: .track, itemID: playback.request.item.id, name: playback.request.item.name)
                         }
                         .accessibilityIdentifier("nativeNowPlayingTrackRadio")
+                        Toggle("Continue with recommendations", isOn: $session.continuationEnabled)
+                            .accessibilityIdentifier("nativeMusicContinuation")
                     }
                     Text(hasRemoteOutput ? "Remote output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
                         .font(.caption).foregroundStyle(.secondary)

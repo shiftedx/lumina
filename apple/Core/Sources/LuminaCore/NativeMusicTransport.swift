@@ -35,6 +35,7 @@ public final class NativeMusicTransport {
     public private(set) var mode = Mode.streaming
     public private(set) var state: State
     public var onChange: ((State) -> Void)?
+    public var onNaturalEnd: ((Int) -> Void)?
     public var onTrack: ((PlaybackRequest, Int) -> Void)?
     public var onMode: ((Mode) -> Void)?
     public private(set) var quality: MusicPlaybackQuality? {
@@ -545,6 +546,7 @@ public final class NativeMusicTransport {
         stopRuntime()
         state.finished = true; state.playing = false
         onChange?(state)
+        onNaturalEnd?(state.index)
     }
 
     private func rebuildGainPolicy() {

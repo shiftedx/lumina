@@ -318,7 +318,7 @@ public enum MusicHomeState: Sendable {
 }
 
 public struct MusicHomeResume: Decodable, Sendable {
-    public enum State: String, Decodable, Sendable { case playable, waiting }
+    public enum State: String, Decodable, Sendable { case playable, waiting, unavailable }
 
     public struct Track: Decodable, Sendable {
         public let id: String?

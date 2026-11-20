@@ -19,6 +19,7 @@ import Observation
     private var lyricCache: [String: MusicLyrics] = [:]
     private var generation = 0
     private var homeGeneration = 0
+    private var retainedHomeLayout: MusicHomeLayout?
     private var playlistGeneration = 0
     private let checkpointWriter = CheckpointWriter()
     private var cacheLoad: Task<Void, Never>?
@@ -44,7 +45,8 @@ import Observation
         cacheLoad?.cancel()
         cacheLoad = nil
         self.session = session
-        homeCapability = .unknown; homeState = .idle
+        homeCapability = .unknown; homeState = .idle; retainedHomeLayout = nil
+        homeGeneration += 1
         playlists = []; metadata = [:]; metadataOrder = []; lyricCache = [:]; cachedSession = nil
         isBusy = false; errorMessage = nil
         sessionIdentity = session.map {
@@ -55,6 +57,7 @@ import Observation
         let owner = sessionIdentity
         let loadGeneration = generation
         let checkpointGeneration = checkpointGeneration
+        let layoutGeneration = homeGeneration
         let writer = checkpointWriter
         cacheLoad = Task { [weak self, writer] in
             let persisted = await writer.load(directory: directory)
@@ -65,6 +68,9 @@ import Observation
             if self.checkpointGeneration == checkpointGeneration {
                 self.cachedSession = persisted.snapshot
                 self.rememberPersisted(persisted.snapshot?.queue ?? [])
+            }
+            if self.homeGeneration == layoutGeneration {
+                self.retainedHomeLayout = persisted.homeLayout
             }
             for (id, lyrics) in persisted.lyrics where self.lyricCache.count < 100 && self.lyricCache[id] == nil {
                 self.lyricCache[id] = lyrics
@@ -101,12 +107,14 @@ import Observation
             if !capability.enabled {
                 homeGeneration += 1
                 homeState = .idle
+                retainHomeLayout(nil)
             }
         } catch MusicAPIError.http(404) {
             guard owner == generation, !Task.isCancelled else { return }
             homeCapability = .unsupported
             homeGeneration += 1
             homeState = .idle
+            retainHomeLayout(nil)
         } catch {
             // A transport or authentication failure does not establish server support.
             guard owner == generation, !Task.isCancelled else { return }
@@ -124,7 +132,9 @@ import Observation
         do {
             let home: MusicHome = try await request("home")
             guard owner == generation, operation == homeGeneration else { return }
-            homeState = Task.isCancelled ? .idle : home.isEmpty ? .empty(home) : .ready(home)
+            guard !Task.isCancelled else { homeState = .idle; return }
+            homeState = home.isEmpty ? .empty(home) : .ready(home)
+            retainHomeLayout(home.layout)
         } catch {
             guard owner == generation, operation == homeGeneration else { return }
             homeState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
@@ -139,7 +149,36 @@ import Observation
         let saved: MusicHomeLayout = try await request("home/layout", method: "PUT", body: body)
         guard owner == generation, homeCapability == .available else { throw CancellationError() }
         homeGeneration += 1
+        home = homeState.content ?? home
         home.layout = saved
+        homeState = home.isEmpty ? .empty(home) : .ready(home)
+        retainHomeLayout(saved)
+    }
+
+    private func retainHomeLayout(_ layout: MusicHomeLayout?) {
+        retainedHomeLayout = layout
+        if let directory = ownerDirectory { checkpointWriter.enqueueHomeLayout(layout, directory: directory) }
+    }
+
+    public func refreshOfflineHome(isDownloaded: (String) -> Bool) async {
+        let owner = generation
+        await waitForPersistentCache()
+        guard owner == generation, !Task.isCancelled, let retainedHomeLayout else { return }
+        homeGeneration += 1
+        homeCapability = .available
+        let resume: MusicHomeResume?
+        if let snapshot = cachedSession, let index = snapshot.currentIndex,
+           snapshot.queue.indices.contains(index), snapshot.activeOutput.kind == "browser" {
+            let track = snapshot.queue[index]
+            resume = .init(state: isDownloaded(track.nativeID) ? .playable : .unavailable,
+                           revision: snapshot.revision, entryIndex: snapshot.entryIndex,
+                           currentIndex: index, positionSeconds: snapshot.positionSeconds,
+                           track: .init(id: track.id, title: track.title, artist: track.artist, album: track.album,
+                                        albumID: track.albumID, artworkURL: nil, duration: track.duration))
+        } else {
+            resume = nil
+        }
+        let home = MusicHome(layout: retainedHomeLayout, resume: resume, recent: [], playlists: [], mixes: [])
         homeState = home.isEmpty ? .empty(home) : .ready(home)
     }
 
@@ -351,6 +390,7 @@ private final class CheckpointWriter: @unchecked Sendable {
     struct PersistedCache: Sendable {
         let snapshot: MusicListeningSnapshot?
         let lyrics: [String: MusicLyrics]
+        let homeLayout: MusicHomeLayout?
     }
 
     private let queue = DispatchQueue(label: "app.lumina.music-checkpoint", qos: .utility)
@@ -383,10 +423,21 @@ private final class CheckpointWriter: @unchecked Sendable {
         lock.unlock()
     }
 
+    func enqueueHomeLayout(_ layout: MusicHomeLayout?, directory: URL) {
+        queue.async { [self] in
+            let file = directory.appending(path: "home-layout.json")
+            guard let layout else { try? FileManager.default.removeItem(at: file); return }
+            do {
+                try prepareDirectory(directory)
+                try JSONEncoder().encode(layout).write(to: file, options: .atomic)
+            } catch {}
+        }
+    }
+
     func load(directory: URL) async -> PersistedCache {
         await withCheckedContinuation { continuation in
             queue.async { [weak self] in
-                continuation.resume(returning: self?.read(directory: directory) ?? .init(snapshot: nil, lyrics: [:]))
+                continuation.resume(returning: self?.read(directory: directory) ?? .init(snapshot: nil, lyrics: [:], homeLayout: nil))
             }
         }
     }
@@ -461,7 +512,12 @@ private final class CheckpointWriter: @unchecked Sendable {
         if let data = try? Data(contentsOf: directory.appending(path: "lyrics.json"), options: .mappedIfSafe), data.count <= 4 * 1024 * 1024 {
             lyrics = (try? JSONDecoder().decode([String: MusicLyrics].self, from: data)) ?? [:]
         } else { lyrics = [:] }
-        return .init(snapshot: snapshot, lyrics: lyrics)
+        let layoutFile = directory.appending(path: "home-layout.json")
+        let homeLayout: MusicHomeLayout?
+        if let data = try? Data(contentsOf: layoutFile), data.count <= 4_096 {
+            homeLayout = try? JSONDecoder().decode(MusicHomeLayout.self, from: data)
+        } else { homeLayout = nil }
+        return .init(snapshot: snapshot, lyrics: lyrics, homeLayout: homeLayout)
     }
 
     private func prepareDirectory(_ directory: URL) throws {

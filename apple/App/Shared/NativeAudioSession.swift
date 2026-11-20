@@ -484,6 +484,7 @@ final class NativeAudioSession {
         if let cached { snapshot = cached }
         guard !store.isOffline else {
             snapshot.activeOutput = .init()
+            tracks = snapshot.queue
             restoreSleepDeadline(owner: owner)
             return
         }
@@ -612,15 +613,16 @@ final class NativeAudioSession {
 
     func resumeFromHome(_ resume: MusicHomeResume, store: LuminaStore) async throws -> PlaybackModel? {
         guard let owner = identity, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
-        guard !store.isOffline, !restoringPausedQueue, !busy, !dirty, conflict == nil,
+        guard !restoringPausedQueue, !busy, (!dirty || store.isOffline), conflict == nil,
               !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
             message = "Open Now Playing to check the current queue before resuming."
             return nil
         }
         let token = generation
-        let saved = try await store.music.loadSession()
-        guard owner == store.music.sessionIdentity, token == generation, !Task.isCancelled,
-              !dirty, conflict == nil, !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
+        let offline = store.isOffline
+        let saved = offline ? snapshot : try await store.music.loadSession()
+        guard owner == store.music.sessionIdentity, token == generation, !Task.isCancelled, offline == store.isOffline,
+              (!dirty || offline), conflict == nil, !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
             throw CancellationError()
         }
         guard resume.state == .playable, saved.activeOutput.kind == "browser",
@@ -628,8 +630,14 @@ final class NativeAudioSession {
               saved.currentIndex == resume.currentIndex, saved.positionSeconds == resume.positionSeconds,
               let index = saved.currentIndex, saved.queue.indices.contains(index),
               saved.queue[index].id == resume.track.id else {
-            await store.music.refreshHome()
+            if offline { await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil }) }
+            else { await store.music.refreshHome() }
             message = "The saved queue changed. Check the updated Resume card."
+            return nil
+        }
+        if offline && store.offline.localURL(for: saved.queue[index].nativeID) == nil {
+            await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            message = "Download this track when connected to resume offline."
             return nil
         }
         return try await playSavedQueue(index: nil, validated: saved)
@@ -673,7 +681,7 @@ final class NativeAudioSession {
             message = "Return playback here before starting local playback."
             return playback
         }
-        if validated != nil, dirty || conflict != nil || transferring || isSonos || playback?.isPlaying == true {
+        if validated != nil, (dirty && !store.isOffline) || conflict != nil || transferring || isSonos || playback?.isPlaying == true {
             throw CancellationError()
         }
         let position = requestedIndex == nil && value.currentIndex != nil ? value.positionSeconds : 0

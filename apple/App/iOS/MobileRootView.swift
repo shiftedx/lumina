@@ -4209,10 +4209,14 @@ private struct AudioLibraryView: View {
             }
         }
         .accessibilityIdentifier("audioScreen")
-        .task(id: store.music.sessionIdentity) {
+        .task(id: "\(store.music.sessionIdentity ?? ""):\(store.isOffline)") {
             showingBrowse = false
-            await store.music.refreshHomeCapability()
-            if store.music.homeCapability == .available { await store.music.refreshHome() }
+            if store.isOffline {
+                await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            } else {
+                await store.music.refreshHomeCapability()
+                if store.music.homeCapability == .available { await store.music.refreshHome() }
+            }
         }
     }
 
@@ -4403,6 +4407,8 @@ private struct NativePhoneMusicHome: View {
                 Section("Resume") {
                     if resume.state == .waiting {
                         Text("Waiting for import\(resume.track.title.map { ": \($0)" } ?? "")")
+                    } else if resume.state == .unavailable {
+                        Text("Download this track when connected to resume on this device.")
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(resume.track.title ?? "Saved queue").font(.headline)

@@ -223,7 +223,7 @@ def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(nativ
     assert get("/Items", IncludeItemTypes="Audio").json()["Items"], "Legacy explicit Audio browse stays available"
 
 
-def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(native):  # noqa: ANN001
+def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(native, monkeypatch):  # noqa: ANN001
     url = f"/Items/{jellyfin_id(ONE)}/File"
     assert native.get(url).status_code == 401
     headers = mediabrowser(ALICE_TOKEN)
@@ -237,6 +237,8 @@ def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(n
     with db_module.SessionLocal.begin() as db:
         db.add(MemberAccess(user_id=BOB, can_download=False))
     assert native.get(url, headers=mediabrowser(BOB_TOKEN)).status_code == 403
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert native.head(url, headers=headers).status_code == 200
 
 
 def test_music_rework_switch_preserves_queue_and_layout(native, monkeypatch):  # noqa: ANN001

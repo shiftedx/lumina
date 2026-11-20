@@ -640,7 +640,7 @@ def original_audio_file(item_id: str, request: Request, user: Caller, db: Db) ->
     """Finamp reads original audio through the Jellyfin file endpoint."""
     from app.services.streaming_gate import require_download
 
-    entity = jf.resolve(db, user, item_id) if settings.music_rework_enabled else None
+    entity = jf.resolve(db, user, item_id)
     if entity is None or entity.item is None or entity.item.kind not in ("track", "audio"):
         raise HTTPException(status_code=404, detail="Item not found")
     require_download(db, user)

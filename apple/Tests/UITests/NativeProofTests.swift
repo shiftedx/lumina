@@ -352,6 +352,8 @@ final class NativeTVMusicBrowseAndAutoHideBarTests: NativeProofJourney {
 @MainActor
 final class NativeTVMusicHomeTests: NativeProofJourney {
     func testHomeAndLegacyBrowsePlayback() async throws { try await journeyTVMusicHomeAndLegacyBrowse() }
+    func testOfflineMusicHomeRestoresDownloadedQueue() async throws { try await journeyTVOfflineMusicHome() }
+    func testContextualMixReturnsFocus() async throws { try await journeyTVContextualMixFocus() }
 }
 @MainActor
 final class NativeTVBackDuringPlaybackPreparationTests: NativeProofJourney {
@@ -2266,6 +2268,68 @@ class NativeProofJourney: XCTestCase {
             try await Task.sleep(for: .milliseconds(500))
         }
         XCTAssertGreaterThanOrEqual(checkpoint, 3, "Playback must persist a shared queue checkpoint.")
+    }
+
+    func journeyTVContextualMixFocus() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let album = try revealMusicAlbum(fixture, named: "album for Instant Mix")
+        try activate(album)
+        try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album detail")
+        let radio = element("tvInstantMix-\(fixture.audioTrackID)")
+        try waitForExistence(radio, timeout: 20, named: "track radio")
+        let before = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        try activate(radio)
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "track radio preview")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 10) { radio.hasFocus }, "Closing a preview returns focus to the initiating track radio.")
+        let after = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        XCTAssertEqual(before?["revision"] as? Int, after?["revision"] as? Int, "Dismissing a preview must leave the queue unchanged.")
+    }
+
+    func journeyTVOfflineMusicHome() async throws {
+        let fixture = try loadFixture()
+        let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("tvMusicHomeEdit"), timeout: 25, named: "online Music Home")
+        try openMusicLibrarySection("playlists")
+        try activate(element("musicPlaylist-\(sharedID)"))
+        try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "shared playlist")
+        try revealMusicControl(element("downloadAudioButton"))
+        try activate(element("downloadAudioButton"))
+        try musicBack()
+        try activate(element("musicLibrarySectionPicker"))
+        try activate(menuAction("Downloads"))
+        try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 60, named: "downloaded track")
+        try waitForExistence(element("downloadedTrack-\(fixture.audioSecondTrackID)"), timeout: 30, named: "second downloaded track")
+        try activate(element("playDownloadsButton"))
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "downloaded player")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 4 }
+        XCUIRemote.shared.press(.playPause)
+        let paused = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= 4 }
+        let app = try XCTUnwrap(application)
+        app.terminate()
+        app.launchArguments.append("--ui-testing-offline")
+        app.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "offline cold launch")
+        try selectDestination("Audio", screen: "audioScreen")
+        let resume = element("tvMusicHomeResume")
+        try waitForExistence(resume, timeout: 30, named: "offline paused Music Home queue")
+        XCTAssertFalse(element("nowPlayingBar").exists, "Cold restore must remain paused until an explicit action.")
+        try activate(resume)
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "explicit offline resume")
+        XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
+        let resumed = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= max(0, paused - 2) }
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= resumed + 2 }
     }
 
     func journeyTVMusicBrowseAndAutoHideBar() async throws {

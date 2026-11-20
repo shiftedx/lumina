@@ -321,6 +321,7 @@ struct NativeContextualMixView: View {
                     }
                 } header: {
                     Text(preview?.seed.name ?? seed.name)
+                        .accessibilityIdentifier("nativeMixPreview")
                 }
                 if let notice { Text(notice).accessibilityIdentifier("nativeMixNotice") }
                 if preview != nil, let failure { Text(failure).accessibilityIdentifier("nativeMixError") }
@@ -338,7 +339,6 @@ struct NativeContextualMixView: View {
                 }
             }
             .navigationTitle(seed.action)
-            .accessibilityIdentifier("nativeMixPreview")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .task(id: store.music.sessionIdentity) { await load() }
             .alert("Replace the listening queue?", isPresented: $confirming) {

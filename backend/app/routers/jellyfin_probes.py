@@ -16,12 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.media_schemas import TitleUserData
 from app.models import DeviceToken, MediaTitle, User
 from app.routers.jellyfin_auth import JELLYFIN_SERVER_NAME, PREFIX, session_info
 from app.security import client_ip
-from app.services import jellyfin as jf, music_library, music_playlists
+from app.services import jellyfin as jf, music_library, music_playlists, screen_time
 from app.services.connected_apps import jellyfin_server_id, jellyfin_user, require_jellyfin_enabled
 from app.services.media_titles import jellyfin_id, synthetic_id
 from app.services.titles import TitleService
@@ -71,6 +72,9 @@ def empty_result(_user: Caller) -> dict:
 @router.get("/users/{uid}/items/{item_id}/instantmix")
 def instant_mix(item_id: str, user: Caller, db: Db, limit: int = Query(100, ge=0)) -> dict:
     """Return visible music candidates as Jellyfin Audio DTOs, bounded to 100."""
+    if not settings.music_rework_enabled:
+        return jf.query_result([], 0)
+    screen_time.enforce(db, user, fresh=True)
     entity = jf.resolve(db, user, item_id)
     kind = ("track" if entity and entity.item and entity.item.kind in ("track", "audio") else
             entity.title.type if entity and entity.title and entity.title.type in ("album", "artist") else None)

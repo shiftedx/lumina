@@ -596,7 +596,7 @@ function continueAfterNaturalEnd(): void {
       if (!atEnd() || state.sharedRevision !== revision || controller.signal.aborted) return;
       const items = preview.items.slice(0, 12);
       if (!items.length) return;
-      await appendMusicMix(owner!, items, { revision, valid: atEnd, signal: controller.signal });
+      await appendMusicMix(owner!, items, { revision, valid: atEnd });
       if (!valid() || controller.signal.aborted || state.sharedConflict || state.sharedRevision === revision) return;
       recentRecommendations = [...new Set([...recentRecommendations, ...items.map((item) => item.id)])].slice(-100);
       await activeController()?.next();
@@ -635,7 +635,7 @@ export async function removeUpcomingMusicRecommendations(): Promise<void> {
 }
 
 /** Append a generated batch against the current revision without disturbing the active occurrence. */
-export async function appendMusicMix(owner: string, items: MusicMixPreview['items'], guard?: { revision: number; valid: () => boolean; signal: AbortSignal }): Promise<void> {
+export async function appendMusicMix(owner: string, items: MusicMixPreview['items'], guard?: { revision: number; valid: () => boolean }): Promise<void> {
   if (!items.length) return;
   if (owner !== state.owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
   if (sharedWrite) await sharedWrite;
@@ -644,15 +644,31 @@ export async function appendMusicMix(owner: string, items: MusicMixPreview['item
   const current = generation, revision = state.sharedRevision;
   const payload = sharedPayload(revision);
   const entries = payload.entries ?? state.queue.map((track) => ({ kind: 'track' as const, item_id: track.id }));
-  const existing = new Set(entries.filter((entry) => entry.kind === 'track').map((entry) => entry.item_id));
-  const additions = items.filter((item) => !existing.has(item.id)).map((item) => ({ kind: 'track' as const, item_id: item.id, provenance: { source: 'contextual_mix' as const, reason: item.reason.code } }));
+  const existing = new Set(state.queue.map((track) => track.id));
+  for (const entry of entries) if (entry.kind === 'track') existing.add(entry.item_id);
+  const additions = items.filter((item) => {
+    if (existing.has(item.id)) return false;
+    existing.add(item.id);
+    return true;
+  }).slice(0, Math.max(0, 5000 - entries.length))
+    .map((item) => ({ kind: 'track' as const, item_id: item.id, provenance: { source: 'contextual_mix' as const, reason: item.reason.code } }));
   if (!additions.length) return;
   const run = async () => {
     try {
       const write = { ...payload, entries: [...entries, ...additions], entry_index: payload.entry_index ?? payload.current_index };
-      const saved = guard ? await putMusicSharedSession(write, guard.signal) : await putMusicSharedSession(write);
-      if (current !== generation || owner !== state.owner || revision !== state.sharedRevision || (guard && !guard.valid())) return;
-      if (activeController() && !applySharedUpcoming(saved)) throw new Error('The queue changed while adding tracks. Refresh your queue.');
+      const saved = await putMusicSharedSession(write);
+      if (owner !== state.owner || revision !== state.sharedRevision) return;
+      if (current !== generation || (guard && !guard.valid())) {
+        // Stop or a newer play can win locally while the server accepts the append.
+        // Keep its revision so the newer intent can write the next checkpoint.
+        emit({ sharedRevision: saved.revision });
+        persist();
+        return;
+      }
+      if (activeController() && !applySharedUpcoming(saved)) {
+        emit({ sharedConflict: saved, message: 'The shared queue changed while playing. Choose which queue to keep.' });
+        throw new Error('The queue changed while adding tracks.');
+      }
       emit({ queue: saved.queue, sharedRevision: saved.revision, sharedEntries: saved.entries ?? [], sharedEntryIndex: saved.entry_index ?? null, unavailablePolicy: saved.unavailable_policy ?? state.unavailablePolicy });
       if (!sharedQueued) sharedDirty = false;
       persist();
@@ -663,9 +679,13 @@ export async function appendMusicMix(owner: string, items: MusicMixPreview['item
       throw error;
     }
   };
-  const operation = run();
-  sharedWrite = operation.finally(() => { sharedWrite = null; if (sharedQueued && !state.sharedConflict) void syncMusicSharedSession(); });
-  await sharedWrite;
+  const operation = run().finally(() => {
+    if (sharedWrite !== operation) return;
+    sharedWrite = null;
+    if (sharedQueued && !state.sharedConflict) void syncMusicSharedSession();
+  });
+  sharedWrite = operation;
+  await operation;
 }
 
 /** Start exactly the previewed order, retaining the generated reason on each entry. */

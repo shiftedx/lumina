@@ -183,6 +183,40 @@ describe('musicSession', () => {
     expect(player.next).not.toHaveBeenCalled();
   });
 
+  it('clears the acknowledged revision when Stop supersedes an issued continuation write', async () => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    const original = track('first'), generated = track('generated');
+    let finishAppend: (() => void) | undefined;
+    mocks.putShared.mockImplementation(async (body) => {
+      const hasRecommendation = body.entries?.some((entry: { item_id?: string }) => entry.item_id === generated.id);
+      if (hasRecommendation) await new Promise<void>((resolve) => { finishAppend = resolve; });
+      return {
+        revision: body.base_revision + 1,
+        queue: hasRecommendation ? [original, generated] : body.item_ids.length ? [original] : [],
+        current_index: body.current_index, position_seconds: body.position_seconds, repeat: 'off', shuffle: false,
+        active_output: { kind: 'browser' }, updated_at: null, removed_count: 0, entry_index: body.entry_index,
+      };
+    });
+    mocks.preview.mockResolvedValue({ items: [{ ...generated, reason: { code: 'same_artist', artist_id: 'artist-1' } }] });
+    session.setMusicContinuation(true);
+    await session.playMusicQueue([original]);
+    await session.syncMusicSharedSession();
+    const player = mocks.engines.at(-1)!;
+    player.emit({ position: 100, playing: false });
+    player.options.onNaturalEnd?.();
+    await vi.waitFor(() => expect(finishAppend).toBeTypeOf('function'));
+    const appendRevision = session.musicSession().sharedRevision!;
+    const stopped = session.closeMusic();
+    finishAppend?.();
+    await stopped;
+    const firstClear = mocks.putShared.mock.calls.find(([body]) => body.item_ids.length === 0)?.[0];
+    expect(firstClear).toMatchObject({ base_revision: appendRevision + 1, item_ids: [] });
+    expect(session.musicSession().queue).toEqual([]);
+    expect(player.next).not.toHaveBeenCalled();
+  });
+
   it('does not start recommendations when another client wins the session revision', async () => {
     const session = await loadSession();
     session.setMusicOwner('member'); await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));

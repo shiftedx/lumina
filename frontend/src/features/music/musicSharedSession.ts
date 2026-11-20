@@ -42,4 +42,4 @@ export type MusicSharedWrite = {
 };
 
 export const getMusicSharedSession = () => requestJson<MusicSharedSnapshot>('/api/me/music-session');
-export const putMusicSharedSession = (body: MusicSharedWrite, signal?: AbortSignal) => requestJson<MusicSharedSnapshot>('/api/me/music-session', { method: 'PUT', body: JSON.stringify(body) }, { signal });
+export const putMusicSharedSession = (body: MusicSharedWrite) => requestJson<MusicSharedSnapshot>('/api/me/music-session', { method: 'PUT', body: JSON.stringify(body) });

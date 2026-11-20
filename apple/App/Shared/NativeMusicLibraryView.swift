@@ -463,6 +463,9 @@ private struct NativeMusicTrackSections: View {
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var errorMessage: String?
     @State private var preparing = false
+    #if os(iOS)
+    @State private var mixSeed: NativeMixSeed?
+    #endif
 
     var body: some View {
         Section {
@@ -480,10 +483,24 @@ private struct NativeMusicTrackSections: View {
                 Button { play(at: tracks.firstIndex(of: track) ?? 0, shuffle: false) } label: {
                     NativeMusicTrackLabel(item: track.mediaItem, store: store)
                 }
+                #if os(iOS)
+                .contextMenu {
+                    if store.music.homeCapability == .available && !store.isOffline {
+                        Button("Track Radio", glyph: .discover) {
+                            mixSeed = NativeMixSeed(kind: .track, itemID: track.mediaItem.id, name: track.mediaItem.name)
+                        }
+                    }
+                }
+                #endif
                 .disabled(preparing)
                 .accessibilityIdentifier("playlistTrack-\(track.nativeID)")
             }
         }
+        #if os(iOS)
+        .sheet(item: $mixSeed) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed, onPlay: onPlayback)
+        }
+        #endif
     }
 
     @ViewBuilder private var transportActions: some View {

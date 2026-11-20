@@ -9,7 +9,7 @@ Build the production frontend and launch a new #343 proof server per mutating br
 | Surface | Verification |
 | --- | --- |
 | Server | `scripts/e2e/verify_music_server.py` for web and native contracts. `scripts/e2e/verify_finamp_instant_mix.py` for Finamp-shaped requests. |
-| Web Chrome | `frontend/scripts/verify-music-home.mjs`, `verify-music-mix.mjs`, `verify-music-offline-resume.mjs` against separate fixtures. Include 1440×900 desktop and 390×844 phone viewports. |
+| Web Chrome | `frontend/scripts/verify-music-home.mjs`, `verify-music-mix.mjs`, `verify-music-continuation.mjs`, `verify-music-offline-resume.mjs` against separate fixtures. Include 1440×900 desktop and 390×844 phone viewports. |
 | iOS | `NativePhoneMusicHomeTests` against enabled, disabled and older servers. Use iPhone and regular-width iPad. Run `NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming` with the baseline runtime. |
 | tvOS | `NativeTVMusicHomeTests` against enabled, disabled and older servers. Run the timing test from the same class as iOS. Record Siri Remote workflow on an Apple TV. |
 
@@ -17,12 +17,12 @@ Capability comparison servers use the same #343 fixture. The enabled and disable
 
 ## Browser timing checkpoint
 
-Chrome 157, Apple M4 Max, five loopback samples per viewport. Values are median milliseconds. The candidate measurement includes the Home capability probe and mix controls.
+Chrome 157, Apple M4 Max, five loopback samples per viewport. Values are median milliseconds. The candidate measurement includes Home, mix controls, continuation and offline resume. [Raw samples](evidence/music-home/web-release-1.json).
 
 | Surface | Browse ready | First audio | Manual Next |
 | --- | ---: | ---: | ---: |
-| Desktop baseline → candidate | 877.9 → 823.3 | 169.3 → 125.3 | 96.3 → 87.1 |
-| Phone baseline → candidate | 827.4 → 825.6 | 153.9 → 140.4 | 84.6 → 89.1 |
+| Desktop baseline → candidate | 877.9 → 823.8 | 169.3 → 124.6 | 96.3 → 85.4 |
+| Phone baseline → candidate | 827.4 → 822.2 | 153.9 → 135.1 | 84.6 → 85.2 |
 
 Both cohorts met the #343 median regression budgets. Release qualification still requires the native timing runs and beta p95 cohorts.
 

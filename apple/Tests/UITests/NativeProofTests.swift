@@ -130,6 +130,9 @@ final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourne
 @MainActor
 final class NativeMusicBaselineTimingTests: NativeProofJourney {
     func testMusicBrowsePlayAndNextTiming() async throws { try await journeyMusicBaselineTiming() }
+    #if os(iOS)
+    func testMusicHomeReadyTiming() throws { try journeyMusicHomeReadyTiming() }
+    #endif
 }
 
 @MainActor
@@ -2087,7 +2090,7 @@ class NativeProofJourney: XCTestCase {
         let firstAudioStarted = ContinuousClock.now
         emitPerformanceMarker(phase: "music_baseline_first_audio", event: "begin", started: firstAudioStarted)
         #if os(iOS)
-        try activate(albumPlay)
+        try activateTimingButton(albumPlay)
         #else
         try activate(firstTrack)
         #endif
@@ -2120,9 +2123,8 @@ class NativeProofJourney: XCTestCase {
         try revealMusicControl(next)
         try activate(next)
         #else
-        let next = element("audioNextButton")
-        try revealMusicControl(next)
-        try activate(next)
+        let next = application!.buttons.matching(identifier: "audioNextButton").firstMatch
+        try activateTimingButton(next)
         #endif
         #if os(tvOS)
         guard waitUntil(timeout: 20, condition: {
@@ -2146,6 +2148,32 @@ class NativeProofJourney: XCTestCase {
         #endif
         completed = true
     }
+
+    #if os(iOS)
+    func journeyMusicHomeReadyTiming() throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+
+        let started = ContinuousClock.now
+        emitPerformanceMarker(phase: "music_home_ready", event: "begin", started: started)
+        try selectTourAudioRoot()
+        let resume = application!.buttons.matching(identifier: "musicHomeResumeButton").firstMatch
+        guard waitUntil(timeout: 20, condition: { self.hasVisibleFrame(resume) && resume.isEnabled }) else {
+            throw ProofFailure.ui("The Music Home checkpoint did not become actionable.")
+        }
+        emitPerformanceMarker(phase: "music_home_ready", event: "ready", started: started)
+        XCTAssertFalse(element("audioPlayerStage").exists, "Music Home must remain paused before explicit Resume.")
+    }
+
+    private func activateTimingButton(_ button: XCUIElement) throws {
+        guard waitUntil(timeout: 15, condition: { self.hasVisibleFrame(button) && button.isEnabled }) else {
+            throw ProofFailure.ui("The timing control is not visible and enabled.")
+        }
+        if button.isHittable { button.tap() }
+        else { button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+    }
+    #endif
 
     func journeyAudioAlbumTrackPlaybackReportsProgress() async throws {
         var completed = false
@@ -2478,15 +2506,79 @@ class NativeProofJourney: XCTestCase {
         let album = try revealMusicAlbum(fixture, named: "album for Instant Mix")
         try activate(album)
         try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album detail")
-        let radio = element("tvTrackRadio-\(fixture.audioTrackID)")
-        try waitForExistence(radio, timeout: 20, named: "track radio")
+
+        let albumMix = element("tvInstantMix-current")
+        try waitForExistence(albumMix, timeout: 20, named: "album Instant Mix")
+        func activateAlbumInstantMix() throws {
+            // The real remote path from the track/file-detail column enters the
+            // album action rail through Play, then moves down to Instant Mix.
+            let play = element("musicPlayButton")
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitUntil(timeout: 10) { play.hasFocus }, "Left must enter the album action rail at Play.")
+            XCUIRemote.shared.press(.down)
+            XCTAssertTrue(waitUntil(timeout: 10) { albumMix.hasFocus }, "Down from Play must reach album Instant Mix.")
+            XCUIRemote.shared.press(.select)
+        }
         let before = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
-        try activate(radio)
-        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "track radio preview")
+        try activateAlbumInstantMix()
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "album Instant Mix preview")
         XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(waitUntil(timeout: 10) { radio.hasFocus }, "Closing a preview returns focus to the initiating track radio.")
+        XCTAssertTrue(waitUntil(timeout: 10) { albumMix.hasFocus }, "Closing an album preview returns focus to Instant Mix.")
         let after = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         XCTAssertEqual(before?["revision"] as? Int, after?["revision"] as? Int, "Dismissing a preview must leave the queue unchanged.")
+
+        let artist = element("musicArtistButton")
+        try activate(artist)
+        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "artist detail")
+        let artistMix = element("tvInstantMix-current")
+        try waitForExistence(artistMix, timeout: 20, named: "artist Instant Mix")
+        func activateArtistInstantMix() throws {
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitUntil(timeout: 10) { artistMix.hasFocus }, "Left from an artist album must enter the artist Instant Mix action.")
+            XCUIRemote.shared.press(.select)
+        }
+        let beforeArtist = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        try activateArtistInstantMix()
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "artist Instant Mix preview")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 10) { artistMix.hasFocus }, "Closing an artist preview returns focus to Instant Mix.")
+        let afterArtist = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        XCTAssertEqual(beforeArtist?["revision"] as? Int, afterArtist?["revision"] as? Int, "Dismissing an artist preview must leave the queue unchanged.")
+
+        XCUIRemote.shared.press(.menu)
+        try waitForExistence(artist, timeout: 15, named: "album after artist detail")
+        let radio = element("tvTrackRadio-\(fixture.audioTrackID)")
+        try waitForExistence(radio, timeout: 20, named: "track radio")
+        let beforeTrack = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        try activate(radio)
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "album track radio preview")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 10) { radio.hasFocus }, "Closing a detail Track Radio preview returns focus to the initiating control.")
+        let afterTrack = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        XCTAssertEqual(beforeTrack?["revision"] as? Int, afterTrack?["revision"] as? Int, "Dismissing a detail Track Radio preview must leave the queue unchanged.")
+
+        let track = element("musicItem-\(fixture.audioTrackID)")
+        try activate(track)
+        let bar = element("nowPlayingBar")
+        try waitForExistence(bar, timeout: 30, named: "Now Playing bar")
+        try activate(bar)
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "Now Playing")
+        let listeningOptions = element("audioListeningOptions")
+        try revealMusicControl(listeningOptions)
+        try activate(listeningOptions)
+        XCTAssertTrue(waitUntil(timeout: 10) { listeningOptions.value as? String == "Expanded" }, "Listening options must expand for Now Playing Track Radio.")
+        let nowPlayingRadio = element("nativeNowPlayingTrackRadio")
+        try revealMusicControl(nowPlayingRadio)
+        let beforeNowPlaying = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        try activate(nowPlayingRadio)
+        try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "Now Playing Track Radio preview")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitUntil(timeout: 10) { nowPlayingRadio.hasFocus }, "Closing Now Playing Track Radio returns focus to its initiating control.")
+        let afterNowPlaying = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
+        let beforeNowPlayingQueue = (beforeNowPlaying?["queue"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        let afterNowPlayingQueue = (afterNowPlaying?["queue"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        XCTAssertEqual(beforeNowPlayingQueue, afterNowPlayingQueue, "Dismissing Now Playing Track Radio must leave the queue unchanged.")
+        XCTAssertEqual(beforeNowPlaying?["current_index"] as? Int, afterNowPlaying?["current_index"] as? Int, "Dismissing Now Playing Track Radio must not change the selected queue entry.")
     }
 
     func journeyTVMusicContinuationAcrossHomeAndNaturalEnd() async throws {

@@ -143,6 +143,7 @@ struct TVMusicDetailView: View {
                 }
             }
             .frame(width: 440, alignment: .leading)
+            .focusSection()
 
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .firstTextBaseline) {

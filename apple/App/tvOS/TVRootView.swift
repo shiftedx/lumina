@@ -3008,9 +3008,8 @@ private struct TVMusicHome: View {
         Group {
             if store.music.homeCapability == .available {
                 VStack(alignment: .leading, spacing: 28) {
-                    HStack {
+                    HStack(spacing: 40) {
                         Text("Music Home").font(TVTypography.sectionTitle).accessibilityIdentifier("tvMusicHome")
-                        Spacer()
                         if let home {
                             Button("Edit Home") { editLayout = home.layout; editing = true }
                                 .focused($focusedAction, equals: "edit")

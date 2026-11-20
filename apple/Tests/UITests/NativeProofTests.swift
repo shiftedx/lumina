@@ -120,6 +120,11 @@ final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourne
 }
 
 @MainActor
+final class NativeMusicBaselineTimingTests: NativeProofJourney {
+    func testMusicBrowsePlayAndNextTiming() async throws { try await journeyMusicBaselineTiming() }
+}
+
+@MainActor
 final class NativeMusicFileQualityTests: NativeProofJourney {
     func testAlbumAndArtistExposeSourceFileQuality() throws { try journeyMusicFileQuality() }
 }
@@ -1879,6 +1884,98 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
     #endif
+
+    /// UI readiness proxies for the Music Rework baseline. These timings begin
+    /// at a user action and finish when the next actionable UI state is visible
+    /// or its playback clock advances. They intentionally do not claim output
+    /// route or acoustic latency.
+    func journeyMusicBaselineTiming() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+
+        let browseStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "music_baseline_browse", event: "begin", started: browseStarted)
+        try selectTourAudioRoot()
+        _ = try revealMusicAlbum(fixture, named: "baseline music album")
+        emitPerformanceMarker(phase: "music_baseline_browse", event: "ready", started: browseStarted)
+
+        try activate(element("audioItem-\(fixture.audioAlbumID)"))
+        try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "baseline album tracks")
+        let firstTrack = element("musicItem-\(fixture.audioTrackID)")
+        try waitForExistence(firstTrack, timeout: 20, named: "baseline first album track")
+        #if os(iOS)
+        let app = try XCTUnwrap(application)
+        let albumPlay = app.buttons.matching(identifier: "musicPlayButton").firstMatch
+        try waitForExistence(albumPlay, timeout: 20, named: "baseline album play action")
+        guard waitUntil(timeout: 20, condition: { albumPlay.isEnabled }) else {
+            throw ProofFailure.timeout("Timed out waiting for the baseline album play action to become enabled.")
+        }
+        #endif
+        let firstAudioStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "music_baseline_first_audio", event: "begin", started: firstAudioStarted)
+        #if os(iOS)
+        try activate(albumPlay)
+        #else
+        try activate(firstTrack)
+        #endif
+        #if os(tvOS)
+        let nowPlaying = element("nowPlayingBar")
+        try waitForExistence(nowPlaying, timeout: 30, named: "baseline inline now playing")
+        try activate(nowPlaying)
+        #endif
+        let clock = element("playbackTime")
+        try waitForExistence(clock, timeout: 20, named: "baseline playback clock")
+        _ = try waitForPlaybackValue(clock, timeout: 20) { $0 >= 1 }
+        emitPerformanceMarker(phase: "music_baseline_first_audio", event: "ready", started: firstAudioStarted)
+
+        #if os(tvOS)
+        // The full-player control is intentionally not exposed on tvOS. Return
+        // to the inline bar, whose Next action is the TV queue-transition
+        // contract, before starting the timed intent interval.
+        XCUIRemote.shared.press(.menu)
+        guard waitUntil(timeout: 15, condition: {
+            self.hasVisibleFrame(nowPlaying) && !self.hasVisibleFrame(self.element("playbackScreen"))
+        }) else {
+            throw ProofFailure.ui("Timed out returning to the TV inline now-playing bar.")
+        }
+        #endif
+
+        let nextStarted = ContinuousClock.now
+        emitPerformanceMarker(phase: "music_baseline_manual_next", event: "begin", started: nextStarted)
+        #if os(tvOS)
+        let next = element("nowPlayingNextButton")
+        try revealMusicControl(next)
+        try activate(next)
+        #else
+        let next = element("audioNextButton")
+        try revealMusicControl(next)
+        try activate(next)
+        #endif
+        #if os(tvOS)
+        guard waitUntil(timeout: 20, condition: {
+            nowPlaying.label.contains(fixture.audioSecondTrackTitle)
+                && (self.element("musicItem-\(fixture.audioSecondTrackID)").value as? String) == "Playing"
+        }) else {
+            throw ProofFailure.timeout("Timed out waiting for the TV inline successor after manual Next.")
+        }
+        #else
+        guard waitUntil(timeout: 20, condition: { self.currentAudioTitle() == fixture.audioSecondTrackTitle }) else {
+            throw ProofFailure.timeout("Timed out waiting for the successor track after manual Next.")
+        }
+        _ = try waitForPlaybackValue(clock, timeout: 10) { $0 >= 1 }
+        #endif
+        emitPerformanceMarker(phase: "music_baseline_manual_next", event: "ready", started: nextStarted)
+
+        #if os(tvOS)
+        XCUIRemote.shared.press(.playPause)
+        #else
+        try stopAudioPlayer()
+        #endif
+        completed = true
+    }
 
     func journeyAudioAlbumTrackPlaybackReportsProgress() async throws {
         var completed = false

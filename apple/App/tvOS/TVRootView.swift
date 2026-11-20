@@ -2302,7 +2302,7 @@ private struct TVVideoView: View {
     }
 
     private func restoreSelection(_ itemID: String?) {
-        guard let itemID else { return }
+        guard let itemID, mountedItemIDs.contains(itemID) else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
     }
@@ -2886,6 +2886,7 @@ private struct TVAudioView: View {
     @State private var pendingRestoredItemID: String?
     @State private var submittedSearch: String?
     @State private var lastVisibleItemID: String?
+    @State private var mountedItemIDs = Set<String>()
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedSearch: Bool
     @FocusState private var focusedCategory: MusicBrowseKind?
@@ -2935,11 +2936,14 @@ private struct TVAudioView: View {
                                 TVMediaCard(item: item, store: store) { onOpen(item) }
                                     .focused($focusedItemID, equals: item.id)
                                     .accessibilityIdentifier("audioItem-\(item.id)")
+                                    .id(item.id)
                                     .onAppear {
+                                        mountedItemIDs.insert(item.id)
                                         if pendingRestoredItemID == item.id { restoreSelection(item.id) }
                                         lastVisibleItemID = item.id
                                         if store.audioHasMore && item.id == store.audioItems.suffix(6).first?.id { Task { await store.loadMoreAudio() } }
                                     }
+                                    .onDisappear { mountedItemIDs.remove(item.id) }
                             }
                         }
                         .padding(.horizontal, 80)
@@ -2959,12 +2963,12 @@ private struct TVAudioView: View {
             .onAppear {
                 guard isAtNavigationRoot, let itemID = browse.focusedItemID else { return }
                 pendingRestoredItemID = itemID
-                proxy.scrollTo("tvAudioBrowse", anchor: .top)
+                proxy.scrollTo(itemID, anchor: .center)
             }
             .onChange(of: isAtNavigationRoot) { wasRoot, isRoot in
                 guard !wasRoot, isRoot, let itemID = browse.focusedItemID else { return }
                 pendingRestoredItemID = itemID
-                proxy.scrollTo("tvAudioBrowse", anchor: .top)
+                proxy.scrollTo(itemID, anchor: .center)
             }
         }
         .ignoresSafeArea(.container, edges: .horizontal)

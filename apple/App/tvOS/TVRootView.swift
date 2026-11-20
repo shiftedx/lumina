@@ -2302,7 +2302,7 @@ private struct TVVideoView: View {
     }
 
     private func restoreSelection(_ itemID: String?) {
-        guard let itemID, mountedItemIDs.contains(itemID) else { return }
+        guard let itemID else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
     }
@@ -3010,7 +3010,7 @@ private struct TVAudioView: View {
     }
 
     private func restoreSelection(_ itemID: String?) {
-        guard let itemID else { return }
+        guard let itemID, mountedItemIDs.contains(itemID) else { return }
         focusedItemID = itemID
         pendingRestoredItemID = nil
     }

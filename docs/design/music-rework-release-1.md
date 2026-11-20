@@ -40,3 +40,11 @@ The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,8
 2. Start the candidate web/server rollout with `LUMINA_MUSIC_REWORK_ENABLED=false` and a pinned [rollback image](../../docker/README.md#retaining-a-rollback-image). Record the image digest, server version and release source revision. Confirm normal music browse, controls and queue checkpoints.
 3. Enable for dogfood. Verify Home, preview/append/replace, playlist save, album download, offline resume and reconnect conflict. Repeat disable and re-enable with the queue active and check the existing layout, queue, playlists and local downloads.
 4. Stage the matching iOS and tvOS TestFlight builds using [the distribution runbook](../../apple/docs/testflight.md). Record build numbers and tester availability separately. Complete the retained-image rollback verification and attach the evidence to #355.
+
+## Functional evidence and remaining checks
+
+- The #348 enabled, disabled and actual older-server journeys exercised iPhone 17 and Apple TV 4K. Disabled and older builds retained browse, playback and queue checkpoints on both platforms.
+- iPhone Home shelf editing and explicit saved-position Resume passed. The iPad Home rendered at 820 × 1180 points. The regular-width end-to-end workflow, Dynamic Type, VoiceOver speech and iPhone offline playback remain pending after simulator availability and automation failures.
+- Apple TV passed shelf editing, explicit Resume, focus return from the player, Track Radio dismissal and forced-offline cold resume plus simulated file purge. The final Browse shortcut album-return focus fix compiled. Its simulator journey and the physical Siri Remote gate remain pending.
+- Chrome fixture journeys passed Home, contextual mix actions, a real two-browser continuation revision conflict, complete album download and offline cold restart with reconnect conflict resolution. The disabled Home deep link preserved browse and the existing queue.
+- The standalone iOS Finamp trial passed track InstantMix, original download and offline playback with the fixture stopped. The Android trial and timed lyrics gap remain tracked in #354.

@@ -24,7 +24,11 @@ Chrome 157, Apple M4 Max, five loopback samples per viewport. Values are median 
 | Desktop baseline → candidate | 877.9 → 823.8 | 169.3 → 124.6 | 96.3 → 85.4 |
 | Phone baseline → candidate | 827.4 → 822.2 | 153.9 → 135.1 | 84.6 → 85.2 |
 
-Both cohorts met the #343 median regression budgets. Release qualification still requires the native timing runs and beta p95 cohorts.
+Both web cohorts met the #343 median regression budgets. Beta p95 cohorts remain open.
+
+## Native timing checkpoint
+
+The first passing Apple TV simulator run with the Browse Music shortcut measured **25,971 ms** Browse, **14,394 ms** First Audio and **9,150 ms** Next. The corresponding #343 samples were 21,169 ms, 11,884 ms and 8,168 ms. Browse and First Audio exceeded the 15% threshold on these single samples. Next was within the threshold. Collect matched repeats on a quiet host before qualifying the budget. [Apple TV timing markers](evidence/music-home/tvos-release-1.json).
 
 ## Staging gates
 

@@ -1,0 +1,48 @@
+{
+  "product_source": "2752e951873d98c35798ee1d2b8b6174f14139a1",
+  "xcode": "27.1",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "destination": "Apple TV 4K (3rd generation), tvOS 27.0 simulator",
+  "build_configuration": "Debug",
+  "test": "NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming",
+  "result": "passed",
+  "markers": [
+    {
+      "elapsed_ms": 1,
+      "event": "begin",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795146142.681288
+    },
+    {
+      "elapsed_ms": 25971,
+      "event": "ready",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795146168.647894
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795146172.6018171
+    },
+    {
+      "elapsed_ms": 14394,
+      "event": "ready",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795146186.99563
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795146188.9974298
+    },
+    {
+      "elapsed_ms": 9150,
+      "event": "ready",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795146198.1479092
+    }
+  ],
+  "notes": "Single sample while browser/backend suites and other simulator work were active. Used the explicit Browse Music shortcut."
+}

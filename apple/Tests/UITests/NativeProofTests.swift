@@ -21,6 +21,7 @@ final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
     func testContextualMix() async throws { try await journeyPhoneContextualMix() }
     func testOfflineHomeResume() async throws { try await journeyPhoneOfflineMusicHome() }
+    func testExplicitHomeResume() async throws { try await journeyPhoneExplicitHomeResume() }
 }
 @MainActor
 final class NativeMobileWelcomeTests: NativeProofJourney {
@@ -1369,6 +1370,19 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     #if os(iOS)
+    func journeyPhoneExplicitHomeResume() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let resume = element("musicHomeResumeButton")
+        try waitForExistence(resume, timeout: 25, named: "saved Resume")
+        XCTAssertFalse(element("audioPlayerStage").exists, "Music Home must not start the saved queue on its own.")
+        try activate(resume)
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "explicitly resumed playback")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 20 }
+    }
+
     func journeyPhoneOfflineMusicHome() async throws {
         let fixture = try loadFixture()
         let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID)

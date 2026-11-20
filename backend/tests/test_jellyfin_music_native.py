@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app import db as db_module
+from app.config import settings
 from app.main import app
 from app.models import AppSettings, DeviceToken, LibraryItem, MediaTitle, MemberAccess, PlaybackProgress, StorageRoot, utcnow
 from app.security import session_digest
@@ -164,6 +165,26 @@ def test_native_music_home_has_compact_resume_and_shared_layout(native):  # noqa
     assert call(native, "GET", "/home").json()["layout"] == saved.json()
     assert call(native, "GET", "/home", token=BOB_TOKEN).json()["resume"] is None
     assert call(native, "PUT", "/home/layout", json={"order": ["mixes", "mixes"]}).status_code == 422
+
+
+def test_music_rework_switch_preserves_queue_and_layout(native, monkeypatch):  # noqa: ANN001
+    assert call(native, "GET", "/home/capability", token=None).status_code == 401
+    assert call(native, "GET", "/home/capability").json() == {"enabled": True}
+    layout = {"order": ["mixes", "resume", "recent", "playlists", "downloads"], "hidden": ["downloads"]}
+    assert call(native, "PUT", "/home/layout", json=layout).json() == layout
+    snapshot = call(native, "PUT", "/session", json=session_body(0, [ONE, ONE, TWO], 23)).json()
+
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert call(native, "GET", "/home/capability").json() == {"enabled": False}
+    assert call(native, "GET", "/home").status_code == 404
+    assert call(native, "PUT", "/home/layout", json={"order": [], "hidden": []}).status_code == 404
+    assert call(native, "GET", "/contextual-mix", params={"seed_kind": "track", "seed_id": ONE}).status_code == 404
+    assert call(native, "GET", "/session").json() == snapshot
+    assert call(native, "GET", f"/tracks/{ONE}").status_code == 200
+
+    monkeypatch.setattr(settings, "music_rework_enabled", True)
+    assert call(native, "GET", "/home").json()["layout"] == layout
+    assert call(native, "GET", "/session").json() == snapshot
 
 
 def test_download_permission_conversion_ranges_and_native_auth(native, monkeypatch, tmp_path):  # noqa: ANN001

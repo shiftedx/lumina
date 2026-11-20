@@ -9,6 +9,94 @@ final class LuminaMusicLibraryTests: XCTestCase {
         MusicURLProtocol.handler = nil
     }
 
+    func testHomeCapabilityFallsBackWithoutTouchingSavedQueue() async throws {
+        let requests = MusicRequests()
+        let library = library()
+        library.configure(session: session())
+        MusicURLProtocol.handler = { transport in
+            requests.append(transport.request)
+            switch transport.request.url?.lastPathComponent {
+            case "capability": transport.respond(["enabled": false])
+            case "session": transport.respond(snapshotJSON(revision: 4, position: 23))
+            default: transport.respond([:], status: 404)
+            }
+        }
+        await library.refreshHome()
+        XCTAssertEqual(library.homeCapability, .disabled)
+        XCTAssertNil(library.homeState.content)
+        let saved = try await library.loadSession()
+        XCTAssertEqual(saved.positionSeconds, 23)
+        XCTAssertEqual(saved.currentIndex, 2)
+        library.configure(session: session(user: "bob"))
+        MusicURLProtocol.handler = { $0.respond([:], status: 404) }
+        await library.refreshHome()
+        XCTAssertEqual(library.homeCapability, .unsupported)
+        XCTAssertNil(library.homeState.content)
+        XCTAssertEqual(requests.all.map { $0.url?.lastPathComponent }, ["capability", "session"])
+    }
+
+    func testHomeLayoutAndContextualMixShareTypedMemberContracts() async throws {
+        let requests = MusicRequests()
+        let library = library()
+        library.configure(session: session())
+        let hidden = ["downloads"]
+        MusicURLProtocol.handler = { transport in
+            requests.append(transport.request)
+            switch transport.request.url?.lastPathComponent {
+            case "capability": transport.respond(["enabled": true])
+            case "home":
+                transport.respond([
+                    "layout": ["order": ["resume", "downloads"], "hidden": []],
+                    "resume": ["state": "playable", "revision": 2, "entry_index": 1, "current_index": 1,
+                               "position_seconds": 23, "track": ["id": musicTrackID, "title": "Saved track"]],
+                    "recent": [], "playlists": [], "mixes": [["kind": "rotation", "name": "Rotation"]],
+                ])
+            case "layout": transport.respond(["order": ["resume", "downloads"], "hidden": hidden])
+            case "contextual-mix":
+                var track = trackJSON(id: musicTrackTwoID)
+                track["reason"] = ["code": "shared_genre", "genre": "Soul"]
+                transport.respond([
+                    "seed": ["id": musicTrackID, "kind": "track", "name": "Saved track", "genres": ["Soul"]],
+                    "items": [track], "exhausted": true,
+                ])
+            case "session":
+                var saved = snapshotJSON(revision: 3, position: 23)
+                saved["entries"] = [
+                    ["kind": "track", "item_id": musicTrackID],
+                    ["kind": "track", "item_id": musicTrackTwoID,
+                     "provenance": ["source": "contextual_mix", "reason": "shared_genre"]],
+                ]
+                transport.respond(saved)
+            default: transport.respond([:], status: 404)
+            }
+        }
+        await library.refreshHome()
+        XCTAssertEqual(library.homeCapability, .available)
+        XCTAssertEqual(library.homeState.content?.resume?.positionSeconds, 23)
+        let newLayout = MusicHomeLayout(order: [.resume, .downloads], hidden: [.downloads])
+        try await library.saveHomeLayout(newLayout)
+        XCTAssertEqual(library.homeState.content?.layout, newLayout)
+        XCTAssertEqual(try musicBody(requests.all[2])["hidden"] as? [String], hidden)
+        let preview = try await library.contextualMix(kind: .track, seedID: musicTrackID, excluding: [musicTrackID])
+        XCTAssertEqual(preview.items.first?.reason.genre, "Soul")
+        XCTAssertEqual(preview.items.first?.track.id, musicTrackTwoID)
+        let query = try XCTUnwrap(requests.all[3].url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems })
+        XCTAssertTrue(query.contains(URLQueryItem(name: "exclude_item_ids", value: musicTrackID)))
+
+        let generated = MusicQueueEntry(kind: "track", itemID: musicTrackTwoID, provenance: .init(reason: .sharedGenre))
+        let saved = try await library.saveSession(itemIDs: [musicTrackID, musicTrackTwoID], currentIndex: 0,
+            positionSeconds: 23, repeatMode: "off", shuffle: false, baseRevision: 2,
+            entries: [.init(kind: "track", itemID: musicTrackID), generated], entryIndex: 0)
+        XCTAssertEqual(saved.entries[1].provenance, generated.provenance)
+        let entries = try XCTUnwrap(try musicBody(requests.all[4])["entries"] as? [[String: Any]])
+        XCTAssertNil(entries[0]["provenance"])
+        XCTAssertEqual(entries[1]["provenance"] as? [String: String], ["source": "contextual_mix", "reason": "shared_genre"])
+
+        library.configure(session: session(user: "bob"))
+        XCTAssertEqual(library.homeCapability, .unknown)
+        XCTAssertNil(library.homeState.content)
+    }
+
     func testCollectionFileQualityUsesOneNativeReadAndSeparatesMixedAndUnknownFacts() async throws {
         let requests = MusicRequests()
         let library = library()

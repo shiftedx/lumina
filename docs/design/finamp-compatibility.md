@@ -8,6 +8,10 @@ The official [Finamp 1.0.2 release](https://github.com/finamp-app/finamp/release
 
 The official macOS 1.0.2 binary launched on the test host, but automation of its UI failed with macOS assistive-access error `-1719`. No app login or playback was observed. An iOS simulator was available, but Flutter was not on PATH and the release did not provide an iOS simulator build; Android's `adb` was not on PATH. No iOS or Android client was run.
 
+A subsequent isolated simulator-build attempt used the release's pinned Flutter 3.47.7, locked package dependencies, CocoaPods 1.16.2 and Xcode 27.1. The first build failed because the `flutter_discord_rpc` build requires `rustup`, which was absent. A separate Rust installation under `/tmp` resolved that prerequisite; the retry reached Xcode compilation but was stopped when the combined SDK, package caches, source, Rust toolchain and Xcode DerivedData reached approximately 5.32 GiB, above the 5 GB attempt limit. It did not produce a simulator app, and no simulator was created. AXe 1.8.0 was already installed, but there was no app to drive. Neither Android `adb` nor an Android emulator was found on the host; no SDK licenses were accepted or system permissions changed.
+
+Finamp's [lyrics API declaration](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api.dart) uses `GET /Audio/{itemId}/Lyrics`. An authenticated protocol replay for the shared fixture's audio track returned HTTP 404 on November 19, 2026. This is a reproducible compatibility gap for the Jellyfin route; it does not establish how the Finamp UI presents the failure. Reproduce against the disposable fixture with a connected-app token and the manifest's `audioTrackID`, without recording the token or response headers.
+
 | Capability | iOS | Android | Evidence |
 | --- | --- | --- | --- |
 | Login and browse | Unverified | Unverified | No mobile client run |

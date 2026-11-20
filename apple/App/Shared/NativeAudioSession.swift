@@ -418,10 +418,6 @@ final class NativeAudioSession {
         }
     }
 
-    func restore(store: LuminaStore) async {
-        await restore(store: store, restoreTaskID: nil)
-    }
-
     /// A SwiftUI root task is a presentation lifetime, not a retained playback
     /// lifetime. Keep restoration owned here so a redraw cannot cancel a valid
     /// paused shared-queue restore after it has claimed this member's state.

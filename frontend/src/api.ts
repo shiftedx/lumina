@@ -1124,7 +1124,11 @@ export type MusicMixSeedKind = 'track' | 'album' | 'artist';
 export type MusicMixReason = { code: 'seed_track'; item_id: string } | { code: 'same_artist'; artist_id: string } | { code: 'shared_genre'; genre: string };
 export type MusicMixPreview = { seed: { id: string; kind: MusicMixSeedKind; name: string }; items: Array<import('./features/music/musicTypes').MusicTrack & { reason: MusicMixReason }>; exhausted: boolean };
 export const getMusicHomeCapability = (): Promise<{ enabled: boolean }> => requestJson('/api/me/music-home/capability');
-export const getContextualMusicMix = (kind: MusicMixSeedKind, id: string): Promise<MusicMixPreview> => requestJson(`/api/music/contextual-mix${qs({ seed_kind: kind, seed_id: id })}`);
+export const getContextualMusicMix = (kind: MusicMixSeedKind, id: string, exclude: string[] = [], signal?: AbortSignal): Promise<MusicMixPreview> => {
+  const params = new URLSearchParams({ seed_kind: kind, seed_id: id });
+  for (const value of exclude) params.append('exclude_item_ids', value);
+  return requestJson(`/api/music/contextual-mix?${params}`, undefined, { signal, timeoutMs: 8000 });
+};
 export const getMusicHome = (): Promise<MusicHome> => requestJson('/api/me/music-home');
 export const saveMusicHomeLayout = (layout: MusicHomeLayout): Promise<MusicHomeLayout> => requestJson('/api/me/music-home/layout', { method: 'PUT', body: JSON.stringify(layout) });
 export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);

@@ -22,6 +22,7 @@ vi.mock('./musicOffline', () => ({ enableOfflineShell: mocks.shell, offlineTrack
 vi.mock('./musicSession', () => ({
   useMusicSession: () => music, currentMusicSampleRate: () => 48000, setMusicOwner: mocks.owner, closeMusic: mocks.close,
   normalizeMusic: vi.fn(), pauseMusic: mocks.pause, playMusicQueue: mocks.playQueue, reorderMusic: mocks.reorder, repeatMusic: mocks.repeat,
+  cancelMusicContinuation: vi.fn(), setMusicContinuation: vi.fn(), removeUpcomingMusicRecommendations: vi.fn(),
   seekMusic: mocks.seek, setMusicVolume: mocks.volume, setMusicCrossfade: mocks.crossfade, setMusicSleepTimer: mocks.sleep, setMusicUnavailablePolicy: mocks.unavailablePolicy, refreshMusicSharedSession: mocks.refreshShared, stepMusic: mocks.step, streamMusicCurrent: mocks.stream, toggleMusic: mocks.toggle, useServerMusicSession: mocks.useServer, keepDeviceMusicSession: mocks.keepDevice, acknowledgeMusicBrowserOutput: mocks.acknowledgeBrowser, resumeMusicFromCast: mocks.resumeBrowser, applyMusicSharedSnapshot: mocks.applyShared,
 }));
 vi.mock('../gallery/WallGrid', () => ({ useMediaQuery: () => false }));
@@ -32,7 +33,7 @@ const props = { owner: 'member-a', onWatchVideo: vi.fn(), onOpenAlbum: vi.fn(), 
 
 beforeEach(() => {
   vi.clearAllMocks(); setMusicCast(null); localStorage.clear();
-  music = { owner: 'member-a', queue, playback: { index: 0, position: 12, duration: 180, playing: true, loading: false, error: null }, mode: 'gapless', volume: .7, normalize: true, repeat: 'off', shuffle: false, sharedRevision: 1, sharedConflict: null, crossfadeSeconds: 0, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: 0, unavailablePolicy: 'skip' };
+  music = { owner: 'member-a', queue, playback: { index: 0, position: 12, duration: 180, playing: true, loading: false, error: null }, mode: 'gapless', volume: .7, normalize: true, repeat: 'off', shuffle: false, sharedRevision: 1, sharedConflict: null, crossfadeSeconds: 0, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: 0, continuation: false, unavailablePolicy: 'skip' };
   mocks.control.mockResolvedValue({}); mocks.speakers.mockResolvedValue([{ id: 'speaker-1', name: 'Kitchen', model: 'One', coordinator_id: 'speaker-1' }]);
   mocks.status.mockResolvedValue({ transport_state: 'PLAYING', volume: 35, track: { track_number: 1, position_seconds: 12, duration_seconds: 180 } });
   mocks.lyrics.mockResolvedValue({ plain: 'Server lyric', cues: [], source: 'library', instrumental: false });
@@ -273,6 +274,12 @@ describe('MusicPlayer', () => {
     expect((screen.getByRole('button', { name: 'Play music' }) as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByRole('button', { name: 'Open queue' }));
     expect(screen.getByRole('button', { name: 'Refresh requested albums' })).toBeTruthy();
+  });
+
+  it('shows queue conflict controls even when paused in compact mode', () => {
+    music = { ...music, playback: { ...music.playback, playing: false }, sharedConflict: { revision: 3 } as typeof music.sharedConflict };
+    render(<MusicPlayer {...props} hidden />);
+    expect(screen.getByText(/Queue conflict/)).toBeTruthy();
   });
 
   it('opens playlist management from the queue and explains bounded Sonos transfers', async () => {

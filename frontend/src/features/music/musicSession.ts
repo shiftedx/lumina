@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import { ApiRequestError, getMusicQueue, updatePlaybackProgress } from '../../api';
+import { ApiRequestError, getContextualMusicMix, getMusicQueue, updatePlaybackProgress } from '../../api';
 import { shuffled } from '../gallery/albumQueue';
 import { forgetMusicCast, musicCast, restoreSharedMusicCast, stopMusicCast } from './musicCastSession';
 import { MAX_AUDIO_BYTES, MAX_DECODED_AUDIO_BYTES, MusicEngine, type MusicEngineState, type MusicRepeatMode, type MusicSource } from './musicEngine';
@@ -29,6 +29,7 @@ export interface MusicSession {
   sharedEntries: MusicQueueEntry[];
   sharedEntryIndex: number | null;
   unavailablePolicy: 'skip' | 'wait';
+  continuation: boolean;
 }
 
 interface PlaybackController {
@@ -47,8 +48,26 @@ interface PlaybackController {
 }
 
 const EMPTY_PLAYBACK: MusicEngineState = { index: -1, position: 0, duration: 0, playing: false, loading: false, error: null };
-let state: MusicSession = { owner: null, queue: [], playback: EMPTY_PLAYBACK, mode: 'gapless', volume: 0.8, normalize: true, repeat: 'off', shuffle: false, sharedRevision: null, sharedConflict: null, crossfadeSeconds: 0, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: null, unavailablePolicy: 'skip' };
+let state: MusicSession = { owner: null, queue: [], playback: EMPTY_PLAYBACK, mode: 'gapless', volume: 0.8, normalize: true, repeat: 'off', shuffle: false, sharedRevision: null, sharedConflict: null, crossfadeSeconds: 0, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: null, unavailablePolicy: 'skip', continuation: false };
 let generation = 0;
+let continuationIntent = 0;
+let continuationArmed = false;
+let continuationRequest: AbortController | null = null;
+let recentRecommendations: string[] = [];
+try { state.continuation = localStorage.getItem('lumina:music:continuation') === 'true'; } catch { /* device preference */ }
+export function cancelMusicContinuation(): void {
+  continuationIntent += 1;
+  continuationArmed = false;
+  continuationRequest?.abort();
+  continuationRequest = null;
+}
+export function setMusicContinuation(enabled: boolean): void {
+  if (!enabled) cancelMusicContinuation();
+  else if (state.playback.playing && !musicCast()) continuationArmed = true;
+  emit({ continuation: enabled });
+  try { localStorage.setItem('lumina:music:continuation', String(enabled)); } catch { /* device preference */ }
+}
+
 let engine: MusicEngine | null = null;
 let stream: MusicStream | null = null;
 let context: AudioContext | null = null;
@@ -100,6 +119,8 @@ function persist(localOutput = !musicCast() && !outputTransfer): void {
 
 export function setMusicOwner(owner: string | null): void {
   if (state.owner === owner) return;
+  cancelMusicContinuation();
+  recentRecommendations = [];
   const previousOwner = state.owner;
   generation += 1;
   if (previousOwner) forgetMusicCast(previousOwner);
@@ -122,7 +143,7 @@ export function setMusicOwner(owner: string | null): void {
   if (owner) {
     try { localStorage.setItem('lumina:music:offline-owner', owner); } catch { /* private browsing may deny storage */ }
   }
-  state = { ...state, owner, queue: [], playback: EMPTY_PLAYBACK, mode: 'gapless', shuffle: false, sharedRevision: null, sharedConflict: null, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: null, unavailablePolicy: 'skip' };
+  state = { ...state, owner, queue: [], playback: EMPTY_PLAYBACK, mode: 'gapless', shuffle: false, sharedRevision: null, sharedConflict: null, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: null, unavailablePolicy: 'skip', continuation: false };
   if (owner) {
     const stored = readMusicCheckpoint(owner);
     if (stored) {
@@ -156,6 +177,7 @@ function sharedPayload(base_revision: number) {
 export function applyMusicSharedSnapshot(snapshot: MusicSharedSnapshot): void {
   // Canonical restore is deliberately paused. Dispose first so a later toggle
   // cannot resume a stale decoded queue after a conflict or an import refresh.
+  cancelMusicContinuation();
   adoptingShared = true;
   generation += 1;
   try {
@@ -353,6 +375,7 @@ function primeEngine(): MusicEngine {
       return readMusicAudio(response, signal);
     },
     onChange: playbackChanged,
+    onNaturalEnd: continueAfterNaturalEnd,
   });
   engine.setVolume(state.volume);
   engine.setRepeat(state.repeat);
@@ -362,7 +385,7 @@ function primeEngine(): MusicEngine {
 
 function primeStream(): MusicStream {
   if (engine) { engine.dispose(); engine = null; context = null; }
-  if (!stream) stream = new MusicStream({ onChange: playbackChanged, onAccessDenied: stopForAccess });
+  if (!stream) stream = new MusicStream({ onChange: playbackChanged, onNaturalEnd: continueAfterNaturalEnd, onAccessDenied: stopForAccess });
   stream.setVolume(state.volume);
   stream.setRepeat(state.repeat);
   return stream;
@@ -392,6 +415,7 @@ async function reportProgress(id: string, playback: MusicEngineState, complete: 
 }
 
 function stopForAccess(error: Error): void {
+  cancelMusicContinuation();
   accessStopped = true;
   activeController()?.pause();
   emit({ message: error.message });
@@ -473,6 +497,8 @@ async function stopCastForBrowserPlayback(owner: string | null, isCurrent: () =>
 
 export async function playMusic(owner: string, request: { item_ids?: string[]; title_id?: string }, startId?: string, position = 0, shuffle = false): Promise<void> {
   setMusicOwner(owner);
+  cancelMusicContinuation();
+  continuationArmed = true;
   const current = ++generation;
   if (!await stopCastForBrowserPlayback(owner, () => current === generation && state.owner === owner)) return;
   const player = primeEngine();
@@ -505,6 +531,7 @@ async function startMusicQueue(queue: MusicTrack[], index: number, position: num
 }
 
 export async function playMusicQueue(queue: MusicTrack[], index = 0, position = 0): Promise<void> {
+  cancelMusicContinuation(); continuationArmed = true;
   const owner = state.owner;
   const current = ++generation;
   if (!await stopCastForBrowserPlayback(owner, () => current === generation && state.owner === owner)) return;
@@ -512,6 +539,7 @@ export async function playMusicQueue(queue: MusicTrack[], index = 0, position = 
 }
 
 export async function resumeMusicFromCast(queue: MusicTrack[], index: number, position: number): Promise<void> {
+  cancelMusicContinuation();
   const current = ++generation;
   outputTransfer = true;
   try {
@@ -534,6 +562,7 @@ async function startStreamQueue(queue: MusicTrack[], index: number, position: nu
 }
 
 export async function streamMusicQueue(queue: MusicTrack[], index = 0, position = 0): Promise<void> {
+  cancelMusicContinuation(); continuationArmed = true;
   const owner = state.owner;
   const current = ++generation;
   if (!await stopCastForBrowserPlayback(owner, () => current === generation && state.owner === owner)) return;
@@ -544,11 +573,73 @@ export async function streamMusicCurrent(): Promise<void> {
   await streamMusicQueue(state.queue, Math.max(0, state.playback.index), state.playback.position);
 }
 
+/** A callback from the playback engine, never from pause, manual Next or restore. */
+function continueAfterNaturalEnd(): void {
+  const owner = state.owner, intent = continuationIntent, current = generation;
+  const valid = () => Boolean(owner && owner === state.owner && intent === continuationIntent && current === generation
+    && continuationArmed && state.continuation && navigator.onLine && !accessStopped && !state.sharedConflict
+    && !musicCast() && state.repeat === 'off' && !state.playback.playing && !state.playback.loading
+    && !(state.unavailablePolicy === 'wait' && state.sharedEntries.some((entry) => entry.kind === 'acquisition' && entry.state !== 'playable')));
+  const atEnd = () => valid() && state.playback.index === state.queue.length - 1;
+  if (!atEnd()) return;
+  const anchor = state.queue[state.playback.index];
+  if (!anchor) return;
+  const controller = new AbortController();
+  continuationRequest?.abort(); continuationRequest = controller;
+  void (async () => {
+    try {
+      if (sharedWrite) await sharedWrite;
+      if (!atEnd() || state.sharedRevision === null || sharedDirty) return;
+      const revision = state.sharedRevision;
+      const excluded = [...new Set([...state.queue.map((track) => track.id), ...recentRecommendations])].slice(-100);
+      const preview = await getContextualMusicMix('track', anchor.id, excluded, controller.signal);
+      if (!atEnd() || state.sharedRevision !== revision || controller.signal.aborted) return;
+      const items = preview.items.slice(0, 12);
+      if (!items.length) return;
+      await appendMusicMix(owner!, items, { revision, valid: atEnd, signal: controller.signal });
+      if (!valid() || controller.signal.aborted || state.sharedConflict || state.sharedRevision === revision) return;
+      recentRecommendations = [...new Set([...recentRecommendations, ...items.map((item) => item.id)])].slice(-100);
+      await activeController()?.next();
+    } catch { /* timeout, conflict and offline end the queue normally */ }
+    finally { if (continuationRequest === controller) continuationRequest = null; }
+  })();
+}
+
+/** Remove only generated entries after the selected logical occurrence. */
+export async function removeUpcomingMusicRecommendations(): Promise<void> {
+  const owner = state.owner;
+  if (!owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
+  if (sharedWrite) await sharedWrite;
+  if (owner !== state.owner || state.sharedRevision === null || state.sharedConflict || !navigator.onLine) throw new Error('Restore your shared queue before removing recommendations.');
+  cancelMusicContinuation();
+  const current = generation, revision = state.sharedRevision, payload = sharedPayload(revision);
+  const entries = payload.entries ?? [];
+  const selected = payload.entry_index ?? -1;
+  const retained = entries.filter((entry, index) => index <= selected || entry.kind !== 'track' || !entry.provenance);
+  if (retained.length === entries.length) return;
+  const run = async () => {
+    try {
+      const saved = await putMusicSharedSession({ ...payload, entries: retained });
+      if (current !== generation || owner !== state.owner || revision !== state.sharedRevision) return;
+      if (activeController() && !applySharedUpcoming(saved)) throw new Error('The queue changed while removing tracks. Refresh your queue.');
+      emit({ queue: saved.queue, sharedRevision: saved.revision, sharedEntries: saved.entries ?? [], sharedEntryIndex: saved.entry_index ?? null });
+      persist();
+    } catch (error) {
+      const conflict = conflictSnapshot(error);
+      if (conflict && current === generation && owner === state.owner) emit({ sharedConflict: conflict, message: 'Your saved queue differs from the server. Choose which queue to keep.' });
+      throw error;
+    }
+  };
+  sharedWrite = run().finally(() => { sharedWrite = null; if (sharedQueued && !state.sharedConflict) void syncMusicSharedSession(); });
+  await sharedWrite;
+}
+
 /** Append a generated batch against the current revision without disturbing the active occurrence. */
-export async function appendMusicMix(owner: string, items: MusicMixPreview['items']): Promise<void> {
+export async function appendMusicMix(owner: string, items: MusicMixPreview['items'], guard?: { revision: number; valid: () => boolean; signal: AbortSignal }): Promise<void> {
   if (!items.length) return;
   if (owner !== state.owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
   if (sharedWrite) await sharedWrite;
+  if (guard && (!guard.valid() || guard.revision !== state.sharedRevision)) return;
   if (owner !== state.owner || state.sharedRevision === null || state.sharedConflict || !navigator.onLine) throw new Error('Restore your shared queue before adding tracks.');
   const current = generation, revision = state.sharedRevision;
   const payload = sharedPayload(revision);
@@ -558,8 +649,9 @@ export async function appendMusicMix(owner: string, items: MusicMixPreview['item
   if (!additions.length) return;
   const run = async () => {
     try {
-      const saved = await putMusicSharedSession({ ...payload, entries: [...entries, ...additions], entry_index: payload.entry_index ?? payload.current_index });
-      if (current !== generation || owner !== state.owner || revision !== state.sharedRevision) return;
+      const write = { ...payload, entries: [...entries, ...additions], entry_index: payload.entry_index ?? payload.current_index };
+      const saved = guard ? await putMusicSharedSession(write, guard.signal) : await putMusicSharedSession(write);
+      if (current !== generation || owner !== state.owner || revision !== state.sharedRevision || (guard && !guard.valid())) return;
       if (activeController() && !applySharedUpcoming(saved)) throw new Error('The queue changed while adding tracks. Refresh your queue.');
       emit({ queue: saved.queue, sharedRevision: saved.revision, sharedEntries: saved.entries ?? [], sharedEntryIndex: saved.entry_index ?? null, unavailablePolicy: saved.unavailable_policy ?? state.unavailablePolicy });
       if (!sharedQueued) sharedDirty = false;
@@ -582,6 +674,7 @@ export async function playMusicMix(owner: string, items: MusicMixPreview['items'
   if (owner !== state.owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
   if (sharedWrite) await sharedWrite;
   if (owner !== state.owner || state.sharedRevision === null || state.sharedConflict) throw new Error('Restore your shared queue before playing a mix.');
+  cancelMusicContinuation(); continuationArmed = true;
   const current = ++generation;
   const refs: MusicQueueEntry[] = items.map((item) => ({ kind: 'track', item_id: item.id, state: 'playable', tracks: [item], provenance: { source: 'contextual_mix', reason: item.reason.code } }));
   if (current !== generation || owner !== state.owner) return;
@@ -601,10 +694,11 @@ export function setMusicUnavailablePolicy(policy: 'skip' | 'wait'): void {
   markSharedDirty();
 }
 
-export const pauseMusic = (): void => { activeController()?.pause(); void checkpointMusic(); };
+export const pauseMusic = (): void => { cancelMusicContinuation(); activeController()?.pause(); void checkpointMusic(); };
 export async function toggleMusic(): Promise<void> {
   if (state.playback.playing) { pauseMusic(); return; }
   const owner = state.owner;
+  cancelMusicContinuation(); continuationArmed = true;
   const current = ++generation;
   if (!await stopCastForBrowserPlayback(owner, () => current === generation && state.owner === owner)) return;
   const controller = activeController();
@@ -612,8 +706,9 @@ export async function toggleMusic(): Promise<void> {
   else if (state.mode === 'streaming') await startStreamQueue(state.queue, Math.max(0, state.playback.index), state.playback.position, true);
   else await startMusicQueue(state.queue, Math.max(0, state.playback.index), state.playback.position, true);
 }
-export const seekMusic = async (position: number): Promise<void> => { await (state.mode === 'streaming' ? primeStream() : primeEngine()).seek(position); };
+export const seekMusic = async (position: number): Promise<void> => { const playing = state.playback.playing; cancelMusicContinuation(); continuationArmed = playing; await (state.mode === 'streaming' ? primeStream() : primeEngine()).seek(position); };
 export const stepMusic = async (direction: 1 | -1): Promise<void> => {
+  cancelMusicContinuation(); continuationArmed = true;
   const controller = activeController();
   if (!controller) {
     const index = Math.max(0, state.playback.index + direction);
@@ -648,11 +743,14 @@ export function setMusicSleepTimer(minutes: number | null): void {
   emit({ sleepUntil });
 }
 export const repeatMusic = (): void => {
+  const playing = state.playback.playing;
+  cancelMusicContinuation(); continuationArmed = playing;
   emit({ repeat: state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off' });
   activeController()?.setRepeat(state.repeat);
   markSharedDirty();
 };
 export async function closeMusic(): Promise<void> {
+  cancelMusicContinuation();
   const owner = state.owner;
   // Do not use pauseMusic here: its checkpoint can race the durable clear.
   activeController()?.pause();

@@ -3060,16 +3060,19 @@ private struct TVMusicHome: View {
                     Text("Resume").font(TVTypography.sectionTitle)
                     if resume.state == .waiting {
                         Text("Waiting for import").accessibilityIdentifier("tvMusicHomeWaiting")
-                    } else if let track = resume.track {
+                    } else {
+                        let track = resume.track
                         Button {
                             Task {
-                                do { playback = try await audioSession.resumeFromHome(resume, store: store) }
-                                catch { errorMessage = "Could not resume playback. Try again." }
+                                do {
+                                    playback = try await audioSession.resumeFromHome(resume, store: store)
+                                    if playback == nil { errorMessage = audioSession.message }
+                                } catch { errorMessage = "Could not resume playback. Try again." }
                             }
                         } label: {
                             VStack(alignment: .leading) {
-                                Text(track.title)
-                                Text("\(track.artist) · \(Int(resume.positionSeconds)) seconds").font(TVTypography.body)
+                                Text(track.title ?? "Saved track")
+                                Text("\(track.artist ?? "Unknown artist") · \(Int(resume.positionSeconds)) seconds").font(TVTypography.body)
                             }
                         }
                         .focused($focusedAction, equals: "resume")
@@ -3178,6 +3181,7 @@ private struct TVMusicHomeEditor: View {
                             .accessibilityIdentifier("tvMusicHomeMoveDown-\(shelf.rawValue)")
                     }.focusSection()
                 }
+                if saving { ProgressView("Saving…").accessibilityIdentifier("tvMusicHomeSaving") }
                 if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
                 HStack {
                     Button("Reset") { save(.reset) }.accessibilityIdentifier("tvMusicHomeReset")

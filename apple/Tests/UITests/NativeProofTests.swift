@@ -350,6 +350,10 @@ final class NativeTVMusicBrowseAndAutoHideBarTests: NativeProofJourney {
     func testTVMusicBrowseAndAutoHideBar() async throws { try await journeyTVMusicBrowseAndAutoHideBar() }
 }
 @MainActor
+final class NativeTVMusicHomeTests: NativeProofJourney {
+    func testHomeAndLegacyBrowsePlayback() async throws { try await journeyTVMusicHomeAndLegacyBrowse() }
+}
+@MainActor
 final class NativeTVBackDuringPlaybackPreparationTests: NativeProofJourney {
     func testTVBackDuringPlaybackPreparation() async throws { try await journeyTVBackDuringPlaybackPreparation() }
 }
@@ -2199,6 +2203,71 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(tvOS)
+    func journeyTVMusicHomeAndLegacyBrowse() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let capability = try? await api.musicJSON(identity: identity, path: "home/capability") as? [String: Any]
+        let enabled = capability?["enabled"] as? Bool == true
+        try await api.replaceProofMusicSession(identity: identity, itemIDs: [fixture.audioSecondTrackID, fixture.audioTrackID], position: 12)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        if enabled {
+            let edit = element("tvMusicHomeEdit")
+            try waitForExistence(edit, timeout: 25, named: "Music Home")
+            let resume = element("tvMusicHomeResume")
+            try waitForExistence(resume, timeout: 15, named: "saved Music Home queue")
+            try activate(edit)
+            try waitForExistence(element("tvMusicHomeEditor"), timeout: 10, named: "Music Home editor")
+            XCTAssertTrue(waitUntil(timeout: 8) { self.element("tvMusicHomeDone").hasFocus }, "Editor must start with visible focus.")
+            try activate(element("tvMusicHomeVisibility-downloads"))
+            XCTAssertTrue(waitUntil(timeout: 10) { self.element("tvMusicHomeVisibility-downloads").label == "Show" })
+            try activate(element("tvMusicHomeMoveUp-downloads"))
+            XCTAssertTrue(waitUntil(timeout: 10) { !self.element("tvMusicHomeSaving").exists })
+            try activate(element("tvMusicHomeReset"))
+            XCTAssertTrue(waitUntil(timeout: 10) { self.element("tvMusicHomeVisibility-downloads").label == "Hide" })
+            try activate(element("tvMusicHomeDone"))
+            XCTAssertTrue(waitUntil(timeout: 10) { edit.hasFocus }, "Closing the editor restores focus to Edit Home.")
+            try activate(resume)
+            try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "resumed Music Home player")
+            let clock = element("playbackTime")
+            _ = try waitForPlaybackValue(clock, timeout: 20) { $0 >= 12 }
+            XCUIRemote.shared.press(.menu)
+            XCTAssertTrue(waitUntil(timeout: 10) { resume.hasFocus }, "Back from the player restores focus to Resume.")
+        } else {
+            XCTAssertFalse(element("tvMusicHome").exists, "Unavailable Home must retain legacy navigation.")
+        }
+        let album = try revealMusicAlbum(fixture, named: "Music browse album")
+        try activate(album)
+        let track = element("musicItem-\(fixture.audioTrackID)")
+        try waitForExistence(track, timeout: 25, named: "Music browse track")
+        try activate(track)
+        try waitForExistence(element("nowPlayingBar"), timeout: 30, named: "Music playback")
+        try activate(element("nowPlayingBar"))
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "Music player")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
+        XCUIRemote.shared.press(.playPause)
+        let deadline = Date().addingTimeInterval(20)
+        var checkpoint = 0.0
+        while Date() < deadline {
+            if let saved = try await api.musicJSON(identity: identity, path: "session") as? [String: Any],
+               let position = saved["position_seconds"] as? Double, position >= 3,
+               let queue = saved["queue"] as? [[String: Any]],
+               let current = saved["current_index"] as? Int, queue.indices.contains(current),
+               let id = queue[current]["id"] as? String,
+               id.replacingOccurrences(of: "-", with: "").lowercased() == fixture.audioTrackID.replacingOccurrences(of: "-", with: "").lowercased() {
+                checkpoint = position
+                break
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        XCTAssertGreaterThanOrEqual(checkpoint, 3, "Playback must persist a shared queue checkpoint.")
+    }
+
     func journeyTVMusicBrowseAndAutoHideBar() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }

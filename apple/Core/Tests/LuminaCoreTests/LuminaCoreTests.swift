@@ -1163,6 +1163,39 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.availableLibraryCategories, ["movies"])
     }
 
+    func testNavigationRefreshSurvivesConcurrentHomeFallbackGeneration() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Lumina/Settings/navigation": return response(request, json: ["categories": ["movies", "music"]])
+            default: return response(request, json: page(items: []))
+            }
+        }
+        await store.restore()
+        XCTAssertEqual(store.navigationLoadState, .loaded)
+
+        let navigationStarted = expectation(description: "navigation refresh starts")
+        HomeDelayedURLProtocol.delay = { request in
+            request.url?.path == "/Lumina/Settings/navigation" ? 0.2 : 0
+        }
+        HomeDelayedURLProtocol.onStart = { request in
+            if request.url?.path == "/Lumina/Settings/navigation" { navigationStarted.fulfill() }
+        }
+        let navigation = Task { await store.refreshNavigationCategories() }
+        await fulfillment(of: [navigationStarted], timeout: 1)
+        await store.loadHomeFallback(for: [.continueWatching])
+        await navigation.value
+
+        XCTAssertEqual(store.availableLibraryCategories, ["movies", "music"])
+        XCTAssertEqual(store.navigationLoadState, .loaded,
+                       "A current navigation response must survive an unrelated Home generation advance.")
+        HomeDelayedURLProtocol.delay = { _ in 0 }
+        HomeDelayedURLProtocol.onStart = nil
+    }
+
     func testHomeLoadsShelvesConcurrentlyWithTheSameFirstShelfTime() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))

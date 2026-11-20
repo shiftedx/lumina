@@ -16,6 +16,11 @@ import Vision
 
 #if os(iOS)
 @MainActor
+final class NativePhoneMusicHomeTests: NativeProofJourney {
+    func testHomeLayoutAndBrowse() async throws { try await journeyPhoneMusicHome() }
+    func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
+}
+@MainActor
 final class NativeMobileWelcomeTests: NativeProofJourney {
     func testMinimalWelcomeHelpAndSignIn() async throws {
         try await journeyMobileWelcome()
@@ -1359,6 +1364,42 @@ class NativeProofJourney: XCTestCase {
         print("PERF_BOOKS_PRE_TEARDOWN ui=\(viewState) api=\(outcome)")
     }
     #endif
+    #endif
+
+    #if os(iOS)
+    func journeyPhoneMusicLegacy() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        _ = try revealMusicAlbum(fixture, named: "legacy music album")
+        XCTAssertFalse(element("musicHomeBrowseButton").exists, "Disabled and old servers must retain the existing browse surface.")
+    }
+
+    func journeyPhoneMusicHome() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("musicHomeBrowseButton"), timeout: 25, named: "Music Home")
+        try waitForExistence(element("musicHomeEditButton"), timeout: 20, named: "shelf editor")
+        try activate(element("musicHomeEditButton"))
+        try waitForExistence(element("musicHomeToggle-downloads"), timeout: 20, named: "Downloads shelf setting")
+        let downloads = element("musicHomeToggle-downloads")
+        downloads.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(timeout: 20) { downloads.value as? String == "0" }, "Downloads must be hidden after saving.")
+        let reorder = element("musicHomeReorder-downloads")
+        try activate(reorder)
+        try activate(application!.buttons["Move earlier"])
+        let reset = element("musicHomeResetButton")
+        guard waitUntil(timeout: 20, condition: { reset.isEnabled }) else { throw ProofFailure.timeout("Shelf order did not save.") }
+        try activate(reset)
+        XCTAssertTrue(waitUntil(timeout: 20) { downloads.value as? String == "1" }, "Reset must show Downloads again.")
+        try activate(application!.buttons["Done"])
+        try waitForExistence(element("musicHomeShelf-downloads"), timeout: 20, named: "reset Downloads shelf")
+        try activate(element("musicHomeBrowseButton"))
+        _ = try revealMusicAlbum(fixture, named: "album after Music Home")
+    }
     #endif
 
     func journeyAlbumPlayStartsFromIdle(restoredQueueUnavailable: Bool = false, requiresCompatibleAudio: Bool = false) async throws {
@@ -4153,6 +4194,9 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(album.label.contains(fixture.audioAlbumTitle))
         return album
         #else
+        if element("musicHomeBrowseButton").waitForExistence(timeout: 3) {
+            try activate(element("musicHomeBrowseButton"))
+        }
         try waitForExistence(album, timeout: 25, named: name)
         return album
         #endif

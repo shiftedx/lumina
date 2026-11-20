@@ -47,6 +47,8 @@ AUDIO_SECOND_TRACK = "A Signal Answered at Dawn"
 AUDIO_TRACK_DURATION_SECONDS = 90
 SHARED_MUSIC_PLAYLIST = "Observatory household listening"
 SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
+MUSIC_HOME_FIXTURE_ENV = "LUMINA_MUSIC_HOME_FIXTURE"
+MUSIC_HOME_MEMBER_USERNAME = "music-home-member"
 SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
@@ -1337,6 +1339,35 @@ def make_music(media_root: Path, artwork: Path | None = None) -> None:
         shutil.copyfile(folder / "cover.jpg", folder.parent / "artist.jpg")
 
 
+def make_music_home_media(media_root: Path) -> None:
+    """Add the small cross-client catalog only when the Music Home fixture is requested."""
+    from e2e.music_fixture import (  # scripts/ is added before the proof server starts
+        MUSIC_HOME_MULTIDISC_ALBUM,
+        MUSIC_HOME_PRIVATE_ALBUM,
+        MUSIC_HOME_PRIVATE_TRACK,
+        MUSIC_HOME_UNTAGGED_FILE,
+    )
+
+    def tagged(path: Path, *, title: str, album: str, artist: str, track: int, disc: int = 1) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        ffmpeg(
+            "-f", "lavfi", "-i", "sine=frequency=660:duration=1", "-c:a", "aac",
+            "-metadata", f"title={title}", "-metadata", f"artist={artist}",
+            "-metadata", f"album_artist={artist}", "-metadata", f"album={album}",
+            "-metadata", f"track={track}", "-metadata", f"disc={disc}/2", path,
+        )
+
+    root = media_root / "Music"
+    tagged(root / "Private Artist" / MUSIC_HOME_PRIVATE_ALBUM / f"01 {MUSIC_HOME_PRIVATE_TRACK}.m4a",
+           title=MUSIC_HOME_PRIVATE_TRACK, album=MUSIC_HOME_PRIVATE_ALBUM, artist="Private Artist", track=1)
+    for disc, title in ((1, "First Disc Signal"), (2, "Second Disc Signal")):
+        tagged(root / "Fixture Artist" / MUSIC_HOME_MULTIDISC_ALBUM / f"CD{disc}" / f"01 {title}.m4a",
+               title=title, album=MUSIC_HOME_MULTIDISC_ALBUM, artist="Fixture Artist", track=1, disc=disc)
+    untagged = root / "Unlabeled Artist" / "Unlabeled Album" / MUSIC_HOME_UNTAGGED_FILE
+    untagged.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg("-f", "lavfi", "-i", "sine=frequency=770:duration=1", "-c:a", "libmp3lame", untagged)
+
+
 def make_music_catalogue(media_root: Path) -> None:
     """Copy the generated tone into enough tagged albums to cross a native page."""
     from mutagen.mp4 import MP4
@@ -1522,9 +1553,10 @@ def configure_environment(state_root: Path) -> None:
 def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
     from app.db import init_db, session_scope
-    from app.models import LibraryItem, MediaRequest, MediaTitle, User, UserSettings
+    from app.models import LibraryItem, MediaRequest, MediaTitle, MusicAcquisition, MusicListeningSession, User, UserSettings
     from app.media_schemas import MediaSegmentInput, SmartCollectionRule
     from app.music_schemas import MusicPlaylistSave
+    from app.schemas import UserCreateRequest
     from app.services import media_segments
     from app.services import music_playlists
     from app.services import smart_collections
@@ -1643,6 +1675,51 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         curator = UserService(db).create_member_without_password(owner, "observatory-curator", "Observatory curator")
         shared_playlist = music_playlists.save(db, curator, MusicPlaylistSave(
             name=SHARED_MUSIC_PLAYLIST, shared=True, item_ids=[items[AUDIO_TRACK], items[AUDIO_SECOND_TRACK]]))
+        music_home_fixture: dict[str, str] = {}
+        if os.environ.get(MUSIC_HOME_FIXTURE_ENV) == "1":
+            from e2e.music_fixture import (
+                MUSIC_HOME_MULTIDISC_ALBUM,
+                MUSIC_HOME_PRIVATE_ALBUM,
+                MUSIC_HOME_PRIVATE_TRACK,
+                MUSIC_HOME_UNTAGGED_TITLE,
+                MUSIC_HOME_WAIT_ALBUM,
+            )
+
+            member_password = f"Fixture-{secrets.token_urlsafe(18)}"
+            member = UserService(db).create_user(UserCreateRequest(
+                username=MUSIC_HOME_MEMBER_USERNAME, password=member_password,
+                display_name="Music Home member",
+            ))
+            private_item = db.query(LibraryItem).filter_by(title=MUSIC_HOME_PRIVATE_TRACK).one()
+            private_item.user_id = member.id
+            private_item.visibility = "private"
+            wait_request_id = str(uuid.uuid4())
+            db.add(MusicAcquisition(
+                id=wait_request_id, user_id=owner.id, connector_id=str(uuid.uuid4()),
+                foreign_artist_id=str(uuid.uuid4()), foreign_album_id=str(uuid.uuid4()),
+                artist_name="Fixture Artist", album_name=MUSIC_HOME_WAIT_ALBUM, status="awaiting_import",
+            ))
+            db.add(MusicListeningSession(
+                user_id=owner.id, revision=1,
+                item_ids=[items[AUDIO_TRACK], items[AUDIO_TRACK]],
+                queue_entries=[
+                    {"kind": "track", "item_id": items[AUDIO_TRACK]},
+                    {"kind": "track", "item_id": items[AUDIO_TRACK]},
+                    {"kind": "acquisition", "request_id": wait_request_id},
+                    {"kind": "track", "item_id": items[AUDIO_SECOND_TRACK]},
+                ],
+                entry_index=0, unavailable_policy="wait", current_index=0, position_seconds=23,
+                repeat="off", shuffle=False, active_output={"kind": "browser"},
+            ))
+            music_home_fixture = {
+                "musicHomeMemberUsername": MUSIC_HOME_MEMBER_USERNAME,
+                "musicHomeMemberPassword": member_password,
+                "musicHomePrivateAlbumID": uuid.UUID(titles[("album", MUSIC_HOME_PRIVATE_ALBUM)]).hex,
+                "musicHomePrivateTrackID": uuid.UUID(private_item.id).hex,
+                "musicHomeMultidiscAlbumID": uuid.UUID(titles[("album", MUSIC_HOME_MULTIDISC_ALBUM)]).hex,
+                "musicHomeWaitRequestID": wait_request_id,
+                "musicHomeUntaggedTrackID": uuid.UUID(items[MUSIC_HOME_UNTAGGED_TITLE]).hex,
+            }
         book_items = make_books(state_root, db, owner)
         collection_fixture: dict[str, str] = {}
         if os.environ.get(COLLECTIONS_FIXTURE_ENV) == "1":
@@ -1676,6 +1753,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     try:
         return {
             **book_items,
+            **music_home_fixture,
             **collection_fixture,
             **streaming_fixture,
             "streamingRecommendationID": hashlib.sha256(b"https://www.youtube.com/watch?v=proofremote").hexdigest()[:24],
@@ -1960,6 +2038,47 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     shared = next((entry for entry in playlists if entry.get("id") == expected["sharedMusicPlaylistID"]), None)
     if shared is None or shared.get("can_edit") is not False:
         raise RuntimeError("The native music boundary did not preserve a shared read-only playlist.")
+    if "musicHomePrivateTrackID" in expected:
+        session = request_json("/Lumina/Music/session", token=token)
+        entries = session.get("entries")
+        if session.get("entry_index") != 0 or session.get("unavailable_policy") != "wait" or not isinstance(entries, list):
+            raise RuntimeError("The Music Home fixture did not retain its selected wait-policy queue.")
+        expected_states = [("track", "playable"), ("track", "playable"), ("acquisition", "awaiting_import"), ("track", "playable")]
+        if [(entry.get("kind"), entry.get("state")) for entry in entries] != expected_states:
+            raise RuntimeError("The Music Home fixture did not retain duplicate tracks and its Wait boundary.")
+        if entries[2].get("request_id") != expected["musicHomeWaitRequestID"]:
+            raise RuntimeError("The Music Home fixture did not retain its pending acquisition identity.")
+        if [str(track.get("id", "")).replace("-", "") for track in session.get("queue", [])] != [expected["audioTrackID"], expected["audioTrackID"]]:
+            raise RuntimeError("The Music Home fixture did not stop its playable queue at the Wait boundary.")
+
+        def require_not_found(path: str) -> None:
+            try:
+                request_json(path, token=token)
+            except RuntimeError as error:
+                if f"GET {path} returned 404:" not in str(error):
+                    raise
+            else:
+                raise RuntimeError(f"The Music Home owner unexpectedly resolved private media at {path}.")
+
+        require_not_found(f"/Lumina/Music/tracks/{expected['musicHomePrivateTrackID']}")
+        require_not_found(f"/Items/{expected['musicHomePrivateAlbumID']}")
+        member = request_json("/Users/AuthenticateByName", method="POST", payload={
+            "Username": expected["musicHomeMemberUsername"], "Pw": expected["musicHomeMemberPassword"],
+        })
+        member_token = member.get("AccessToken")
+        if not isinstance(member_token, str):
+            raise RuntimeError("The Music Home member could not authenticate.")
+        private_track = request_json(f"/Lumina/Music/tracks/{expected['musicHomePrivateTrackID']}", token=member_token)
+        if private_track.get("title") != "Private Lantern Draft":
+            raise RuntimeError("The Music Home member could not read its private track.")
+        discs = request_json(
+            f"/Items?ParentId={expected['musicHomeMultidiscAlbumID']}&IncludeItemTypes=Audio&Limit=50", token=token,
+        ).get("Items", [])
+        if [(track.get("ParentIndexNumber"), track.get("IndexNumber")) for track in discs] != [(1, 1), (2, 1)]:
+            raise RuntimeError("The Music Home fixture did not retain ordered multidisc tracks.")
+        untagged = request_json(f"/Lumina/Music/tracks/{expected['musicHomeUntaggedTrackID']}", token=token)
+        if untagged.get("title") != "Untagged Demo":
+            raise RuntimeError("The Music Home fixture did not retain the untagged file fallback title.")
     audio_url = ORIGIN + f"/Audio/{expected['audioTrackID']}/stream?" + urlencode({"Static": "true", "ApiKey": token})
     with urlopen(Request(audio_url, headers={"Range": "bytes=0-1023"}), timeout=60) as response:
         if response.headers.get_content_type() != "audio/mp4":
@@ -2109,6 +2228,8 @@ def main() -> None:
             print(f"Adding {performance_catalogue} synthetic performance-catalog movies...", flush=True)
             make_performance_catalogue(state_root / "media", performance_catalogue, performance_posters)
         make_music(state_root / "media", artwork=artwork.get("observatory.png"))
+        if os.environ.get(MUSIC_HOME_FIXTURE_ENV) == "1":
+            make_music_home_media(state_root / "media")
         if os.environ.get("LUMINA_NATIVE_MUSIC_CATALOGUE") == "1":
             make_music_catalogue(state_root / "media")
         make_show(state_root / "media")

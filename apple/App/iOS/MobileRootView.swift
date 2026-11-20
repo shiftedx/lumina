@@ -4444,7 +4444,7 @@ private struct NativePhoneMusicHome: View {
                             if let resumeError { Text(resumeError).foregroundStyle(.secondary) }
                         }
                     }
-                }.accessibilityIdentifier("musicHomeShelf-resume")
+                }
             }
         case .recent:
             if !home.recent.isEmpty {

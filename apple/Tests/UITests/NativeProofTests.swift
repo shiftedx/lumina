@@ -4243,6 +4243,7 @@ class NativeProofJourney: XCTestCase {
     /// before continuing so a TV Menu press cannot leave it immediately.
     private func openMusicLibrarySection(_ section: String) throws {
         #if os(iOS)
+        if element("musicHomeBrowseButton").exists { try activate(element("musicHomeBrowseButton")) }
         try activate(element("musicOptionsMenu"))
         #endif
         try activate(element("musicLibrary-\(section)"))

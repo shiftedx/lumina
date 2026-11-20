@@ -727,14 +727,21 @@ final class NativeAudioSession {
         writingMixQueue = true
         defer {
             writingMixQueue = false
-            if dirty && token == generation && owner == identity && conflict == nil { changed() }
+            if dirty && conflict == nil { changed() }
         }
         do {
             let saved = try await store.music.saveSession(itemIDs: queue.queue.map(\.id),
                 currentIndex: queue.currentIndex, positionSeconds: queue.positionSeconds, repeatMode: queue.repeatMode,
                 shuffle: queue.shuffle, baseRevision: queue.revision, entries: appended,
                 entryIndex: queue.entryIndex, unavailablePolicy: queue.unavailablePolicy)
-            guard token == generation, owner == identity, owner == store.music.sessionIdentity else { throw CancellationError() }
+            guard owner == identity, owner == store.music.sessionIdentity else { throw CancellationError() }
+            if token != generation || !canEditMixQueue {
+                // A local Stop or a handoff can supersede the issued request. An
+                // acknowledged revision is still needed for the newer checkpoint.
+                snapshot.revision = max(snapshot.revision, saved.revision)
+                persist()
+                throw CancellationError()
+            }
 
             // Do not replace the playing transport. The server can reproject an
             // acquisition or prune tracks while resolving the append.
@@ -800,7 +807,8 @@ final class NativeAudioSession {
                 let mix = try await store.music.contextualMix(kind: .track, seedID: seed, excluding: exclusions)
                 guard isCurrent(), !mix.items.isEmpty else { return }
                 guard try await self.appendMix(Array(mix.items.prefix(12)), store: store, isCurrent: isCurrent) != nil,
-                      !Task.isCancelled, self.generation == token, self.identity == owner, !self.isAirPlaying,
+                      !Task.isCancelled, ContinuousClock.now < deadline,
+                      self.generation == token, self.identity == owner, !self.isAirPlaying,
                       self.canEditMixQueue, self.snapshot.currentIndex == index, self.playback?.isPlaying == false,
                       self.continuationEnabled, self.tracks.indices.contains(index + 1) else { return }
                 await self.transport?.select(index + 1)

@@ -20,6 +20,8 @@ final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testHomeLayoutAndBrowse() async throws { try await journeyPhoneMusicHome() }
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
     func testContextualMix() async throws { try await journeyPhoneContextualMix() }
+    func testArtistInstantMixDismissalPreservesQueue() async throws { try await journeyPhoneArtistInstantMixDismissal() }
+    func testNowPlayingTrackRadioDismissalPreservesQueue() async throws { try await journeyPhoneNowPlayingTrackRadioDismissal() }
     func testOfflineHomeResume() async throws { try await journeyPhoneOfflineMusicHome() }
     func testOfflineReconnectKeepsDeviceQueue() async throws {
         try await journeyPhoneOfflineMusicHome(reconnect: true)
@@ -1558,6 +1560,115 @@ class NativeProofJourney: XCTestCase {
         try activate(application!.buttons["Track Radio"])
         try waitForExistence(element("nativeMixPreview"), timeout: 20, named: "track radio preview")
         try activate(application!.buttons["Close"])
+    }
+
+    func journeyPhoneArtistInstantMixDismissal() async throws {
+        let fixture = try loadFixture()
+        let (api, identity) = try await proofMusicAPI(fixture)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        try browseFromMusicHome()
+        try openMusicOptionsForProof()
+        try activate(application!.buttons["Artists"].firstMatch)
+
+        let artist = element("audioItem-\(fixture.audioArtistID)")
+        try waitForExistence(artist, timeout: 20, named: "fixture artist")
+        let artistSeed = artist.label
+        try activateVisibleCenterWhenNeeded(artist, named: "fixture artist")
+        let collection = element("musicCollectionScreen")
+        try waitForExistence(collection, timeout: 20, named: "artist detail")
+        let instant = element("nativeInstantMixButton")
+        try revealInLibraryViewport([instant], in: collection)
+        let before = try await queueState(api: api, identity: identity, source: "Artist Instant Mix before preview")
+        try activateVisibleCenterWhenNeeded(instant, named: "artist Instant Mix")
+        let preview = element("nativeMixPreview")
+        try waitForExistence(preview, timeout: 20, named: "artist Instant Mix preview")
+        XCTAssertEqual(preview.label, artistSeed, "Artist Instant Mix preview must retain the fixture artist seed.")
+        try activate(application!.buttons["Close"])
+        try waitForExistence(collection, timeout: 20, named: "artist detail after dismissal")
+        let after = try await queueState(api: api, identity: identity, source: "Artist Instant Mix after dismissal")
+        XCTAssertEqual(after.ids, before.ids, "Dismissing Artist Instant Mix must preserve queue order.")
+        XCTAssertEqual(after.currentIndex, before.currentIndex, "Dismissing Artist Instant Mix must preserve the selected queue entry.")
+    }
+
+    func journeyPhoneNowPlayingTrackRadioDismissal() async throws {
+        let fixture = try loadFixture()
+        let (api, identity) = try await proofMusicAPI(fixture)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let resume = element("musicHomeResumeButton")
+        try waitForExistence(resume, timeout: 25, named: "fixture Music Home Resume")
+        XCTAssertFalse(element("audioPlayerStage").exists, "Music Home must not begin playback before explicit Resume.")
+        try activateVisibleCenterWhenNeeded(resume, named: "fixture Music Home Resume")
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "fixture Now Playing")
+        XCTAssertTrue(currentAudioTitle().contains(fixture.audioTrackTitle), "Explicit Resume must open the seeded #343 track.")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 1 }
+
+        let optionsMenu = element("audioOptionsButton")
+        try activateVisibleCenterWhenNeeded(optionsMenu, named: "Now Playing actions")
+        try activateVisibleCenterWhenNeeded(application!.buttons["Listening options"].firstMatch, named: "Listening options action")
+        try waitForExistence(element("audioOptionsSheet"), timeout: 20, named: "Listening options sheet")
+        let options = element("audioListeningOptions")
+        try activateVisibleCenterWhenNeeded(options, named: "Now Playing listening options")
+        XCTAssertTrue(waitUntil(timeout: 10) { options.value as? String == "Expanded" },
+                      "Now Playing listening options must expand before Track Radio.")
+        let radio = element("nativeNowPlayingTrackRadio")
+        try revealMusicControl(radio)
+        let before = try await queueState(api: api, identity: identity, source: "Now Playing Track Radio before preview")
+        try activate(radio)
+        let preview = element("nativeMixPreview")
+        try waitForExistence(preview, timeout: 20, named: "Now Playing Track Radio preview")
+        XCTAssertTrue(preview.label.contains(fixture.audioTrackTitle), "Track Radio preview must retain the Now Playing fixture track seed.")
+        try activate(application!.buttons["Close"])
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "Now Playing after Track Radio dismissal")
+        let after = try await queueState(api: api, identity: identity, source: "Now Playing Track Radio after dismissal")
+        XCTAssertEqual(after.ids, before.ids, "Dismissing Now Playing Track Radio must preserve queue order.")
+        XCTAssertEqual(after.currentIndex, before.currentIndex, "Dismissing Now Playing Track Radio must preserve the selected queue entry.")
+        try activateVisibleCenterWhenNeeded(application!.buttons["Done"], named: "Listening options Done")
+        XCTAssertTrue(disappears(element("audioOptionsSheet"), timeout: 10), "Listening options must close before stopping playback.")
+    }
+
+    private func proofMusicAPI(_ fixture: ProofFixture) async throws -> (ProofAPI, APIIdentity) {
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        return (api, identity)
+    }
+
+    private func queueState(api: ProofAPI, identity: APIIdentity, source: String) async throws -> (ids: [String], currentIndex: Int) {
+        let response = try await api.musicJSON(identity: identity, path: "session")
+        let session = try XCTUnwrap(response as? [String: Any],
+                                    "\(source) requires a server session.")
+        let ids = try XCTUnwrap((session["queue"] as? [[String: Any]])?.compactMap { $0["id"] as? String },
+                                 "\(source) requires a concrete queue.")
+        XCTAssertFalse(ids.isEmpty, "\(source) requires a nonempty queue.")
+        return (ids, try XCTUnwrap(session["current_index"] as? Int, "\(source) requires a selected queue entry."))
+    }
+
+    private func openMusicOptionsForProof() throws {
+        let options = element("musicOptionsMenu")
+        try waitForExistence(options, timeout: 20, named: "Music options")
+        try activateVisibleCenterWhenNeeded(options, named: "Music options")
+    }
+
+    private func activateVisibleCenterWhenNeeded(_ control: XCUIElement, named name: String) throws {
+        try waitForExistence(control, timeout: 20, named: name)
+        guard hasVisibleFrame(control), control.isEnabled else {
+            throw ProofFailure.ui("\(name) must be visible and enabled before selection.")
+        }
+        if control.isHittable {
+            control.tap()
+            return
+        }
+        let frame = control.frame
+        let window = try applicationWindow()
+        window.coordinate(withNormalizedOffset: CGVector(
+            dx: (frame.midX - window.frame.minX) / window.frame.width,
+            dy: (frame.midY - window.frame.minY) / window.frame.height
+        )).tap()
     }
 
     func journeyPhoneMusicLegacy() async throws {

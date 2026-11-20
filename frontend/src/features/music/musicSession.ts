@@ -153,7 +153,9 @@ export function setMusicOwner(owner: string | null): void {
 
 function sharedPayload(base_revision: number) {
   return { base_revision, item_ids: state.queue.map((track) => track.id), current_index: state.queue.length ? Math.max(0, Math.min(state.playback.index, state.queue.length - 1)) : null, position_seconds: Math.max(0, state.playback.position), repeat: state.repeat, shuffle: state.shuffle, active_output: { kind: 'browser' as const },
-    entries: state.sharedEntries.length ? state.sharedEntries.map((entry) => entry.kind === 'track' ? { kind: 'track' as const, item_id: entry.item_id } : { kind: 'acquisition' as const, request_id: entry.request_id }) : undefined,
+    entries: state.sharedEntries.length ? state.sharedEntries.map((entry) => entry.kind === 'track'
+      ? { kind: 'track' as const, item_id: entry.item_id, ...(entry.provenance && { provenance: entry.provenance }) }
+      : { kind: 'acquisition' as const, request_id: entry.request_id }) : undefined,
     entry_index: state.sharedEntryIndex, unavailable_policy: state.unavailablePolicy };
 }
 

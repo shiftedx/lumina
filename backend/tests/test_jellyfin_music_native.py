@@ -200,7 +200,9 @@ def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(nativ
     music = next(view for view in views if view["CollectionType"] == "music")
     scope = {"ParentId": music["Id"], "Recursive": "true"}
     assert music["Type"] == "CollectionFolder"
-    assert [album["Id"] for album in get("/Items", IncludeItemTypes="MusicAlbum", **scope).json()["Items"]] == [jellyfin_id(ALBUM)]
+    albums = get("/Items", IncludeItemTypes="MusicAlbum", **scope).json()["Items"]
+    assert [album["Id"] for album in albums] == [jellyfin_id(ALBUM)]
+    assert albums[0]["AlbumArtists"] == [{"Id": jellyfin_id(ARTIST), "Name": "Artist"}]
     assert [artist["Id"] for artist in get("/Artists/AlbumArtists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
     assert [artist["Id"] for artist in get("/Artists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
     assert get("/Items", IncludeItemTypes="Movie", **scope).json()["Items"] == []
@@ -219,6 +221,22 @@ def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(nativ
     assert "music" not in {view["CollectionType"] for view in get("/UserViews").json()["Items"]}
     assert get("/Items", IncludeItemTypes="Audio", **scope).json()["Items"] == []
     assert get("/Items", IncludeItemTypes="Audio").json()["Items"], "Legacy explicit Audio browse stays available"
+
+
+def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(native):  # noqa: ANN001
+    url = f"/Items/{jellyfin_id(ONE)}/File"
+    assert native.get(url).status_code == 401
+    headers = mediabrowser(ALICE_TOKEN)
+    response = native.get(url, headers={**headers, "Range": "bytes=0-3"})
+    assert response.status_code == 206
+    assert len(response.content) == 4
+    assert response.headers["content-type"] in {"audio/flac", "audio/x-flac"}
+    assert native.head(url, headers=headers).headers["content-length"] == "4096"
+    assert native.get(f"/Items/{jellyfin_id(HIDDEN)}/File", headers=headers).status_code == 404
+    assert native.get(f"/Items/{jellyfin_id(ALBUM)}/File", headers=headers).status_code == 404
+    with db_module.SessionLocal.begin() as db:
+        db.add(MemberAccess(user_id=BOB, can_download=False))
+    assert native.get(url, headers=mediabrowser(BOB_TOKEN)).status_code == 403
 
 
 def test_music_rework_switch_preserves_queue_and_layout(native, monkeypatch):  # noqa: ANN001

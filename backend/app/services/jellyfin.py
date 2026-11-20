@@ -751,6 +751,10 @@ class JellyfinMapper:
                            AlbumId=jid(track.album_id), AlbumPrimaryImageTag=title_tag(self.key, albums.get(track.album_id), "Primary", self.scope),
                            ParentId=jid(track.album_id), Artists=[track.artist],
                            AlbumArtist=track.album_artist, IndexNumber=track.number, ParentIndexNumber=track.disc)
+                if track.artist_id:
+                    dto["AlbumArtists"] = [{"Id": jid(track.artist_id), "Name": track.album_artist}]
+                    if track.artist.casefold() == track.album_artist.casefold():
+                        dto["ArtistItems"] = [{"Id": jid(track.artist_id), "Name": track.artist}]
                 if sources and dto.get("MediaSources"):
                     dto["Container"] = dto["MediaSources"][0].get("Container")
         return dtos
@@ -766,7 +770,9 @@ class JellyfinMapper:
             "Type": "MusicAlbum" if title.type == "album" else "MusicArtist", "IsFolder": True,
             "MediaType": "Unknown", "ParentId": jid(title.parent_id), "ProductionYear": title.year,
             "Overview": (title.metadata_json or {}).get("overview"), "DateCreated": jf_date(title.arrived_at),
-            "AlbumArtist": artist.name if artist else None, "ImageTags": {"Primary": tag} if tag else {},
+            "AlbumArtist": artist.name if artist else None,
+            "AlbumArtists": [{"Id": jid(artist.id), "Name": artist.name}] if artist else None,
+            "ImageTags": {"Primary": tag} if tag else {},
             "BackdropImageTags": [], "UserData": user_data_dto(title.id, TitleUserData()),
         })
 

@@ -635,6 +635,18 @@ def audio_stream(item_id: str, request: Request, user: Caller, db: Db, format_: 
         raise
 
 
+@router.api_route("/items/{item_id}/file", methods=["GET", "HEAD"])
+def original_audio_file(item_id: str, request: Request, user: Caller, db: Db) -> MediaFileResponse:
+    """Finamp reads original audio through the Jellyfin file endpoint."""
+    from app.services.streaming_gate import require_download
+
+    entity = jf.resolve(db, user, item_id) if settings.music_rework_enabled else None
+    if entity is None or entity.item is None or entity.item.kind not in ("track", "audio"):
+        raise HTTPException(status_code=404, detail="Item not found")
+    require_download(db, user)
+    return media_file(item_id, request, user, db, None, attachment=True, audio=True)
+
+
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
 def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """The version's file as an attachment: allowed exactly when streaming is. A token is required (no PlaybackInfo grant)."""

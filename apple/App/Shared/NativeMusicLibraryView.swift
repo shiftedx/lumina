@@ -463,8 +463,10 @@ private struct NativeMusicTrackSections: View {
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var errorMessage: String?
     @State private var preparing = false
-    #if os(iOS)
     @State private var mixSeed: NativeMixSeed?
+    #if os(tvOS)
+    @State private var lastRadioTrack: String?
+    @FocusState private var focusedRadioTrack: String?
     #endif
 
     var body: some View {
@@ -480,26 +482,48 @@ private struct NativeMusicTrackSections: View {
         }
         Section("Tracks · \(tracks.count)") {
             ForEach(tracks) { track in
-                Button { play(at: tracks.firstIndex(of: track) ?? 0, shuffle: false) } label: {
-                    NativeMusicTrackLabel(item: track.mediaItem, store: store)
-                }
-                #if os(iOS)
-                .contextMenu {
-                    if store.music.homeCapability == .available && !store.isOffline {
+                #if os(tvOS)
+                HStack {
+                    trackButton(track)
+                    if canStartRadio {
                         Button("Track Radio", glyph: .discover) {
-                            mixSeed = NativeMixSeed(kind: .track, itemID: track.mediaItem.id, name: track.mediaItem.name)
+                            lastRadioTrack = track.nativeID
+                            openRadio(track)
                         }
+                        .accessibilityLabel("Track Radio for \(track.title)")
+                        .focused($focusedRadioTrack, equals: track.nativeID)
                     }
                 }
+                #else
+                trackButton(track)
+                    .contextMenu {
+                        if canStartRadio { Button("Track Radio", glyph: .discover) { openRadio(track) } }
+                    }
                 #endif
-                .disabled(preparing)
-                .accessibilityIdentifier("playlistTrack-\(track.nativeID)")
             }
         }
-        #if os(iOS)
-        .sheet(item: $mixSeed) { seed in
+        .sheet(item: $mixSeed, onDismiss: restoreRadioFocus) { seed in
             NativeContextualMixView(store: store, audio: audioSession, seed: seed, onPlay: onPlayback)
         }
+    }
+
+    private var canStartRadio: Bool { store.music.homeCapability == .available && !store.isOffline }
+
+    private func trackButton(_ track: LuminaCore.MusicTrack) -> some View {
+        Button { play(at: tracks.firstIndex(of: track) ?? 0, shuffle: false) } label: {
+            NativeMusicTrackLabel(item: track.mediaItem, store: store)
+        }
+        .disabled(preparing)
+        .accessibilityIdentifier("playlistTrack-\(track.nativeID)")
+    }
+
+    private func openRadio(_ track: LuminaCore.MusicTrack) {
+        mixSeed = NativeMixSeed(kind: .track, itemID: track.nativeID, name: track.title)
+    }
+
+    private func restoreRadioFocus() {
+        #if os(tvOS)
+        focusedRadioTrack = lastRadioTrack
         #endif
     }
 

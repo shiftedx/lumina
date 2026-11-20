@@ -251,7 +251,7 @@ final class NativeAudioSession {
     }
 
     func playMix(_ mix: MusicMixPreview, store: LuminaStore) async throws -> PlaybackModel {
-        guard canEditMixQueue, !store.isOffline, !mix.items.isEmpty else { throw URLError(.resourceUnavailable) }
+        guard canEditMixQueue, !writingMixQueue, !store.isOffline, !mix.items.isEmpty else { throw URLError(.resourceUnavailable) }
         let reasons = Dictionary(mix.items.map { ($0.id, $0.reason.code) }, uniquingKeysWith: { first, _ in first })
         return try await play(tracks: mix.items.map(\.track), index: 0, store: store, shuffle: false, generated: reasons)
     }
@@ -700,7 +700,7 @@ final class NativeAudioSession {
     }
 
     var canEditMixQueue: Bool {
-        !busy && !transferring && !restoringPausedQueue && !isRemoteOutput && !isSonos
+        !busy && !transferring && !restoringPausedQueue && !isRemoteOutput && !isSonos && !isAirPlaying
             && pendingSpeakerStop == nil && conflict == nil
     }
 

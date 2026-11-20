@@ -3070,7 +3070,7 @@ private struct TVMusicHome: View {
                 .padding(.horizontal, 80)
                 .padding(.vertical, 24)
                 .focusSection()
-                .defaultFocus($focusedAction, lastAction ?? "edit")
+                .defaultFocus($focusedAction, lastAction ?? "browse")
                 .sheet(isPresented: $editing, onDismiss: { focusedAction = "edit" }) {
                     if let editLayout { TVMusicHomeEditor(store: store, layout: editLayout) }
                 }

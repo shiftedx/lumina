@@ -4661,7 +4661,7 @@ private struct MusicCollectionView: View {
                     VStack(alignment: .leading, spacing: 12) { albumActions }
                 }
             }
-            if store.music.homeCapability == .available, item.type == "MusicAlbum" || item.type == "MusicArtist" {
+            if store.music.homeCapability == .available && !store.isOffline, item.type == "MusicAlbum" || item.type == "MusicArtist" {
                 Button("Instant Mix", glyph: .discover) {
                     mixSeed = NativeMixSeed(kind: item.type == "MusicAlbum" ? .album : .artist, itemID: item.id, name: item.name)
                 }
@@ -4724,7 +4724,7 @@ private struct MusicCollectionView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    if store.music.homeCapability == .available {
+                    if store.music.homeCapability == .available && !store.isOffline {
                         Button("Track Radio", glyph: .discover) {
                             mixSeed = NativeMixSeed(kind: .track, itemID: track.id, name: track.name)
                         }
@@ -4862,7 +4862,7 @@ private struct MusicGrid: View {
         if item.isAudio {
             Button { playTrack(item) } label: { card(item) }
                 .contextMenu {
-                    if store.music.homeCapability == .available {
+                    if store.music.homeCapability == .available && !store.isOffline {
                         Button("Track Radio", glyph: .discover) {
                             mixSeed = NativeMixSeed(kind: .track, itemID: item.id, name: item.name)
                         }

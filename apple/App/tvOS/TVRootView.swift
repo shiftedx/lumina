@@ -2947,9 +2947,13 @@ private struct TVAudioView: View {
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("audioScreen")
-        .task(id: store.music.sessionIdentity) {
-            await store.music.refreshHomeCapability()
-            if store.music.homeCapability == .available { await store.music.refreshHome() }
+        .task(id: "\(store.music.sessionIdentity ?? "")-\(store.isOffline)") {
+            if store.isOffline {
+                await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            } else {
+                await store.music.refreshHomeCapability()
+                if store.music.homeCapability == .available { await store.music.refreshHome() }
+            }
         }
         .task(id: lastVisibleItemID, priority: .utility) {
             await store.prefetchArtwork(after: lastVisibleItemID, in: store.audioItems, maxWidth: 760)
@@ -3010,7 +3014,7 @@ private struct TVMusicHome: View {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack(spacing: 40) {
                         Text("Music Home").font(TVTypography.sectionTitle).accessibilityIdentifier("tvMusicHome")
-                        if let home {
+                        if let home, !store.isOffline {
                             Button("Edit Home") { editLayout = home.layout; editing = true }
                                 .focused($focusedAction, equals: "edit")
                                 .accessibilityIdentifier("tvMusicHomeEdit")
@@ -3058,6 +3062,9 @@ private struct TVMusicHome: View {
                     Text("Resume").font(TVTypography.sectionTitle)
                     if resume.state == .waiting {
                         Text("Waiting for import").accessibilityIdentifier("tvMusicHomeWaiting")
+                    } else if resume.state == .unavailable {
+                        Text("\(resume.track.title ?? "Saved track") — download when connected to resume.")
+                            .accessibilityIdentifier("tvMusicHomeUnavailable")
                     } else {
                         let track = resume.track
                         Button {

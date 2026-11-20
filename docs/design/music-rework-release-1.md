@@ -2,6 +2,18 @@
 
 [Music Rework rollout issue](https://github.com/shiftedx/lumina/issues/355) · [Shared workflow contract](music-home-and-queue-workflows.md) · [Performance baseline](music-home-baseline.md)
 
+## November 20 dogfood and TestFlight handoff
+
+- **Real-server qualification** passed on product source `fcffcc6`. Chrome desktop and phone covered Music Home browse and play, preview with a stable session revision, playlist save, append behind Wait, replace, downloads, and opt-in continuation with a second-browser conflict. One persistent browser profile saved audio, cold relaunched with browser networking disabled, stayed paused until Resume, and reconciled a competing revision with Keep this device. The final server queue preserved duplicates and Wait. The authenticated server checks also passed member isolation and Finamp-shaped track, album and artist mixes. Two initial fixture or locator failures passed on fresh-fixture retries. [Real-server evidence](evidence/music-home/real-server-qualification.json).
+- **Web timing** used 20 fresh Chrome contexts per viewport per revision. The baseline and candidate alternated order over four rounds on one loopback host. All six #343 median budgets passed for buffered playback. Browser p95 is reported below. Native devices and field timing remain part of tester qualification. [Raw samples and budget checks](evidence/music-home/web-loopback-p95.json).
+- **Live server dogfood** runs the linux/amd64 0.7.1 candidate from `fcffcc6`, manifest `sha256:f46a46da7d018a84fb99ac5f229994ba8bb4d7ced672033053c7be7ceae9b47e`. The hosted build passed normal entrypoint, bootstrap, frontend, FFmpeg and model checks. Live disabled → enabled → disabled → enabled passed health, deployed frontend asset identity, anonymous capability denial, and exact comparison of all five existing queue snapshots. The populated disposable rehearsal covered playlist, shelf layout and offline download preservation and actual rollback. Live retention verified three images and two stopped isolated rollback pins, after a consistent schema 44 backup passed SQLite integrity. Browser offline verification uses loopback or HTTPS. The configured live dogfood origin uses LAN HTTP. [Hosted image build](https://github.com/shiftedx/lumina/actions/runs/44829088559), [Live rollout receipt](evidence/music-home/live-dogfood.json).
+- **TestFlight preparation** produced signed iOS and tvOS 0.1.0 (356) IPAs and Organizer archives from `79561d7`, with matching app and dSYM UUIDs, verified SHA-256 checksums, source snapshot and a What to Test guide. Build 356 is locally reserved. App Store Connect build-number availability, upload, processing and tester access remain open. Physical validation is tracked in #349–#353 and #355. [Signing and provenance evidence](evidence/music-home/testflight-staging.json).
+
+| Browser loopback p95 (ms) | Browse ready | First audio | Manual Next |
+| --- | ---: | ---: | ---: |
+| Desktop baseline → candidate | 934.8 → 919.3 | 343.3 → 327.4 | 153.3 → 116.0 |
+| Phone viewport baseline → candidate | 898.7 → 935.9 | 198.7 → 220.6 | 102.7 → 129.7 |
+
 ## Disposable fixture
 
 Build the production frontend and launch a new #343 proof server per mutating browser or simulator journey. Run the shared server verifier before using its resulting queue for a frontend smoke. Use freshly provisioned queues for the offline and mix journeys. Fixture manifests and response credentials stay local.

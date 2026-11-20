@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "qualification": "music-rework-355-isolated-real-server",
+  "product_revision": "fcffcc694887cd9da5c2586d2f0d3bb098978b03",
+  "documentation_revision": "79561d789a9a68439f5826550b67bf6fdcd37cc2",
+  "environment": {
+    "scope": "isolated disposable loopback fixture; no household data, external service, physical device, or deployment",
+    "browser": "Chrome 157.0.8103.80",
+    "audio_measurement": "browser scheduling or media-event proxy; not acoustic output"
+  },
+  "commands": [
+    "npm --prefix frontend run build",
+    "LUMINA_MUSIC_HOME_FIXTURE=1 backend/.venv/bin/python -u apple/scripts/proof_server.py",
+    "backend/.venv/bin/python scripts/e2e/verify_music_server.py $FIXTURE",
+    "backend/.venv/bin/python scripts/e2e/verify_finamp_instant_mix.py $FIXTURE",
+    "node frontend/scripts/verify-music-home.mjs $FIXTURE",
+    "node frontend/scripts/verify-music-mix.mjs $FIXTURE",
+    "node frontend/scripts/verify-music-continuation.mjs $FIXTURE",
+    "node frontend/scripts/verify-music-offline-resume.mjs $FIXTURE",
+    "node frontend/scripts/benchmark-music-home.mjs $FIXTURE $TIMINGS 3"
+  ],
+  "passes": [
+    {
+      "scope": "server contract: web/native Home layout round trip, member isolation, resume, contextual mixes, private-seed denial, queue provenance, stale revision, duplicate pruning, Wait projection, and legacy downgrade",
+      "report": "server-contract.log",
+      "sha256": "f6624fde4ea2c1eb98a85404b7c4ab5349100d40a93153c2473a01f8f73b2775"
+    },
+    {
+      "scope": "Finamp-shaped InstantMix protocol requests for track, album, artist, limits, and member visibility",
+      "report": "finamp-contract.log",
+      "sha256": "0c490cf1edd26f3a57b4541bc460ee47dd4a75ab995d38f263f8075165b8f28f"
+    },
+    {
+      "scope": "Chrome desktop and phone Home browse-to-play, explicit resume, persistent playback, per-member shelf/download isolation, legacy navigation, and device-local save",
+      "report": "browser-home.log",
+      "sha256": "a988375aec133222a0829fcbbd764809d62659eb4db4de3a8d6c092725612b56"
+    },
+    {
+      "scope": "Chrome desktop and phone contextual preview with no queue mutation, keyboard dismissal, playlist save, append behind Wait, and replacement queue start",
+      "report": "browser-mix.log",
+      "sha256": "4c90d2b900359ac02e753ea7aa988dd46647c5a44a6738d4758b4a51710d43f7"
+    },
+    {
+      "scope": "Chrome natural-end continuation and held contextual request versus second-browser revision conflict",
+      "report": "browser-continuation.log",
+      "sha256": "15b224868550256f820c120608d787c9baee0f1e666ef45b7c361b3d9cf0fc8b"
+    },
+    {
+      "scope": "one persistent Chrome profile: online download, browser-context close, same-profile offline relaunch, explicit resume, seek/pause, concurrent authoritative session revision, reconnect, Keep this device, and retained duplicate plus Wait logical entries",
+      "report": "browser-offline-reconnect-retry.log",
+      "sha256": "47dd3c453e5a1333a55b8fd101fc06b2bd75ff0fdd2a2dbface4ff657361b220"
+    },
+    {
+      "scope": "three fresh browser contexts per desktop and phone plus saved-album offline standalone smoke",
+      "report": "web-timings.json",
+      "sha256": "9d3b5ff998502815d6aaab79df267079adf524df7a893a160266f985c6d7f7d5"
+    }
+  ],
+  "timings_ms": {
+    "sample_count_per_view": 3,
+    "desktop_median": { "browse_ready": 897.3, "first_audio": 128.6, "manual_next": 86.9 },
+    "phone_median": { "browse_ready": 809.7, "first_audio": 141.3, "manual_next": 91.8 }
+  },
+  "retries": [
+    {
+      "initial_scope": "proof-fixture startup preflight duration assertion",
+      "initial_outcome": "failed before a workflow report was produced",
+      "retry_scope": "fresh isolated fixture on unchanged product revision",
+      "retry_outcome": "passed; fixture became ready and subsequent workflow reports passed",
+      "classification": "non-reproduced fixture bootstrap transient; not a product-pass claim"
+    },
+    {
+      "initial_scope": "offline reconnect control during a single-profile browser workflow",
+      "initial_outcome": "failed because a redrawn mini-player locator detached",
+      "initial_report": "browser-offline-reconnect.log",
+      "initial_report_sha256": "52e71824bbec48394c6b03f84186ac7da5fd9f6a401fbe481d6411354c4f2089",
+      "retry_scope": "fresh isolated fixture and unchanged product revision",
+      "retry_outcome": "passed",
+      "classification": "one retry pass; retained as an automation stability diagnostic"
+    }
+  ],
+  "continuity_scope": {
+    "result": "contiguous browser-profile proof exists",
+    "proven": [
+      "The same persistent browser profile downloaded content, was closed, and was relaunched offline.",
+      "The relaunched offline page required an explicit resume, then accepted local seek and pause.",
+      "While that browser remained offline, a separate authenticated API context advanced the authoritative server session revision.",
+      "The same browser profile reconnected, resolved the conflict by keeping device state, and the server logical queue retained its duplicate and Wait entries."
+    ],
+    "boundary": "The offline downloaded queue/checkpoint and the authoritative server logical queue are distinct state representations. The run proves their continuous same-profile reconnect interaction and final server-queue preservation; it does not assert byte-for-byte equality between those representations.",
+    "offline_boundary": "The browser network was disabled; the fixture server remained available only to the separate context that deliberately created the concurrent revision. This is not a server-process-outage proof."
+  },
+  "unproven": [
+    "physical-device playback, route changes, receiver behavior, and energy behavior",
+    "native-app TestFlight installation and physical-device validation",
+    "acoustic onset or audible gaplessness"
+  ]
+}

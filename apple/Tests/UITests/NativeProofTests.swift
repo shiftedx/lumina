@@ -1392,8 +1392,8 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("musicHomeResumeButton"), timeout: 25, named: "saved Resume")
         let playlist = element("musicHomePlaylist-\(sharedID)")
         try waitForExistence(playlist, timeout: 20, named: "Home playlist")
-        if !playlist.isHittable { element("audioScreen").swipeUp() }
-        try activate(playlist)
+        element("audioScreen").swipeUp()
+        playlist.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "playlist to download")
         try revealMusicControl(element("downloadAudioButton"))
         try activate(element("downloadAudioButton"))

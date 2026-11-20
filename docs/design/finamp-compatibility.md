@@ -1,6 +1,6 @@
 # Finamp compatibility trial
 
-[#354](https://github.com/shiftedx/lumina/issues/354) remains open: Android, timed lyrics and additional mix seeds remain unverified. The iOS simulator results below are limited to the tested fixture and client build.
+[#354](https://github.com/shiftedx/lumina/issues/354) covers the Finamp compatibility trial. Track InstantMix and offline playback passed on both platforms. Timed lyrics and additional seed results are listed below.
 
 ## Source and environment
 
@@ -14,12 +14,12 @@ Finamp's [lyrics API declaration](https://github.com/finamp-app/finamp/blob/e27c
 
 | Capability | iOS | Android | Evidence |
 | --- | --- | --- | --- |
-| Login and browse | Passed on simulator | Unverified | Candidate music view, album detail and track list |
-| Timed lyrics | Blocked | Unverified | Lyrics control disabled for the timed-lyric fixture track; Jellyfin lyrics route returns 404 |
-| Offline download and playback | Passed on simulator | Unverified | Original track, app cold restart with fixture stopped |
-| Playback and reporting | Passed on simulator | Unverified | Player clock advanced; server observed Playing, Progress and Stopped |
-| Track InstantMix | Passed on simulator | Unverified | Real client constructed a two-track queue and played its first track |
-| Album/artist InstantMix | Unverified | Unverified | Protocol replay only |
+| Login and browse | Passed on simulator | Passed on emulator | Candidate Music view and fixture tracks visible |
+| Timed lyrics | Blocked | Blocked | Online Lyrics control disabled on both. Standard Jellyfin lyrics route returns 404 |
+| Offline download and playback | Passed on simulator | Passed on emulator | Original track, app cold restart with fixture stopped |
+| Playback and reporting | Passed on simulator | Passed on emulator | Player clock advanced and server Start, Progress and Stopped were observed on both |
+| Track InstantMix | Passed on simulator | Passed on emulator | Both clients constructed a two-track queue and played the first track |
+| Album/artist InstantMix | Protocol replay | Passed on emulator | Both Android seeds played with two-item queues |
 
 ## iOS simulator result
 
@@ -35,6 +35,14 @@ The client downloaded the first track using **Download original** and stored an 
 
 The fixture's first track has timed lyrics on Lumina's native extension, but Finamp's Lyrics control was disabled. The standard Jellyfin lyrics request returned 404 in the separate protocol replay above, so timed lyric display remains blocked. The earlier **No Music Libraries** screenshot records the pre-fix baseline, not the result after `2059287`.
 
+## Android emulator result
+
+The official Finamp 1.0.2 universal APK (`1.0.2+202`, SHA-256 `094f56265e159fc84f910402b2cc456f629e93fb82e6c843e8277ca9a5fa3aa6`) ran on Android 15 / API 35 ARM64 against Lumina `04dc5fa`. ADB reverse connected the emulator to the disposable loopback #343 fixture.
+
+Finamp signed in, listed the Music library and started Track InstantMix from the first fixture track. Android MediaSession reported a two-track queue and active playback. Finamp downloaded the original track and artwork. After enabling Offline Mode, the fixture was stopped and its port confirmed closed. Finamp was force-stopped, reopened and played the downloaded AAC track from local storage. MediaSession reported active playback at 18,876 ms and Finamp displayed “Locally Playing”. [Sanitized Android screenshot](evidence/finamp/android-offline-playback.png).
+
+On a fresh fixture, album and artist InstantMix each started a two-item queue and advanced the playback clock. Server records showed the initial progress row, an updated position at 59 seconds, and a completed playback history row after a normal track transition. While online and playing the first fixture track, the Lyrics control remained disabled and tapping it left the player unchanged.
+
 ## Server contract and replay
 
 The route handles track, album and artist seeds using the existing visibility-scoped contextual mix, returning Jellyfin Audio DTOs and at most 100 entries. A track seed comes first, then related tracks; album results retain the contextual mix's disc ordering. Unsupported, missing and hidden seeds return an empty query result. Client `limit` can reduce the returned count. Genre and collection seeds remain empty and are not claimed supported.
@@ -47,4 +55,4 @@ mise exec -- backend/.venv/bin/python scripts/e2e/verify_finamp_instant_mix.py "
 
 On November 19, 2026 this passed against the loopback server: Finamp-shaped requests for track, album and artist seeds, Audio DTOs, seed ordering, limits, and private seed isolation between the owner and member. The private manifest and credentials stay local. Backend contract tests also cover unauthenticated and cross-member requests, missing and empty seeds, and the legacy user path. This replay does not test Finamp parsing or playback.
 
-To complete the gate, fix and verify timed lyrics in Finamp on iOS, then install and exercise a released Android build against the disposable fixture, recording app and OS versions, login, browse, timed lyrics, download followed by offline playback, and playback reports. Start InstantMix from a track, album and artist, capture sanitized request/response status and IDs, confirm the queue and advancing playback, and repeat with an empty result and a member who cannot see the private seed. Record failures with exact steps and keep tokens, fixture credentials and private media out of evidence. Genre and collection InstantMix need separate contract and behavior work before support is claimed.
+Remaining claims require real-client proof for timed lyrics and additional mix seeds where the client exposes the action. Reproduce status and any parsing or playback failure against the shared fixture. Keep tokens, fixture credentials and private media out of evidence. Genre and collection InstantMix need separate contract and behavior work before support is claimed.

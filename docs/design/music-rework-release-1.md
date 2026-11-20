@@ -41,13 +41,25 @@ The iPhone 17 simulator emitted 23,525 ms Browse, 46,146 ms First Audio and 15,8
 3. Enable for dogfood. Verify Home, preview/append/replace, playlist save, album download, offline resume and reconnect conflict. Repeat disable and re-enable with the queue active and check the existing layout, queue, playlists and local downloads.
 4. Stage the matching iOS and tvOS TestFlight builds using [the distribution runbook](../../apple/docs/testflight.md). Record build numbers and tester availability separately. Complete the retained-image rollback verification and attach the evidence to #355.
 
+## Physical-device evidence
+
+| Hardware | Record |
+| --- | --- |
+| iPhone and iPad | VoiceOver speech and traversal through Home and mix actions, including shelf reordering. Verify large Dynamic Type and the active queue and mini-player through size changes. |
+| iPhone | With playback active, exercise device lock, foreground return and lock-screen controls. Cold-launch in airplane mode, confirm the saved queue stays paused, explicitly play the download, then reconnect after a competing edit. |
+| AirPlay and Chromecast receivers | On iPhone, confirm acknowledged playback transfer and return. Verify continuation does not append while the receiver owns playback. |
+| Apple TV and Siri Remote | Use directions, Select and Back to edit Home, resume the paused queue and verify originating focus. Exercise Home/foreground and hardware Play/Pause. Cold-launch disconnected with retained audio, then record recovery after a cache purge. |
+
+Record the tested revision, app build, device and OS, output route, network state, observed queue and saved position. Keep receiver and server addresses, account identifiers and credentials out of issue evidence.
+
 ## Functional evidence and remaining checks
 
 - The #348 enabled, disabled and actual older-server journeys exercised iPhone 17 and Apple TV 4K. Disabled and older builds retained browse, playback and queue checkpoints on both platforms.
-- iPhone Home shelf editing and explicit saved-position Resume passed. The iPad Home rendered at 820 × 1180 points. The regular-width end-to-end workflow, Dynamic Type, VoiceOver speech and iPhone offline playback remain pending after simulator availability and automation failures.
+- iPhone Home shelf editing and explicit saved-position Resume passed. On iPad A16 at 820 × 1180 points, `testHomeLayoutAndBrowse` passed hide, reorder, reset and album browse. VoiceOver speech, large Dynamic Type and active playback through regular/compact size changes remain pending.
+- iPhone `testContextualMix` passed, including save with unchanged session revision and preview controls after foreground return. `testOfflineHomeResume` passed after Music Home Resume began validating the same cached member checkpoint as its offline card. The test confirmed paused launch, explicit Resume and “Downloaded audio”. Native reconnect conflict remains pending.
 - Apple TV passed shelf editing, explicit Resume, focus return from the player, Track Radio dismissal and forced-offline cold resume plus simulated file purge. The final Browse shortcut album-return focus fix compiled. Its simulator journey and the physical Siri Remote gate remain pending.
 - Chrome fixture journeys passed Home, contextual mix actions, a real two-browser continuation revision conflict, complete album download and offline cold restart with reconnect conflict resolution. The disabled Home deep link preserved browse and the existing queue.
-- The standalone iOS Finamp trial passed track InstantMix, original download and offline playback with the fixture stopped. The Android trial and timed lyrics gap remain tracked in #354.
+- Finamp 1.0.2 passed Track InstantMix, playback reporting, original download and offline cold playback on iOS simulator and Android 15 emulator. Album and artist InstantMix also passed on the Android emulator. Both clients showed a disabled Lyrics control against the standard route's 404. [Compatibility matrix](finamp-compatibility.md).
 
 ## Repository checks
 

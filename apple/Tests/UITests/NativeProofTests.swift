@@ -1498,7 +1498,7 @@ class NativeProofJourney: XCTestCase {
     func journeyPhoneMusicHome() async throws {
         let fixture = try loadFixture()
         try launchAndResetSession()
-        try signIn(using: fixture)
+        try signIn(using: fixture, waitsForAccount: false)
         try selectDestination("Audio", screen: "audioScreen")
         try waitForExistence(element("musicHomeBrowseButton"), timeout: 25, named: "Music Home")
         try waitForExistence(element("musicHomeEditButton"), timeout: 20, named: "shelf editor")

@@ -1594,7 +1594,7 @@ private struct TVLibraryView: View {
                 TVStreamingView(store: store, onOpen: onOpen, savedOnly: !store.streamingAvailable)
             case .music:
                 TVAudioView(store: store, onOpen: onOpen, browse: $audioBrowse,
-                            restoreFocusRequest: libraryFocusRequest)
+                            restoreFocusRequest: libraryFocusRequest, isAtNavigationRoot: isAtNavigationRoot)
             case .movies, .tv, .anime:
                 TVVideoView(store: store, onOpen: onOpen, browse: browseState(for: libraryCategory),
                             focusRequest: contentFocusRequest, restoreFocusRequest: libraryFocusRequest,
@@ -2882,6 +2882,7 @@ private struct TVAudioView: View {
     let onOpen: (MediaItem) -> Void
     @Binding var browse: TVAudioBrowseState
     let restoreFocusRequest: Int?
+    let isAtNavigationRoot: Bool
     @State private var pendingRestoredItemID: String?
     @State private var submittedSearch: String?
     @State private var lastVisibleItemID: String?
@@ -2935,6 +2936,7 @@ private struct TVAudioView: View {
                                     .focused($focusedItemID, equals: item.id)
                                     .accessibilityIdentifier("audioItem-\(item.id)")
                                     .onAppear {
+                                        if pendingRestoredItemID == item.id { restoreSelection(item.id) }
                                         lastVisibleItemID = item.id
                                         if store.audioHasMore && item.id == store.audioItems.suffix(6).first?.id { Task { await store.loadMoreAudio() } }
                                     }
@@ -2953,6 +2955,11 @@ private struct TVAudioView: View {
                     }
                 }
                 .padding(.bottom, 32)
+            }
+            .onChange(of: isAtNavigationRoot) { wasRoot, isRoot in
+                guard !wasRoot, isRoot, let itemID = browse.focusedItemID else { return }
+                pendingRestoredItemID = itemID
+                proxy.scrollTo("tvAudioBrowse", anchor: .top)
             }
         }
         .ignoresSafeArea(.container, edges: .horizontal)

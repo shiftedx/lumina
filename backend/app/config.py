@@ -44,6 +44,7 @@ class EnvSettings(BaseSettings):
     port: int = 8765
     reconcile_interval_seconds: int = 60
     music_metadata_enabled: bool = True
+    music_rework_enabled: bool = True
     music_youtube_discovery: bool = True
     remote_stream_idle_ttl_seconds: int = 30 * 60
     remote_stream_max_lifetime_seconds: int = 6 * 60 * 60

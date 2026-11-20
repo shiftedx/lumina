@@ -1,0 +1,120 @@
+{
+  "revision": "fcffcc694887cd9da5c2586d2f0d3bb098978b03",
+  "beforeImage": "sha256:81e3658c6c663650a95689f003d9cc36dcc8417341bbf14c5d87f32875162159",
+  "candidateImage": "sha256:f46a46da7d018a84fb99ac5f229994ba8bb4d7ced672033053c7be7ceae9b47e",
+  "baselineRoute": {
+    "originScheme": "http",
+    "health": true,
+    "established": true,
+    "frontendAssetSha256": "aec97bb277b7afeb3cccdf9765e015425a4ad6755a5d978c489d1df41d031aca",
+    "anonymousCapabilityDenied": false
+  },
+  "backup": {
+    "schema": 44,
+    "integrity": "ok",
+    "journal": "delete",
+    "bytes": 9737830400
+  },
+  "previousImagePinVerified": true,
+  "stages": [
+    {
+      "phase": "disabled-first",
+      "time": "2026-11-20T22:46:40.758585+00:00",
+      "musicHomeEnabled": false,
+      "unchanged": {
+        "queues": 5,
+        "playlists": 0,
+        "layouts": 0
+      },
+      "route": {
+        "originScheme": "http",
+        "health": true,
+        "established": true,
+        "frontendAssetSha256": "7feb603810f5dab2dfc33a749d577912a6b22cde1ff7c89b6855ce94cb6d0cb7",
+        "anonymousCapabilityDenied": true
+      }
+    },
+    {
+      "phase": "enabled",
+      "time": "2026-11-20T22:46:59.718306+00:00",
+      "musicHomeEnabled": true,
+      "unchanged": {
+        "queues": 5,
+        "playlists": 0,
+        "layouts": 0
+      },
+      "route": {
+        "originScheme": "http",
+        "health": true,
+        "established": true,
+        "frontendAssetSha256": "7feb603810f5dab2dfc33a749d577912a6b22cde1ff7c89b6855ce94cb6d0cb7",
+        "anonymousCapabilityDenied": true
+      }
+    },
+    {
+      "phase": "disabled-again",
+      "time": "2026-11-20T22:47:18.636577+00:00",
+      "musicHomeEnabled": false,
+      "unchanged": {
+        "queues": 5,
+        "playlists": 0,
+        "layouts": 0
+      },
+      "route": {
+        "originScheme": "http",
+        "health": true,
+        "established": true,
+        "frontendAssetSha256": "7feb603810f5dab2dfc33a749d577912a6b22cde1ff7c89b6855ce94cb6d0cb7",
+        "anonymousCapabilityDenied": true
+      }
+    },
+    {
+      "phase": "enabled-for-dogfood",
+      "time": "2026-11-20T22:47:38.260479+00:00",
+      "musicHomeEnabled": true,
+      "unchanged": {
+        "queues": 5,
+        "playlists": 0,
+        "layouts": 0
+      },
+      "route": {
+        "originScheme": "http",
+        "health": true,
+        "established": true,
+        "frontendAssetSha256": "7feb603810f5dab2dfc33a749d577912a6b22cde1ff7c89b6855ce94cb6d0cb7",
+        "anonymousCapabilityDenied": true
+      }
+    }
+  ],
+  "imageRetention": {
+    "known_good_images": 3,
+    "rollback_pins": 2,
+    "retired_pins": 0
+  },
+  "configScopeVerified": true,
+  "otherContainersUnchanged": true,
+  "result": "verified",
+  "buildRun": 44829088559,
+  "imageArchiveSHA256": "c8f8c08aa240e235a620a510ae57f648895bbdf7db3cad021659b2ad04a43faa",
+  "imageVerification": {
+    "hostedConfigId": "sha256:4c751932fa592a1bd33579ec9f9a0000f165c6f683e0b44c92e7a7631816ad6e",
+    "productionManifestId": "sha256:f46a46da7d018a84fb99ac5f229994ba8bb4d7ced672033053c7be7ceae9b47e",
+    "architecture": "amd64",
+    "version": "0.7.1",
+    "layerCount": 19,
+    "ociManifestAndConfigVerified": true,
+    "rootFsAndEffectiveConfigEqual": true
+  },
+  "followUp": {
+    "enabled": true,
+    "healthy": true,
+    "restarts": 0,
+    "knownGoodImages": [
+      "sha256:f46a46da7d018a84fb99ac5f229994ba8bb4d7ced672033053c7be7ceae9b47e",
+      "sha256:81e3658c6c663650a95689f003d9cc36dcc8417341bbf14c5d87f32875162159",
+      "sha256:64ffecb0908cb26366f8663a30c3797e0927443c9dffbf132e6da067aa86d350"
+    ],
+    "isolatedRollbackPins": 2
+  },
+  "dataScope": "Five existing production queue snapshots matched across each stage. Playlist, custom layout and offline playback preservation were proven on a disposable fixture with populated state."
+}

@@ -20,6 +20,16 @@ CODECS = {
 }
 SINE = ["-f", "lavfi", "-i", "sine=frequency=440:duration=1"]
 
+# Stable labels for the cross-client Music Home fixture.  The web real-stack
+# fixture owns the small FLAC/MP3 media set below, while the native proof
+# server creates its M4A equivalent and publishes the resulting opaque IDs.
+MUSIC_HOME_PRIVATE_ALBUM = "Private Lantern Notes"
+MUSIC_HOME_PRIVATE_TRACK = "Private Lantern Draft"
+MUSIC_HOME_MULTIDISC_ALBUM = "Two Signal Discs"
+MUSIC_HOME_UNTAGGED_FILE = "01 Untagged Demo.mp3"
+MUSIC_HOME_UNTAGGED_TITLE = "Untagged Demo"
+MUSIC_HOME_WAIT_ALBUM = "Awaiting Northern Signal"
+
 
 def _ffmpeg(*args: str | Path) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *map(str, args)], check=True)

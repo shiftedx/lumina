@@ -1,0 +1,109 @@
+{
+  "source": "60eeab8e5918520a0fec17596e488f3743fd8bc3",
+  "browser": "157.0.8103.80",
+  "host": {
+    "platform": "darwin",
+    "release": "27.2.0",
+    "arch": "arm64",
+    "cpu": "Apple M4 Max"
+  },
+  "fixture_album": "Signals from a Quiet Observatory",
+  "measurement": {
+    "browse_ready_ms": "Document navigation start to actionable fixture album on /audio?view=albums",
+    "first_audio_ms": "Track Play click to immediate Web Audio scheduling or HTML media playing event",
+    "next_track_ms": "Manual Next click to immediate successor scheduling or media playing event"
+  },
+  "samples": [
+    {
+      "view": "desktop",
+      "run": 1,
+      "browse_ready_ms": 872.6000000238419,
+      "first_audio_ms": 328.19999998807907,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 80.80000001192093,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "desktop",
+      "run": 2,
+      "browse_ready_ms": 825.2000000476837,
+      "first_audio_ms": 124.40000003576279,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 84.40000003576279,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "desktop",
+      "run": 3,
+      "browse_ready_ms": 823.8000000119209,
+      "first_audio_ms": 123.19999998807907,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 85.40000003576279,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "desktop",
+      "run": 4,
+      "browse_ready_ms": 817.4000000357628,
+      "first_audio_ms": 124.60000002384186,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 100.10000002384186,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "desktop",
+      "run": 5,
+      "browse_ready_ms": 821.6999999880791,
+      "first_audio_ms": 127.10000002384186,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 90,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "phone",
+      "run": 1,
+      "browse_ready_ms": 822.1999999880791,
+      "first_audio_ms": 144.10000002384186,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 91.30000001192093,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "phone",
+      "run": 2,
+      "browse_ready_ms": 823.1999999880791,
+      "first_audio_ms": 126,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 85.20000004768372,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "phone",
+      "run": 3,
+      "browse_ready_ms": 818.6999999880791,
+      "first_audio_ms": 195.89999997615814,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 82.89999997615814,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "phone",
+      "run": 4,
+      "browse_ready_ms": 823.5,
+      "first_audio_ms": 130.10000002384186,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 101,
+      "next_track_marker": "buffer-scheduled"
+    },
+    {
+      "view": "phone",
+      "run": 5,
+      "browse_ready_ms": 821.3999999761581,
+      "first_audio_ms": 135.10000002384186,
+      "first_audio_marker": "buffer-scheduled",
+      "next_track_ms": 83.80000001192093,
+      "next_track_marker": "buffer-scheduled"
+    }
+  ],
+  "offline_smoke": "Saved fixture album, reloaded standalone shell with network disabled, started saved track"
+}

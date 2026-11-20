@@ -105,11 +105,14 @@ struct MobileRootView: View {
         .task(id: MobileHomeSessionScope(store.session)) {
             userSettings.configure(session: store.session)
             if store.session != nil {
+                // A restored listening queue is member state required to surface
+                // a deliberate device/server conflict. Keep it session-owned so
+                // a root redraw cannot strand state after it claims restoration.
+                audioSession.restoreFromRoot(store: store)
                 if !store.isOffline {
                     await userSettings.load()
                     if userSettings.hasLoaded { appearance = userSettings.theme }
                 }
-                await audioSession.restore(store: store)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -292,6 +295,12 @@ struct NativeOfflineLibraryView: View {
                     Text(ByteCountFormatter.string(fromByteCount: store.offline.usedBytes, countStyle: .file))
                         .font(.caption.monospacedDigit()).foregroundStyle(LuminaTheme.muted)
                 }
+                if store.isOffline, store.music.homeCapability == .available {
+                    NavigationLink("Music Home") {
+                        NativePhoneMusicHome(store: store) { }
+                    }
+                    .accessibilityIdentifier("offlineMusicHomeButton")
+                }
                 if searchVisible {
                     HStack {
                         TextField("Search downloads", text: $query).submitLabel(.search)
@@ -387,7 +396,12 @@ struct NativeOfflineLibraryView: View {
             }
             NativeNowPlayingToolbar(store: store)
         }
-        .task { store.offline.refresh() }
+        .task(id: store.isOffline) {
+            store.offline.refresh()
+            if store.isOffline {
+                await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            }
+        }
         .refreshable { store.offline.refresh(); await store.refreshConnectivity() }
         .nativePlayback(request: $playbackRequest, store: store) { store.offline.refresh() }
         .accessibilityIdentifier("offlineLibraryScreen")
@@ -4193,6 +4207,7 @@ private struct AudioLibraryView: View {
     @State private var kind: MusicBrowseKind = .albums
     @State private var searchText = ""
     @State private var searchVisible = false
+    @State private var showingBrowse = false
 
     private var featuredAlbum: MediaItem? {
         guard kind == .albums, searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -4200,6 +4215,26 @@ private struct AudioLibraryView: View {
     }
 
     var body: some View {
+        Group {
+            if store.music.homeCapability == .available && !showingBrowse {
+                NativePhoneMusicHome(store: store) { showingBrowse = true }
+            } else {
+                browseBody
+            }
+        }
+        .accessibilityIdentifier("audioScreen")
+        .task(id: "\(store.music.sessionIdentity ?? ""):\(store.isOffline)") {
+            showingBrowse = false
+            if store.isOffline {
+                await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+            } else {
+                await store.music.refreshHomeCapability()
+                if store.music.homeCapability == .available { await store.music.refreshHome() }
+            }
+        }
+    }
+
+    private var browseBody: some View {
         GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -4291,6 +4326,10 @@ private struct AudioLibraryView: View {
 
     private var musicOptionsMenu: some View {
         Menu {
+            if store.music.homeCapability == .available {
+                Button("Music Home", glyph: .music) { showingBrowse = false }
+                    .accessibilityIdentifier("musicHomeButton")
+            }
             ForEach(NativeMusicSection.allCases, id: \.self) { section in
                 NavigationLink {
                     NativeMusicLibraryView(store: store, section: section)
@@ -4318,6 +4357,230 @@ private struct AudioLibraryView: View {
 }
 
 @MainActor
+private struct NativePhoneMusicHome: View {
+    let store: LuminaStore
+    let onBrowse: () -> Void
+    @Environment(NativeAudioSession.self) private var audioSession
+    @State private var editing = false
+    @State private var playback: PlaybackModel?
+    @State private var resumeError: String?
+    @State private var resuming = false
+
+    var body: some View {
+        List {
+            if !store.isOffline {
+                Section {
+                    Button("Browse music", glyph: .music, action: onBrowse)
+                        .accessibilityIdentifier("musicHomeBrowseButton")
+                }
+            }
+            switch store.music.homeState {
+            case .idle, .loading:
+                ProgressView("Loading Music Home…")
+            case .failed(let message):
+                Section {
+                    Text(message)
+                    Button("Retry Music Home") { Task { await store.music.refreshHome() } }
+                }
+            case .empty(let home), .ready(let home):
+                ForEach(home.layout.order, id: \.self) { shelf in
+                    if !home.layout.hidden.contains(shelf) { shelfContent(shelf, home: home) }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(LuminaTheme.paper.ignoresSafeArea())
+        .foregroundStyle(LuminaTheme.ink)
+        .navigationTitle("Music")
+        .accessibilityIdentifier("musicHomeScreen")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit shelves", glyph: .edit) { editing = true }
+                    .accessibilityIdentifier("musicHomeEditButton")
+                    .disabled(home == nil || store.isOffline)
+            }
+            NativeNowPlayingToolbar(store: store)
+        }
+        .sheet(isPresented: $editing) {
+            if let home { NativePhoneMusicHomeEditor(store: store, layout: home.layout) }
+        }
+        .nativeAudioPlayer(playback: $playback, store: store)
+        .refreshable { await store.music.refreshHome() }
+    }
+
+    private var home: MusicHome? {
+        switch store.music.homeState {
+        case .empty(let home), .ready(let home): home
+        default: nil
+        }
+    }
+
+    @ViewBuilder private func shelfContent(_ shelf: MusicHomeShelf, home: MusicHome) -> some View {
+        switch shelf {
+        case .resume:
+            if let resume = home.resume {
+                Section("Resume") {
+                    if resume.state == .waiting {
+                        Text("Waiting for import\(resume.track.title.map { ": \($0)" } ?? "")")
+                    } else if resume.state == .unavailable {
+                        Text("Download this track when connected to resume on this device.")
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(resume.track.title ?? "Saved queue").font(.headline)
+                            Text([resume.track.artist, resume.track.album].compactMap { $0 }.joined(separator: " · "))
+                                .foregroundStyle(.secondary)
+                            Text("Queue item \((resume.currentIndex ?? 0) + 1) · \(time(resume.positionSeconds))\(resume.track.duration.map { " / \(time($0))" } ?? "")")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Resume \(resume.track.title ?? "saved queue")", glyph: .play, variant: .solid) {
+                                resuming = true; resumeError = nil
+                                Task {
+                                    defer { resuming = false }
+                                    do {
+                                        playback = try await audioSession.resumeFromHome(resume, store: store)
+                                        if playback == nil { resumeError = audioSession.message ?? "Resume is unavailable. Refresh Music Home and try again." }
+                                    } catch { resumeError = error.localizedDescription }
+                                }
+                            }
+                            .disabled(resuming)
+                            .accessibilityIdentifier("musicHomeResumeButton")
+                            if let resumeError { Text(resumeError).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+            }
+        case .recent:
+            if !home.recent.isEmpty {
+                Section("Recently played") {
+                    ForEach(home.recent, id: \.id) { album in
+                        NavigationLink(value: recentItem(id: album.id, name: album.name, artist: album.artistName)) {
+                            VStack(alignment: .leading) {
+                                Text(album.name)
+                                if let artist = album.artistName { Text(artist).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                        .accessibilityIdentifier("musicHomeRecent-\(album.id)")
+                    }
+                }.accessibilityIdentifier("musicHomeShelf-recent")
+            }
+        case .playlists:
+            Section("Playlists") {
+                if home.playlists.isEmpty { Text("No playlists yet.").foregroundStyle(.secondary) }
+                ForEach(home.playlists) { playlist in
+                    NavigationLink(playlist.name) { NativePlaylistDetail(store: store, playlist: playlist) }
+                        .accessibilityIdentifier("musicHomePlaylist-\(playlist.id)")
+                }
+                NavigationLink("All playlists") { NativeMusicLibraryView(store: store, section: .playlists) }
+            }
+        case .downloads:
+            Section("Downloads") {
+                let count = store.offline.downloadedItems.filter(\.isAudio).count
+                Text(count == 0 ? "Save music to listen on this device." : "\(count) tracks saved on this device.")
+                    .foregroundStyle(.secondary)
+                NavigationLink("Open downloads") { NativeMusicLibraryView(store: store, section: .downloads) }
+            }.accessibilityIdentifier("musicHomeShelf-downloads")
+        case .mixes:
+            Section("Mixes") {
+                ForEach(home.mixes, id: \.kind) { mix in
+                    NavigationLink(mix.name) { NativeMusicMixView(store: store, kind: mix.kind, title: mix.name) }
+                }
+            }.accessibilityIdentifier("musicHomeShelf-mixes")
+        }
+    }
+
+    private func time(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.isFinite ? seconds : 0))
+        return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+
+    private func recentItem(id: String, name: String, artist: String?) -> MediaItem {
+        MediaItem(id: id, name: name, type: "MusicAlbum", overview: nil, productionYear: nil,
+                  seriesName: nil, seriesID: nil, seasonID: nil, collectionType: nil, indexNumber: nil,
+                  parentIndexNumber: nil, runTimeTicks: nil, userData: nil, imageTags: nil,
+                  backdropImageTags: nil, parentBackdropItemID: nil, parentBackdropImageTags: nil,
+                  album: nil, albumID: nil, albumPrimaryImageTag: nil, artists: artist.map { [$0] },
+                  albumArtist: artist, childCount: nil, container: nil)
+    }
+}
+
+@MainActor
+private struct NativePhoneMusicHomeEditor: View {
+    let store: LuminaStore
+    @State var layout: MusicHomeLayout
+    @Environment(\.dismiss) private var dismiss
+    @State private var saving = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(Array(layout.order.enumerated()), id: \.element) { index, shelf in
+                        HStack {
+                            Toggle(shelfTitle(shelf), isOn: Binding(
+                                get: { !layout.hidden.contains(shelf) },
+                                set: { visible in
+                                    var next = layout
+                                    if visible { next.hidden.removeAll { $0 == shelf } }
+                                    else { next.hidden.append(shelf) }
+                                    save(next)
+                                }))
+                            .tint(LuminaTheme.brand)
+                            .accessibilityIdentifier("musicHomeToggle-\(shelf.rawValue)")
+                            Menu {
+                                Button("Move earlier") { move(index, -1) }.disabled(index == 0)
+                                Button("Move later") { move(index, 1) }.disabled(index == layout.order.count - 1)
+                            } label: {
+                                Label("Reorder \(shelfTitle(shelf))", glyph: .moreHorizontal)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("musicHomeReorder-\(shelf.rawValue)")
+                        }
+                    }
+                } footer: { Text("Show, hide, and reorder shelves for your account.") }
+                Section {
+                    Button("Reset shelves") { save(.reset) }
+                        .accessibilityIdentifier("musicHomeResetButton")
+                }
+                if let error { Section { Text(error).foregroundStyle(.secondary) } }
+            }
+            .disabled(saving)
+            .navigationTitle("Edit shelves")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func move(_ index: Int, _ offset: Int) {
+        var next = layout
+        next.order.swapAt(index, index + offset)
+        save(next)
+    }
+
+    private func save(_ next: MusicHomeLayout) {
+        saving = true; error = nil
+        Task {
+            defer { saving = false }
+            do {
+                try await store.music.saveHomeLayout(next)
+                if case .ready(let home) = store.music.homeState { layout = home.layout }
+                else if case .empty(let home) = store.music.homeState { layout = home.layout }
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func shelfTitle(_ shelf: MusicHomeShelf) -> String {
+        switch shelf {
+        case .resume: "Resume"
+        case .recent: "Recently played"
+        case .playlists: "Playlists"
+        case .downloads: "Downloads"
+        case .mixes: "Mixes"
+        }
+    }
+}
+
+@MainActor
 private struct MusicCollectionView: View {
     let item: MediaItem
     let store: LuminaStore
@@ -4327,6 +4590,7 @@ private struct MusicCollectionView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var albumPlayback: PlaybackModel?
+    @State private var mixSeed: NativeMixSeed?
     @State private var preparingPlayback = false
     @State private var playbackError: String?
 
@@ -4371,6 +4635,9 @@ private struct MusicCollectionView: View {
         .nativeAudioPlayer(playback: $albumPlayback, store: store) {
             Task { await store.refresh() }
         }
+        .sheet(item: $mixSeed) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed) { albumPlayback = $0 }
+        }
     }
 
     private var collectionArtwork: some View {
@@ -4397,6 +4664,12 @@ private struct MusicCollectionView: View {
                     HStack(spacing: 12) { albumActions }
                     VStack(alignment: .leading, spacing: 12) { albumActions }
                 }
+            }
+            if store.music.homeCapability == .available && !store.isOffline, item.type == "MusicAlbum" || item.type == "MusicArtist" {
+                Button("Instant Mix", glyph: .discover) {
+                    mixSeed = NativeMixSeed(kind: item.type == "MusicAlbum" ? .album : .artist, itemID: item.id, name: item.name)
+                }
+                .accessibilityIdentifier("nativeInstantMixButton")
             }
             if let playbackError {
                 Text(playbackError)
@@ -4454,6 +4727,13 @@ private struct MusicCollectionView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if store.music.homeCapability == .available && !store.isOffline {
+                        Button("Track Radio", glyph: .discover) {
+                            mixSeed = NativeMixSeed(kind: .track, itemID: track.id, name: track.name)
+                        }
+                    }
+                }
                 .disabled(preparingPlayback || audioSession.busy)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: track))
@@ -4545,6 +4825,7 @@ private struct MusicGrid: View {
     @State private var lastVisibleItemID: String?
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var presentedPlayback: PlaybackModel?
+    @State private var mixSeed: NativeMixSeed?
     @State private var startingTrack = false
     @State private var playbackError: String?
 
@@ -4570,6 +4851,9 @@ private struct MusicGrid: View {
             }
         }
         .nativeAudioPlayer(playback: $presentedPlayback, store: store)
+        .sheet(item: $mixSeed) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed) { presentedPlayback = $0 }
+        }
         .alert("Playback unavailable", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("OK") { playbackError = nil }
         } message: { Text(playbackError ?? "") }
@@ -4581,6 +4865,13 @@ private struct MusicGrid: View {
     private func itemControl(_ item: MediaItem) -> some View {
         if item.isAudio {
             Button { playTrack(item) } label: { card(item) }
+                .contextMenu {
+                    if store.music.homeCapability == .available && !store.isOffline {
+                        Button("Track Radio", glyph: .discover) {
+                            mixSeed = NativeMixSeed(kind: .track, itemID: item.id, name: item.name)
+                        }
+                    }
+                }
                 .disabled(startingTrack || audioSession.busy)
         } else {
             NavigationLink(value: item) { card(item) }

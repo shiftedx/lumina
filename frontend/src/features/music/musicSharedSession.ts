@@ -2,7 +2,14 @@ import { requestJson } from '../../api';
 import type { MusicRepeatMode } from './musicEngine';
 import type { MusicTrack } from './musicTypes';
 
-export type MusicQueueEntry = { kind: 'track'; item_id: string; state?: 'playable'; tracks?: MusicTrack[] }
+export type MusicQueueProvenance = {
+  source: 'contextual_mix';
+  reason: 'seed_track' | 'same_artist' | 'shared_genre';
+};
+
+type MusicTrackRef = { kind: 'track'; item_id: string; provenance?: MusicQueueProvenance };
+
+export type MusicQueueEntry = (MusicTrackRef & { state?: 'playable'; tracks?: MusicTrack[] })
   | { kind: 'acquisition'; request_id: string; state?: 'playable' | 'pending_approval' | 'requested' | 'downloading' | 'awaiting_import' | 'failed'; name?: string; message?: string; tracks?: MusicTrack[] };
 
 export type MusicSharedSnapshot = {
@@ -29,7 +36,7 @@ export type MusicSharedWrite = {
   shuffle: boolean;
   active_output: { kind: 'browser' };
   acknowledged_output_ticket?: string;
-  entries?: Array<{ kind: 'track'; item_id: string } | { kind: 'acquisition'; request_id: string }> ;
+  entries?: Array<MusicTrackRef | { kind: 'acquisition'; request_id: string }>;
   entry_index?: number | null;
   unavailable_policy?: 'skip' | 'wait';
 };

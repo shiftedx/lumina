@@ -4,11 +4,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, or_, select, true
+from sqlalchemy import Integer, and_, case, cast, exists, false, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.models import LibraryItem, MediaTitle, MemberFavorite, MusicPlaylist, MusicTrackOverride, PlaybackProgress, User
-from app.music_schemas import MusicPlaylistRules, MusicPlaylistSave
+from app.music_schemas import MusicMixItem, MusicMixPreview, MusicMixReason, MusicMixSeed, MusicPlaylistRules, MusicPlaylistSave
 from app.persistence import write_transaction
 from app.services import music_library
 from app.services.library import LibraryService
@@ -26,9 +26,9 @@ def document(row: MusicPlaylist, user: User) -> dict:
             "count": len(row.item_ids or []) if row.rules is None else None, "can_edit": row.user_id == user.id}
 
 
-def list_playlists(db: Session, user: User) -> list[dict]:
+def list_playlists(db: Session, user: User, *, limit: int = 500) -> list[dict]:
     return [document(row, user) for row in db.scalars(select(MusicPlaylist).where(or_(MusicPlaylist.user_id == user.id, MusicPlaylist.shared))
-                                                      .order_by(MusicPlaylist.name, MusicPlaylist.id).limit(500))]
+                                                      .order_by(MusicPlaylist.name, MusicPlaylist.id).limit(limit))]
 
 
 def save(db: Session, user: User, body: MusicPlaylistSave, playlist_id: str | None = None) -> dict:
@@ -117,3 +117,178 @@ def mix(db: Session, user: User, kind: str, seed_id: str | None = None) -> list:
         query = smart_query(user, rules).order_by(func.random())
     items = list(db.scalars(query.limit(100)))
     return music_library.manifests(db, user, items)
+
+
+def _genre_expression():
+    override_type = func.json_type(MusicTrackOverride.fields, "$.genres")
+    return case(
+        (override_type == "array", func.json_extract(MusicTrackOverride.fields, "$.genres")),
+        (override_type.is_not(None), "[]"),
+        (func.json_array_length(LibraryItem.metadata_json, "$.genres") > 0,
+         func.json_extract(LibraryItem.metadata_json, "$.genres")),
+        (func.json_type(MediaTitle.metadata_json, "$.genres") == "array",
+         func.json_extract(MediaTitle.metadata_json, "$.genres")),
+        else_="[]",
+    )
+
+
+def _visible_music_query(user: User):
+    album_id = case(
+        (func.json_type(MusicTrackOverride.fields, "$.album_id").is_not(None),
+         func.json_extract(MusicTrackOverride.fields, "$.album_id")),
+        else_=LibraryItem.title_id,
+    )
+    return select(LibraryItem).outerjoin(
+        MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id,
+    ).outerjoin(
+        MediaTitle, and_(MediaTitle.id == album_id, MediaTitle.type == "album"),
+    ).where(
+        LibraryItem.kind.in_(("track", "audio")),
+        LibraryItem.status != "missing",
+        LibraryService.visible_predicate(user),
+    )
+
+
+def _visible_genres(db: Session, user: User, predicate) -> list[str]:  # noqa: ANN001
+    genres = _genre_expression()
+    values = func.json_each(genres).table_valued("key", "value", "type")
+    rows = db.execute(
+        _visible_music_query(user).with_only_columns(values.c.value, maintain_column_froms=True)
+        .join(values, true())
+        .where(predicate, values.c.key < 30, values.c.type == "text")
+        .distinct()
+        .order_by(func.lower(values.c.value), values.c.value)
+        .limit(30)
+    )
+    return [value[:64] for value in rows.scalars() if isinstance(value, str) and value][:30]
+
+
+def _genres_for_artist(db: Session, user: User, artist_id: str) -> list[str]:
+    return _visible_genres(db, user, MediaTitle.parent_id == artist_id)
+
+
+def _mix_reason(track, artist_id: str | None, genres: list[str], *, seed_track: bool = False) -> MusicMixReason:  # noqa: ANN001
+    if seed_track:
+        return MusicMixReason(code="seed_track", item_id=track.id)
+    if artist_id and track.artist_id == artist_id:
+        return MusicMixReason(code="same_artist", artist_id=artist_id)
+    wanted = {genre.casefold() for genre in genres}
+    genre = next((value for value in track.genres if value.casefold() in wanted), None)
+    if genre:
+        return MusicMixReason(code="shared_genre", genre=genre)
+    raise AssertionError("contextual mix candidate did not match its seed")
+
+
+def _ranked_candidates(
+    db: Session,
+    user: User,
+    *,
+    artist_id: str | None,
+    genres: list[str],
+    excluded_ids: set[str],
+    limit: int,
+) -> list[LibraryItem]:
+    genre_values = [genre.casefold() for genre in genres]
+    genre_expression = _genre_expression()
+    values = func.json_each(genre_expression).table_valued("key", "value", "type")
+    genre_match = exists(select(1).select_from(values).where(
+        values.c.key < 30,
+        values.c.type == "text",
+        func.lower(func.substr(values.c.value, 1, 64)).in_(genre_values),
+    )) if genre_values else false()
+    artist_match = MediaTitle.parent_id == artist_id if artist_id else false()
+    return list(db.scalars(
+        _visible_music_query(user)
+        .where(or_(artist_match, genre_match), LibraryItem.id.not_in(excluded_ids) if excluded_ids else true())
+        .order_by(
+            case((artist_match, 1), else_=0).desc(),
+            case((genre_match, 1), else_=0).desc(),
+            LibraryItem.id,
+        )
+        .limit(limit)
+    ))
+
+
+def _preview_items(tracks, artist_id: str | None, genres: list[str], *, seed_tracks: bool = False) -> list[MusicMixItem]:  # noqa: ANN001
+    return [
+        MusicMixItem(**track.model_dump(), reason=_mix_reason(track, artist_id, genres, seed_track=seed_tracks))
+        for track in tracks
+    ]
+
+
+def contextual_mix(
+    db: Session,
+    user: User,
+    *,
+    seed_kind: str,
+    seed_id: str,
+    exclude_item_ids: list[str],
+) -> MusicMixPreview:
+    """Build a bounded, read-only preview. ``exhausted`` means every eligible candidate fit in ``items``."""
+    excluded_ids = set(exclude_item_ids)
+    if len(excluded_ids) > 100:
+        raise HTTPException(422, "Exclude up to 100 unique tracks")
+    if seed_kind == "track":
+        seed_track = music_library.manifests(db, user, music_library.visible_tracks(db, user, [seed_id]))[0]
+        artist_id, genres = seed_track.artist_id, seed_track.genres
+        seed = MusicMixSeed(id=seed_track.id, kind="track", name=seed_track.title, artist_id=artist_id, genres=genres)
+        excluded_ids.add(seed_track.id)
+        candidates = _ranked_candidates(db, user, artist_id=artist_id, genres=genres, excluded_ids=excluded_ids, limit=101)
+        tracks = music_library.manifests(db, user, candidates)
+        items = _preview_items(tracks[:100], artist_id, genres)
+        return MusicMixPreview(seed=seed, items=items, exhausted=len(tracks) <= 100)
+
+    if seed_kind not in ("artist", "album"):
+        raise HTTPException(422, "Choose a track, artist or album")
+    title = db.scalar(select(MediaTitle).where(
+        MediaTitle.id == seed_id,
+        MediaTitle.type == seed_kind,
+        LibraryService.visible_title_predicate(user),
+    ))
+    if title is None:
+        raise HTTPException(404, "Music seed not found")
+
+    if seed_kind == "artist":
+        genres = _genres_for_artist(db, user, title.id)
+        seed = MusicMixSeed(id=title.id, kind="artist", name=title.name, artist_id=title.id, genres=genres)
+        candidates = _ranked_candidates(db, user, artist_id=title.id, genres=genres, excluded_ids=excluded_ids, limit=101)
+        tracks = music_library.manifests(db, user, candidates)
+        items = _preview_items(tracks[:100], title.id, genres)
+        return MusicMixPreview(seed=seed, items=items, exhausted=len(tracks) <= 100)
+
+    raw_genres = (title.metadata_json or {}).get("genres", [])
+    title_genres = [genre[:64] for genre in raw_genres if isinstance(genre, str)] if isinstance(raw_genres, list) else []
+    genres = list(dict.fromkeys([*title_genres, *_visible_genres(db, user, MediaTitle.id == title.id)]))[:30]
+    seed = MusicMixSeed(id=title.id, kind="album", name=title.name, artist_id=title.parent_id, genres=genres)
+    def numbered(name: str, default: int):
+        raw = case(
+            (func.json_type(MusicTrackOverride.fields, f"$.{name}").is_not(None), func.json_extract(MusicTrackOverride.fields, f"$.{name}")),
+            else_=func.json_extract(LibraryItem.metadata_json, f"$.{name}"),
+        )
+        value = cast(raw, Integer)
+        return case((and_(value > 0, value < 1_000_000), value), else_=default)
+
+    disc_number = numbered("disc_number", 1)
+    track_number = numbered("track_number", 1_000_000)
+    album_items = list(db.scalars(
+        _visible_music_query(user)
+        .where(MediaTitle.id == title.id, LibraryItem.id.not_in(excluded_ids) if excluded_ids else true())
+        .order_by(disc_number, track_number, LibraryItem.title, LibraryItem.id)
+        .limit(101)
+    ))
+    album_tracks = music_library.manifests(db, user, album_items)
+    album_tracks.sort(key=lambda track: (track.disc or 1, track.number or 1_000_000, track.title.casefold(), track.id))
+    if len(album_tracks) >= 101:
+        items = _preview_items(album_tracks[:100], title.parent_id, genres, seed_tracks=True)
+        return MusicMixPreview(seed=seed, items=items, exhausted=False)
+    remaining = 101 - len(album_tracks)
+    outside = _ranked_candidates(
+        db, user, artist_id=title.parent_id, genres=genres,
+        excluded_ids=excluded_ids | {track.id for track in album_tracks}, limit=remaining,
+    )
+    tracks = music_library.manifests(db, user, outside)
+    items = [
+        *_preview_items(album_tracks, title.parent_id, genres, seed_tracks=True),
+        *_preview_items(tracks[:100 - len(album_tracks)], title.parent_id, genres),
+    ]
+    return MusicMixPreview(seed=seed, items=items, exhausted=len(album_tracks) + len(tracks) <= 100)

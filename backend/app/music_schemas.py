@@ -15,6 +15,11 @@ class MusicQueueRequest(MusicBody):
     title_id: str | None = None
 
 
+class MusicHomeLayout(MusicBody):
+    order: list[str] = Field(default_factory=list, max_length=5)
+    hidden: list[str] = Field(default_factory=list, max_length=5)
+
+
 class MusicTrack(BaseModel):
     id: str
     title: str
@@ -39,6 +44,31 @@ class MusicTrack(BaseModel):
     album_gain_db: float | None = None
     album_peak: float | None = None
     gain_is_manual: bool = False
+
+
+class MusicMixReason(MusicBody):
+    code: Literal["seed_track", "same_artist", "shared_genre"]
+    item_id: str | None = None
+    artist_id: str | None = None
+    genre: str | None = None
+
+
+class MusicMixSeed(MusicBody):
+    id: str
+    kind: Literal["track", "artist", "album"]
+    name: str
+    artist_id: str | None = None
+    genres: list[str] = Field(default_factory=list)
+
+
+class MusicMixItem(MusicTrack):
+    reason: MusicMixReason
+
+
+class MusicMixPreview(MusicBody):
+    seed: MusicMixSeed
+    items: list[MusicMixItem] = Field(default_factory=list)
+    exhausted: bool
 
 
 class MusicTrackEdit(MusicBody):

@@ -2,7 +2,7 @@
 .books-surface .g-masthead { margin-bottom: 16px; }
 .books-surface .g-masthead-meta { color: var(--g-ink-2); font: var(--g-type-ui); }
 .books-tabs { display: flex; gap: 32px; min-height: 48px; margin-bottom: 32px; border-bottom: var(--g-rule); }
-.books-tabs a { display: inline-flex; min-height: 44px; align-items: center; padding-bottom: 10px; color: var(--g-ink-2); text-decoration: none; text-underline-offset: 10px; white-space: nowrap; }
+.books-tabs a { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; padding-bottom: 10px; color: var(--g-ink-2); text-decoration: none; text-underline-offset: 10px; white-space: nowrap; }
 .books-tabs a[aria-current='page'] { color: var(--g-ink); text-decoration: underline 2px var(--g-gold); }
 .books-surface :focus-visible, .books-reader :focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
 .books-section { margin-bottom: 48px; }

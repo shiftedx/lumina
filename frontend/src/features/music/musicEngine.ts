@@ -26,6 +26,7 @@ export type MusicRepeatMode = 'off' | 'all' | 'one';
 
 export type MusicEngineOptions = {
   onChange: (state: MusicEngineState) => void;
+  onNaturalEnd?: () => void;
   getAudio?: (source: MusicSource, signal: AbortSignal) => Promise<ArrayBuffer>;
   createContext?: () => AudioContext;
 };
@@ -266,6 +267,7 @@ async function defaultGetAudio(source: MusicSource, signal: AbortSignal): Promis
 
 export class MusicEngine {
   private readonly onChange: (state: MusicEngineState) => void;
+  private readonly onNaturalEnd?: () => void;
   private readonly getAudio: (source: MusicSource, signal: AbortSignal) => Promise<ArrayBuffer>;
   private readonly createContext: () => AudioContext;
 
@@ -292,6 +294,7 @@ export class MusicEngine {
 
   public constructor(options: MusicEngineOptions) {
     this.onChange = options.onChange;
+    this.onNaturalEnd = options.onNaturalEnd;
     this.getAudio = options.getAudio ?? defaultGetAudio;
     this.createContext = options.createContext ?? defaultContext;
   }
@@ -827,7 +830,7 @@ export class MusicEngine {
     const hasNext = nextIndex !== null;
     this.setState({ position: current.buffer.duration, playing: false, loading: hasNext });
     if (!this.isActive(generation)) return;
-    if (!hasNext) return;
+    if (!hasNext) { this.onNaturalEnd?.(); return; }
 
     const ready = this.prefetched?.index === nextIndex && this.sameSource(this.prefetched.source, this.queue[nextIndex]) ? this.prefetched : null;
     if (ready) {

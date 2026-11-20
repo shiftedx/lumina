@@ -12,7 +12,7 @@ from app import security
 from app.config import settings
 from app.main import app
 from app.models import AppSession
-from app.security import hash_password
+from app.security import CSRF_HEADER, hash_password
 from support import make_user
 
 PASSWORD = "Test-only-passphrase-1"
@@ -46,6 +46,17 @@ def test_raw_bearer_absent_database(client: TestClient, factory) -> None:
     assert len(rows) == 1
     assert bearer not in repr(rows)
     assert rows[0].id == security.session_digest(bearer)
+
+
+def test_music_home_layout_cookie_write_requires_its_session_csrf(client: TestClient) -> None:
+    csrf = login(client)
+    origin = settings.allowed_origins_list[0]
+    body = {"order": ["mixes"], "hidden": []}
+    rejected = client.put("/api/me/music-home/layout", json=body, headers={"Origin": origin})
+    assert rejected.status_code == 403 and rejected.json()["detail"] == "CSRF token missing or invalid."
+    accepted = client.put("/api/me/music-home/layout", json=body, headers={"Origin": origin, CSRF_HEADER: csrf})
+    assert accepted.status_code == 200
+    assert accepted.json() == {"order": ["mixes", "resume", "recent", "playlists", "downloads"], "hidden": []}
 
 
 def test_absolute_expiry_cannot_slide(client: TestClient, factory, monkeypatch: pytest.MonkeyPatch) -> None:

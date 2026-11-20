@@ -19,6 +19,7 @@ from app.models import (
     MemberAccess,
     AppSettings,
     MusicCastTicket,
+    MusicAcquisition,
     MusicEditBatch,
     MusicLookup,
     MusicTrackOverride,
@@ -114,6 +115,94 @@ def test_queue_keeps_requested_order_and_hides_private_and_missing_tracks(music_
         assert (reply.status_code, reply.json()) == (404, {"detail": "Track not found"})
 
 
+def test_contextual_mix_preview_orders_reasons_and_hides_ineligible_tracks(music_world) -> None:  # noqa: ANN001
+    factory, client_for, root = music_world
+    genre_artist, genre_album, genre_track = uid(740), uid(741), uid(742)
+    lonely_artist, lonely_album, lonely_track = uid(750), uid(751), uid(752)
+    hidden_artist, hidden_album, hidden_track = uid(760), uid(761), uid(762)
+    with factory() as db:
+        db.add_all([
+            MediaTitle(id=genre_artist, type="artist", key="artist:genre", root_id=ROOT, name="Genre artist"),
+            MediaTitle(id=genre_album, type="album", key="album:genre", root_id=ROOT, parent_id=genre_artist,
+                       name="Genre album", metadata_json={"genres": ["FOLK"]}),
+            MediaTitle(id=lonely_artist, type="artist", key="artist:lonely", root_id=ROOT, name="Lonely artist"),
+            MediaTitle(id=lonely_album, type="album", key="album:lonely", root_id=ROOT, parent_id=lonely_artist,
+                       name="Lonely album"),
+            MediaTitle(id=hidden_artist, type="artist", key="artist:hidden", root_id=ROOT, name="Hidden artist"),
+            MediaTitle(id=hidden_album, type="album", key="album:hidden", root_id=ROOT, parent_id=hidden_artist,
+                       name="Hidden album"),
+        ])
+        add_file(db, root, "Music/Genre/01 Folk.flac", item_id=genre_track, title_id=genre_album, owner=ALICE,
+                 title="A Folk Match", kind="track", metadata={"artist": "Genre artist", "track_number": 1, "genres": "legacy tag"})
+        add_file(db, root, "Music/Lonely/01 Solo.flac", item_id=lonely_track, title_id=lonely_album, owner=ALICE,
+                 title="Solo", kind="track", metadata={"artist": "Lonely artist", "track_number": 1})
+        add_file(db, root, "Music/Hidden/01 Secret.flac", item_id=hidden_track, title_id=hidden_album, owner=BOB,
+                 visibility="private", title="Secret", kind="track", metadata={"artist": "Hidden artist", "track_number": 1})
+        db.commit()
+
+    alice = client_for(ALICE)
+    track = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert track.status_code == 200
+    payload = track.json()
+    assert payload["seed"] == {"id": TRACKS[0], "kind": "track", "name": "Song 1.1", "artist_id": ARTIST, "genres": ["Folk"]}
+    assert [entry["id"] for entry in payload["items"]] == [TRACKS[1], TRACKS[2], SECOND_TRACK, RESTRICTED_TRACK, genre_track]
+    assert len({entry["id"] for entry in payload["items"]}) == len(payload["items"])
+    assert [entry["reason"]["code"] for entry in payload["items"]] == ["same_artist", "same_artist", "same_artist", "same_artist", "shared_genre"]
+    assert payload["items"][-1]["reason"]["genre"] == "FOLK"
+    assert payload["exhausted"] and PRIVATE_TRACK not in repr(payload) and MISSING_TRACK not in repr(payload)
+
+    with factory() as db:
+        db.add(MusicTrackOverride(item_id=genre_track, fields={"genres": []}))
+        db.commit()
+    cleared = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert genre_track not in [entry["id"] for entry in cleared.json()["items"]]
+
+    excluded = alice.get("/api/music/contextual-mix", params=[
+        ("seed_kind", "track"), ("seed_id", TRACKS[0]), ("exclude_item_ids", TRACKS[1]), ("exclude_item_ids", TRACKS[1]),
+    ])
+    assert excluded.status_code == 200 and TRACKS[1] not in [entry["id"] for entry in excluded.json()["items"]]
+
+    album = alice.get("/api/music/contextual-mix", params={"seed_kind": "album", "seed_id": ALBUM})
+    assert [(entry["id"], entry["reason"]["code"]) for entry in album.json()["items"][:3]] == [
+        (TRACKS[0], "seed_track"), (TRACKS[1], "seed_track"), (TRACKS[2], "seed_track"),
+    ]
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": PRIVATE_TRACK}).status_code == 404
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": MISSING_TRACK}).status_code == 404
+    assert alice.get("/api/music/contextual-mix", params={"seed_kind": "album", "seed_id": hidden_album}).json() == {"detail": "Music seed not found"}
+    empty = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": lonely_track})
+    assert empty.json()["items"] == [] and empty.json()["exhausted"]
+    assert alice.get("/api/music/mixes/radio", params={"seed_id": TRACKS[0]}).status_code == 200
+
+    with factory() as db:
+        db.add(MusicTrackOverride(item_id=TRACKS[0], fields={"genres": ["123"]}))
+        db.get(MediaTitle, lonely_album).metadata_json = {"genres": [123]}
+        db.commit()
+    numeric_genre = alice.get("/api/music/contextual-mix", params={"seed_kind": "track", "seed_id": TRACKS[0]})
+    assert numeric_genre.status_code == 200
+    assert lonely_track not in {entry["id"] for entry in numeric_genre.json()["items"]}
+
+
+def test_contextual_mix_enforces_preview_and_exclusion_caps(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    extra_ids = [uid(10_000 + index) for index in range(101)]
+    with factory() as db:
+        db.add_all([
+            LibraryItem(id=item_id, user_id=ALICE, visibility="shared", title=f"Extra {index}", kind="track",
+                        title_id=ALBUM, status="available", metadata_json={"artist": "Artist A", "track_number": index + 10})
+            for index, item_id in enumerate(extra_ids)
+        ])
+        db.commit()
+
+    alice = client_for(ALICE)
+    preview = alice.get("/api/music/contextual-mix", params={"seed_kind": "artist", "seed_id": ARTIST})
+    assert preview.status_code == 200
+    assert len(preview.json()["items"]) == 100 and not preview.json()["exhausted"]
+    too_many = alice.get("/api/music/contextual-mix", params=[
+        ("seed_kind", "artist"), ("seed_id", ARTIST), *[("exclude_item_ids", uid(20_000 + index)) for index in range(101)],
+    ])
+    assert too_many.status_code == 422
+
+
 def test_recently_played_albums_groups_qualified_member_history_and_hides_ineligible_tracks(music_world) -> None:  # noqa: ANN001
     factory, client_for, _root = music_world
     now = utcnow()
@@ -150,6 +239,84 @@ def test_recently_played_albums_groups_qualified_member_history_and_hides_inelig
     restricted = client_for(ALICE).get("/api/music/albums/recently-played").json()["items"]
     assert [entry["id"] for entry in restricted] == sorted([ALBUM, SECOND_ALBUM])
     assert client_for(BOB).get("/api/music/albums/recently-played").json() == {"items": []}
+
+
+def test_music_home_is_member_scoped_and_persists_only_its_layout(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    now = utcnow()
+    with factory() as db:
+        db.add(PlaybackProgress(id=uid(880), user_id=ALICE, item_id=TRACKS[0], plays=1, last_watched_at=now))
+        db.commit()
+    member_access.invalidate(ALICE)
+
+    alice = client_for(ALICE)
+    playlist = alice.post("/api/music/playlists", json={"name": "For Home", "item_ids": [TRACKS[0]]})
+    assert playlist.status_code == 200
+    session = alice.put("/api/me/music-session", json={
+        "base_revision": 0, "item_ids": [TRACKS[0]], "current_index": 0, "position_seconds": 12,
+        "repeat": "off", "shuffle": False, "active_output": {"kind": "browser"},
+    })
+    assert session.status_code == 200
+
+    home = alice.get("/api/me/music-home")
+    assert home.status_code == 200
+    payload = home.json()
+    assert payload["layout"] == {"order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": []}
+    assert set(payload["resume"]) == {"state", "revision", "entry_index", "current_index", "position_seconds", "track"}
+    assert payload["resume"] | {"track": None} == {
+        "state": "playable", "revision": 1, "entry_index": 0, "current_index": 0, "position_seconds": 12.0, "track": None,
+    }
+    assert set(payload["resume"]["track"]) == {"id", "title", "artist", "album", "album_id", "artwork_url", "duration"}
+    track = payload["resume"]["track"]
+    assert {key: track[key] for key in ("id", "title", "artist", "album", "album_id")} == {
+        "id": TRACKS[0], "title": "Song 1.1", "artist": "Artist A", "album": "Album One", "album_id": ALBUM,
+    }
+    assert track["artwork_url"].startswith(f"/api/titles/{ALBUM}/images/Primary?")
+    assert [entry["id"] for entry in payload["playlists"]] == [playlist.json()["id"]]
+    assert payload["mixes"] == [
+        {"kind": "rotation", "name": "Rotation"}, {"kind": "favorites", "name": "Favorites"},
+        {"kind": "unplayed", "name": "Unplayed"},
+    ]
+
+    saved = alice.put("/api/me/music-home/layout", json={"order": ["mixes", "recent"], "hidden": ["recent"]})
+    assert saved.status_code == 200
+    assert saved.json() == {"order": ["mixes", "recent", "resume", "playlists", "downloads"], "hidden": ["recent"]}
+    assert alice.get("/api/me/music-home").json()["layout"] == saved.json()
+    assert client_for(BOB).get("/api/me/music-home").json()["layout"] == {
+        "order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": [],
+    }
+    alice = client_for(ALICE)
+    assert alice.put("/api/me/music-home/layout", json={"order": ["recent", "recent"]}).status_code == 422
+    assert alice.put("/api/me/music-home/layout", json={"order": ["unknown"]}).status_code == 422
+    assert alice.put("/api/me/music-home/layout", json={}).json() == {
+        "order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": [],
+    }
+
+
+def test_music_home_reports_a_pending_selected_entry_without_a_resume_action(music_world) -> None:  # noqa: ANN001
+    import uuid
+
+    factory, client_for, _root = music_world
+    request_id = str(uuid.uuid4())
+    with factory() as db:
+        db.add(MusicAcquisition(
+            id=request_id, user_id=ALICE, connector_id="lidarr", foreign_artist_id=str(uuid.uuid4()),
+            foreign_album_id=str(uuid.uuid4()), artist_name="Artist", album_name="Pending album", status="awaiting_import",
+        ))
+        db.commit()
+
+    alice = client_for(ALICE)
+    response = alice.put("/api/me/music-session", json={
+        "base_revision": 0, "item_ids": [], "current_index": None, "position_seconds": 0,
+        "repeat": "off", "shuffle": False, "active_output": {"kind": "browser"},
+        "entries": [{"kind": "acquisition", "request_id": request_id}], "entry_index": 0, "unavailable_policy": "wait",
+    })
+    assert response.status_code == 200
+    assert alice.get("/api/me/music-home").json()["resume"] == {
+        "state": "waiting", "revision": 1, "entry_index": 0, "current_index": None, "position_seconds": 0.0,
+        "track": {"id": None, "title": "Pending album", "artist": None, "album": None, "album_id": None,
+                  "artwork_url": None, "duration": None},
+    }
 
 
 def test_track_metadata_uses_the_same_effective_values_as_the_queue(music_world) -> None:  # noqa: ANN001

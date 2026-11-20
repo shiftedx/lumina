@@ -19,11 +19,16 @@ struct TVMusicDetailView: View {
     @State private var loading = true
     @State private var preparing = false
     @State private var errorMessage: String?
+    @State private var mixSeed: NativeMixSeed?
+    @State private var mixPlayback: PlaybackModel?
+    @State private var mixOrigin: FocusTarget?
     @FocusState private var focusedControl: FocusTarget?
 
     private enum FocusTarget: Hashable {
         case play
         case shuffle
+        case mix
+        case trackMix(String)
         case album
         case artist
         case track(String)
@@ -59,6 +64,10 @@ struct TVMusicDetailView: View {
         .accessibilityIdentifier(currentItem.isAudio ? "detailScreen" : "musicCollectionScreen")
         .task(id: item.id) { await load() }
         .onPlayPauseCommand { handlePlayPause() }
+        .sheet(item: $mixSeed, onDismiss: { focusedControl = mixOrigin }) { seed in
+            NativeContextualMixView(store: store, audio: audioSession, seed: seed) { mixPlayback = $0 }
+        }
+        .nativeAudioPlayer(playback: $mixPlayback, store: store)
     }
 
     private var albumOrTrackDetail: some View {
@@ -122,6 +131,9 @@ struct TVMusicDetailView: View {
                         .font(TVTypography.metadata)
                         .foregroundStyle(LuminaTheme.muted)
                 }
+                if store.music.homeCapability == .available && !store.isOffline {
+                    instantMixButton(for: currentItem, kind: .artist, focus: .mix)
+                }
                 if let errorMessage = displayedError {
                     Label(errorMessage, glyph: .warning, variant: .solid, size: 24)
                         .font(TVTypography.metadata)
@@ -131,6 +143,7 @@ struct TVMusicDetailView: View {
                 }
             }
             .frame(width: 440, alignment: .leading)
+            .focusSection()
 
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .firstTextBaseline) {
@@ -182,6 +195,10 @@ struct TVMusicDetailView: View {
             .accessibilityValue(primaryButtonLabel)
             .focused($focusedControl, equals: .play)
             .defaultFocus($focusedControl, .play)
+
+            if store.music.homeCapability == .available && !store.isOffline {
+                instantMixButton(for: currentItem, kind: currentItem.isAudio ? .track : .album, focus: .mix)
+            }
 
             if albumTracks.count > 1 {
                 Button {
@@ -247,26 +264,42 @@ struct TVMusicDetailView: View {
             } else {
                 LazyVStack(spacing: 6) {
                     ForEach(albumTracks) { track in
-                        Button {
-                            play(trackID: track.id)
-                        } label: {
-                            TVMusicTrackRow(
-                                track: track,
-                                isCurrent: isCurrentTrack(track),
-                                duration: formattedDuration(track.durationSeconds),
-                                quality: fileQuality?.tracks[track.id]
-                            )
+                        HStack(spacing: 12) {
+                            Button {
+                                play(trackID: track.id)
+                            } label: {
+                                TVMusicTrackRow(
+                                    track: track,
+                                    isCurrent: isCurrentTrack(track),
+                                    duration: formattedDuration(track.durationSeconds),
+                                    quality: fileQuality?.tracks[track.id]
+                                )
+                            }
+                            .buttonStyle(LuminaQuietActionStyle(selected: isCurrentTrack(track)))
+                            .focused($focusedControl, equals: .track(track.id))
+                            .accessibilityLabel([trackAccessibilityLabel(track), fileQuality?.tracks[track.id]?.summary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
+                            .accessibilityValue(isCurrentTrack(track) ? (audioSession.playback?.isPlaying == true ? "Playing" : "Paused") : "")
+                            .accessibilityIdentifier("musicItem-\(track.id)")
+                            if store.music.homeCapability == .available && !store.isOffline {
+                                instantMixButton(for: track, kind: .track, focus: .trackMix(track.id))
+                            }
                         }
-                        .buttonStyle(LuminaQuietActionStyle(selected: isCurrentTrack(track)))
-                        .focused($focusedControl, equals: .track(track.id))
-                        .accessibilityLabel([trackAccessibilityLabel(track), fileQuality?.tracks[track.id]?.summary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
-                        .accessibilityValue(isCurrentTrack(track) ? (audioSession.playback?.isPlaying == true ? "Playing" : "Paused") : "")
-                        .accessibilityIdentifier("musicItem-\(track.id)")
                     }
                 }
                 .focusSection()
             }
         }
+    }
+
+    private func instantMixButton(for item: MediaItem, kind: MusicMixSeedKind, focus: FocusTarget) -> some View {
+        Button(kind == .track ? "Track Radio" : "Instant Mix") {
+            mixOrigin = focus
+            mixSeed = NativeMixSeed(kind: kind, itemID: item.id, name: item.name)
+        }
+        .buttonStyle(LuminaQuietActionStyle())
+        .focused($focusedControl, equals: focus)
+        .accessibilityLabel("\(kind == .track ? "Track Radio" : "Instant Mix") from \(item.name)")
+        .accessibilityIdentifier(focus == .mix ? "tvInstantMix-current" : "tvTrackRadio-\(item.id)")
     }
 
     private var artworkItem: MediaItem { album ?? currentItem }

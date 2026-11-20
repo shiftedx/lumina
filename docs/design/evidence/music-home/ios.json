@@ -1,0 +1,47 @@
+{
+  "product_source": "60a5763049e0967ab24d608c290071876dae6255",
+  "xcode": "27.1 (27A9269)",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "destination": "iPhone 17, iOS 26.5 simulator",
+  "build_configuration": "Debug",
+  "test": "NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming",
+  "result": "passed",
+  "markers": [
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795137201.60883
+    },
+    {
+      "elapsed_ms": 13242,
+      "event": "ready",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795137214.8505769
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795137222.597978
+    },
+    {
+      "elapsed_ms": 4599,
+      "event": "ready",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795137227.1971478
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795137227.1971998
+    },
+    {
+      "elapsed_ms": 4334,
+      "event": "ready",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795137231.531183
+    }
+  ]
+}

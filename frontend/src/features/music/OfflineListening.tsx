@@ -8,6 +8,7 @@ import {
   type OfflineTrack,
 } from './musicOffline';
 import './offline.css';
+import { readMusicCheckpoint, saveOfflineResumePosition } from './musicCheckpoint';
 
 const EMPTY_PLAYBACK: MusicEngineState = { index: -1, position: 0, duration: 0, playing: false, loading: false, error: null };
 type NativeOfflinePlayback = { audio: HTMLAudioElement; url: string; index: number };
@@ -56,8 +57,36 @@ export function OfflineListening() {
   const [refreshKey, setRefreshKey] = useState(0);
   const engineRef = useRef<MusicEngine | null>(null);
   const nativeRef = useRef<NativeOfflinePlayback | null>(null);
+  const resumeTrack = useRef<number | null>(null);
+  const checkpoint = useMemo(() => owner ? readMusicCheckpoint(owner) : null, [owner, refreshKey]);
+  const savedResume = checkpoint?.localOutput !== false && checkpoint
+    && !(checkpoint.unavailablePolicy === 'wait' && checkpoint.entryIndex !== null && checkpoint.entryIndex !== undefined
+      && checkpoint.entries?.[checkpoint.entryIndex]?.kind === 'acquisition'
+      && checkpoint.entries[checkpoint.entryIndex].state !== 'playable') ? checkpoint : null;
+  const savedTrack = savedResume?.queue[savedResume.index];
+  const resumeIndex = savedTrack ? tracks.findIndex((entry) => entry.track.id === savedTrack.id) : -1;
+  const checkpointPosition = useRef<{ seconds: number; started: boolean } | null>(null);
 
   useEffect(() => { ownerRef.current = owner; }, [owner]);
+
+  useEffect(() => {
+    const flush = () => {
+      const progress = checkpointPosition.current;
+      if (owner && savedResume && progress?.started) saveOfflineResumePosition(owner, savedResume, progress.seconds);
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [owner, savedResume]);
+
+  useEffect(() => {
+    const progress = checkpointPosition.current;
+    if (!progress || playback.index < 0 || playback.loading || playback.error) return;
+    if (playback.playing) progress.started = true;
+    progress.seconds = playback.position;
+    if (!playback.playing && progress.started && owner && savedResume) {
+      saveOfflineResumePosition(owner, savedResume, progress.seconds);
+    }
+  }, [owner, playback, savedResume]);
 
   useEffect(() => {
     let current = true;
@@ -131,7 +160,7 @@ export function OfflineListening() {
   function engine() {
     if (engineRef.current) return engineRef.current;
     const created = new MusicEngine({
-      onChange: setPlayback,
+      onChange: (state) => setPlayback({ ...state, index: resumeTrack.current !== null && state.index >= 0 ? resumeTrack.current : state.index }),
       getAudio: async (source, signal) => {
         const currentOwner = ownerRef.current;
         if (!currentOwner) throw new Error('No offline account is selected.');
@@ -146,7 +175,7 @@ export function OfflineListening() {
     return created;
   }
 
-  async function playNative(index: number, position: number) {
+  async function playNative(index: number, position: number, fromCheckpoint = false) {
     const entry = tracks[index];
     if (!entry) return;
     disposePlayer();
@@ -166,8 +195,9 @@ export function OfflineListening() {
     audio.onpause = () => { if (nativeRef.current === native && !audio.ended) setPlayback((value) => ({ ...value, playing: false, loading: false })); };
     audio.onended = () => {
       if (nativeRef.current !== native) return;
-      setPlayback((value) => ({ ...value, position: value.duration, playing: false, loading: index + 1 < tracks.length }));
-      if (index + 1 < tracks.length) void playAt(index + 1);
+      const hasNext = !fromCheckpoint && index + 1 < tracks.length;
+      setPlayback((value) => ({ ...value, position: value.duration, playing: false, loading: hasNext }));
+      if (hasNext) void playAt(index + 1);
     };
     audio.onerror = () => {
       if (nativeRef.current === native) setPlayback((value) => ({ ...value, playing: false, loading: false, error: 'This saved track is not supported by the browser.' }));
@@ -179,31 +209,37 @@ export function OfflineListening() {
     if (nativeRef.current === native) setPlayback({ index, position: audio.currentTime || position, duration: Number.isFinite(audio.duration) ? audio.duration : entry.track.duration ?? 0, playing: true, loading: false, error: null, playbackMode: 'native' });
   }
 
-  async function playAt(index: number, position = 0) {
+  async function playAt(index: number, position = 0, fromCheckpoint = false) {
     const entry = tracks[index];
     if (!entry) return;
+    if (checkpointPosition.current?.started && owner && savedResume) {
+      saveOfflineResumePosition(owner, savedResume, checkpointPosition.current.seconds);
+    }
+    resumeTrack.current = fromCheckpoint ? index : null;
+    checkpointPosition.current = fromCheckpoint ? { seconds: position, started: false } : null;
     setSelectedId(entry.track.id);
     setNotice(null);
     setError(null);
     try {
       const predicted = predictedDecodedBytes(entry.track);
       if (predicted === null || predicted > MAX_DECODED_AUDIO_BYTES) {
-        await playNative(index, position);
+        await playNative(index, position, fromCheckpoint);
         return;
       }
       // A prior oversized track may still be owned by the native media element.
       // Release it before Web Audio starts so the offline page has one output.
       if (nativeRef.current) disposePlayer();
-      await engine().play(tracks.map((saved) => ({
+      const queue = fromCheckpoint ? [entry] : tracks;
+      await engine().play(queue.map((saved) => ({
         id: saved.track.id,
         url: saved.track.audio_url,
         duration: saved.track.duration ?? undefined,
         sampleRate: saved.track.sample_rate ?? undefined,
         channels: saved.track.channels ?? undefined,
-      })), index, position);
+      })), fromCheckpoint ? 0 : index, position);
     } catch (reason) {
       if (reason instanceof Error && reason.message.includes('decoded-memory budget')) {
-        try { await playNative(index, position); return; } catch (nativeReason) { reason = nativeReason; }
+        try { await playNative(index, position, fromCheckpoint); return; } catch (nativeReason) { reason = nativeReason; }
       }
       if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(messageFor(reason, 'This saved track could not be played.'));
     }
@@ -229,6 +265,7 @@ export function OfflineListening() {
 
   async function step(direction: 1 | -1) {
     try {
+      if (resumeTrack.current !== null) return;
       if (nativeRef.current && playback.index >= 0) {
         await playAt(Math.max(0, Math.min(tracks.length - 1, playback.index + direction)));
       } else if (!engineRef.current || playback.index < 0) {
@@ -303,15 +340,23 @@ export function OfflineListening() {
       {shellError ? <p className="offline-message" role="status">{shellError} Saved tracks can still be played while this page remains open.</p> : null}
       {error ? <p className="offline-message is-error" role="alert">{error}</p> : null}
       {notice ? <p className="offline-message" role="status">{notice}</p> : null}
+      {!loading && savedResume && savedTrack ? <section className="offline-message" aria-label="Resume saved queue">
+        <strong>{savedTrack.title}</strong>
+        <p>Queue item {savedResume.index + 1} · {formatTime(savedResume.position)}</p>
+        {resumeIndex < 0 ? <p>Download this track when connected to resume offline.</p>
+          : <button className="offline-button" onClick={() => void playAt(resumeIndex, savedResume.position, true)} type="button">
+            <Play aria-hidden="true" /> Resume saved queue
+          </button>}
+      </section> : null}
 
       {loading ? <div className="offline-loading" role="status"><span className="offline-loading-bar" /><span className="offline-loading-bar is-short" /><span className="offline-loading-bar" /></div> : tracks.length ? <div className="offline-layout">
         <section aria-labelledby="offline-player-heading" className="offline-player">
           <div className="offline-player-art"><Artwork entry={active || selected} size="large" /></div>
           <div className="offline-player-copy"><p className="offline-eyebrow">{playback.playing ? 'Now playing' : 'Ready when you are'}</p><h2 id="offline-player-heading">{playerTitle}</h2><p>{(active || selected)?.track.artist || 'Saved music'}</p><small>{(active || selected)?.track.album || 'Offline queue'}</small></div>
           <div className="offline-transport" aria-label="Offline playback controls">
-            <button aria-label="Previous track" className="offline-icon-button" disabled={tracks.length < 1} onClick={() => void step(-1)} type="button"><SkipBack aria-hidden="true" /></button>
+            <button aria-label="Previous track" className="offline-icon-button" disabled={tracks.length < 1 || resumeTrack.current !== null} onClick={() => void step(-1)} type="button"><SkipBack aria-hidden="true" /></button>
             <button aria-label={playLabel} className="offline-play-button" disabled={!selected} onClick={() => void togglePlayback()} type="button">{playback.playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}</button>
-            <button aria-label="Next track" className="offline-icon-button" disabled={tracks.length < 1 || playback.index >= tracks.length - 1} onClick={() => void step(1)} type="button"><SkipForward aria-hidden="true" /></button>
+            <button aria-label="Next track" className="offline-icon-button" disabled={tracks.length < 1 || resumeTrack.current !== null || playback.index >= tracks.length - 1} onClick={() => void step(1)} type="button"><SkipForward aria-hidden="true" /></button>
           </div>
           <label className="offline-seek"><span className="sr-only">Track position</span><input aria-label="Track position" disabled={!playback.duration} max={duration || 1} min="0" onChange={(event) => void seek(Number(event.target.value))} step="0.1" type="range" value={Math.min(playback.position, duration || 0)} /><span><time>{formatTime(playback.position)}</time><time>{formatTime(duration)}</time></span></label>
           <label className="offline-volume"><Volume2 aria-hidden="true" /><span className="sr-only">Volume</span><input aria-label="Volume" max="1" min="0" onChange={(event) => changeVolume(Number(event.target.value))} step="0.01" type="range" value={volume} /></label>

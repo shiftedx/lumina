@@ -2,6 +2,7 @@ import type { MusicEngineState, MusicRepeatMode, MusicSource } from './musicEngi
 
 export interface MusicStreamOptions {
   onChange: (state: MusicEngineState) => void;
+  onNaturalEnd?: () => void;
   onAccessDenied?: (error: Error & { status?: number }) => void;
   createAudio?: () => HTMLAudioElement;
   createContext?: () => AudioContext | null;
@@ -58,6 +59,7 @@ function defaultContext(): AudioContext | null {
 export class MusicStream {
   private readonly audio: HTMLAudioElement;
   private readonly onChange: MusicStreamOptions['onChange'];
+  private readonly onNaturalEnd?: () => void;
   private readonly onAccessDenied?: MusicStreamOptions['onAccessDenied'];
   private readonly probe: NonNullable<MusicStreamOptions['probe']>;
   private readonly createContext: NonNullable<MusicStreamOptions['createContext']>;
@@ -80,6 +82,7 @@ export class MusicStream {
   public constructor(options: MusicStreamOptions) {
     this.audio = (options.createAudio ?? defaultAudio)();
     this.onChange = options.onChange;
+    this.onNaturalEnd = options.onNaturalEnd;
     this.onAccessDenied = options.onAccessDenied;
     this.probe = options.probe ?? defaultProbe;
     this.createContext = options.createContext ?? defaultContext;
@@ -283,6 +286,7 @@ export class MusicStream {
     if (this.repeat === 'one') void this.start(this.state.index, 0, 'native', this.invalidate()).catch(() => undefined);
     else if (this.state.index + 1 < this.queue.length) void this.start(this.state.index + 1, 0, 'native', this.invalidate()).catch(() => undefined);
     else if (this.repeat === 'all') void this.start(0, 0, 'native', this.invalidate()).catch(() => undefined);
+    else this.onNaturalEnd?.();
   };
 
   private readonly failed = (): void => {

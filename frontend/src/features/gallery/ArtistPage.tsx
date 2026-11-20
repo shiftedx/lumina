@@ -16,6 +16,8 @@ import { useMediaQuery } from './WallGrid';
 import './music.css';
 import { MusicDiscography, MusicEnrichment, MusicHighlights, MusicVideoRail } from '../music/MusicExtras';
 import { ArtistPhotoCredit } from '../music/ArtistPhotoCredit';
+import { MusicMixButton } from '../music/MusicMix';
+import { useMusicRework } from '../music/useMusicRework';
 
 export type ArtistPageProps = {
   summary: TitleSummary;
@@ -35,6 +37,7 @@ export type ArtistPageProps = {
 };
 
 export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onKeyDown, onOpenTitle, onPlay, onPlayArtist, canEdit = false, onEdit, onRefreshed, onWatchVideo }: ArtistPageProps) {
+  const mixEnabled = useMusicRework();
   const phone = useMediaQuery('(max-width: 599px)');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -80,6 +83,7 @@ export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onK
             <div className="g-album-actions" data-focus-row>
               <button className="g-button is-primary g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(false)} type="button"><Play aria-hidden="true" /> Play all</button>
               <button className="g-button g-button-text" data-focus-item disabled={busy || !albums?.length} onClick={() => void playAll(true)} type="button"><Shuffle aria-hidden="true" /> Shuffle all</button>
+              <MusicMixButton enabled={mixEnabled} id={artist.id} kind="artist" name={artist.name} />
               {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(artist.id)} type="button"><Pencil aria-hidden="true" /> Edit artist</button> : null}
             </div>
             {artist.overview ? <div className="music-biography"><p aria-hidden="true" className="music-biography-preview">{artist.overview}</p><details><summary>About the artist</summary><p>{artist.overview}</p></details></div> : null}
@@ -98,7 +102,7 @@ export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onK
           </ul>
         </section>
       ) : <p className="g-album-note">Nothing by this artist is available right now.</p>}
-        <MusicHighlights id={artist.id} onPlay={onPlay} />
+        <MusicHighlights id={artist.id} mixEnabled={mixEnabled} onPlay={onPlay} />
         </div>
         <MusicVideoRail id={artist.id} onWatch={onWatchVideo} />
         <MusicDiscography artistId={detail?.provider_ids?.MusicBrainz ?? null} artistName={artist.name} id={artist.id} music={detail?.music} />

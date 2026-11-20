@@ -73,6 +73,20 @@ async function settle(): Promise<void> {
 }
 
 describe('MusicEngine', () => {
+  it('reports only a natural queue end', async () => {
+    const fake = fakeAudio();
+    const onNaturalEnd = vi.fn();
+    const engine = new MusicEngine({ onChange: () => undefined, onNaturalEnd, createContext: () => fake.context, getAudio: loader() });
+    await engine.play([track('a')]);
+    engine.pause();
+    expect(onNaturalEnd).not.toHaveBeenCalled();
+    await engine.resume();
+    fake.context.currentTime = 15;
+    fake.sources.at(-1)?.onended?.();
+    expect(onNaturalEnd).toHaveBeenCalledOnce();
+    engine.dispose();
+  });
+
   it('resumes the context before loading and schedules one lookahead at the exact buffer boundary', async () => {
     const fake = fakeAudio({ a: 5, b: 4 });
     const events: string[] = [];

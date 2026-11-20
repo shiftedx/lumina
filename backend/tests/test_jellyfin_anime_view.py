@@ -32,6 +32,7 @@ USER_VIEWS = [
     ("555151516f1a5c83bb741fb88ad5cce6", "Anime", "tvshows"),
     ("b8e6e5f3a40f598dbdc1c27bf7a21d37", "Collections", "boxsets"),
     ("5fe4102fd93e5680bd01138b092b10d7", "Channels", "tvshows"),
+    ("b0196c2ee787577dad329435104d8e13", "Music", "music"),
 ]
 VIEW_KEYS = {"Id", "ServerId", "Name", "SortName", "Type", "CollectionType", "IsFolder", "MediaType", "ImageTags",
              "BackdropImageTags", "LocationType", "PlayAccess", "CanDelete", "CanDownload", "UserData"}
@@ -86,7 +87,7 @@ def test_anime_view_is_listed_only_for_a_member_who_can_see_an_anime_series(jf: 
     assert "Anime" in names(get(jf, "/UserViews"))
     assert "Anime" not in names(get(jf, "/UserViews", token=BOB_TOKEN))
     recategorise("shows", ANIME_SERIES, ANIME_SEASON, ANIME_EPISODE)
-    assert names(get(jf, "/UserViews")) == ["Movies", "Shows", "Collections", "Channels"]  # an anime movie alone makes no view
+    assert names(get(jf, "/UserViews")) == ["Movies", "Shows", "Collections", "Channels", "Music"]  # an anime movie alone makes no view
 
 
 def test_parent_ids_follow_type_and_category(jf: TestClient) -> None:

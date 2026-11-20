@@ -1,0 +1,48 @@
+{
+  "product_source": "939ba44b34f3d8002a334d81c844dd65b3c0ccfa",
+  "xcode": "27.1",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "destination": "Apple TV 4K (3rd generation), tvOS 27.0 simulator",
+  "build_configuration": "Debug",
+  "test": "NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming",
+  "result": "passed",
+  "markers": [
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795191962.064264
+    },
+    {
+      "elapsed_ms": 22481,
+      "event": "ready",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795191984.5449119
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795191988.1452808
+    },
+    {
+      "elapsed_ms": 12573,
+      "event": "ready",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795192000.718133
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795192002.1871061
+    },
+    {
+      "elapsed_ms": 8412,
+      "event": "ready",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795192010.59868
+    }
+  ],
+  "notes": "Single #343 fixture sample on November 20, 2026. Normal Audio Browse shortcut and album cover path. Continue to distinguish this sample from physical-device and beta p95 qualification."
+}

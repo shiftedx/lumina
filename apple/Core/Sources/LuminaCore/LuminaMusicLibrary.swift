@@ -4,6 +4,8 @@ import Observation
 
 /// Member-scoped music contracts. Native tokens stay inside the opt-in connected-app boundary.
 @MainActor @Observable public final class LuminaMusicLibrary {
+    public private(set) var homeCapability = MusicHomeCapability.unknown
+    public private(set) var homeState = MusicHomeState.idle
     public private(set) var playlists: [MusicPlaylist] = []
     public private(set) var cachedSession: MusicListeningSnapshot?
     public private(set) var sessionIdentity: String?
@@ -16,6 +18,8 @@ import Observation
     private var metadataOrder: [String] = []
     private var lyricCache: [String: MusicLyrics] = [:]
     private var generation = 0
+    private var homeGeneration = 0
+    private var retainedHomeLayout: MusicHomeLayout?
     private var playlistGeneration = 0
     private let checkpointWriter = CheckpointWriter()
     private var cacheLoad: Task<Void, Never>?
@@ -41,6 +45,8 @@ import Observation
         cacheLoad?.cancel()
         cacheLoad = nil
         self.session = session
+        homeCapability = .unknown; homeState = .idle; retainedHomeLayout = nil
+        homeGeneration += 1
         playlists = []; metadata = [:]; metadataOrder = []; lyricCache = [:]; cachedSession = nil
         isBusy = false; errorMessage = nil
         sessionIdentity = session.map {
@@ -51,6 +57,7 @@ import Observation
         let owner = sessionIdentity
         let loadGeneration = generation
         let checkpointGeneration = checkpointGeneration
+        let layoutGeneration = homeGeneration
         let writer = checkpointWriter
         cacheLoad = Task { [weak self, writer] in
             let persisted = await writer.load(directory: directory)
@@ -61,6 +68,9 @@ import Observation
             if self.checkpointGeneration == checkpointGeneration {
                 self.cachedSession = persisted.snapshot
                 self.rememberPersisted(persisted.snapshot?.queue ?? [])
+            }
+            if self.homeGeneration == layoutGeneration {
+                self.retainedHomeLayout = persisted.homeLayout
             }
             for (id, lyrics) in persisted.lyrics where self.lyricCache.count < 100 && self.lyricCache[id] == nil {
                 self.lyricCache[id] = lyrics
@@ -85,6 +95,98 @@ import Observation
             guard current == generation, requestGeneration == playlistGeneration else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    public func refreshHomeCapability() async {
+        guard session != nil else { return }
+        let owner = generation
+        do {
+            let capability: HomeCapabilityResponse = try await request("home/capability")
+            guard owner == generation, !Task.isCancelled else { return }
+            homeCapability = capability.enabled ? .available : .disabled
+            if !capability.enabled {
+                homeGeneration += 1
+                homeState = .idle
+                retainHomeLayout(nil)
+            }
+        } catch MusicAPIError.http(404) {
+            guard owner == generation, !Task.isCancelled else { return }
+            homeCapability = .unsupported
+            homeGeneration += 1
+            homeState = .idle
+            retainHomeLayout(nil)
+        } catch {
+            // A transport or authentication failure does not establish server support.
+            guard owner == generation, !Task.isCancelled else { return }
+            if homeCapability == .available { homeState = .failed(error.localizedDescription) }
+        }
+    }
+
+    public func refreshHome() async {
+        if homeCapability == .unknown { await refreshHomeCapability() }
+        guard homeCapability == .available, !Task.isCancelled else { return }
+        let owner = generation
+        homeGeneration += 1
+        let operation = homeGeneration
+        homeState = .loading
+        do {
+            let home: MusicHome = try await request("home")
+            guard owner == generation, operation == homeGeneration else { return }
+            guard !Task.isCancelled else { homeState = .idle; return }
+            homeState = home.isEmpty ? .empty(home) : .ready(home)
+            retainHomeLayout(home.layout)
+        } catch {
+            guard owner == generation, operation == homeGeneration else { return }
+            homeState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+            if case MusicAPIError.http(404) = error { await refreshHomeCapability() }
+        }
+    }
+
+    public func saveHomeLayout(_ layout: MusicHomeLayout) async throws {
+        guard homeCapability == .available, var home = homeState.content else { throw URLError(.resourceUnavailable) }
+        let owner = generation
+        let body = ["order": layout.order.map(\.rawValue), "hidden": layout.hidden.map(\.rawValue)]
+        let saved: MusicHomeLayout = try await request("home/layout", method: "PUT", body: body)
+        guard owner == generation, homeCapability == .available else { throw CancellationError() }
+        homeGeneration += 1
+        home = homeState.content ?? home
+        home.layout = saved
+        homeState = home.isEmpty ? .empty(home) : .ready(home)
+        retainHomeLayout(saved)
+    }
+
+    private func retainHomeLayout(_ layout: MusicHomeLayout?) {
+        retainedHomeLayout = layout
+        if let directory = ownerDirectory { checkpointWriter.enqueueHomeLayout(layout, directory: directory) }
+    }
+
+    public func refreshOfflineHome(isDownloaded: (String) -> Bool) async {
+        let owner = generation
+        await waitForPersistentCache()
+        guard owner == generation, !Task.isCancelled, let retainedHomeLayout else { return }
+        homeGeneration += 1
+        homeCapability = .available
+        let resume: MusicHomeResume?
+        if let snapshot = cachedSession, let index = snapshot.currentIndex,
+           snapshot.queue.indices.contains(index), snapshot.activeOutput.kind == "browser" {
+            let track = snapshot.queue[index]
+            resume = .init(state: isDownloaded(track.nativeID) ? .playable : .unavailable,
+                           revision: snapshot.revision, entryIndex: snapshot.entryIndex,
+                           currentIndex: index, positionSeconds: snapshot.positionSeconds,
+                           track: .init(id: track.id, title: track.title, artist: track.artist, album: track.album,
+                                        albumID: track.albumID, artworkURL: nil, duration: track.duration))
+        } else {
+            resume = nil
+        }
+        let home = MusicHome(layout: retainedHomeLayout, resume: resume, recent: [], playlists: [], mixes: [])
+        homeState = home.isEmpty ? .empty(home) : .ready(home)
+    }
+
+    public func contextualMix(kind: MusicMixSeedKind, seedID: String, excluding ids: [String] = []) async throws -> MusicMixPreview {
+        guard homeCapability == .available else { throw URLError(.resourceUnavailable) }
+        let query = [URLQueryItem(name: "seed_kind", value: kind.rawValue), URLQueryItem(name: "seed_id", value: try safeID(seedID))]
+            + (try ids.map { URLQueryItem(name: "exclude_item_ids", value: try safeID($0)) })
+        return try await request("contextual-mix", query: query)
     }
 
     public func tracks(in playlist: MusicPlaylist) async throws -> [MusicTrack] {
@@ -172,9 +274,13 @@ import Observation
         ]
         if let acknowledgedOutputTicket { body["acknowledged_output_ticket"] = acknowledgedOutputTicket }
         if let entries {
-            body["entries"] = entries.map { entry -> [String: String] in
+            body["entries"] = entries.map { entry -> [String: Any] in
                 if entry.kind == "acquisition", let id = entry.requestID { return ["kind": "acquisition", "request_id": id] }
-                return ["kind": "track", "item_id": entry.itemID ?? ""]
+                var reference: [String: Any] = ["kind": "track", "item_id": entry.itemID ?? ""]
+                if let provenance = entry.provenance {
+                    reference["provenance"] = ["source": provenance.source.rawValue, "reason": provenance.reason.rawValue]
+                }
+                return reference
             }
             body["entry_index"] = entryIndex.map { $0 as Any } ?? NSNull()
         }
@@ -270,6 +376,7 @@ import Observation
     }
 }
 
+private struct HomeCapabilityResponse: Decodable { let enabled: Bool }
 private struct Deleted: Decodable { var deleted: Bool }
 
 /// Keeps checkpoint work off the main actor while retaining only an active write and its newest replacement.
@@ -283,6 +390,7 @@ private final class CheckpointWriter: @unchecked Sendable {
     struct PersistedCache: Sendable {
         let snapshot: MusicListeningSnapshot?
         let lyrics: [String: MusicLyrics]
+        let homeLayout: MusicHomeLayout?
     }
 
     private let queue = DispatchQueue(label: "app.lumina.music-checkpoint", qos: .utility)
@@ -315,10 +423,21 @@ private final class CheckpointWriter: @unchecked Sendable {
         lock.unlock()
     }
 
+    func enqueueHomeLayout(_ layout: MusicHomeLayout?, directory: URL) {
+        queue.async { [self] in
+            let file = directory.appending(path: "home-layout.json")
+            guard let layout else { try? FileManager.default.removeItem(at: file); return }
+            do {
+                try prepareDirectory(directory)
+                try JSONEncoder().encode(layout).write(to: file, options: .atomic)
+            } catch {}
+        }
+    }
+
     func load(directory: URL) async -> PersistedCache {
         await withCheckedContinuation { continuation in
             queue.async { [weak self] in
-                continuation.resume(returning: self?.read(directory: directory) ?? .init(snapshot: nil, lyrics: [:]))
+                continuation.resume(returning: self?.read(directory: directory) ?? .init(snapshot: nil, lyrics: [:], homeLayout: nil))
             }
         }
     }
@@ -393,7 +512,12 @@ private final class CheckpointWriter: @unchecked Sendable {
         if let data = try? Data(contentsOf: directory.appending(path: "lyrics.json"), options: .mappedIfSafe), data.count <= 4 * 1024 * 1024 {
             lyrics = (try? JSONDecoder().decode([String: MusicLyrics].self, from: data)) ?? [:]
         } else { lyrics = [:] }
-        return .init(snapshot: snapshot, lyrics: lyrics)
+        let layoutFile = directory.appending(path: "home-layout.json")
+        let homeLayout: MusicHomeLayout?
+        if let data = try? Data(contentsOf: layoutFile), data.count <= 4_096 {
+            homeLayout = try? JSONDecoder().decode(MusicHomeLayout.self, from: data)
+        } else { homeLayout = nil }
+        return .init(snapshot: snapshot, lyrics: lyrics, homeLayout: homeLayout)
     }
 
     private func prepareDirectory(_ directory: URL) throws {

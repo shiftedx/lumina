@@ -26,9 +26,9 @@ def document(row: MusicPlaylist, user: User) -> dict:
             "count": len(row.item_ids or []) if row.rules is None else None, "can_edit": row.user_id == user.id}
 
 
-def list_playlists(db: Session, user: User) -> list[dict]:
+def list_playlists(db: Session, user: User, *, limit: int = 500) -> list[dict]:
     return [document(row, user) for row in db.scalars(select(MusicPlaylist).where(or_(MusicPlaylist.user_id == user.id, MusicPlaylist.shared))
-                                                      .order_by(MusicPlaylist.name, MusicPlaylist.id).limit(500))]
+                                                      .order_by(MusicPlaylist.name, MusicPlaylist.id).limit(limit))]
 
 
 def save(db: Session, user: User, body: MusicPlaylistSave, playlist_id: str | None = None) -> dict:

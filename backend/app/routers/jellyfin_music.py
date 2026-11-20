@@ -9,10 +9,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.music_schemas import CastControl, CastRequest, MusicPlaylistSave, MusicQueueRequest
+from app.music_schemas import CastControl, CastRequest, MusicHomeLayout, MusicPlaylistSave, MusicQueueRequest
 from app.routers import music, music_listening_session, music_receiver
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller
-from app.services import music_playlists
+from app.services import music_home, music_playlists
 from app.services.media_titles import jellyfin_id, parse_item_id
 
 router = APIRouter(prefix="/jellyfin/lumina/music")
@@ -32,10 +32,13 @@ def _native(value):  # noqa: ANN001, ANN202
     if not isinstance(value, dict):
         return value
     result = {key: _native(row) for key, row in value.items()}
-    if "audio_url" in result and "id" in result:
+    if "id" in result and "audio_url" in result:
         result["audio_url"] = f"/Audio/{jellyfin_id(result['id'])}/stream"
+    if "id" in result and "artwork_url" in result:
         album = result.get("album_id")
         result["artwork_url"] = f"/Items/{jellyfin_id(album)}/Images/Primary" if album and result.get("artwork_url") else None
+    if "id" in result and "poster_url" in result and result["poster_url"]:
+        result["poster_url"] = f"/Items/{jellyfin_id(result['id'])}/Images/Primary"
     return result
 
 
@@ -100,6 +103,16 @@ def queue(body: MusicQueueRequest, caller: Caller, db: Db) -> list:
 @router.get("/session")
 def session(caller: Caller, db: Db) -> dict:
     return _native(music_listening_session.get_session(caller.user, db))
+
+
+@router.get("/home")
+def home(caller: Caller, db: Db) -> dict:
+    return _native(music_home.read(db, caller.user))
+
+
+@router.put("/home/layout")
+def save_home_layout(body: MusicHomeLayout, caller: Caller, db: Db) -> dict:
+    return music_home.save_layout(db, caller.user, body.model_dump())
 
 
 @router.put("/session")

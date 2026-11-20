@@ -19,6 +19,7 @@ from app.models import (
     MemberAccess,
     AppSettings,
     MusicCastTicket,
+    MusicAcquisition,
     MusicEditBatch,
     MusicLookup,
     MusicTrackOverride,
@@ -230,6 +231,84 @@ def test_recently_played_albums_groups_qualified_member_history_and_hides_inelig
     restricted = client_for(ALICE).get("/api/music/albums/recently-played").json()["items"]
     assert [entry["id"] for entry in restricted] == sorted([ALBUM, SECOND_ALBUM])
     assert client_for(BOB).get("/api/music/albums/recently-played").json() == {"items": []}
+
+
+def test_music_home_is_member_scoped_and_persists_only_its_layout(music_world) -> None:  # noqa: ANN001
+    factory, client_for, _root = music_world
+    now = utcnow()
+    with factory() as db:
+        db.add(PlaybackProgress(id=uid(880), user_id=ALICE, item_id=TRACKS[0], plays=1, last_watched_at=now))
+        db.commit()
+    member_access.invalidate(ALICE)
+
+    alice = client_for(ALICE)
+    playlist = alice.post("/api/music/playlists", json={"name": "For Home", "item_ids": [TRACKS[0]]})
+    assert playlist.status_code == 200
+    session = alice.put("/api/me/music-session", json={
+        "base_revision": 0, "item_ids": [TRACKS[0]], "current_index": 0, "position_seconds": 12,
+        "repeat": "off", "shuffle": False, "active_output": {"kind": "browser"},
+    })
+    assert session.status_code == 200
+
+    home = alice.get("/api/me/music-home")
+    assert home.status_code == 200
+    payload = home.json()
+    assert payload["layout"] == {"order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": []}
+    assert set(payload["resume"]) == {"state", "revision", "entry_index", "current_index", "position_seconds", "track"}
+    assert payload["resume"] | {"track": None} == {
+        "state": "playable", "revision": 1, "entry_index": 0, "current_index": 0, "position_seconds": 12.0, "track": None,
+    }
+    assert set(payload["resume"]["track"]) == {"id", "title", "artist", "album", "album_id", "artwork_url", "duration"}
+    track = payload["resume"]["track"]
+    assert {key: track[key] for key in ("id", "title", "artist", "album", "album_id")} == {
+        "id": TRACKS[0], "title": "Song 1.1", "artist": "Artist A", "album": "Album One", "album_id": ALBUM,
+    }
+    assert track["artwork_url"].startswith(f"/api/titles/{ALBUM}/images/Primary?")
+    assert [entry["id"] for entry in payload["playlists"]] == [playlist.json()["id"]]
+    assert payload["mixes"] == [
+        {"kind": "rotation", "name": "Rotation"}, {"kind": "favorites", "name": "Favorites"},
+        {"kind": "unplayed", "name": "Unplayed"},
+    ]
+
+    saved = alice.put("/api/me/music-home/layout", json={"order": ["mixes", "recent"], "hidden": ["recent"]})
+    assert saved.status_code == 200
+    assert saved.json() == {"order": ["mixes", "recent", "resume", "playlists", "downloads"], "hidden": ["recent"]}
+    assert alice.get("/api/me/music-home").json()["layout"] == saved.json()
+    assert client_for(BOB).get("/api/me/music-home").json()["layout"] == {
+        "order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": [],
+    }
+    alice = client_for(ALICE)
+    assert alice.put("/api/me/music-home/layout", json={"order": ["recent", "recent"]}).status_code == 422
+    assert alice.put("/api/me/music-home/layout", json={"order": ["unknown"]}).status_code == 422
+    assert alice.put("/api/me/music-home/layout", json={}).json() == {
+        "order": ["resume", "recent", "playlists", "downloads", "mixes"], "hidden": [],
+    }
+
+
+def test_music_home_reports_a_pending_selected_entry_without_a_resume_action(music_world) -> None:  # noqa: ANN001
+    import uuid
+
+    factory, client_for, _root = music_world
+    request_id = str(uuid.uuid4())
+    with factory() as db:
+        db.add(MusicAcquisition(
+            id=request_id, user_id=ALICE, connector_id="lidarr", foreign_artist_id=str(uuid.uuid4()),
+            foreign_album_id=str(uuid.uuid4()), artist_name="Artist", album_name="Pending album", status="awaiting_import",
+        ))
+        db.commit()
+
+    alice = client_for(ALICE)
+    response = alice.put("/api/me/music-session", json={
+        "base_revision": 0, "item_ids": [], "current_index": None, "position_seconds": 0,
+        "repeat": "off", "shuffle": False, "active_output": {"kind": "browser"},
+        "entries": [{"kind": "acquisition", "request_id": request_id}], "entry_index": 0, "unavailable_policy": "wait",
+    })
+    assert response.status_code == 200
+    assert alice.get("/api/me/music-home").json()["resume"] == {
+        "state": "waiting", "revision": 1, "entry_index": 0, "current_index": None, "position_seconds": 0.0,
+        "track": {"id": None, "title": "Pending album", "artist": None, "album": None, "album_id": None,
+                  "artwork_url": None, "duration": None},
+    }
 
 
 def test_track_metadata_uses_the_same_effective_values_as_the_queue(music_world) -> None:  # noqa: ANN001

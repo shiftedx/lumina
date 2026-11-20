@@ -15,6 +15,11 @@ class MusicQueueRequest(MusicBody):
     title_id: str | None = None
 
 
+class MusicHomeLayout(MusicBody):
+    order: list[str] = Field(default_factory=list, max_length=5)
+    hidden: list[str] = Field(default_factory=list, max_length=5)
+
+
 class MusicTrack(BaseModel):
     id: str
     title: str

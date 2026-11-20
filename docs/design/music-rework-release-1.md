@@ -54,6 +54,18 @@ In a later iPhone 17 diagnostic run using coordinates where XCTest reported visi
 
 Record the tested revision, app build, device and OS, output route, network state, observed queue and saved position. Keep receiver and server addresses, account identifiers and credentials out of issue evidence.
 
+## Disposable container rehearsal
+
+On November 20, `ae3714a` built from the repository Dockerfile as Linux arm64, with source label `ae3714a86a3963a7d0c4f77f6aa5512d74df1dc3`, version `0.7.1` and local image ID `sha256:fd772ab101b2c8e3368c9f8e5274609b1436ca604de700db6527c4f20cac07aa`. The packaged model smoke downloaded and verified its pinned fixtures, returned 384-dimensional embeddings and transcribed the synthetic audio sample.
+
+1. Booted the published `0.7.1` predecessor against a fresh #343 volume. Retained its exact image in a stopped rollback pin with health checks, restart, networking and mounts disabled.
+2. Recreated the isolated Compose service with the candidate and `LUMINA_MUSIC_REWORK_ENABLED=false`. Chrome signed in, resolved the Home deep link to legacy browse and retained the checkpoint.
+3. Enabled Music Home, customized shelves, resumed and paused the queue, and downloaded both fixture album tracks. The saved checkpoint retained duplicate occurrences and the Wait entry.
+4. Disabled the feature again. The stored queue revision, entries, cursor, position and shared playlist survived. Chrome's standalone offline page still played the saved download. Enabling again restored the member layout and exact checkpoint.
+5. Restored the pinned predecessor through the normal entrypoint with the same fixture volume. The service became healthy and preserved the queue and shared playlist. Chrome opened the album catalog.
+
+This was a loopback Compose rehearsal on disposable data. The production image, dogfood setting and TestFlight builds are tracked in #355.
+
 ## Functional evidence and remaining checks
 
 - The #348 enabled, disabled and actual older-server journeys exercised iPhone 17 and Apple TV 4K. Disabled and older builds retained browse, playback and queue checkpoints on both platforms.
@@ -67,4 +79,5 @@ Record the tested revision, app build, device and OS, output route, network stat
 
 - Flutter-built Finamp and the Lumina Apple simulator runs are separate from the repository gate. The final tvOS source compiled for the generic simulator destination.
 - The full gate started at `04dc5fa`. The first backend run had 5,969 passes and zero failures, but three generated M2TS corpus skips were rejected. With the corpus configured, four workers reported 5,970 passes, 20 expected skips and failures in child-process timeout and caption bulk admission. Two workers reported 5,971 passes, 20 expected skips and one Jellyfin original-art fallback failure. All three cases passed their isolated retries.
+- The November 20 backend full rerun passed 5,972 tests and 12 subtests with 20 expected skips, using the generated M2TS corpus and two workers. The local archive-signing regression also passed.
 - Frontend typecheck, production build, CSS budget and 2,877 unit tests passed. The broad Playwright run reported 775 passes, zero test failures and two rejected skips due to missing Firefox. After installing Firefox, the books journey passed with its setup. The existing Firefox transcode case failed twice at 0.1 seconds of playback against the greater-than-one-second assertion. The full repository gate remains open.

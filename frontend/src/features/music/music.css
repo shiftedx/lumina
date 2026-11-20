@@ -156,3 +156,8 @@
   .music-home-editor li { align-items: start; flex-direction: column; padding-block: var(--g-space-3); }
   .music-home-editor-actions { justify-content: start; }
 }
+
+.music-mix-list { max-height: 45vh; overflow: auto; }
+.music-mix-list span { display: block; color: var(--g-ink-2); }
+.music-mix-save, .music-mix-track-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.music-mix-track-row > .g-track, .music-mix-track-row > .music-highlight { flex: 1; min-width: 0; }

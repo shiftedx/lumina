@@ -2,13 +2,14 @@ import { useSyncExternalStore } from 'react';
 
 import { ApiRequestError, getMusicQueue, updatePlaybackProgress } from '../../api';
 import { shuffled } from '../gallery/albumQueue';
-import { forgetMusicCast, restoreSharedMusicCast, stopMusicCast } from './musicCastSession';
+import { forgetMusicCast, musicCast, restoreSharedMusicCast, stopMusicCast } from './musicCastSession';
 import { MAX_AUDIO_BYTES, MAX_DECODED_AUDIO_BYTES, MusicEngine, type MusicEngineState, type MusicRepeatMode, type MusicSource } from './musicEngine';
 import { offlineTrack } from './musicOffline';
 import { recordMusicListening, setListeningExportOwner } from './musicListeningExport';
 import { getMusicSharedSession, putMusicSharedSession, type MusicQueueEntry, type MusicSharedSnapshot } from './musicSharedSession';
 import { MusicStream } from './musicStream';
 import type { MusicTrack } from './musicTypes';
+import type { MusicMixPreview } from '../../api';
 
 export interface MusicSession {
   owner: string | null;
@@ -548,6 +549,51 @@ export async function streamMusicQueue(queue: MusicTrack[], index = 0, position 
 
 export async function streamMusicCurrent(): Promise<void> {
   await streamMusicQueue(state.queue, Math.max(0, state.playback.index), state.playback.position);
+}
+
+/** Append a generated batch against the current revision without disturbing the active occurrence. */
+export async function appendMusicMix(owner: string, items: MusicMixPreview['items']): Promise<void> {
+  if (!items.length) return;
+  if (owner !== state.owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
+  if (sharedWrite) await sharedWrite;
+  if (owner !== state.owner || state.sharedRevision === null || state.sharedConflict || !navigator.onLine) throw new Error('Restore your shared queue before adding tracks.');
+  const current = generation, revision = state.sharedRevision;
+  const payload = sharedPayload(revision);
+  const entries = payload.entries ?? state.queue.map((track) => ({ kind: 'track' as const, item_id: track.id }));
+  const existing = new Set(entries.filter((entry) => entry.kind === 'track').map((entry) => entry.item_id));
+  const additions = items.filter((item) => !existing.has(item.id)).map((item) => ({ kind: 'track' as const, item_id: item.id, provenance: { source: 'contextual_mix' as const, reason: item.reason.code } }));
+  if (!additions.length) return;
+  const run = async () => {
+    try {
+      const saved = await putMusicSharedSession({ ...payload, entries: [...entries, ...additions], entry_index: payload.entry_index ?? payload.current_index });
+      if (current !== generation || owner !== state.owner || revision !== state.sharedRevision) return;
+      if (activeController() && !applySharedUpcoming(saved)) throw new Error('The queue changed while adding tracks. Refresh your queue.');
+      emit({ queue: saved.queue, sharedRevision: saved.revision, sharedEntries: saved.entries ?? [], sharedEntryIndex: saved.entry_index ?? null, unavailablePolicy: saved.unavailable_policy ?? state.unavailablePolicy });
+      if (!sharedQueued) sharedDirty = false;
+      persist();
+    } catch (error) {
+      if (current !== generation || owner !== state.owner) return;
+      const conflict = conflictSnapshot(error);
+      if (conflict) emit({ sharedConflict: conflict, message: 'Your saved queue differs from the server. Choose which queue to keep.' });
+      throw error;
+    }
+  };
+  const operation = run();
+  sharedWrite = operation.finally(() => { sharedWrite = null; if (sharedQueued && !state.sharedConflict) void syncMusicSharedSession(); });
+  await sharedWrite;
+}
+
+/** Start exactly the previewed order, retaining the generated reason on each entry. */
+export async function playMusicMix(owner: string, items: MusicMixPreview['items']): Promise<void> {
+  if (!items.length) return;
+  if (owner !== state.owner || musicCast()?.owner === owner) throw new Error('Return playback to this browser before changing the queue.');
+  if (sharedWrite) await sharedWrite;
+  if (owner !== state.owner || state.sharedRevision === null || state.sharedConflict) throw new Error('Restore your shared queue before playing a mix.');
+  const current = ++generation;
+  const refs: MusicQueueEntry[] = items.map((item) => ({ kind: 'track', item_id: item.id, state: 'playable', tracks: [item], provenance: { source: 'contextual_mix', reason: item.reason.code } }));
+  if (current !== generation || owner !== state.owner) return;
+  emit({ sharedEntries: refs, sharedEntryIndex: 0 });
+  await startMusicQueue(items, 0, 0, true);
 }
 
 export async function enqueueMusicRequest(owner: string, requestId: string): Promise<void> {

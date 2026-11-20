@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMusicRework } from './useMusicRework';
 import { ChevronDown } from '../../luminaIcons';
 import type { LibraryItem, TitleSummary } from '../../types';
 import { Button, Menu } from '../../ui';
@@ -25,11 +26,12 @@ export interface AudioSurfaceProps {
 export function AudioSurface({ user, wall, onWallChange, onOpenTitle, onPlay, onResumeIntent, onItemChanged, musicBrowseView, onMusicBrowseViewChange }: AudioSurfaceProps) {
   const { sections, refresh: refreshSections } = useLibrarySections(user.id);
   const [collectionOpen, setCollectionOpen] = useState(false);
+  const enabled = useMusicRework(user.id);
   const canEdit = user.can_edit_details ?? user.role === 'admin';
   const requestedPane = new URLSearchParams(wall).get('pane') ?? 'music';
-  const pane = requestedPane === 'manage' && !canEdit ? 'music' : requestedPane === 'home' || requestedPane === 'playlists' || requestedPane === 'manage' ? requestedPane : 'music';
+  const pane = (requestedPane === 'manage' && !canEdit) || (requestedPane === 'home' && !enabled) ? 'music' : requestedPane === 'home' || requestedPane === 'playlists' || requestedPane === 'manage' ? requestedPane : 'music';
   const musicState = requestedPane === 'manage' && !canEdit ? '' : wall;
-  const destinations = ([['home', 'Music Home'], ['music', 'Music'], ['playlists', 'Playlists & mixes'], ...(canEdit ? [['manage', 'Manage music'] as const] : [])] as const);
+  const destinations = ([...(enabled ? [['home', 'Music Home'] as const] : []), ['music', 'Music'], ['playlists', 'Playlists & mixes'], ...(canEdit ? [['manage', 'Manage music'] as const] : [])] as const);
   const wallFor = (value: string) => value === 'music' ? '' : `pane=${value}`;
   const navigation = <nav aria-label="Audio" className="audio-local-nav">{destinations.map(([value, label]) => <a key={value} aria-current={pane === value ? 'page' : undefined} href={value === 'music' ? '/audio' : `/audio?pane=${value}`} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); onWallChange(wallFor(value)); } }}>{label}</a>)}<a className="audio-offline-link" href="/music-offline.html">Offline listening</a></nav>;
   const tools = <Menu align="end" label="Music tools" items={[

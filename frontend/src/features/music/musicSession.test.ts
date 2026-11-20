@@ -72,7 +72,7 @@ vi.mock('../../api', () => ({
   getMusicCastStatus: mocks.castStatus,
 }));
 vi.mock('./musicOffline', () => ({ offlineTrack: mocks.offline }));
-vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast, forgetMusicCast: mocks.forgetCast, restoreSharedMusicCast: mocks.restoreCast }));
+vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast, forgetMusicCast: mocks.forgetCast, restoreSharedMusicCast: mocks.restoreCast, musicCast: () => null }));
 vi.mock('./musicSharedSession', () => ({ getMusicSharedSession: mocks.getShared, putMusicSharedSession: mocks.putShared }));
 vi.mock('./musicEngine', () => ({ MusicEngine: FakeEngine, MAX_AUDIO_BYTES: 8, MAX_DECODED_AUDIO_BYTES: 128 * 1024 * 1024 }));
 vi.mock('./musicStream', () => ({ MusicStream: FakeStream }));
@@ -459,6 +459,25 @@ describe('musicSession', () => {
     await session.toggleMusic();
     mocks.engines.at(-1)?.emit({ index: 1, position: 0, playing: true });
     expect(session.musicSession().sharedEntryIndex).toBe(1);
+  });
+
+  it('appends generated tracks after Wait without changing the selected duplicate or its position', async () => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    const requestId = '11111111-1111-4111-8111-111111111111';
+    const snapshot: MusicSharedSnapshot = { revision: 3, queue: [track('manual'), track('manual')], current_index: 1, position_seconds: 23,
+      repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0,
+      entries: [{ kind: 'track', item_id: 'manual' }, { kind: 'track', item_id: 'manual' }, { kind: 'acquisition', request_id: requestId, state: 'awaiting_import' }], entry_index: 1, unavailable_policy: 'wait' };
+    session.applyMusicSharedSnapshot(snapshot);
+    mocks.putShared.mockResolvedValue({ ...snapshot, revision: 4, entries: [...snapshot.entries!, { kind: 'track', item_id: 'generated', provenance: { source: 'contextual_mix', reason: 'same_artist' } }] });
+    await session.appendMusicMix('member', [{ ...track('generated'), reason: { code: 'same_artist', artist_id: 'artist-1' } }]);
+    expect(mocks.putShared).toHaveBeenCalledWith(expect.objectContaining({ base_revision: 3, current_index: 1, position_seconds: 23, entry_index: 1, unavailable_policy: 'wait', entries: [
+      { kind: 'track', item_id: 'manual' }, { kind: 'track', item_id: 'manual' }, { kind: 'acquisition', request_id: requestId },
+      { kind: 'track', item_id: 'generated', provenance: { source: 'contextual_mix', reason: 'same_artist' } },
+    ] }));
+    expect(session.musicSession().playback.position).toBe(23);
+    expect(session.musicSession().playback.index).toBe(1);
   });
 
   it('round-trips generated provenance and Wait when resuming a saved queue', async () => {

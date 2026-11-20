@@ -1,3 +1,4 @@
+import { MusicMixButton } from './MusicMix';
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Play, RefreshCw } from '../../luminaIcons';
 
@@ -40,12 +41,12 @@ export function MusicVideoRail({ id, kind = 'title', onWatch, hideEmpty = false 
   </section>;
 }
 
-export function MusicHighlights({ id, onPlay }: { id: string; onPlay: (id: string) => void }) {
+export function MusicHighlights({ id, onPlay, mixEnabled = false }: { id: string; onPlay: (id: string) => void; mixEnabled?: boolean }) {
   const [tracks, setTracks] = useState<MusicTrack[] | null>(null);
   useEffect(() => { let current = true; void getMusicHighlights(id).then((value) => { if (current) setTracks(value); }, () => { if (current) setTracks([]); }); return () => { current = false; }; }, [id]);
   if (!tracks?.length) return null;
   return <section aria-labelledby="music-owned-tracks" className="music-highlights"><header className="music-section-head"><h2 id="music-owned-tracks">In your rotation</h2><span>From your library</span></header><ol>
-    {tracks.map((track, index) => <li key={track.id}><button className="music-highlight" data-focus-item onClick={() => { setAlbumQueue(id, tracks.map((entry) => ({ item_id: entry.id, name: entry.title, number: entry.number }))); onPlay(track.id); }} type="button"><span className="music-highlight-number">{index + 1}</span><span><strong>{track.title}</strong><small>{track.album}</small></span><span>{track.duration ? formatDuration(track.duration) : ''}</span><Play aria-hidden="true" /></button></li>)}
+    {tracks.map((track, index) => <li className="music-mix-track-row" key={track.id}><button className="music-highlight" data-focus-item onClick={() => { setAlbumQueue(id, tracks.map((entry) => ({ item_id: entry.id, name: entry.title, number: entry.number }))); onPlay(track.id); }} type="button"><span className="music-highlight-number">{index + 1}</span><span><strong>{track.title}</strong><small>{track.album}</small></span><span>{track.duration ? formatDuration(track.duration) : ''}</span><Play aria-hidden="true" /></button><MusicMixButton enabled={mixEnabled} id={track.id} kind="track" name={track.title} /></li>)}
   </ol></section>;
 }
 

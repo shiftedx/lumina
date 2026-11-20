@@ -362,6 +362,7 @@ final class NativeTVMusicHomeTests: NativeProofJourney {
     func testHomeAndLegacyBrowsePlayback() async throws { try await journeyTVMusicHomeAndLegacyBrowse() }
     func testOfflineMusicHomeRestoresDownloadedQueue() async throws { try await journeyTVOfflineMusicHome() }
     func testContextualMixReturnsFocus() async throws { try await journeyTVContextualMixFocus() }
+    func testContinuationOptInSurvivesHomeAndNaturalEnd() async throws { try await journeyTVMusicContinuationAcrossHomeAndNaturalEnd() }
     func testBrowseShortcutReturnsFocus() throws { try journeyTVBrowseShortcutFocus() }
 }
 @MainActor
@@ -2486,6 +2487,71 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) { radio.hasFocus }, "Closing a preview returns focus to the initiating track radio.")
         let after = try await api.musicJSON(identity: identity, path: "session") as? [String: Any]
         XCTAssertEqual(before?["revision"] as? Int, after?["revision"] as? Int, "Dismissing a preview must leave the queue unchanged.")
+    }
+
+    func journeyTVMusicContinuationAcrossHomeAndNaturalEnd() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        // Pause promptly after resuming, then opt in without letting focus
+        // traversal consume the remainder of this single-track queue.
+        try await api.replaceProofMusicSession(identity: identity, itemIDs: [fixture.audioTrackID], position: 65)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let resume = element("tvMusicHomeResume")
+        try waitForExistence(resume, timeout: 25, named: "single-track Music Home resume")
+        try activate(resume)
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "resumed one-track player")
+        let clock = element("playbackTime")
+        _ = try waitForPlaybackValue(clock, timeout: 20) { $0 >= 65 }
+        let playPause = element("audioPlayPauseButton")
+        XCUIRemote.shared.press(.playPause)
+        XCTAssertTrue(waitUntil(timeout: 12) { playPause.label == "Play" },
+                      "Remote Play/Pause must pause before the continuation option traversal.")
+
+        let listeningOptions = element("audioListeningOptions")
+        try revealMusicControl(listeningOptions)
+        try activate(listeningOptions)
+        XCTAssertTrue(waitUntil(timeout: 10) { listeningOptions.value as? String == "Expanded" },
+                      "Listening options must expand before continuation can be opted into.")
+        try revealMusicControl(element("nativeMusicContinuation"))
+        try setNativeSwitch("nativeMusicContinuation", to: true)
+
+        XCUIRemote.shared.press(.playPause)
+        XCTAssertTrue(waitUntil(timeout: 12) { playPause.label == "Pause" },
+                      "Remote Play/Pause must resume the opted-in track toward its natural end.")
+        let resumedAt = try waitForPlaybackValue(clock, timeout: 8) { _ in true }
+        _ = try waitForPlaybackValue(clock, timeout: 12) { $0 >= resumedAt + 1 }
+
+        XCUIRemote.shared.press(.home)
+        try await Task.sleep(for: .seconds(2))
+        let app = try XCTUnwrap(application)
+        app.activate()
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "player after tvOS Home foreground")
+        let afterForeground = try waitForPlaybackValue(clock, timeout: 8) { _ in true }
+        _ = try waitForPlaybackValue(clock, timeout: 12) { $0 >= afterForeground + 1 }
+
+        let deadline = Date().addingTimeInterval(35)
+        var advanced = false
+        while Date() < deadline {
+            if let saved = try await api.musicJSON(identity: identity, path: "session") as? [String: Any],
+               let entries = saved["entries"] as? [[String: Any]],
+               let current = saved["current_index"] as? Int,
+               current > 0,
+               entries.indices.contains(current),
+               let provenance = entries[current]["provenance"] as? [String: Any],
+               provenance["source"] as? String == "contextual_mix" {
+                advanced = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        XCTAssertTrue(advanced,
+                      "Opted-in natural completion must append a contextual recommendation and begin it after Home foregrounding.")
     }
 
     func journeyTVOfflineMusicHome() async throws {

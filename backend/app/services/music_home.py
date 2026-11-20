@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import User
 from app.persistence import write_transaction
 from app.services import music_library, music_playlists
@@ -21,6 +22,11 @@ MIXES = (
     {"kind": "favorites", "name": "Favorites"},
     {"kind": "unplayed", "name": "Unplayed"},
 )
+
+
+def require_enabled() -> None:
+    if not settings.music_rework_enabled:
+        raise HTTPException(404, "Music Home and contextual mixes are disabled")
 
 
 def default_layout() -> dict[str, list[str]]:

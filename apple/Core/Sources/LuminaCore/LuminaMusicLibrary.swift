@@ -4,6 +4,8 @@ import Observation
 
 /// Member-scoped music contracts. Native tokens stay inside the opt-in connected-app boundary.
 @MainActor @Observable public final class LuminaMusicLibrary {
+    public private(set) var homeCapability = MusicHomeCapability.unknown
+    public private(set) var homeState = MusicHomeState.idle
     public private(set) var playlists: [MusicPlaylist] = []
     public private(set) var cachedSession: MusicListeningSnapshot?
     public private(set) var sessionIdentity: String?
@@ -16,6 +18,7 @@ import Observation
     private var metadataOrder: [String] = []
     private var lyricCache: [String: MusicLyrics] = [:]
     private var generation = 0
+    private var homeGeneration = 0
     private var playlistGeneration = 0
     private let checkpointWriter = CheckpointWriter()
     private var cacheLoad: Task<Void, Never>?
@@ -41,6 +44,7 @@ import Observation
         cacheLoad?.cancel()
         cacheLoad = nil
         self.session = session
+        homeCapability = .unknown; homeState = .idle
         playlists = []; metadata = [:]; metadataOrder = []; lyricCache = [:]; cachedSession = nil
         isBusy = false; errorMessage = nil
         sessionIdentity = session.map {
@@ -85,6 +89,65 @@ import Observation
             guard current == generation, requestGeneration == playlistGeneration else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    public func refreshHomeCapability() async {
+        guard session != nil else { return }
+        let owner = generation
+        do {
+            let capability: HomeCapabilityResponse = try await request("home/capability")
+            guard owner == generation, !Task.isCancelled else { return }
+            homeCapability = capability.enabled ? .available : .disabled
+            if !capability.enabled {
+                homeGeneration += 1
+                homeState = .idle
+            }
+        } catch MusicAPIError.http(404) {
+            guard owner == generation, !Task.isCancelled else { return }
+            homeCapability = .unsupported
+            homeGeneration += 1
+            homeState = .idle
+        } catch {
+            // A transport or authentication failure does not establish server support.
+            guard owner == generation, !Task.isCancelled else { return }
+            if homeCapability == .available { homeState = .failed(error.localizedDescription) }
+        }
+    }
+
+    public func refreshHome() async {
+        if homeCapability == .unknown { await refreshHomeCapability() }
+        guard homeCapability == .available, !Task.isCancelled else { return }
+        let owner = generation
+        homeGeneration += 1
+        let operation = homeGeneration
+        homeState = .loading
+        do {
+            let home: MusicHome = try await request("home")
+            guard owner == generation, operation == homeGeneration else { return }
+            homeState = Task.isCancelled ? .idle : home.isEmpty ? .empty(home) : .ready(home)
+        } catch {
+            guard owner == generation, operation == homeGeneration else { return }
+            homeState = Task.isCancelled ? .idle : .failed(error.localizedDescription)
+            if case MusicAPIError.http(404) = error { await refreshHomeCapability() }
+        }
+    }
+
+    public func saveHomeLayout(_ layout: MusicHomeLayout) async throws {
+        guard homeCapability == .available, var home = homeState.content else { throw URLError(.resourceUnavailable) }
+        let owner = generation
+        let body = ["order": layout.order.map(\.rawValue), "hidden": layout.hidden.map(\.rawValue)]
+        let saved: MusicHomeLayout = try await request("home/layout", method: "PUT", body: body)
+        guard owner == generation, homeCapability == .available else { throw CancellationError() }
+        homeGeneration += 1
+        home.layout = saved
+        homeState = home.isEmpty ? .empty(home) : .ready(home)
+    }
+
+    public func contextualMix(kind: MusicMixSeedKind, seedID: String, excluding ids: [String] = []) async throws -> MusicMixPreview {
+        guard homeCapability == .available else { throw URLError(.resourceUnavailable) }
+        let query = [URLQueryItem(name: "seed_kind", value: kind.rawValue), URLQueryItem(name: "seed_id", value: try safeID(seedID))]
+            + (try ids.map { URLQueryItem(name: "exclude_item_ids", value: try safeID($0)) })
+        return try await request("contextual-mix", query: query)
     }
 
     public func tracks(in playlist: MusicPlaylist) async throws -> [MusicTrack] {
@@ -172,9 +235,13 @@ import Observation
         ]
         if let acknowledgedOutputTicket { body["acknowledged_output_ticket"] = acknowledgedOutputTicket }
         if let entries {
-            body["entries"] = entries.map { entry -> [String: String] in
+            body["entries"] = entries.map { entry -> [String: Any] in
                 if entry.kind == "acquisition", let id = entry.requestID { return ["kind": "acquisition", "request_id": id] }
-                return ["kind": "track", "item_id": entry.itemID ?? ""]
+                var reference: [String: Any] = ["kind": "track", "item_id": entry.itemID ?? ""]
+                if let provenance = entry.provenance {
+                    reference["provenance"] = ["source": provenance.source.rawValue, "reason": provenance.reason.rawValue]
+                }
+                return reference
             }
             body["entry_index"] = entryIndex.map { $0 as Any } ?? NSNull()
         }
@@ -270,6 +337,7 @@ import Observation
     }
 }
 
+private struct HomeCapabilityResponse: Decodable { let enabled: Bool }
 private struct Deleted: Decodable { var deleted: Bool }
 
 /// Keeps checkpoint work off the main actor while retaining only an active write and its newest replacement.

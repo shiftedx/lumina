@@ -20,6 +20,7 @@ from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtwork
 from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
 from app.security import get_admin_user, get_current_user
+from app.config import settings
 from app.services import resource_policy, music_audio, music_curation, music_home, music_library, music_playlists, music_providers, music_videos, public_address, screen_time
 from app.services.library import LibraryService
 from app.services.media_response import MediaFileResponse
@@ -63,11 +64,17 @@ def recently_played_albums(limit: int = Query(12, ge=1, le=50), user: User = Dep
     return {"items": music_library.recently_played_albums(db, user, limit)}
 
 
+def home_capability(user: User = Depends(get_current_user)) -> dict[str, bool]:
+    return {"enabled": settings.music_rework_enabled}
+
+
 def home(user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    music_home.require_enabled()
     return music_home.read(db, user)
 
 
 def save_home_layout(body: MusicHomeLayout, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    music_home.require_enabled()
     return music_home.save_layout(db, user, body.model_dump())
 
 
@@ -474,6 +481,7 @@ def contextual_mix(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db, scope="function"),
 ) -> MusicMixPreview:
+    music_home.require_enabled()
     screen_time.enforce(db, user, fresh=True)
     return music_playlists.contextual_mix(
         db, user, seed_kind=seed_kind, seed_id=seed_id, exclude_item_ids=exclude_item_ids,
@@ -510,6 +518,7 @@ def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     app.add_api_route("/api/music/mixes/{kind}", mix, methods=["GET"])
     app.add_api_route("/api/music/queue", queue, methods=["POST"])
     app.add_api_route("/api/music/albums/recently-played", recently_played_albums, methods=["GET"])
+    app.add_api_route("/api/me/music-home/capability", home_capability, methods=["GET"])
     app.add_api_route("/api/me/music-home", home, methods=["GET"])
     app.add_api_route("/api/me/music-home/layout", save_home_layout, methods=["PUT"])
     app.add_api_route("/api/music/albums", create_release, methods=["POST"])

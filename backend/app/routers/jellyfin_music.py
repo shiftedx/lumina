@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.music_schemas import CastControl, CastRequest, MusicHomeLayout, MusicPlaylistSave, MusicQueueRequest
 from app.routers import music, music_listening_session, music_receiver
@@ -88,6 +89,7 @@ def contextual_mix(
     db: Db,
     exclude_item_ids: list[str] = Query(default=[]),
 ) -> dict:
+    music_home.require_enabled()
     return _native(music.contextual_mix(
         seed_kind, _id(seed_id), [_id(value) for value in exclude_item_ids], caller.user, db,
     ))
@@ -105,13 +107,20 @@ def session(caller: Caller, db: Db) -> dict:
     return _native(music_listening_session.get_session(caller.user, db))
 
 
+@router.get("/home/capability")
+def home_capability(caller: Caller) -> dict[str, bool]:
+    return {"enabled": settings.music_rework_enabled}
+
+
 @router.get("/home")
 def home(caller: Caller, db: Db) -> dict:
+    music_home.require_enabled()
     return _native(music_home.read(db, caller.user))
 
 
 @router.put("/home/layout")
 def save_home_layout(body: MusicHomeLayout, caller: Caller, db: Db) -> dict:
+    music_home.require_enabled()
     return music_home.save_layout(db, caller.user, body.model_dump())
 
 

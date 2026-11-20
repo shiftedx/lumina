@@ -580,7 +580,36 @@ final class NativeAudioSession {
         }
     }
 
-    func playSavedQueue(index requestedIndex: Int? = nil) async throws -> PlaybackModel? {
+    func resumeFromHome(_ resume: MusicHomeResume, store: LuminaStore) async throws -> PlaybackModel? {
+        guard let owner = identity, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
+        guard !store.isOffline, !restoringPausedQueue, !busy, !dirty, conflict == nil,
+              !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
+            message = "Open Now Playing to check the current queue before resuming."
+            return nil
+        }
+        let token = generation
+        let saved = try await store.music.loadSession()
+        guard owner == store.music.sessionIdentity, token == generation, !Task.isCancelled,
+              !dirty, conflict == nil, !transferring, !isRemoteOutput, !isSonos, playback?.isPlaying != true else {
+            throw CancellationError()
+        }
+        guard resume.state == .playable, saved.activeOutput.kind == "browser",
+              saved.revision == resume.revision, saved.entryIndex == resume.entryIndex,
+              saved.currentIndex == resume.currentIndex, saved.positionSeconds == resume.positionSeconds,
+              let index = saved.currentIndex, saved.queue.indices.contains(index),
+              saved.queue[index].id == resume.track.id else {
+            await store.music.refreshHome()
+            message = "The saved queue changed. Check the updated Resume card."
+            return nil
+        }
+        return try await playSavedQueue(index: nil, validated: saved)
+    }
+
+    func playSavedQueue(index: Int? = nil) async throws -> PlaybackModel? {
+        try await playSavedQueue(index: index, validated: nil)
+    }
+
+    private func playSavedQueue(index requestedIndex: Int?, validated: MusicListeningSnapshot?) async throws -> PlaybackModel? {
         guard !busy, !transferring else { throw URLError(.cancelled) }
         guard let store, let owner = identity, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         guard conflict == nil else { message = "Choose Use server or Keep this device before playing the shared queue."; return nil }
@@ -595,23 +624,27 @@ final class NativeAudioSession {
             return playback
         }
         guard pendingSpeakerStop == nil else { message = "Stop the previous speaker before starting local playback."; return nil }
-        guard !snapshot.queue.isEmpty else {
-            message = snapshot.entries.isEmpty ? "Your shared queue is empty." : "Waiting for requested album. Refresh requested albums when an import is ready."
+        let value = validated ?? snapshot
+        guard !value.queue.isEmpty else {
+            message = value.entries.isEmpty ? "Your shared queue is empty." : "Waiting for requested album. Refresh requested albums when an import is ready."
             return nil
         }
-        if requestedIndex == nil, snapshot.unavailablePolicy == "wait", let entry = snapshot.entryIndex,
-           snapshot.entries.indices.contains(entry), let state = snapshot.entries[entry].state, state != "playable" {
+        if requestedIndex == nil, value.unavailablePolicy == "wait", let entry = value.entryIndex,
+           value.entries.indices.contains(entry), let state = value.entries[entry].state, state != "playable" {
             message = "Waiting for requested album. Refresh requested albums or choose Skip, then Play."
             return nil
         }
-        let index = requestedIndex ?? snapshot.currentIndex ?? 0
-        guard snapshot.queue.indices.contains(index) else { return nil }
-        let value = snapshot, token = generation
+        let index = requestedIndex ?? value.currentIndex ?? 0
+        guard value.queue.indices.contains(index) else { return nil }
+        let token = generation
         let request = try await store.preparePlayback(for: value.queue[index].mediaItem)
         guard token == generation, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         guard !isRemoteOutput else {
             message = "Return playback here before starting local playback."
             return playback
+        }
+        if validated != nil, dirty || conflict != nil || transferring || isSonos || playback?.isPlaying == true {
+            throw CancellationError()
         }
         let position = requestedIndex == nil && value.currentIndex != nil ? value.positionSeconds : 0
         let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
@@ -619,6 +652,7 @@ final class NativeAudioSession {
             isTranscoding: request.isTranscoding, methodLabel: request.methodLabel,
             sourceContainer: request.sourceContainer)
         tracks = value.queue
+        snapshot = value
         snapshot.currentIndex = index; snapshot.positionSeconds = position
         snapshot.entryIndex = logicalIndex(for: index)
         let model = PlaybackModel(request: resumed, store: store, queue: value.queue.map(\.mediaItem), queueIndex: index)

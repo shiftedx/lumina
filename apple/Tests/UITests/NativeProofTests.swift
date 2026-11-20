@@ -2453,7 +2453,15 @@ class NativeProofJourney: XCTestCase {
         try activate(album)
         try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album detail")
         XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(waitUntil(timeout: 15) { album.exists && album.hasFocus }, "Back must restore the originating album focus.")
+        let focusAfterMenu = focusedElement()?.identifier ?? "none"
+        let restored = waitUntil(timeout: 15) { album.exists && album.hasFocus }
+        if !restored {
+            let hierarchy = XCTAttachment(string: application!.debugDescription)
+            hierarchy.name = "TV Music Home Browse back-focus hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        XCTAssertTrue(restored, "Back must restore the originating album focus. afterMenu=\(focusAfterMenu) afterWait=\(focusedElement()?.identifier ?? "none") audio=\(element("audioScreen").exists) detail=\(element("musicCollectionScreen").exists) album=\(album.exists) hittable=\(album.isHittable)")
     }
 
     func journeyTVContextualMixFocus() async throws {

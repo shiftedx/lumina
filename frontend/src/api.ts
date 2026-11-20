@@ -1108,6 +1108,20 @@ export const bulkEditMetadata = (request: BulkRequest): Promise<BulkResult> => p
 // ── 2.1.0 library automation ──
 const AUTOMATION = '/api/admin/library/automation';
 export const getMusicQueue = (request: { item_ids?: string[]; title_id?: string }): Promise<import('./features/music/musicTypes').MusicTrack[]> => post('/api/music/queue', request);
+export type MusicHomeShelf = 'resume' | 'recent' | 'playlists' | 'downloads' | 'mixes';
+export type MusicHomeLayout = { order: MusicHomeShelf[]; hidden: MusicHomeShelf[] };
+export type MusicHome = {
+  layout: MusicHomeLayout;
+  resume: null | {
+    state: 'playable' | 'waiting'; revision: number; entry_index: number | null; current_index: number | null; position_seconds: number;
+    track: { id: string | null; title: string | null; artist: string | null; album: string | null; album_id: string | null; artwork_url: string | null; duration: number | null };
+  };
+  recent: TitleSummary[];
+  playlists: import('./features/music/musicTypes').MusicPlaylist[];
+  mixes: Array<{ kind: 'rotation' | 'favorites' | 'unplayed'; name: string }>;
+};
+export const getMusicHome = (): Promise<MusicHome> => requestJson('/api/me/music-home');
+export const saveMusicHomeLayout = (layout: MusicHomeLayout): Promise<MusicHomeLayout> => requestJson('/api/me/music-home/layout', { method: 'PUT', body: JSON.stringify(layout) });
 export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);
 export const getMusicTrackMetadata = (id: string): Promise<{ fields: Record<string, unknown>; overridden: string[] }> => requestJson(`/api/music/tracks/${enc(id)}/metadata`);
 export const getMusicHighlights = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/titles/${enc(id)}/tracks`);

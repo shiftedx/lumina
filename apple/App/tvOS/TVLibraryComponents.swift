@@ -161,8 +161,8 @@ struct TVRail: View {
     @State private var movingForward = true
     @State private var lastFocusedItemID: String?
 
-    private var captionPresentation: TVRailCaptionPresentation {
-        TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
+    private var captionPresentation: HomeRailCaptionPresentation {
+        HomeRailCaptionPresentation(identifierPrefix: identifierPrefix)
     }
 
     var body: some View {
@@ -252,7 +252,7 @@ struct TVMediaCard: View {
     let item: MediaItem
     let store: LuminaStore
     var poster = false
-    var captionPresentation: TVRailCaptionPresentation = .standard
+    var captionPresentation: HomeRailCaptionPresentation = .standard
     var showsCaption = true
     var artworkWidth = 760
     let action: () -> Void
@@ -261,8 +261,8 @@ struct TVMediaCard: View {
     @ScaledMetric(relativeTo: .caption) private var titleLinesHeight: CGFloat = 64
     @ScaledMetric(relativeTo: .caption2) private var metadataLineHeight: CGFloat = 30
 
-    private var caption: TVRailCaption {
-        TVRailCaption(item: item, presentation: captionPresentation)
+    private var caption: HomeRailCaption {
+        HomeRailCaption(item: item, presentation: captionPresentation)
     }
 
     var body: some View {
@@ -337,7 +337,7 @@ struct TVMediaCard: View {
 /// without changing card geometry, while the Button keeps its full accessible
 /// title at every focus state.
 private struct TVFocusedArtworkCaption: View {
-    let caption: TVRailCaption
+    let caption: HomeRailCaption
     @Environment(\.isFocused) private var isFocused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -364,66 +364,6 @@ private struct TVFocusedArtworkCaption: View {
         .opacity(isFocused ? 1 : 0)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isFocused)
         .accessibilityHidden(true)
-    }
-}
-
-enum TVRailCaptionPresentation: Equatable {
-    case standard
-    case continueWatching
-    case nextUp
-
-    init(identifierPrefix: String) {
-        switch identifierPrefix {
-        case "resumeItem": self = .continueWatching
-        case "nextUpItem": self = .nextUp
-        default: self = .standard
-        }
-    }
-
-    var reservesProgressBaseline: Bool {
-        self != .standard
-    }
-}
-
-private struct TVRailCaption {
-    let primary: String
-    let secondary: String?
-    let progress: String?
-
-    init(item: MediaItem, presentation: TVRailCaptionPresentation) {
-        guard presentation != .standard else {
-            primary = item.name
-            secondary = item.displaySubtitle.isEmpty ? nil : item.displaySubtitle
-            progress = nil
-            return
-        }
-
-        let episodeLabel = Self.episodeLabel(for: item)
-        primary = item.type == "Episode" ? item.seriesName ?? item.name : item.name
-        secondary = episodeLabel ?? (item.displaySubtitle.isEmpty ? nil : item.displaySubtitle)
-
-        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
-            let remaining = Duration.seconds(item.durationSeconds - item.resumeSeconds)
-                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-            progress = "\(remaining) remaining"
-        } else if presentation == .nextUp, item.type == "Episode" {
-            progress = "Next episode"
-        } else {
-            progress = nil
-        }
-    }
-
-    private static func episodeLabel(for item: MediaItem) -> String? {
-        guard item.type == "Episode" else { return nil }
-        let number: String? = switch (item.parentIndexNumber, item.indexNumber) {
-        case let (.some(season), .some(episode)): "S\(season) · E\(episode)"
-        default: nil
-        }
-        return [number, item.name].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    var accessibilityLabel: String {
-        [primary, secondary, progress].compactMap { $0 }.joined(separator: ", ")
     }
 }
 

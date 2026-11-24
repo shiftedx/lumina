@@ -207,8 +207,18 @@ extension NativeProofJourney {
         let targetID = nextUp ? fixture.secondEpisodeID : fixture.episodeID
         let resume = element("\(nextUp ? "nextUpItem" : "resumeItem")-\(targetID)")
         for _ in 0..<10 where !resume.exists { XCUIRemote.shared.press(.down) }
-        try waitForExistence(resume, timeout: 25, named: "Continue Watching episode")
-        XCTAssertTrue(focus(resume, timeout: 25), "Continue Watching must accept remote focus.")
+        try waitForExistence(resume, timeout: 25, named: "Home episode card")
+        XCTAssertTrue(focus(resume, timeout: 25), "The Home episode card must accept remote focus.")
+        let episodeLabel = nextUp ? "S1 · E2 · \(fixture.secondEpisodeTitle)" : "S1 · E1 · \(fixture.episodeTitle)"
+        XCTAssertTrue(resume.label.hasPrefix("\(fixture.showTitle), \(episodeLabel), "),
+                      "Home episode cards must announce the series before episode metadata.")
+        let status = try XCTUnwrap(resume.value as? String)
+        if nextUp {
+            XCTAssertEqual(status, "Next episode")
+        } else {
+            XCTAssertTrue(status.hasSuffix(" remaining"))
+        }
+        XCTAssertTrue(resume.label.hasSuffix(status), "The card label must also announce its progress.")
         let artwork = resume.descendants(matching: .any).matching(identifier: "tvArtwork-\(targetID)").firstMatch
         try waitForExistence(artwork, timeout: 10, named: "Home episode artwork")
         let source = try XCTUnwrap(artwork.value as? String)

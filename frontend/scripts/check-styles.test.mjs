@@ -1,7 +1,19 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { CORE_BUDGET, CSS_BUDGET, cssHits, debtErrors, debtListErrors, forbiddenHits, gzipSize, isAllowed, liveTokenHits, redHits, redProblems, retiredLiveHits, smallTextHits, tokenDefinitionHits, tsHits } from './check-styles.mjs';
+import { CORE_BUDGET, CSS_BUDGET, ENTRY_JS_BUDGETS, checkEntryJsBudget, cssHits, debtErrors, debtListErrors, forbiddenHits, gzipSize, isAllowed, liveTokenHits, redHits, redProblems, retiredLiveHits, smallTextHits, tokenDefinitionHits, tsHits } from './check-styles.mjs';
+
+function temporaryDist(files) {
+  const dist = mkdtempSync(join(tmpdir(), 'lumina-check-styles-'));
+  for (const [file, source] of Object.entries(files)) {
+    const path = join(dist, file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, source);
+  }
+  return dist;
+}
 
 describe('check-styles', () => {
   it('flags hex, rgb() and hsl() in declaration values', () => {
@@ -72,6 +84,59 @@ describe('check-styles', () => {
     const text = 'a'.repeat(1000);
     expect(gzipSize(text)).toBe(gzipSync(text, { level: 9 }).length);
   });
+  it('counts distinct local module assets from Vite HTML and accounts for their gzip bytes', () => {
+    const entry = 'entry module '.repeat(80);
+    const vendor = 'shared module '.repeat(60);
+    const dist = temporaryDist({ 'assets/entry.js': entry, 'assets/vendor.js': vendor });
+    try {
+      const result = checkEntryJsBudget(`
+        <script src="/theme-boot.js"></script>
+        <link href="/assets/vendor.js?v=1" rel="modulepreload">
+        <link rel="modulepreload" href="./assets/vendor.js?v=1#fragment">
+        <!-- <link rel="modulepreload" href="/assets/commented.js"> -->
+        <script src="/assets/entry.js" type="module"></script>
+      `, dist, { maxAssets: 2, maxGzipBytes: gzipSize(entry) + gzipSize(vendor) });
+      expect(result.count).toBe(2);
+      expect(result.gzipBytes).toBe(gzipSize(entry) + gzipSize(vendor));
+      expect(result.problems).toEqual([]);
+      const differentQueries = checkEntryJsBudget(`
+        <script src="/assets/entry.js" type="module"></script>
+        <link rel="modulepreload" href="/assets/vendor.js?v=1">
+        <link rel="modulepreload" href="/assets/vendor.js?v=2">
+      `, dist, { maxAssets: 3, maxGzipBytes: gzipSize(entry) + 2 * gzipSize(vendor) });
+      expect(differentQueries).toEqual({ count: 3, gzipBytes: gzipSize(entry) + 2 * gzipSize(vendor), problems: [] });
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+  it('fails the entry guard on count and gzip ceilings without reading undeclared or external scripts', () => {
+    const entry = 'entry module '.repeat(80);
+    const vendor = 'shared module '.repeat(60);
+    const dist = temporaryDist({ 'assets/entry.js': entry, 'assets/vendor.js': vendor, 'assets/dynamic.js': 'not declared' });
+    try {
+      const result = checkEntryJsBudget(`
+        <script type="module" src="/assets/entry.js"></script>
+        <link rel="modulepreload" href="/assets/vendor.js">
+        <link rel="modulepreload" href="https://cdn.example.invalid/remote.js">
+      `, dist, { maxAssets: 1, maxGzipBytes: 1 });
+      expect(result.problems).toEqual(expect.arrayContaining([
+        '2 distinct local module JS assets, over maximum 1',
+        `${result.gzipBytes} bytes gzip, over maximum 1`,
+      ]));
+      expect(result.count).toBe(2);
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+  it('rejects a module path that escapes dist and does not accept it as the bundled entry', () => {
+    const dist = temporaryDist({ 'assets/entry.js': 'entry module' });
+    try {
+      const result = checkEntryJsBudget('<script type="module" src="../outside.js"></script>', dist, { maxAssets: 5, maxGzipBytes: 10_000 });
+      expect(result.problems).toEqual(expect.arrayContaining(['module entry ../outside.js escapes dist', 'no readable bundled entry module']));
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('check-styles after integration', () => {
@@ -95,6 +160,12 @@ describe('check-styles after integration', () => {
   it('holds all routes to the 84 KB release budget including music file quality', () => {
     expect(CSS_BUDGET).toBe(84 * 1024);
     expect(CORE_BUDGET).toBe(7.4 * 1024);
+  });
+  it('holds both entry modules to the pinned launch asset budgets', () => {
+    expect(ENTRY_JS_BUDGETS).toEqual({
+      'index.html': { maxAssets: 5, maxGzipBytes: 354_407 },
+      'music-offline.html': { maxAssets: 4, maxGzipBytes: 82_237 },
+    });
   });
   it('holds tokens, UI, and brand to 7.4 KB', () => {
     expect(CORE_BUDGET).toBe(7.4 * 1024);

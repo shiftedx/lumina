@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Style check (app polish spec 1.8 step 4, 14; plan 00 §5). Node built-ins only. Runs after `vite build`.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
@@ -27,6 +27,10 @@ export const CSS_BUDGET = 84 * KB;
 export const CORE_BUDGET = 7.4 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
+export const ENTRY_JS_BUDGETS = {
+  'index.html': { maxAssets: 5, maxGzipBytes: 354_407 },
+  'music-offline.html': { maxAssets: 4, maxGzipBytes: 82_237 },
+};
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
 const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\((?!\s*var\()/gi; // `color-mix(` is not `color(`; the retired galleryColours lint's superset
 const NAMED = /\b(white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|maroon|navy|teal|olive|lime|aqua|fuchsia|gold)\b/i;
@@ -41,6 +45,84 @@ const SOURCE_REQUIRED_RED_TOKEN = '--g-metascore-unfavorable';
 
 export const gzipSize = (text) => gzipSync(text, { level: 9 }).length;
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;
+
+const HTML_ATTRIBUTE = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
+function htmlAttributes(tag) {
+  const attributes = new Map();
+  const body = tag.slice(1, -1).replace(/^[^\s>]+/, '');
+  for (const match of body.matchAll(HTML_ATTRIBUTE)) {
+    attributes.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return attributes;
+}
+
+function moduleReferences(html) {
+  const references = [];
+  const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+  for (const match of markup.matchAll(/<(script|link)\s[^>]*>/gi)) {
+    const attrs = htmlAttributes(match[0]);
+    const entry = match[1].toLowerCase() === 'script';
+    const module = entry ? attrs.get('type')?.toLowerCase() === 'module'
+      : attrs.get('rel')?.toLowerCase().split(/\s+/).includes('modulepreload');
+    const url = attrs.get(entry ? 'src' : 'href')?.trim();
+    if (module && url && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) {
+      references.push([url, entry]);
+    }
+  }
+  return references;
+}
+
+function insideDirectory(path, directory) {
+  return path.startsWith(`${directory}${sep}`);
+}
+
+export function checkEntryJsBudget(html, distDirectory, budget) {
+  const distRoot = realpathSync(distDirectory);
+  const problems = [];
+  const fetched = new Set();
+  let gzipBytes = 0;
+  let readableEntry = false;
+
+  for (const [url, entry] of moduleReferences(html)) {
+    try {
+      const request = url.split('#', 1)[0];
+      const asset = decodeURIComponent(request.split('?', 1)[0]);
+      const path = resolve(distRoot, asset.replace(/^\//, ''));
+      if (!insideDirectory(path, distRoot) || /[\\\0]/.test(asset)) {
+        problems.push(`module ${entry ? 'entry' : 'preload'} ${url} escapes dist`);
+        continue;
+      }
+      if (!asset.endsWith('.js')) {
+        if (entry) problems.push(`module entry ${url} is not a .js asset`);
+        continue;
+      }
+      const queryStart = request.indexOf('?');
+      const requestKey = queryStart < 0 ? path : path + request.slice(queryStart);
+      if (fetched.has(requestKey)) {
+        readableEntry ||= entry;
+        continue;
+      }
+      const realPath = realpathSync(path);
+      if (!insideDirectory(realPath, distRoot)) {
+        problems.push(`${url} resolves outside dist`);
+        continue;
+      }
+      const size = gzipSize(readFileSync(realPath));
+      fetched.add(requestKey);
+      gzipBytes += size;
+      readableEntry ||= entry;
+    } catch {
+      problems.push(`${url} is not a readable local module asset`);
+    }
+  }
+
+  const count = fetched.size;
+  if (!readableEntry) problems.push('no readable bundled entry module');
+  if (count > budget.maxAssets) problems.push(`${count} distinct local module JS assets, over maximum ${budget.maxAssets}`);
+  if (gzipBytes > budget.maxGzipBytes) problems.push(`${gzipBytes} bytes gzip, over maximum ${budget.maxGzipBytes}`);
+  return { count, gzipBytes, problems };
+}
 
 /** Blanks comments (and, for TS, leaves strings alone) while keeping every newline, so line numbers survive. */
 export function stripComments(text, ts = false) {
@@ -256,6 +338,17 @@ function main() {
       const size = gzipSize(readFileSync(join(assets, file)));
       console.log(`${chunk} chunk: ${(size / KB).toFixed(1)} KB gzip (budget ${budget / KB} KB)`);
       if (size > budget) problems.push(`${chunk} chunk is ${(size / KB).toFixed(1)} KB gzip, over ${budget / KB} KB`);
+    }
+  }
+  for (const [entry, budget] of Object.entries(ENTRY_JS_BUDGETS)) {
+    const displayPath = `dist/${entry}`;
+    try {
+      const html = readFileSync(join(root, displayPath), 'utf8');
+      const result = checkEntryJsBudget(html, join(root, 'dist'), budget);
+      console.log(`js ${displayPath}: ${result.count} distinct local module JS assets, ${result.gzipBytes} bytes gzip (budgets ${budget.maxAssets} assets, ${budget.maxGzipBytes} bytes)`);
+      problems.push(...result.problems.map((problem) => `${displayPath}: ${problem}`));
+    } catch {
+      problems.push(`${displayPath}: build entry HTML is missing or unreadable`);
     }
   }
   if (problems.length) { console.error(problems.join('\n')); process.exit(1); }

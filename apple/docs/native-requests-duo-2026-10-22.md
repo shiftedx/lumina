@@ -8,7 +8,7 @@ The Requests landing page has one compact featured title and horizontal poster r
 
 Trailer metadata remains part of a catalog detail. Lumina validates the provider ID and constructs one `https://www.youtube.com/watch?v=…` URL. Choosing Trailer hands that URL to the system, which opens the YouTube app when available or the system browser. Trailer handoff remains outside Lumina's media pipeline.
 
-The Library and Requests tab artwork was generated with the built-in image-generation tool and exported as template assets. Sources and prompt direction are retained in `apple/Assets/NavigationSources/`.
+The Library and Requests tab artwork ships as template assets in `apple/Assets/iOS.xcassets/`.
 
 ## Verification
 

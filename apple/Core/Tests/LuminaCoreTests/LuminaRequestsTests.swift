@@ -164,7 +164,9 @@ final class LuminaRequestsTests: XCTestCase {
             ],
         ]]
         let detailData = try JSONSerialization.data(withJSONObject: fixture)
-        let item = try JSONDecoder().decode(RequestCatalogDetail.self, from: detailData).item
+        let detail = try JSONDecoder().decode(RequestCatalogDetail.self, from: detailData)
+        let item = detail.item
+        XCTAssertTrue(item.canRequestMore)
         let files = try XCTUnwrap(item.status.languageAvailability?.files)
         XCTAssertEqual(files[0].audioLanguages, ["ja"])
         XCTAssertEqual(files[0].subtitleLanguages, ["en"])
@@ -172,6 +174,9 @@ final class LuminaRequestsTests: XCTestCase {
         XCTAssertTrue(files[1].description.contains("Unknown"))
         XCTAssertTrue(item.status.canRequestLanguageVariant)
         RequestsProtocol.handler = { request in
+            if request.url?.path == "/Lumina/Requests/catalog/home" {
+                return requestsResponse(request, json: ["hero": [], "rails": []])
+            }
             recorder.body = try requestsBody(request)
             var result = requestRecord()
             result["audio_language"] = "en"
@@ -179,7 +184,19 @@ final class LuminaRequestsTests: XCTestCase {
             result["fulfillment_mode"] = "manual"
             return requestsResponse(request, status: 201, json: result)
         }
-        let created = try await requests.create(item, audioLanguage: "en")
+        let draft = RequestDraft()
+        XCTAssertFalse(draft.canSubmit(item, detail: detail, quota: nil))
+        draft.setLanguagePreset(.dub, for: item)
+        XCTAssertTrue(draft.canSubmit(item, detail: detail, quota: nil))
+        try await draft.submit(item, detail: detail, quota: nil, using: requests) {
+            XCTAssertTrue(draft.submitting)
+            XCTAssertEqual(draft.created?.status, .approved)
+            XCTAssertNil(requests.home, "Quotas refresh before the catalog.")
+        }
+        XCTAssertFalse(draft.submitting)
+        XCTAssertFalse(draft.canSubmit(item, detail: detail, quota: nil))
+        XCTAssertNotNil(requests.home)
+        let created = try XCTUnwrap(draft.created)
         XCTAssertEqual(recorder.body?["audio_language"] as? String, "en")
         XCTAssertNil(recorder.body?["subtitle_language"])
         XCTAssertEqual(created.audioLanguage, "en")
@@ -199,6 +216,68 @@ final class LuminaRequestsTests: XCTestCase {
         } catch let error as RequestAPIError {
             XCTAssertEqual(error, .invalidRequest)
         }
+    }
+
+    func testRequestDraftRetriesWithLanguageAndLatestRegularSeason() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestsProtocol.self]
+        let session = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token", userID: "member", username: "Member", serverName: "Lumina", deviceID: "request-device")
+        let requests = LuminaRequests(session: session, client: LuminaClient(configuration: configuration))
+        let recorder = RequestsBodyRecorder()
+        var fixture = catalogItem()
+        fixture["key"] = "show:42"
+        fixture["kind"] = "show"
+        fixture["media_type"] = "tv"
+        fixture["status"] = [
+            "state": "partially_available", "library_title_id": " vault ",
+            "language_availability": ["state": "unknown", "truncated": false, "total_files": 0, "files": []],
+        ]
+        fixture["seasons"] = [2, 0, 1].map { ["number": $0, "name": "Season \($0)", "episode_count": 5] }
+        let detail = try JSONDecoder().decode(RequestCatalogDetail.self, from: JSONSerialization.data(withJSONObject: fixture))
+        let item = detail.item
+        let draft = RequestDraft()
+        XCTAssertEqual(item.vaultTitleID, "vault")
+        draft.seasonMode = .latest
+        XCTAssertFalse(draft.canSubmit(item, detail: nil, quota: nil))
+        XCTAssertFalse(draft.canSubmit(item, detail: detail, quota: RequestQuota(
+            kind: .show, canRequest: true, autoApprove: false, limit: 1, days: 7, used: 1, remaining: 0
+        )))
+        XCTAssertTrue(draft.canSubmit(item, detail: detail, quota: nil))
+        // The server can resolve a catalog show as anime and require a language.
+        RequestsProtocol.handler = { request in
+            requestsResponse(request, status: 422, json: ["detail": "language_required"])
+        }
+        do {
+            try await draft.submit(item, detail: detail, quota: nil, using: requests) {
+                XCTFail("A rejected submission must not refresh quota.")
+            }
+            XCTFail("The rejection must reach the screen.")
+        } catch let error as RequestAPIError {
+            XCTAssertEqual(error, .server(status: 422, code: "language_required"))
+        }
+        XCTAssertFalse(draft.submitting)
+        XCTAssertFalse(draft.canSubmit(item, detail: detail, quota: nil))
+        draft.setLanguagePreset(.sub, for: item)
+        XCTAssertTrue(draft.canSubmit(item, detail: detail, quota: nil))
+
+        RequestsProtocol.handler = { request in
+            if request.url?.path == "/Lumina/Requests/catalog/home" {
+                return requestsResponse(request, json: ["hero": [], "rails": []])
+            }
+            recorder.body = try requestsBody(request)
+            var result = requestRecord()
+            result["kind"] = "anime"
+            result["media_type"] = "tv"
+            result["key"] = "show:42"
+            result["seasons"] = [2]
+            return requestsResponse(request, status: 201, json: result)
+        }
+        try await draft.submit(item, detail: detail, quota: nil, using: requests) {}
+        XCTAssertEqual(draft.created?.seasons, .selected([2]))
+        XCTAssertEqual(recorder.body?["seasons"] as? [Int], [2])
+        XCTAssertEqual(recorder.body?["audio_language"] as? String, "ja")
+        XCTAssertEqual(recorder.body?["subtitle_language"] as? String, "en")
+        XCTAssertNil(recorder.body?["language"], "The legacy preset is sent for anime series only.")
     }
 
     func testRequestErrorRetainsStructuredServerCode() async throws {

@@ -604,14 +604,7 @@ private struct TVRequestDetailView: View {
     @State private var detail: RequestCatalogDetail?
     @State private var loading = true
     @State private var problem: String?
-    @State private var submitting = false
-    @State private var created: RequestRecord?
-    @State private var seasonMode = TVSeasonMode.all
-    @State private var selectedSeasons = Set<Int>()
-    @State private var language: RequestLanguage?
-    @State private var audioLanguage = ""
-    @State private var subtitleLanguage = ""
-    @State private var languageRequired = false
+    @State private var draft = RequestDraft()
     @State private var trailerUnavailable = false
     @State private var openingVault = false
     @State private var vaultProblem: String?
@@ -621,25 +614,9 @@ private struct TVRequestDetailView: View {
 
     private var current: RequestCatalogItem { detail?.item ?? item }
     private var quota: RequestQuota? { catalog.quotas.first { $0.kind == current.kind } }
-    private var vaultID: String? {
-        guard let id = current.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else { return nil }
-        return id
-    }
-    private var isSeries: Bool { current.mediaType == .tv }
-    private var supportsLanguages: Bool { current.status.canRequestLanguageVariant }
-    private var canRequestMore: Bool { vaultID != nil && (supportsLanguages || isSeries && current.status.state == .partiallyAvailable) }
-    private var canRequestChoice: Bool { current.status.canCreateRequest || supportsLanguages }
-    private var needsLanguage: Bool { languageRequired || (current.kind == .anime && current.mediaType == .tv) }
-    private var seasons: RequestSeasonSelection? {
-        guard isSeries else { return nil }
-        switch seasonMode {
-        case .all: return .all
-        case .chosen: return selectedSeasons.isEmpty ? nil : .selected(selectedSeasons.sorted())
-        }
-    }
     private var canSubmit: Bool {
-        guard case .ready = quotaState, let quota else { return false }
-        return (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && canRequestChoice && (current.status.canCreateRequest || !audioLanguage.isEmpty || !subtitleLanguage.isEmpty) && quota.canRequest && quota.remaining != 0 && (!isSeries || seasons != nil) && (!needsLanguage || (supportsLanguages ? (!audioLanguage.isEmpty || !subtitleLanguage.isEmpty) : language != nil))
+        guard !loading, case .ready = quotaState, let quota else { return false }
+        return draft.canSubmit(current, detail: detail, quota: quota)
     }
 
     var body: some View {
@@ -725,30 +702,30 @@ private struct TVRequestDetailView: View {
                 }
             }
 
-            if vaultID != nil {
+            if current.vaultTitleID != nil {
                 vaultAction
                 languageEvidence
-                if canRequestMore {
-                    if let created {
+                if current.canRequestMore {
+                    if let created = draft.created {
                         Label(created.status.label, glyph: .check, variant: .solid, size: 24)
                             .font(TVTypography.status)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("requestSubmittedStatus")
-                    } else if current.canRequest && canRequestChoice {
+                    } else if current.canRequest && current.hasRequestChoices {
                         requestChoices
                     }
                 }
-            } else if let created {
+            } else if let created = draft.created {
                 Label(created.status.label, glyph: .check, variant: .solid, size: 24)
                     .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
-            } else if !current.status.label.isEmpty, !canRequestChoice {
+            } else if !current.status.label.isEmpty, !current.hasRequestChoices {
                 Label(current.status.label, systemImage: "clock.fill")
                     .font(TVTypography.status)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestStatus")
-            } else if current.canRequest && canRequestChoice {
+            } else if current.canRequest && current.hasRequestChoices {
                 requestChoices
             } else {
                 Label(current.unrequestableReason ?? "This title cannot be requested yet.", glyph: .info, size: 24)
@@ -771,25 +748,26 @@ private struct TVRequestDetailView: View {
         .focusSection()
     }
 
-    @ViewBuilder private var requestChoices: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if isSeries {
-                Picker("Seasons", selection: $seasonMode) {
-                    Text("All seasons").tag(TVSeasonMode.all)
-                    if !(detail?.seasons.isEmpty ?? true) { Text("Choose seasons").tag(TVSeasonMode.chosen) }
+    private var requestChoices: some View {
+        @Bindable var draft = draft
+        return VStack(alignment: .leading, spacing: 20) {
+            if current.mediaType == .tv {
+                Picker("Seasons", selection: $draft.seasonMode) {
+                    Text("All seasons").tag(RequestDraft.SeasonMode.all)
+                    if !(detail?.seasons.isEmpty ?? true) { Text("Choose seasons").tag(RequestDraft.SeasonMode.chosen) }
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 760)
                 .accessibilityIdentifier("requestSeasonPicker")
 
-                if seasonMode == .chosen {
+                if draft.seasonMode == .chosen {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 270), spacing: 18)], alignment: .leading, spacing: 18) {
                         ForEach(detail?.seasons ?? []) { season in
                             Toggle(isOn: Binding(
-                                get: { selectedSeasons.contains(season.number) },
+                                get: { draft.selectedSeasons.contains(season.number) },
                                 set: { selected in
-                                    if selected { selectedSeasons.insert(season.number) }
-                                    else { selectedSeasons.remove(season.number) }
+                                    if selected { draft.selectedSeasons.insert(season.number) }
+                                    else { draft.selectedSeasons.remove(season.number) }
                                 }
                             )) {
                                 Text("\(season.name) · \(season.episodeCount) episodes")
@@ -802,21 +780,10 @@ private struct TVRequestDetailView: View {
                 }
             }
 
-            if needsLanguage {
+            if draft.needsLanguage(for: current) {
                 Picker("Anime language preset", selection: Binding(
-                    get: {
-                        guard supportsLanguages else { return language }
-                        if audioLanguage == "en" && subtitleLanguage.isEmpty { return .dub }
-                        if audioLanguage == "ja" && subtitleLanguage == "en" { return .sub }
-                        return nil
-                    },
-                    set: { selected in
-                        language = selected
-                        if supportsLanguages, let selected {
-                            audioLanguage = selected == .dub ? "en" : "ja"
-                            subtitleLanguage = selected == .dub ? "" : "en"
-                        }
-                    }
+                    get: { draft.languagePreset(for: current) },
+                    set: { draft.setLanguagePreset($0, for: current) }
                 )) {
                     Text("Choose language").tag(nil as RequestLanguage?)
                     Text("English dub").tag(Optional(RequestLanguage.dub))
@@ -827,20 +794,20 @@ private struct TVRequestDetailView: View {
                 .accessibilityIdentifier("requestLanguagePicker")
             }
 
-            if supportsLanguages {
-                Picker("Audio language", selection: $audioLanguage) {
+            if current.status.canRequestLanguageVariant {
+                Picker("Audio language", selection: $draft.audioLanguage) {
                     Text("Any audio language").tag("")
                     ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
                         Text(RequestLanguageOptions.label(code)).tag(code)
                     }
                 }.accessibilityIdentifier("requestAudioLanguagePicker")
-                Picker("Subtitle language", selection: $subtitleLanguage) {
+                Picker("Subtitle language", selection: $draft.subtitleLanguage) {
                     Text("No subtitle preference").tag("")
                     ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
                         Text(RequestLanguageOptions.label(code)).tag(code)
                     }
                 }.accessibilityIdentifier("requestSubtitleLanguagePicker")
-                if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
+                if draft.hasLanguagePreference {
                     Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
                         .font(TVTypography.metadata).foregroundStyle(.secondary)
                 }
@@ -852,8 +819,8 @@ private struct TVRequestDetailView: View {
                 Task { await submit() }
             } label: {
                 HStack(spacing: 12) {
-                    if submitting { ProgressView() }
-                    Label(canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add, variant: .solid, size: 24)
+                    if draft.submitting { ProgressView() }
+                    Label(current.canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add, variant: .solid, size: 24)
                 }
             }
             .buttonStyle(LuminaQuietActionStyle(primary: true))
@@ -882,7 +849,7 @@ private struct TVRequestDetailView: View {
     }
 
     @ViewBuilder private var vaultAction: some View {
-        if let id = vaultID {
+        if let id = current.vaultTitleID {
             Button {
                 Task { await openVault(id: id) }
             } label: {
@@ -1000,21 +967,12 @@ private struct TVRequestDetailView: View {
 
     private func submit() async {
         guard canSubmit else { return }
-        submitting = true
         problem = nil
-        defer { submitting = false }
-
         do {
-            let legacyLanguage: RequestLanguage? = supportsLanguages
-                ? (audioLanguage == "en" && subtitleLanguage.isEmpty ? .dub : audioLanguage == "ja" && subtitleLanguage == "en" ? .sub : nil)
-                : language
-            created = try await catalog.create(current, seasons: seasons, language: legacyLanguage,
-                                               audioLanguage: supportsLanguages && !audioLanguage.isEmpty ? audioLanguage : nil,
-                                               subtitleLanguage: supportsLanguages && !subtitleLanguage.isEmpty ? subtitleLanguage : nil)
-            await refreshQuota()
-            await catalog.loadHome()
+            try await draft.submit(current, detail: detail, quota: quota, using: catalog) {
+                await refreshQuota()
+            }
         } catch {
-            if case RequestAPIError.server(_, "language_required") = error { languageRequired = true }
             problem = error.localizedDescription
         }
     }
@@ -1176,11 +1134,6 @@ private struct TVRequestMessage: View {
     }
 }
 
-private enum TVSeasonMode: Hashable {
-    case all
-    case chosen
-}
-
 private func metadata(for item: RequestCatalogItem) -> String {
     ([item.year.map(String.init), item.genres.prefix(2).joined(separator: " · ")])
         .compactMap { $0 }
@@ -1192,10 +1145,6 @@ private func catalogStatus(for item: RequestCatalogItem) -> String {
     if item.status.state == .available { return "Available" }
     if item.status.state != .none { return item.status.label }
     return item.canRequest && item.status.canCreateRequest ? "Ready to request" : "Not requestable"
-}
-
-private func hasVaultItem(_ item: RequestCatalogItem) -> Bool {
-    item.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 }
 
 private func quotaText(_ quota: RequestQuota) -> String {

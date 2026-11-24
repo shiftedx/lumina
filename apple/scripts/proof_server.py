@@ -107,6 +107,7 @@ from proof_server_metrics import (
     install_navigation_fixture_controls,
     install_performance_request_log,
     install_playback_info_delay,
+    install_request_quota_failure,
     install_requests_catalog_metrics,
     install_streaming_fixture,
     performance_catalogue_count,
@@ -516,6 +517,15 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         raise RuntimeError("The native Requests title route did not preserve anime request metadata.")
     if request_anime.get("status", {}).get("state") != "partially_available" or request_anime.get("status", {}).get("library_title_id") is None:
         raise RuntimeError("The seeded partial anime request fixture lost its vault and partial-coverage state.")
+    if "NativeServerMediaLanguageTests" in str(FIXTURE_PATH):
+        files = request_anime["status"].get("language_availability", {}).get("files", [])
+        if not any(
+            file.get("season") == 1 and file.get("episode") == 1
+            and file.get("audio_languages") == ["ja"] and file.get("subtitle_languages") == ["en"]
+            and file.get("audio_known") is True and file.get("subtitles_known") is True
+            for file in files
+        ):
+            raise RuntimeError("Language proof requires Japanese audio and English subtitles on the same Season 1 Episode 1 file.")
     fresh_anime_detail = request_json(f"/Lumina/Requests/catalog/title/anime/{REQUEST_FRESH_ANIME_ID}", token=token)
     if fresh_anime_detail.get("key") != REQUEST_FRESH_ANIME_KEY or fresh_anime_detail.get("status", {}).get("state") != "none":
         raise RuntimeError("The fresh anime request fixture did not retain a distinct unrequested identity.")
@@ -848,6 +858,9 @@ def main() -> None:
         import uvicorn
         from app.main import app
         install_showcase_art_fixture(state_root, ORIGIN)
+        quota_failure_proof = FIXTURE_PATH.stem.split("-", 1)[0] == "NativeTVRequestQuotaRetryTests"
+        if quota_failure_proof:
+            install_request_quota_failure(app)
         if os.environ.get("LUMINA_NATIVE_STREAMING_PROOF") == "1":
             install_streaming_fixture(app, provisioned)
         if "NativeServerNavigationTests" in str(FIXTURE_PATH):
@@ -884,6 +897,8 @@ def main() -> None:
 
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
+        if quota_failure_proof:
+            verified["requestQuotaOutageAvailable"] = True
         if activate_video_format_failure is not None:
             client_demux_target = os.environ.get(CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY_ENV) == "1"
             target = verified["convertedItemID"] if client_demux_target else verified["directItemID"]

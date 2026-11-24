@@ -549,6 +549,40 @@ def install_streaming_fixture(app: Any, provisioned: dict[str, Any]) -> None:
     frontend_index = next((i for i, candidate in enumerate(app.router.routes) if getattr(candidate, "name", None) == "frontend"), len(app.router.routes))
     app.router.routes[frontend_index:frontend_index] = routes
 
+def install_request_quota_failure(app: Any) -> None:
+    """Control quota outages on the disposable proof server only."""
+    from starlette.responses import JSONResponse
+
+    unavailable = False
+    failed_checks = 0
+    submit_attempts = 0
+
+    @app.middleware("http")
+    async def fault_request_quota(request, call_next):  # noqa: ANN001, ANN202
+        nonlocal failed_checks, submit_attempts
+        path = request.url.path.rstrip("/")
+        if request.method == "POST" and path == "/Lumina/Requests":
+            submit_attempts += 1
+        if unavailable and request.method == "GET" and path == "/Lumina/Requests/quota":
+            failed_checks += 1
+            return JSONResponse({"detail": "quota_unavailable"}, status_code=503)
+        return await call_next(request)
+
+    async def set_quota_outage(failing: bool) -> dict[str, int]:
+        nonlocal unavailable
+        unavailable = failing
+        return {"failed_checks": failed_checks, "submit_attempts": submit_attempts}
+
+    app.add_api_route("/proof/request-quota-outage/{failing}", set_quota_outage,
+                      methods=["POST"], include_in_schema=False)
+    route = app.router.routes.pop()
+    frontend_index = next(
+        (i for i, candidate in enumerate(app.router.routes) if getattr(candidate, "name", None) == "frontend"),
+        len(app.router.routes),
+    )
+    app.router.routes.insert(frontend_index, route)
+
+
 def install_requests_catalog_metrics(app: Any) -> _RequestsCatalogMetrics:
     """Add proof-only Requests aggregate counters without exposing request data."""
     recorder = _RequestsCatalogMetrics()

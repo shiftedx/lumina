@@ -47,8 +47,8 @@ describe('index.html and the brand assets', () => {
   });
 });
 
-describe('social preview images', () => {
-  it.each(['share-v1', 'share-v2', 'share-v3', 'invite-v1', 'invite-v2'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
+describe('current social preview images', () => {
+  it.each(['share-v4', 'invite-v3'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
     const bytes = readFileSync(`public/social/lumina-${kind}.jpg`);
     expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
     const frame = bytes.indexOf(Buffer.from([0xff, 0xc0]));

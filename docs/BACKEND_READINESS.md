@@ -1,11 +1,5 @@
 # Backend test readiness
 
-The audit starts at `b3c5ff7`: **5,290 expanded cases / 3,860 authored templates**.
-After pruning: **5,285 cases / 3,855 templates**, with six deletions, one new cover-art/HDR contract, and no moves.
-
-**Qualification is complete.** Every retained backend case passed twice in its
-appropriate cohort, and the full repository gate passed at the same app source.
-
 The [case ledger](agents/pytest-ledger.md) records every original case. The
 [history and negative controls](agents/pytest-history.md) name retained coverage
 and distinguish real regression catches from creation, timing and test drift.
@@ -62,19 +56,15 @@ and p95 measurement validity require `make perf-titles` without xdist. The
 parallel runner rejects `PERF_TITLES_ROOT` rather than racing that fixture. The runner times out and cancels only its own detached
 process group, including surviving children.
 
-Full collection includes eleven prerequisite-dependent cases on this macOS host:
-eight seeded-library performance measurements require `PERF_TITLES_ROOT`
-(`mise exec -- make perf-titles`); one chromaprint measurement needs the
-chromaprint muxer; one address-space enforcement case requires Linux; one HDR
-case requires libx265 and zscale. Their exact node IDs and skip reasons are
-allowlisted in `backend/tests/pytest-tiers.json`. They remain retained coverage,
-but **a skip is not a successful execution**. Available media/platform prerequisites may make
-their three cases run; seeded performance cases use the separate serial lane.
-Any unrecognized skip fails qualification. Smoke permits none.
-Use the production Linux/Jellyfin-FFmpeg toolchain and seeded perf lane to qualify
-these prerequisites before a release that changes the relevant behavior.
+The runner validates prerequisite skips against the exact node IDs and reasons in
+`backend/tests/pytest-tiers.json`. Smoke permits none. Release qualification
+requires a passing result for each applicable prerequisite case in its required
+cohort. Run seeded-library measurements with `make perf-titles`. Run Linux
+address-space enforcement, Chromaprint and HDR cases with the production
+Linux/Jellyfin FFmpeg toolchain. The [verification matrix](VERIFICATION.md)
+gives the required synthetic M2TS setup for the full gate.
 
-## Measurements
+## Historical qualification
 
 Final code commit: `b8d52f7`. Two independent repetitions on the shared host:
 
@@ -100,18 +90,8 @@ seed, GC enabled, and no other audit test jobs competing. Its two final runs
 recorded load1 3.97→4.22→4.05 on 16 cores. No threshold, sample count or timing
 assertion was relaxed; failed diagnostic attempts remain in history.
 
-Private reports:
-
-- `/tmp/lumina-pytest-merge-smoke/report.json`
-- `/tmp/lumina-pytest-merge-check-backend/report.json`
-- `/tmp/lumina-pytest-merge-perf-final/report.json` and `run-{1,2}.xml`
-- `/tmp/lumina-chromaprint-pinned-8014/merge-b8d52f7-parallel/run-{1,2}/summary.json`
-
-The Linux cohort uses Python 3.12.14 and Jellyfin FFmpeg 8.1.2-5 arm64 from the
-repository's exact Python image digest and Jellyfin .deb checksum. Its source
-mount is read-only, bytecode/app data are private, and containers use `--rm`.
-Pinned Dockerfile and executable commands are in
-`/tmp/lumina-chromaprint-pinned-8014/`; no app was deployed. Reproduce with
+The Linux cohort used Python 3.12.14 and Jellyfin FFmpeg 8.1.2-5 arm64
+with the repository's pinned Python image and Jellyfin package. Reproduce with
 those tools on PATH:
 
 ```sh
@@ -136,8 +116,6 @@ IDs; it is not attributed to deleting six tests.
 bootstrap/runner checks (15), tier-driver checks (3), TypeScript, production
 build, both backend repetitions, **2,659 Vitest tests / 305 files**, and
 **650 Playwright cases in 1,031.952 s**. Browser skips, unexpected failures and
-flaky results were all zero; its 2,700 s budget was met. Later commits only
-record this evidence in documentation. Log: `/tmp/lumina-pytest-merge-check.log`;
-browser report: `/tmp/lumina-playwright-tier.ytF4v1/full-report.json`.
-Standards and Spec source/documentation reviews found no remaining actionable
-issues.
+flaky results were all zero; its 2,700 s budget was met. Use
+`backend/tests/pytest-tiers.json` for the current selectors and skip rules.
+The runner prints the path of its `report.json` with the results.

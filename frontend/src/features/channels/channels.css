@@ -1,7 +1,5 @@
-/* Subscriptions, follow detail and the YouTube channel page. Gallery tokens only. */
 .gallery .g-channels-lede { margin: 12px 0 24px; font: var(--g-type-lede); color: var(--g-ink-2); }
 .gallery .g-channels-empty-title { margin: 0; font: var(--g-type-h2); }
-/* Not a wall: the toolbar sits in the page's own padding and wraps rather than pinning a nowrap row at phone width. */
 .gallery.g-channels .g-toolbar { position: static; flex-wrap: wrap; margin: 0 0 24px; padding: 12px 0; }
 .gallery .g-channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: 32px 24px; margin-top: 8px; }
 .gallery .g-channel-tile { display: grid; justify-items: center; gap: 8px; min-width: 0; border-radius: var(--g-radius-sheet); color: var(--g-ink); text-align: center; text-decoration: none; }
@@ -24,7 +22,6 @@
   .gallery .g-channels-wall { grid-template-columns: 1fr; }
 }
 
-/* Follow settings: SubscriptionControls inside the gallery drawer (FollowSettingsDialog) keep their rules until the primitives. */
 .subscription-control { display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: var(--g-radius-sheet); background: var(--g-paper-3); }
 .subscription-control h2 { margin: 0; overflow-wrap: anywhere; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 22px; font-weight: 400; }
 .subscription-control p { margin: 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.5; }
@@ -51,8 +48,6 @@
 .subscription-control .subscription-control-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--g-danger) 22%, transparent); }
 .subscription-control-error { color: var(--g-danger) !important; }
 
-/* -- channel page -- */
-/* The banner and toolbar bleed by the gallery gutter, so the page must pad by exactly that (.surface pads 34px). */
 .gallery.g-channel-page { width: 100%; max-width: none; padding: 0 var(--g-gutter) 96px; }
 .gallery .g-channel-banner { position: relative; margin: 0 calc(-1 * var(--g-gutter)); height: min(240px, 16vw); overflow: hidden; }
 .gallery .g-channel-banner.is-field { aspect-ratio: auto; height: 120px; }

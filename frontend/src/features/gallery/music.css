@@ -1,8 +1,5 @@
 /* Music: album and artist cards, the album and artist pages and the Music tab. Foundation tokens and local cover colours inside .gallery: no colour literals. */
 
-/* -- album card: the card reuses .g-poster, .g-caption and .g-art-square; nothing of its own yet -- */
-
-/* -- album and artist pages -- */
 .gallery.g-album-page, .gallery.g-artist-page { width: 100%; max-width: none; min-height: calc(100svh - var(--g-topbar)); margin: 0 auto; padding: 24px var(--g-gutter) 96px; background: radial-gradient(ellipse at top right, color-mix(in srgb, var(--music-cover-colour) 18%, var(--g-paper)), transparent 65%), var(--g-paper); }
 .gallery.g-album-page { --album-secondary-ink: color-mix(in srgb, var(--g-ink) 90%, var(--g-paper)); }
 .gallery.g-album-page :is(.g-back, .g-label, .g-album-artist, .g-track-number, .g-track-duration, .soundstage-album-overview, .music-note, .soundstage-release-facts dt, .soundstage-credits span) { color: var(--album-secondary-ink); }
@@ -47,7 +44,6 @@
   .gallery .g-track:hover .g-track-glyph { visibility: visible; }
   .gallery .g-track:hover .g-track-title { text-decoration: underline; }
 }
-/* Artist identity stays beneath its portrait; records get the wider column. */
 .gallery.g-artist-page .soundstage-layout { display: grid; grid-template-columns: minmax(240px, 26%) minmax(0, 1fr); gap: clamp(24px, 4vw, 48px); align-items: start; max-width: 1320px; margin: 28px auto 0; }
 .gallery.g-artist-page .soundstage-portrait { min-width: 0; }
 .gallery.g-artist-page .soundstage-portrait .g-art-square { width: 100%; aspect-ratio: 1; border-radius: var(--g-radius-sheet); }
@@ -81,7 +77,6 @@
   .gallery .g-track { min-height: 56px; }
 }
 
-/* -- music tab -- */
 .gallery .g-music-head { display: grid; gap: 8px; margin: 0 0 22px; padding-bottom: 0; border-bottom: 0; }
 .gallery .g-music-head-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
 .gallery .g-music-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
@@ -116,8 +111,6 @@
   .gallery .g-music-catalog { margin-top: 42px; padding-top: 22px; }
 }
 
-/* -- audio stage -- */
-/* The stage is its own .gallery so the tokens apply; it sits under the player's controls inside the frame. */
 .player-frame.has-audio-stage { container-type: size; }
 .player-frame.has-audio-stage .lumina-player { background: none; }
 .gallery.g-audio-stage { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--g-space-2); padding: var(--g-space-5) var(--g-space-5) 96px; color: var(--g-on-art); text-align: center; }
@@ -128,7 +121,6 @@
 @media (max-width: 599px) {
   .gallery .g-audio-title { font-size: 22px; }
 }
-/* Mini player: the art at 48 px beside the track name replaces the video thumbnail. */
 .watch-mini .player-frame.has-audio-stage { height: 64px; aspect-ratio: auto; container-type: normal; }
 .watch-mini .gallery.g-audio-stage { grid-auto-flow: column; justify-content: start; gap: var(--g-space-3); padding: var(--g-space-2); text-align: left; }
 .watch-mini .gallery.g-audio-stage .g-audio-art { width: 48px; }
@@ -144,7 +136,6 @@
 
 .gallery .g-music-head-row > .g-view-switch { margin-inline-start: 0; }
 
-/* Quiet source-file facts: album cards stay artwork-led, with detail beside the music. */
 .gallery .g-album-card-quality { display: grid; gap: 3px; margin-top: 7px; font: var(--g-type-small); color: var(--g-ink); white-space: normal; overflow-wrap: anywhere; }
 .gallery .g-album-card-quality > span:last-child { color: var(--g-ink-2); font-variant-numeric: tabular-nums; }
 .gallery .g-album-file-quality { min-width: 0; }

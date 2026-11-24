@@ -64,7 +64,6 @@ class EnvSettings(BaseSettings):
         if limit != 0 and limit < 32 * 1024 * 1024:
             raise ValueError("photo derivative cache must be 0 (unlimited) or at least 32 MiB")
         return self
-    # Guarded upstream-HLS relay (the Twitch VOD playback path).
     relay_max_sessions_global: int = 24
     relay_max_sessions_per_user: int = 4
     # A playing relay requests every few seconds; this long without one means the tab is gone (or a VOD is paused,
@@ -103,8 +102,7 @@ class EnvSettings(BaseSettings):
     live_recording_chat_max_events: int = 5000
     live_recording_chat_max_consecutive_failures: int = 6
     live_recording_chat_poll_interval_seconds: float = 2.0
-    # Provider request timeout for the recording's durable chat-capture fetcher
-    # (the recording chat surface is the only live-chat consumer in 1.0).
+    # Provider request timeout for the recording's durable chat-capture fetcher.
     live_recording_chat_request_timeout_seconds: float = 20
     # Scheduling an upcoming broadcast (issue #98): the waiter re-inspects the
     # source at this cadence near the scheduled time, waits up to
@@ -149,7 +147,7 @@ class EnvSettings(BaseSettings):
     enable_api_docs: bool = False
     # LUMINA_JELLYFIN_TRACE=1: log method, route template and query parameter names (never values) per Jellyfin request.
     jellyfin_trace: bool = False
-    # LUMINA_ARTWORK_PASS=off: no background artwork renditions (the realstack e2e server; on-demand still works).
+    # LUMINA_ARTWORK_PASS=off: no background artwork renditions; on-demand still works.
     artwork_pass: bool = True
     # Admin-approved private local inference endpoint (OpenAI-compatible). These
     # env values are the defaults until an admin saves their own; unset/"" disables.
@@ -159,8 +157,7 @@ class EnvSettings(BaseSettings):
     ai_context_tokens: int = 145_000
     asr_base_url: str = ""
     asr_model: str = ""
-    # On-device model runtimes baked into the image. Operators never set these;
-    # tests point them at a stub server.
+    # On-device model runtimes baked into the image; operators never set these.
     llama_server_bin: str = "/opt/lumina-llama/bin/llama-server"
     asr_python: str = "/opt/lumina-asr/bin/python"
     asr_server_script: str = "/opt/lumina-asr/server.py"

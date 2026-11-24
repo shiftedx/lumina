@@ -1,13 +1,10 @@
 """First-owner media setup is durable, resumable, and never leaks to later admins."""
-
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pytest
 
-from app import db as db_module
 from app.config import settings
 from app.models import User
 from app.account_schemas import InvitationRedeemRequest, UserCreateRequest
@@ -95,17 +92,3 @@ def test_viewer_cannot_access_admin_media_onboarding(api_client, method: str, pa
     response = getattr(client, method)(path)
     assert response.status_code == 403
     assert response.json() == {"detail": "Admin access required"}
-
-
-def test_schema_20_defaults_migrated_users_to_completed_setup(tmp_path: Path) -> None:
-    database = tmp_path / "schema-19.db"
-    with sqlite3.connect(database) as connection:
-        connection.execute("CREATE TABLE users (id TEXT PRIMARY KEY)")
-        connection.execute("INSERT INTO users (id) VALUES ('existing-owner')")
-        for statement in db_module.MIGRATIONS[20]:
-            connection.execute(statement)
-        value = connection.execute(
-            "SELECT vault_setup_pending FROM users WHERE id = 'existing-owner'"
-        ).fetchone()
-
-    assert value == (0,)

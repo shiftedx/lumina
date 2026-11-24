@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 
+from app import db as db_module
 from app.config import settings
 from app.services.backups import LOCK_FILENAME, verify_file
 
@@ -35,6 +36,11 @@ def restore(backup: Path, data_dir: Path) -> Path | None:
         staged = live.with_name(live.name + ".restoring")
         shutil.copyfile(backup, staged)
         os.chmod(staged, 0o600)  # every password hash: as private as the backup it came from
+        try:
+            db_module.validate_database_file(staged)
+        except db_module.SchemaVersionError as exc:
+            staged.unlink(missing_ok=True)
+            raise SystemExit("Backup failed verification: " + str(exc)) from None
         now = datetime.now(UTC)
         copy = sqlite3.connect(staged)
         try:

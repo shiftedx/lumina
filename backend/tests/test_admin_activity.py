@@ -1,6 +1,5 @@
 """Admin Activity: now playing, stop, history, server stats."""
 from __future__ import annotations
-
 import time
 from contextlib import contextmanager
 from datetime import timedelta
@@ -320,11 +319,3 @@ def test_activity_is_admin_only(client: TestClient, factory) -> None:  # noqa: A
     admin(member, "member")
     assert [member.get("/api/admin/activity").status_code, member.get("/api/admin/activity/history").status_code] == [403, 403]
     assert member.post("/api/admin/activity/d:x/stop").status_code == 403
-
-
-def test_schema_step_11_adds_playback_history(factory) -> None:  # noqa: ANN001
-    from app import db as db_module
-
-    assert db_module.SCHEMA_VERSION >= 11 and db_module.MIGRATIONS[11] == ()
-    with factory() as db:
-        assert db.execute(text("SELECT count(*) FROM playback_history")).scalar() == 0

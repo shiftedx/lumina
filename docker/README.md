@@ -458,7 +458,7 @@ Email artwork uses versioned public assets from the configured public address. K
 
 ## Backups and restore
 
-**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7, and the daily pass also keeps only the newest 3 `pre-upgrade` backups. **Verify** re-checks the checksum, integrity and schema version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Manage Server → AI features after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
+**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7. **Verify** re-checks the checksum, integrity and schema-44 version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Manage Server → AI features after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
 
 Media is not in these backups. Neither are on-device models (`app-data/models/`); they re-download from Settings if lost. Back up `app-data/library/` and managed roots with your usual file tooling, and mount every root at the same container path before restoring.
 
@@ -480,7 +480,7 @@ Manage Server → Maintenance → Updates shows the installed version and the la
 
 When a newer version is available, the Manage Server overview keeps an update notice visible. Optional email notifications use the configured SMTP server and active admins' saved notification email addresses. Email is off by default and best effort: each release is queued once, including across restarts, so a crash or mail failure can lose that email. The overview notice remains available. GitHub failures preserve the last successful result and show an error; scheduled failures retry after an hour. Manual checks share a one-minute cooldown.
 
-Checking never downloads or installs an image or restarts the server. Follow the upgrade and rollback instructions below after reviewing the release notes. A private/source build reports its declared application version; this check does not compare untagged source commits.
+Checking never downloads or installs an image or restarts the server. Follow the update instructions below after reviewing the release notes. A private/source build reports its declared application version; this check does not compare untagged source commits.
 
 ### Installing a release
 
@@ -497,7 +497,7 @@ docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-For a checkout-based install, first update the Compose file with `git fetch origin tag v0.7.1 && git checkout --detach v0.7.1`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
+For a checkout-based install, first update the Compose file with `git fetch origin tag v0.7.1 && git checkout --detach v0.7.1`. Lumina supports only the current schema-44 database. Before changing the running image, make and verify a backup; an older, newer, foreign, or corrupt database is refused without modification. A current-schema backup can be restored with the current release.
 
 ### Retaining a rollback image
 
@@ -553,95 +553,9 @@ The hook refuses to infer known-good history from old pin creation dates. Deploy
 scripts and deployment agents must call this hook only after their verification
 succeeds; do not run it during startup or after a failed rollout.
 
-### Rollback after a schema upgrade
+### Current-schema recovery
 
-Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to. Before any rollback to an image predating the discovery I/O fixes, normalize the new manager trigger so its older API can read run history: `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager';`. Manager reconciliation cursors may remain; older images ignore them:
-
-| Rolling back to | Stamp |
-| --- | --- |
-| Before TV enrollment pairing (schema 43) | `DROP TABLE device_pairings; PRAGMA user_version = 43` (all pending TV enrollment requests are revoked; TV app passwords already claimed remain separate revocable connected apps) |
-| Before request language preferences (schema 42) | `PRAGMA user_version = 42` (retain the additive `media_requests.audio_language` and `subtitle_language` columns; older images ignore them. Older images cannot preserve language-specific request behavior; upgrading again rechecks available language requests before marking them available.) |
-| Before episode-autoplay presence policy (schema 41) | `PRAGMA user_version = 41` (keep the additive `app_settings.autoplay_presence` JSON column; older images ignore it and upgrading again restores the saved household policy.) |
-| Before the durable OMDb budget (schema 40) | `UPDATE app_settings SET omdb_api_key = NULL; PRAGMA user_version = 40` (also remove `LUMINA_OMDB_API_KEY` from the older container's environment: 0.5.0 has no request cap. Keep `omdb_rating_cache` and `omdb_request_reservations` so upgrading again retains cache, retry and budget history.) |
-| Before OMDb critic scores (schema 39) | `UPDATE app_settings SET omdb_api_key = NULL; UPDATE media_titles SET field_sources = json_set(field_sources, '$.imdb_rating', 'tmdb') WHERE json_extract(field_sources, '$.imdb_rating') = 'omdb'; UPDATE media_titles SET field_sources = json_set(field_sources, '$.rotten_tomatoes_rating', 'tmdb') WHERE json_extract(field_sources, '$.rotten_tomatoes_rating') = 'omdb'; UPDATE media_titles SET field_sources = json_set(field_sources, '$.metacritic_rating', 'tmdb') WHERE json_extract(field_sources, '$.metacritic_rating') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.imdb_rating.source', 'tmdb') WHERE json_extract(source_values, '$.imdb_rating.source') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.rotten_tomatoes_rating.source', 'tmdb') WHERE json_extract(source_values, '$.rotten_tomatoes_rating.source') = 'omdb'; UPDATE media_titles SET source_values = json_set(source_values, '$.metacritic_rating.source', 'tmdb') WHERE json_extract(source_values, '$.metacritic_rating.source') = 'omdb'; UPDATE title_edits SET before_source = 'tmdb' WHERE before_source = 'omdb'; UPDATE title_edits SET after_source = 'tmdb' WHERE after_source = 'omdb'; PRAGMA user_version = 39` (keep the additive column and score values; remapping OMDb provenance lets the older editor read them.) |
-| Before device-bound native Chromecast tickets (schema 38) | `DELETE FROM media_cast_tickets; DROP TABLE music_receiver_tickets; DROP INDEX IF EXISTS ix_media_cast_tickets_issuer_device_id; ALTER TABLE media_cast_tickets DROP COLUMN audio_index; ALTER TABLE media_cast_tickets DROP COLUMN playback_session_id; ALTER TABLE media_cast_tickets DROP COLUMN issuer_device_id; PRAGMA user_version = 38` (revoke receiver access and stop related in-memory conversions before rolling back) |
-| Before mobile app pairing (schema 37) | `DROP TABLE mobile_pairings; PRAGMA user_version = 37` (all unclaimed pairing codes are revoked; already connected mobile apps keep their separate app passwords) |
-| Before scalable face matching (schema 36) | `DROP TRIGGER IF EXISTS trg_photo_face_index_insert; DROP TRIGGER IF EXISTS trg_photo_face_index_update; DROP TRIGGER IF EXISTS trg_photo_face_index_delete; DROP TRIGGER IF EXISTS trg_photo_face_index_photo_update; DROP TRIGGER IF EXISTS trg_photo_face_index_photo_delete; DROP TABLE photo_face_index_snapshots; DROP TABLE photo_face_index_changes; DROP TABLE photo_face_index_vectors; DROP INDEX IF EXISTS ix_photo_faces_ann_prototype; DROP INDEX IF EXISTS ix_photo_faces_ann_unassigned; DROP INDEX IF EXISTS ix_photo_face_jobs_priority; DROP INDEX IF EXISTS ix_photo_people_ann_scope; DROP INDEX IF EXISTS ix_photo_items_face_queue; PRAGMA user_version = 36`. Remove the disposable `app-data/face-index/` directory while Lumina is stopped. Existing faces, people and corrections remain in SQLite. |
-| Before durable photo previews (schema 35) | First apply the schema 36 rollback above. Set `LUMINA_PHOTO_DERIVATIVE_CACHE_MAX_BYTES=0` for the older image so its LRU cannot evict previews the current catalog promises, then run `DROP TABLE photo_preview_assets; DROP TABLE photo_preview_storage; PRAGMA user_version = 35`. Preview files retain the same paths; upgrading again recreates the registry and accounts for ready catalog rows without scanning preview storage. |
-| Before Photos and local face indexing (schema 34) | First apply the schema 36 and 35 rollbacks above. `DROP TABLE photo_import_runs; DROP TABLE photo_import_sources; DROP TABLE photo_face_edits; DROP TABLE photo_faces; DROP TABLE photo_people; DROP TABLE photo_face_jobs; DROP TABLE photo_face_preferences; DROP TABLE photo_album_memberships; DROP TABLE photo_albums; DROP TABLE photo_derivatives; DROP TABLE photo_states; DROP TABLE photo_items; PRAGMA user_version = 34` (managed originals under `app-data/photos/originals/` remain on disk for recovery; external originals are never modified; derivative files are disposable) |
-| Before native Connected-app external streaming (schema 33) | `PRAGMA user_version = 33` (keep the additive `app_settings.native_streaming_enabled` column; older releases ignore it) |
-| Before Plex account and history transfer (schema 32) | `PRAGMA user_version = 32` (keep the additive `app_settings.plex_import_url` column; imported members and history remain) |
-| Before personal YouTube sessions (schema 31) | `DELETE FROM youtube_sessions; PRAGMA user_version = 31` (remove saved credentials; keep the additive table) |
-| Before discovery I/O fixes (schema 30) | `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager'; PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
-| Before release update checks (schema 29) | `PRAGMA user_version = 29` (keep the additive `app_settings.update_settings` column; older releases ignore cached release status and notification preferences) |
-| Before acquisition-aware music queues (schema 28) | `PRAGMA user_version = 28` (keep the additive `queue_entries`, `entry_index` and `unavailable_policy` columns; older releases use only the resolved playable queue) |
-| Before Chromecast media tickets (schema 27) | `DELETE FROM media_cast_tickets; PRAGMA user_version = 27` (revoke receiver access; keep the additive table) |
-| Before listening history exports (schema 26) | `PRAGMA user_version = 26` (keep `listening_export_connections` and `listening_play_events`; preserve uncertain delivery records to prevent duplicate exports) |
-| Before infrastructure connectors and music acquisitions (schema 25) | `PRAGMA user_version = 25` (keep `service_connectors` and `music_acquisitions`; reconcile uncertain Lidarr work before issuing another acquisition in an older release) |
-| Before shared music listening sessions (schema 24) | `PRAGMA user_version = 24` (keep `music_listening_sessions`; older releases ignore shared queues and continue per-item playback progress and browser-local restoration) |
-| Before arr operation history (schema 23) | `PRAGMA user_version = 23` (keep `arr_operations` as the acquisition audit, especially uncertain outcomes; verify unresolved work upstream before submitting another command through an older release) |
-| Before independent arr observations (schema 22) | `PRAGMA user_version = 22` (keep `arr_observation_states`, `arr_observed_items` and `arr_observed_records`; older releases ignore these disposable snapshots. Requests and saved connections remain.) |
-| Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
-| Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
-| Before household resource budgets (schema 21) | `ALTER TABLE app_settings DROP COLUMN resource_policy; ALTER TABLE users DROP COLUMN resource_overrides; PRAGMA user_version = 21` (removes resource settings and overrides; existing media and work remain) |
-| Before Books format bundling (schema 20) | `UPDATE book_items SET bundle_parent_id = NULL, deleted_at = NULL; DROP INDEX IF EXISTS ix_book_items_bundle_parent_id; DROP INDEX IF EXISTS ix_book_items_deleted_at; ALTER TABLE book_items DROP COLUMN filename; ALTER TABLE book_items DROP COLUMN bundle_parent_id; ALTER TABLE book_items DROP COLUMN deleted_at; PRAGMA user_version = 20` (every `book_items` row, file, state and shelf membership remains; this only unlinks bundles and makes trashed rows visible to the older Books release) |
-| Before Books (schema 18) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 18` (uploaded files under `app-data/books/` remain on disk) |
-| Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
-| Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |
-| 2.9.0 (schema 14, before the dedicated two-step key, step 15) | `PRAGMA user_version = 14` (step 15 changes no table; current authenticator secrets use `app-data/totp-key`, which 2.9.0 cannot read, so after rolling back **authenticator codes fail** for members who had two-step verification on: they sign in with a recovery code, or an owner resets them. Keep `app-data/totp-key`) |
-| 2.8.1 (schema 13, before two-step verification, step 14) | `DELETE FROM device_tokens WHERE kind = 'app_password'`, then `PRAGMA user_version = 13` (step 14 only adds the two-step columns; 2.8.1 ignores them, so **two-step verification is off** for everyone until you upgrade again, when it is back as it was. The delete removes app passwords, which 2.8.1 cannot list; apps that already signed in with one stay signed in) |
-| 2.7.2 (schema 12, before member access, step 13) | `PRAGMA user_version = 12` (step 13 only adds `member_access`, `screen_time`, title ratings, invite and public-address columns; an older release ignores them, so every member is unrestricted again) |
-| 2.5.1 (schema 11, before Requests, step 12) | `PRAGMA user_version = 11` (step 12 only adds the Requests tables and columns; Sonarr/Radarr keys and the SMTP password stay in them) |
-| 2.1.0 (schema 10, before the admin Activity page, step 11) | `DROP TABLE playback_history`, then `PRAGMA user_version = 10` (see "2.2.0 rollback" below) |
-| 2.0.1 (schema 9, before library automation and the metadata editor, step 10) | the three statements below, then `PRAGMA user_version = 9` |
-| 1.8.0 (schema 8, before recommendations, step 9) | `PRAGMA user_version=8` |
-| 1.5.1 (schema 7, before the library gallery, step 8) | the album and artist removal below, which also stamps 7 |
-| a schema-6 release (before "Recently added" by file arrival, step 7) | `PRAGMA user_version=6` |
-| 1.3.1 (schema 5, before the gallery, step 6) | `PRAGMA user_version=5` |
-
-```bash
-docker compose down
-sqlite3 app-data/app.db 'PRAGMA user_version=6'
-```
-
-**2.2.0 rollback (to 2.1.0, schema 10).** Step 11 only adds the `playback_history` table (finished Activity sessions, kept 90 days). 2.1.0 ignores it, so you may leave it; to remove it, run the two statements and start the 2.1.0 image. Upgrading again recreates the table empty.
-
-```bash
-docker compose down
-sqlite3 app-data/app.db 'DROP TABLE IF EXISTS playback_history; PRAGMA user_version = 10;'
-```
-
-Rolling back to 2.0.1 (from 2.1.0, step 10) needs one extra step. Scans that covered only some folders (from the watcher or Scan now on a folder) mean nothing to 2.0.1: resuming or confirming one there would mark every file outside its folders missing. Delete them before stamping the version:
-
-```bash
-docker compose down
-sqlite3 app-data/app.db "
-DELETE FROM import_entries WHERE run_id IN (SELECT id FROM import_runs WHERE scope IS NOT NULL);
-DELETE FROM import_runs WHERE scope IS NOT NULL;
-PRAGMA user_version = 9;"
-```
-
-While on 2.0.1, edited fields keep their edits (2.0.1 treats them as your own values and does not overwrite them). Item locks, extra backdrops and uploaded artwork are ignored: an uploaded image shows the typographic card, and 2.0.1's Jellyfin API serves none. Artwork you removed in the editor shows as missing art on 2.0.1 (it has no notion of a removed image) until you upgrade again. Schedules and folder watching stop. A Watch-only folder (no schedule) is not re-scanned after an outage by itself: run a full scan once the share is back. Upgrading again re-applies step 10 safely, and every setting, lock, kept source value, edit history row and upload reappears.
-
-Rolling back to 1.8.0 keeps everything the recommender wrote, and 1.8.0 ignores it. While rolled back, Show fewer has no effect (1.8.0 reads only the item and channel hides), no recommendation events are recorded, and watch depth stops updating. Upgrading again re-applies step 9, which never overwrites counts 1.9.0 already wrote.
-
-Releases before step 8 cannot read album and artist titles, so rolling back from 1.6.0 or later removes them first. Their tracks keep their progress, and the next Music import recreates the albums and artists (with new ids). Favourites on albums are lost; everything else survives. To go further back, run this and then stamp the older version:
-
-```bash
-docker compose down
-sqlite3 app-data/app.db <<'SQL'
-BEGIN;
-UPDATE library_items SET title_id = NULL WHERE title_id IN (SELECT id FROM media_titles WHERE type IN ('album','artist'));
-DELETE FROM member_favorites WHERE target_id IN (SELECT id FROM media_titles WHERE type IN ('album','artist'));
-DELETE FROM media_titles WHERE type IN ('album','artist');
-PRAGMA user_version=7;
-COMMIT;
-SQL
-```
-
-Artwork renditions of the removed albums are orphans that the daily cache sweep deletes. Rolling back also drops cast-photo renditions; upgrading again prepares them again in the background. The Music volume can stay mounted: 1.5.1 lists its files as plain tracks.
-
-Version 0.3.0 starts a new release baseline; earlier release tags and downloads are no longer published. Keep a backup of your current data before changing deployments. The schema rollback commands above remain available for source-based recovery. Restoring a `pre-upgrade` backup loses progress and every other change made since that backup.
+Lumina does not support historical schema upgrades or rollback restamps. Keep a verified schema-44 backup before changing deployments and restore it only with the current release. If startup reports an older, newer, foreign, or corrupt database, do not edit `PRAGMA user_version` or run manual DDL: restore a current-schema backup instead.
 
 ## Automatic scans and folder watching
 
@@ -721,7 +635,7 @@ Open a movie, show, season or episode and choose **Edit details** (or use the co
 - **History and undo:** every save, bulk edit, revert and lock is a batch in the title's history. Undo restores each field that has not changed since and names the ones that have. Anyone who can edit can undo, except a member cannot undo an owner's TMDB id change. Each title keeps its newest 200 history rows, and rows older than 365 days are dropped.
 - **Bulk edit:** up to 500 titles and 40 changes per title in one request.
 - **Artwork:** Poster (or episode still), up to 5 Backdrops (reorderable) and Logo, each chosen from TMDB candidates (needs a TMDB key), uploaded or removed.
-- **Uploads:** JPEG, PNG or WebP only, judged by content (not file name or type). Up to 15 MiB, each side 64 to 8000 px and at most 40 megapixels; 30 uploads per hour per member. Lumina re-encodes every upload and strips its metadata, so GPS and camera data never survive. Uploads are stored **in the database**, so backups and the pre-upgrade backup include them (about 4 MiB at most each). Uploads no title or recent history row uses are removed by hourly maintenance.
+- **Uploads:** JPEG, PNG or WebP only, judged by content (not file name or type). Up to 15 MiB, each side 64 to 8000 px and at most 40 megapixels; 30 uploads per hour per member. Lumina re-encodes every upload and strips its metadata, so GPS and camera data never survive. Uploads are stored **in the database**, so current-schema backups include them (about 4 MiB at most each). Uploads no title or recent history row uses are removed by hourly maintenance.
 
 ## On-device models
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager
@@ -40,8 +39,7 @@ def _dating(leaf: str, guard: str = "") -> tuple[str, ...]:
     )
 
 
-ADDED_AT_SQL = _dating(_FILE_TIME)  # the upgrade: every title from its files
-# A scan: a file replaced in place (a re-encode, an upgrade) never makes its movie or episode later.
+# A scan: a file replaced in place (a re-encode) never makes its movie or episode later.
 RESCAN_ADDED_AT_SQL = _dating(f"coalesce(min(added_at, {_FILE_TIME}), {_FILE_TIME}, added_at)", _UNPINNED)
 # MediaTitle.category, one statement per level, run in this order: movies, series, then
 # seasons and episodes inherit their series'. A title's path set is every artifact linked to its items (extras too) and,
@@ -74,238 +72,11 @@ CATEGORY_SCOPES = (
     " AND parent_id IN :series_ids",
     " AND parent_id IN (SELECT id FROM media_titles WHERE parent_id IN :series_ids)",
 )
-# Schema step 8 derives with the default anime folders, ["Anime"], as a literal pattern so the step stays static SQL.
-ANIME_DEFAULT_MATCH = "('/' || r.path || '/' || a.relative_path LIKE '%/Anime/%' ESCAPE '\\')"
-CATEGORY_BACKFILL_SQL = tuple(statement.format(match=ANIME_DEFAULT_MATCH, scope="") for statement in CATEGORY_SQL)
-# Step 9: a saved YouTube item's channel id, tried in order: metadata channel_id,
-# uploader_id, then the /channel/UC… segment of channel_url or uploader_url. Anything that is not a 24-character UC id is NULL.
-_UC_ID_GLOB = "UC" + "[0-9A-Za-z_-]" * 22
 
+# Registers the current face-index schema's metadata hook before fresh schemas are created.
+from app.services import photo_face_index_schema  # noqa: E402, F401
 
-def _uc_id(expr: str) -> str:
-    return f"CASE WHEN {expr} GLOB '{_UC_ID_GLOB}' THEN {expr} END"
-
-
-def _uc_id_in_url(expr: str) -> str:
-    segment = f"substr({expr}, instr({expr}, '/channel/') + 9, 24)"
-    return f"CASE WHEN instr({expr}, '/channel/UC') > 0 THEN {_uc_id(segment)} END"
-
-
-ITEM_CHANNEL_ID_SQL = "coalesce(" + ", ".join((
-    _uc_id("json_extract(metadata_json, '$.channel_id')"),
-    _uc_id("json_extract(metadata_json, '$.uploader_id')"),
-    _uc_id_in_url("json_extract(metadata_json, '$.channel_url')"),
-    _uc_id_in_url("json_extract(metadata_json, '$.uploader_url')"),
-)) + ")"
-
-
-# Additive upgrade steps, applied in order to a database stamped with an older
-# version (after an automatic pre-upgrade backup). A model change ships with a
-# new step here; tests/test_schema_version.py fails if the schema snapshot drifts.
-from app.services.photo_face_index_schema import MIGRATION_SQL as PHOTO_FACE_INDEX_MIGRATION  # noqa: E402
-
-
-MIGRATIONS: dict[int, tuple[str, ...]] = {
-    2: (
-        "ALTER TABLE download_jobs ADD COLUMN acquisition_batch_id VARCHAR(36)",
-        "ALTER TABLE download_jobs ADD COLUMN acquisition_entry_id VARCHAR(36)",
-    ),
-    3: (  # media-vault pass: the only step for the whole pass (new tables come from create_all)
-        "ALTER TABLE library_items ADD COLUMN title_id VARCHAR(36)",
-        "ALTER TABLE library_items ADD COLUMN extra_type VARCHAR(24)",
-        "CREATE INDEX ix_library_items_title_id ON library_items (title_id)",
-        "ALTER TABLE media_artifacts ADD COLUMN analysis JSON",
-        "ALTER TABLE transcripts ADD COLUMN derived_from VARCHAR(80)",
-        "ALTER TABLE transcript_cues ADD COLUMN words JSON",
-        "ALTER TABLE asr_jobs ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'asr'",
-        "ALTER TABLE asr_jobs ADD COLUMN params JSON",
-        "CREATE INDEX ix_asr_jobs_state_created ON asr_jobs (state, created_at)",
-        "ALTER TABLE playback_progress ADD COLUMN dismissed_at DATETIME",
-        "ALTER TABLE household_collections ADD COLUMN rules JSON",
-        "ALTER TABLE app_settings ADD COLUMN jellyfin_enabled BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE app_settings ADD COLUMN jellyfin_server_key VARCHAR(64)",
-        "ALTER TABLE app_settings ADD COLUMN tmdb_api_key TEXT",
-        "ALTER TABLE app_settings ADD COLUMN metadata_language VARCHAR(16) NOT NULL DEFAULT 'en-US'",
-        "ALTER TABLE app_settings ADD COLUMN ai_embedding_model VARCHAR(200)",
-        "ALTER TABLE app_settings ADD COLUMN ai_features_disabled JSON NOT NULL DEFAULT '[]'",
-        "ALTER TABLE app_settings ADD COLUMN introdb_enabled BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE app_settings ADD COLUMN hwaccel VARCHAR(8) NOT NULL DEFAULT 'auto'",
-        "ALTER TABLE app_settings ADD COLUMN transcode_cache_gb INTEGER NOT NULL DEFAULT 10",
-    ),
-    4: (  # on-device models: the admin's active model per role and the thread cap
-        "ALTER TABLE app_settings ADD COLUMN local_search_model VARCHAR(64)",
-        "ALTER TABLE app_settings ADD COLUMN local_speech_model VARCHAR(64)",
-        "ALTER TABLE app_settings ADD COLUMN model_threads INTEGER",
-    ),
-    5: (  # Jellyfin history import: the admin's Jellyfin server address
-        "ALTER TABLE app_settings ADD COLUMN jellyfin_import_url TEXT",
-    ),
-    6: (  # gallery foundation: wall keyset indexes (title_artwork and client_metric_days come from create_all)
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_type_sort ON media_titles (type, coalesce(sort_name, name) COLLATE NOCASE, id) "
-        "WHERE type IN ('movie', 'series')",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_type_created ON media_titles (type, created_at DESC, id) WHERE type IN ('movie', 'series')",
-    ),
-    7: (  # Recently added by when the files arrived, dated from the scan's recorded mtimes (no filesystem access)
-        "ALTER TABLE media_titles ADD COLUMN added_at DATETIME",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_type_added ON media_titles (type, coalesce(added_at, created_at) DESC, id) "
-        "WHERE type IN ('movie', 'series')",
-        *(statement.format(ids="") for statement in ADDED_AT_SQL),
-    ),
-    8: (  # Library gallery: categories, anime folders, music indexes (album and artist are new type values, no DDL)
-        "ALTER TABLE media_titles ADD COLUMN category VARCHAR(8)",
-        "ALTER TABLE app_settings ADD COLUMN anime_folders JSON NOT NULL DEFAULT '[\"Anime\"]'",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_category_sort ON media_titles (category, coalesce(sort_name, name) COLLATE NOCASE, id) "
-        "WHERE type IN ('movie', 'series')",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_category_added ON media_titles (category, coalesce(added_at, created_at) DESC, id) "
-        "WHERE type IN ('movie', 'series')",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_music_sort ON media_titles (type, coalesce(sort_name, name) COLLATE NOCASE, id) "
-        "WHERE type IN ('album', 'artist')",
-        "CREATE INDEX IF NOT EXISTS ix_media_titles_music_added ON media_titles (type, coalesce(added_at, created_at) DESC, id) "
-        "WHERE type IN ('album', 'artist')",
-        *CATEGORY_BACKFILL_SQL,
-    ),
-    9: (  # recommendations: watch depth and stable channel keys (reco_events, reco_pool, remote_media come from create_all)
-        "ALTER TABLE playback_progress ADD COLUMN max_fraction FLOAT NOT NULL DEFAULT 0",
-        "ALTER TABLE playback_progress ADD COLUMN plays INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE playback_progress ADD COLUMN completions INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE remote_playback_progress ADD COLUMN max_fraction FLOAT NOT NULL DEFAULT 0",
-        "ALTER TABLE remote_playback_progress ADD COLUMN plays INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE remote_playback_progress ADD COLUMN completions INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE remote_playback_progress ADD COLUMN channel_key VARCHAR(255)",
-        "ALTER TABLE library_items ADD COLUMN channel_key VARCHAR(255)",
-        "ALTER TABLE member_recommendation_suppressions ADD COLUMN channel_key VARCHAR(255)",
-        # Guarded by plays = 0, so upgrading again after a rollback never overwrites counts 1.9.0 wrote.
-        "UPDATE playback_progress SET plays = 1, completions = CASE WHEN completed THEN 1 ELSE 0 END, "
-        "max_fraction = CASE WHEN completed THEN 1.0 WHEN duration_seconds > 0 THEN min(1.0, position_seconds * 1.0 / duration_seconds) ELSE 0 END "
-        "WHERE plays = 0",
-        "UPDATE remote_playback_progress SET plays = 1, completions = CASE WHEN completed THEN 1 ELSE 0 END, "
-        "max_fraction = CASE WHEN completed THEN 1.0 WHEN duration_seconds > 0 THEN min(1.0, position_seconds / duration_seconds) ELSE 0 END "
-        "WHERE plays = 0 AND cleared = 0",
-        f"UPDATE library_items SET channel_key = 'https://www.youtube.com/channel/' || {ITEM_CHANNEL_ID_SQL} "
-        f"WHERE channel_key IS NULL AND extractor LIKE 'youtube%' AND {ITEM_CHANNEL_ID_SQL} IS NOT NULL",
-        "CREATE INDEX IF NOT EXISTS ix_library_items_user_channel ON library_items (user_id, channel_key)",
-    ),
-    10: (  # 2.1.0: library automation + metadata editor. title_edits, title_uploads and
-           # library_watch_dirs come from create_all. Additive only; rollback = docker/README.md row "2.0.1 (schema 9)".
-        "ALTER TABLE storage_roots ADD COLUMN scan_schedule VARCHAR(8) NOT NULL DEFAULT 'off'",
-        "ALTER TABLE storage_roots ADD COLUMN watch_enabled BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE storage_roots ADD COLUMN watch_interval_s INTEGER NOT NULL DEFAULT 300",
-        "ALTER TABLE app_settings ADD COLUMN library_scan_night_hour INTEGER NOT NULL DEFAULT 3",
-        "ALTER TABLE import_runs ADD COLUMN trigger VARCHAR(16)",
-        "ALTER TABLE import_runs ADD COLUMN scope JSON",
-        "CREATE INDEX IF NOT EXISTS ix_import_runs_root_created ON import_runs (root_id, created_at DESC)",
-        "ALTER TABLE media_titles ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE media_titles ADD COLUMN source_values JSON NOT NULL DEFAULT '{}'",
-        "ALTER TABLE app_settings ADD COLUMN members_edit_metadata BOOLEAN NOT NULL DEFAULT 0",
-    ),
-    11: (),  # 2.2.0: admin Activity. playback_history comes from create_all; rollback = drop it, user_version = 10 (docker/README.md).
-    12: (  # 2.6.0 Requests (ADR 0018): media_requests, media_request_followers, arr_servers, request_policies come from create_all
-        "ALTER TABLE app_settings ADD COLUMN requests_enabled BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE app_settings ADD COLUMN smtp_host TEXT",
-        "ALTER TABLE app_settings ADD COLUMN smtp_port INTEGER",
-        "ALTER TABLE app_settings ADD COLUMN smtp_security VARCHAR(8) NOT NULL DEFAULT 'starttls'",
-        "ALTER TABLE app_settings ADD COLUMN smtp_username TEXT",
-        "ALTER TABLE app_settings ADD COLUMN smtp_password TEXT",
-        "ALTER TABLE app_settings ADD COLUMN smtp_from TEXT",
-        "ALTER TABLE user_settings ADD COLUMN notify_email TEXT",
-        "ALTER TABLE user_settings ADD COLUMN notify_requests BOOLEAN NOT NULL DEFAULT 1",
-    ),
-    13: (  # 2.8.0 member access (ADR 0019): member_access and screen_time come from create_all
-        "ALTER TABLE media_titles ADD COLUMN rating VARCHAR(8)",
-        "ALTER TABLE media_titles ADD COLUMN rating_rank INTEGER",
-        "ALTER TABLE account_tokens ADD COLUMN email TEXT",
-        "ALTER TABLE account_tokens ADD COLUMN access JSON",
-        "ALTER TABLE account_tokens ADD COLUMN sent_at DATETIME",
-        "ALTER TABLE app_settings ADD COLUMN public_address TEXT",
-        "ALTER TABLE app_settings ADD COLUMN invite_permissions JSON NOT NULL DEFAULT '{}'",
-    ),
-    14: (  # 2.9.0 two-step verification and app passwords (app passwords are device_tokens rows of kind app_password).
-           # Additive only; rollback = docker/README.md row "2.8.1 (schema 13)".
-        "ALTER TABLE users ADD COLUMN totp_secret TEXT",
-        "ALTER TABLE users ADD COLUMN totp_enabled_at DATETIME",
-        "ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN totp_recovery JSON NOT NULL DEFAULT '[]'",
-        "ALTER TABLE users ADD COLUMN totp_failures INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN totp_locked_until DATETIME",
-        "ALTER TABLE app_settings ADD COLUMN require_owner_two_factor BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE device_tokens ADD COLUMN app_password_id VARCHAR(36)",
-    ),
-    # After 2.9.0: no DDL. Step 15 is retained to preserve the schema/version history.
-    15: (),
-    16: (),  # #164 household people editor: person_overrides comes from create_all; rollback = drop it, user_version = 15.
-    17: ("ALTER TABLE app_settings ADD COLUMN local_address TEXT",),  # the local address beside the public one; additive
-    18: (),  # Music: provider cache, protected track edits/history and revocable Sonos queue tickets; create_all adds tables.
-    19: (),  # standalone Books tables come from create_all; rollback drops them and stamps schema 18.
-    20: ("ALTER TABLE users ADD COLUMN vault_setup_pending BOOLEAN NOT NULL DEFAULT 0",),
-    21: (  # Books format bundles, original basenames, and recoverable removal. Additive; rollback = docker/README.md.
-        "ALTER TABLE book_items ADD COLUMN filename TEXT",
-        "ALTER TABLE book_items ADD COLUMN bundle_parent_id VARCHAR(36)",
-        "ALTER TABLE book_items ADD COLUMN deleted_at DATETIME",
-        "CREATE INDEX IF NOT EXISTS ix_book_items_bundle_parent_id ON book_items (bundle_parent_id)",
-        "CREATE INDEX IF NOT EXISTS ix_book_items_deleted_at ON book_items (deleted_at)",
-    ),
-    22: (
-        "ALTER TABLE app_settings ADD COLUMN resource_policy JSON NOT NULL DEFAULT '{}'",
-        "ALTER TABLE users ADD COLUMN resource_overrides JSON NOT NULL DEFAULT '{}'",
-    ),
-    23: (),  # Arr observation tables come from create_all; rollback preserves disposable snapshots.
-    24: (),  # Arr operation ledger; create_all adds the table, rollback preserves the audit.
-    25: (),  # Member music listening sessions; create_all adds the table, independent of per-item progress.
-    26: (),  # Infrastructure connectors and separately approved music acquisitions; additive tables.
-    27: (),  # Member-owned listening export credentials and replay-safe event ledger.
-    28: (),  # Revocable, item-scoped Chromecast direct-media capabilities.
-    29: (
-        "ALTER TABLE music_listening_sessions ADD COLUMN queue_entries JSON DEFAULT '[]' NOT NULL",
-        "ALTER TABLE music_listening_sessions ADD COLUMN entry_index INTEGER",
-        "ALTER TABLE music_listening_sessions ADD COLUMN unavailable_policy VARCHAR(8) DEFAULT 'skip' NOT NULL",
-    ),
-    30: (
-        "ALTER TABLE app_settings ADD COLUMN update_settings JSON NOT NULL DEFAULT '{}'",
-    ),
-    31: (
-        "CREATE INDEX IF NOT EXISTS ix_media_artifacts_root_size ON media_artifacts (root_id, size)",
-    ),
-    32: (),  # Encrypted member-owned YouTube sessions; create_all adds the table.
-    33: ("ALTER TABLE app_settings ADD COLUMN plex_import_url TEXT",),
-    34: ("ALTER TABLE app_settings ADD COLUMN native_streaming_enabled BOOLEAN NOT NULL DEFAULT 0",),
-    35: (),  # Standalone Photos tables come from create_all; rollback preserves managed originals on disk.
-    36: (  # Durable preview registry; seed legacy catalog promises without walking storage.
-        "INSERT OR IGNORE INTO photo_preview_assets "
-        "(source_key, content_hash, width, state, bytes, reserved_bytes, created_at, updated_at) "
-        "SELECT d.source_key, max(p.sha256), d.width, 'ready', max(d.bytes), 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
-        "FROM photo_derivatives d JOIN photo_items p ON p.id = d.photo_id "
-        "WHERE d.state = 'ready' AND d.source_key IS NOT NULL AND d.bytes IS NOT NULL "
-        "GROUP BY d.source_key",
-        "INSERT OR IGNORE INTO photo_preview_storage "
-        "(id, used_bytes, reserved_bytes, updated_at) "
-        "SELECT 1, coalesce(sum(bytes), 0), 0, CURRENT_TIMESTAMP FROM photo_preview_assets WHERE state = 'ready'",
-    ),
-    37: PHOTO_FACE_INDEX_MIGRATION,  # Durable vector keys/change journal for scalable local matching.
-    38: (),  # Mobile pairing handoffs are a new table; rollback drops mobile_pairings.
-    39: (
-        "ALTER TABLE media_cast_tickets ADD COLUMN issuer_device_id VARCHAR(36)",
-        "CREATE INDEX IF NOT EXISTS ix_media_cast_tickets_issuer_device_id ON media_cast_tickets (issuer_device_id)",
-        "ALTER TABLE media_cast_tickets ADD COLUMN playback_session_id VARCHAR(64)",
-        "ALTER TABLE media_cast_tickets ADD COLUMN audio_index INTEGER",
-    ),  # Native tickets bind paired devices; music_receiver_tickets comes from create_all.
-    40: (
-        "ALTER TABLE app_settings ADD COLUMN omdb_api_key TEXT",
-    ),  # Optional public critic-score supplement; rollback NULLs/ignores the additive column.
-    41: (),  # Durable OMDb score cache/request ledger come from create_all; rollback retains both tables and disables the older uncapped client.
-    42: (
-        "ALTER TABLE app_settings ADD COLUMN autoplay_presence JSON NOT NULL DEFAULT '{}'",
-    ),  # Household episode-autoplay presence policy; rollback keeps the additive JSON column.
-    43: (
-        "ALTER TABLE media_requests ADD COLUMN audio_language VARCHAR(32)",
-        "ALTER TABLE media_requests ADD COLUMN subtitle_language VARCHAR(32)",
-        "UPDATE media_requests SET status = 'approved', progress = NULL "
-        "WHERE status IN ('available', 'partially_available') "
-        "AND (language IN ('dub', 'sub') OR audio_language IS NOT NULL OR subtitle_language IS NOT NULL)",
-    ),
-    44: (),  # TV enrollment pairing requests are a new table; rollback drops device_pairings.
-}
-ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
-SCHEMA_VERSION = max(MIGRATIONS, default=1)
+SCHEMA_VERSION = 44
 
 
 class SchemaVersionError(RuntimeError):
@@ -331,45 +102,76 @@ def init_storage() -> None:
     settings.archive_path.touch(exist_ok=True)
 
 
-def init_db() -> None:
-    """Create the schema on a fresh database, upgrade an older one, refuse a newer one."""
-    from app import (  # noqa: F401  (registers model metadata)
+def register_models() -> None:
+    from app import (  # noqa: F401
         book_models, models, photo_face_index_models, photo_face_models, photo_models, photo_preview_models, photo_root_models,
     )
+
+
+def _validate_current_schema(connection) -> None:  # noqa: ANN001
+    """Reject a stamped database whose mapped tables no longer match schema 44."""
+    inspector = inspect(connection)
+    actual_tables = set(inspector.get_table_names())
+    expected_tables = set(Base.metadata.tables)
+    missing_tables = expected_tables - actual_tables
+    changed_tables = {
+        table
+        for table in expected_tables - missing_tables
+        if {column["name"] for column in inspector.get_columns(table)}
+        != {column.name for column in Base.metadata.tables[table].columns}
+    }
+    actual_indexes = set(connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type = 'index'").scalars())
+    missing_indexes = {
+        index.name
+        for table in expected_tables - missing_tables
+        for index in Base.metadata.tables[table].indexes
+        if index.name is not None and index.name not in actual_indexes
+    }
+    if missing_tables or changed_tables or missing_indexes:
+        detail = ", ".join(sorted(missing_tables | changed_tables | missing_indexes))
+        raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({detail}); refusing to start.")
+
+
+def validate_database_file(path) -> None:  # noqa: ANN001
+    """Read a current SQLite file without opening the WAL-configuring engine."""
+    register_models()
+    copy = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        version = copy.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if version != SCHEMA_VERSION:
+            raise SchemaVersionError(f"Database schema version {version} is unsupported by this release (requires {SCHEMA_VERSION}); refusing to start.")
+        missing = set(Base.metadata.tables) - tables
+        changed = {
+            table for table in set(Base.metadata.tables) - missing
+            if {row[1] for row in copy.execute(f"PRAGMA table_info({table})")} != {column.name for column in Base.metadata.tables[table].columns}
+        }
+        indexes = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        expected_indexes = {index.name for table in Base.metadata.tables.values() for index in table.indexes if index.name}
+        triggers = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+        absent = missing | changed | (expected_indexes - indexes) | (set(photo_face_index_schema.TRIGGER_NAMES) - triggers)
+        if absent:
+            raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({', '.join(sorted(absent))}); refusing to start.")
+    finally:
+        copy.close()
+
+
+def init_db() -> None:
+    """Create the current schema on an empty database and validate a stamped current database."""
     from app.services.library_search import ensure_search_index
+    register_models()
 
     if sqlite3.sqlite_version_info < (3, 33):  # UPDATE … FROM (CATEGORY_SQL)
         raise RuntimeError(f"SQLite 3.33 or later is required; this Python links SQLite {sqlite3.sqlite_version}.")
 
     init_storage()
-    with engine.connect() as connection:
-        version = int(connection.scalar(text("PRAGMA user_version")) or 0)
-        has_tables = bool(inspect(connection).get_table_names())
-    if version == 0 and has_tables:
-        raise SchemaVersionError(
-            "Database has tables but no Lumina schema version stamp; refusing to start. "
-            "Point Lumina at an empty data directory."
-        )
-    if version > SCHEMA_VERSION:
-        raise SchemaVersionError(
-            f"Database schema version {version} is newer than this release's version {SCHEMA_VERSION}; "
-            "refusing to start. Run the release that created it, or restore an older backup."
-        )
-    if 0 < version < SCHEMA_VERSION:
-        from app.services.backups import create_backup
-
-        create_backup("pre-upgrade")
-    with engine.begin() as connection:
-        # New tables first, so a step may index a table an older database lacks (step 6 on media_titles).
-        # create_all never alters an existing table; the steps below do.
-        Base.metadata.create_all(bind=connection)
-        for step in range(version + 1 if version else SCHEMA_VERSION + 1, SCHEMA_VERSION + 1):
-            for statement in MIGRATIONS[step]:
-                # create_all made the table with it (an older table's step), or a rollback re-stamped a newer database
-                if (match := ADD_COLUMN.match(statement)) and match[2] in {c["name"] for c in inspect(connection).get_columns(match[1])}:
-                    continue
-                connection.execute(text(statement))
-        connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
+    database = settings.data_dir / settings.database_filename
+    if database.exists():
+        validate_database_file(database)
+    else:
+        with engine.begin() as connection:
+            Base.metadata.create_all(bind=connection)
+            connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
     ensure_search_index(engine)
 
 

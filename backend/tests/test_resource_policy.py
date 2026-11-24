@@ -1,11 +1,9 @@
-"""Owner settings, inheritance, classification and additive resource-policy upgrade contracts."""
-import sqlite3
+"""Owner settings, inheritance, classification and resource-policy contracts."""
 
 import pytest
 from fastapi import Request
 
 from app.config import settings
-from app.db import MIGRATIONS
 from app.services.resource_policy import HouseholdResources, remote
 from support import make_user
 
@@ -70,17 +68,6 @@ def test_only_verified_explicit_lan_networks_are_exempt(monkeypatch, peer, heade
     assert remote(request, HouseholdResources()) is True
 
 
-def test_resource_upgrade_is_additive_and_preserves_worker_settings(db_factory):
-    # Execute the actual step against a previous-version shape; useful populated values survive.
-    connection = sqlite3.connect(":memory:")
-    try:
-        connection.executescript("CREATE TABLE app_settings (concurrency INTEGER); INSERT INTO app_settings VALUES (4); CREATE TABLE users (id TEXT); INSERT INTO users VALUES ('member');")
-        for statement in MIGRATIONS[22]:
-            connection.execute(statement)
-        assert connection.execute("SELECT concurrency, resource_policy FROM app_settings").fetchone() == (4, "{}")
-        assert connection.execute("SELECT id, resource_overrides FROM users").fetchone() == ("member", "{}")
-    finally:
-        connection.close()
 
 
 def test_capped_provider_routes_refuse_unbounded_playback_and_allow_cleanup(api_client, db_factory, monkeypatch):

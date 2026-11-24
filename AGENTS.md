@@ -29,7 +29,7 @@ make check                                      # full gate, required before a P
 ## Rules
 
 - Dogfood fixes: when continuing the owner's one-issue-at-a-time batch, read the [continuation handoff](docs/design/dogfood-next-handoff.md) first.
-- Run focused tests while iterating. Use `mise exec -- make check` before handing back an ordinary PR; a `cleanup/<lane>` PR targeting `cleanup/production-integration` follows the temporary process in [CONTRIBUTING.md](CONTRIBUTING.md#temporary-production-cleanup-process).
+- Run focused tests while iterating. Run `mise exec -- make check` before opening a pull request.
 - Match the surrounding code: naming, comment density, idioms. No speculative abstractions.
 - Branding: before changing logos, color tokens, buttons or navigation styling, read [the shared web/iOS/tvOS brand contract](apple/docs/brand-assets.md).
 - Behavior changes must have a meaningful regression check at the public API, service boundary, or user workflow. Reuse or extend an existing contract test before adding another.

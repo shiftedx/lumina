@@ -82,6 +82,16 @@ class RepoHygieneTests(unittest.TestCase):
         self.assertNotIn(fake_token, output)
         self.assertNotIn(user_root, output)
 
+    def test_existing_shell_can_only_stay_within_its_checked_in_limit(self) -> None:
+        self.write("backend/app/main.py", "pass\n" * 3_681)
+        status, output = self.run_check()
+        self.assertEqual((status, output), (0, ""))
+
+        self.write("backend/app/main.py", "pass\n" * 3_682)
+        status, output = self.run_check()
+        self.assertEqual(status, 1)
+        self.assertEqual(output, "backend/app/main.py:3682: source-over-3681-lines\n")
+
     def test_distinguishes_jellyfin_routes_from_workstation_paths(self) -> None:
         user_root = "/" + "Users" + "/alice"
         docker_root = "/" + "home" + "/service"

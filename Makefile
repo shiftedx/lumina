@@ -90,7 +90,7 @@ models-smoke:
 perf: frontend-build
 	@d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && backend/.venv/bin/python scripts/perf/seed_household.py "$$d/data" && backend/.venv/bin/python -u scripts/perf/load.py "$$d/data" --ui
 
-check: bootstrap-test e2e-tier-test frontend-typecheck frontend-build backend-test frontend-test e2e-full
+check: bootstrap-test e2e-tier-test repo-hygiene frontend-typecheck frontend-build backend-test frontend-test e2e-full
 
 .PHONY: seed-titles perf-titles
 seed-titles:

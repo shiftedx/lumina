@@ -20,6 +20,10 @@ from urllib.parse import unquote
 
 
 MAX_SOURCE_LINES = 1_500
+SOURCE_LINE_LIMITS = {
+    "backend/app/main.py": 3_681,
+    "frontend/src/LuminaApp.tsx": 1_895,
+}
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".go", ".h", ".hpp", ".java",
@@ -134,8 +138,9 @@ def check_file(
     findings = []
     if path.suffix.lower() in MARKDOWN_SUFFIXES:
         findings.extend(check_markdown(relative, lines, tracked, directories))
-    if path.suffix.lower() in SOURCE_SUFFIXES and len(lines) > MAX_SOURCE_LINES:
-        findings.append((relative, MAX_SOURCE_LINES + 1, "source-over-1500-lines"))
+    source_limit = SOURCE_LINE_LIMITS.get(relative.as_posix(), MAX_SOURCE_LINES)
+    if path.suffix.lower() in SOURCE_SUFFIXES and len(lines) > source_limit:
+        findings.append((relative, source_limit + 1, f"source-over-{source_limit}-lines"))
     for number, line in enumerate(lines, start=1):
         if any(pattern.search(line) for pattern in SECRET_PATTERNS):
             findings.append((relative, number, "probable-secret"))

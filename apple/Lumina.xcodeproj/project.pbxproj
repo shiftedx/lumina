@@ -42,6 +42,7 @@
 		42AC1C63E9B54215A39B2D06 /* PlaybackModelVideoPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = D295690AD684CC1F04D3B827 /* PlaybackModelVideoPlayback.swift */; };
 		430D7EC20D14732C42CC02FE /* GoogleCastOptionalUIResources.bundle in Resources */ = {isa = PBXBuildFile; fileRef = F87B90F1DCB37186E5724DE8 /* GoogleCastOptionalUIResources.bundle */; };
 		44B3DE7ED8C2887D70AEA2CC /* VideoGestureSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FC1EF4717AEEA9B6B9327B /* VideoGestureSurface.swift */; };
+		44B696690A9DC0FEE96D70B1 /* NativeAudioSession+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9890179B8913D1EC95FF47 /* NativeAudioSession+Lifecycle.swift */; };
 		4673ED1AF4DCEA5A234BF474 /* PlaybackModelVideoPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = D295690AD684CC1F04D3B827 /* PlaybackModelVideoPlayback.swift */; };
 		46B007A197D186FA5272B6B6 /* TVRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA03108E3BD9293FA9BADA4F /* TVRequestsView.swift */; };
 		472E812C3EAEDBE284428047 /* NativeProofJourney+MusicPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C45BD7FDE46271DF9AD29F6 /* NativeProofJourney+MusicPlayback.swift */; };
@@ -125,6 +126,7 @@
 		C6A4ECF3AD1BA4B843BF9A14 /* MaterialDialogs.bundle in Resources */ = {isa = PBXBuildFile; fileRef = F4894D943D7F8BE910AD7FA8 /* MaterialDialogs.bundle */; };
 		C6B9F250C216CD7604AA1CB5 /* NativeProofJourney+TVFocusHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2DF5508EF84EED439204389 /* NativeProofJourney+TVFocusHelpers.swift */; };
 		C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */; };
+		C73A2B3133C10439EF4EA289 /* NativeAudioSession+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9890179B8913D1EC95FF47 /* NativeAudioSession+Lifecycle.swift */; };
 		C98939403F5CB8C3DBA3DB12 /* MobileVideoCollections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0773408047601B9971244582 /* MobileVideoCollections.swift */; };
 		CB8C86487D339277C4B44C8C /* VideoGestureHelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6EEE783084CB51997809B12 /* VideoGestureHelpView.swift */; };
 		CD54D4A49593490BD3E2A26F /* NativeNowPlaying.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFC7486AC5C54CDE3764D65 /* NativeNowPlaying.swift */; };
@@ -201,6 +203,7 @@
 		4D7C4F87CA65A5DF9C1AE381 /* GoogleSansMedium.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleSansMedium.bundle; sourceTree = "<group>"; };
 		4E0EBAA5842AC90340C8E0E5 /* NativeBookText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookText.swift; sourceTree = "<group>"; };
 		4EF3598D94AFAAE2656F52F7 /* VideoGestureTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGestureTimeline.swift; sourceTree = "<group>"; };
+		4F9890179B8913D1EC95FF47 /* NativeAudioSession+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeAudioSession+Lifecycle.swift"; sourceTree = "<group>"; };
 		52FC1EF4717AEEA9B6B9327B /* VideoGestureSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGestureSurface.swift; sourceTree = "<group>"; };
 		579E2238336BCFC991DB98C2 /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lumina-tvOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -367,6 +370,7 @@
 				46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */,
 				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
 				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
+				4F9890179B8913D1EC95FF47 /* NativeAudioSession+Lifecycle.swift */,
 				E837B6F21FC276631A5101FA /* NativeMusicFileQuality.swift */,
 				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
 				0DFC7486AC5C54CDE3764D65 /* NativeNowPlaying.swift */,
@@ -765,6 +769,7 @@
 				772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */,
 				8206E66CCFC9D02DCDC3C5C9 /* NativeAudioLyrics.swift in Sources */,
 				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
+				44B696690A9DC0FEE96D70B1 /* NativeAudioSession+Lifecycle.swift in Sources */,
 				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
 				811F7E184F2618909019E5E0 /* NativeMusicFileQuality.swift in Sources */,
 				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
@@ -825,6 +830,7 @@
 				1B021205E272789120A7F7E0 /* NativeAccountSettingsView.swift in Sources */,
 				8B74E6061DDF6554EF33B879 /* NativeAudioLyrics.swift in Sources */,
 				B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */,
+				C73A2B3133C10439EF4EA289 /* NativeAudioSession+Lifecycle.swift in Sources */,
 				2CEAF8FBA29533FA96FEE29E /* NativeAudioSession.swift in Sources */,
 				8E6DF935A018900D2123515A /* NativeBookReader.swift in Sources */,
 				F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */,

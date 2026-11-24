@@ -113,14 +113,12 @@ try json(["info": info, "assets": assets], at: brand.appendingPathComponent("Con
 print("Generated iOS icon and layered tvOS icon/top shelf assets.")
 
 let publicAssets = root.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("frontend/public")
-try png(at: publicAssets.appendingPathComponent("email-mark.png"), width: 128, height: 128,
-        background: true, foreground: true)
 try png(at: publicAssets.appendingPathComponent("email/mark-v1.png"), width: 144, height: 112,
         background: false, foreground: true, markWidth: 128)
 
 // Browser and home-screen icons use the same approved native artwork.
-for size in [32, 48, 180, 512] {
-    let name = size == 180 ? "apple-touch-icon.png" : (size == 512 ? "app-icon.png" : "icon-\(size).png")
+for size in [32, 48, 180] {
+    let name = size == 180 ? "apple-touch-icon.png" : "icon-\(size).png"
     try png(at: publicAssets.appendingPathComponent(name), width: size, height: size,
             background: size >= 180, foreground: true)
 }

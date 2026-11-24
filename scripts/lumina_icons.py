@@ -37,7 +37,6 @@ WEB_SPRITE = PACKAGE / "web/lumina-media-sprite.svg"
 PRODUCTION_CATALOG = REPO / "apple/Assets/LuminaMediaIcons.xcassets"
 PRODUCTION_NATIVE_HELPER = REPO / "apple/App/Shared/LuminaIcon.swift"
 PRODUCTION_WEB_HELPER = REPO / "frontend/src/ui/LuminaIcon.tsx"
-PRODUCTION_WEB_SPRITE = REPO / "frontend/public/lumina-media-sprite.svg"
 PRODUCTION_WEB_MODULE_SPRITE = REPO / "frontend/src/ui/lumina-media-sprite.svg"
 
 EXPECTED_DESIGNS = 104
@@ -137,7 +136,6 @@ def sync() -> None:
     replace_tree(NATIVE_CATALOG, PRODUCTION_CATALOG)
     copy_file(NATIVE_HELPER, PRODUCTION_NATIVE_HELPER)
     copy_file(WEB_HELPER, PRODUCTION_WEB_HELPER)
-    copy_file(WEB_SPRITE, PRODUCTION_WEB_SPRITE)
     copy_file(WEB_SPRITE, PRODUCTION_WEB_MODULE_SPRITE)
     data = load_source()
     solid_count = sum("solid" in item for item in data["icons"])
@@ -428,7 +426,6 @@ def validate_reproducible(package_files: set[Path]) -> None:
 def validate_production() -> None:
     compare_file(NATIVE_HELPER, PRODUCTION_NATIVE_HELPER, "native SwiftUI helper")
     compare_file(WEB_HELPER, PRODUCTION_WEB_HELPER, "React helper")
-    compare_file(WEB_SPRITE, PRODUCTION_WEB_SPRITE, "web sprite")
     compare_file(WEB_SPRITE, PRODUCTION_WEB_MODULE_SPRITE, "web module sprite")
     canonical_files = files_under(PACKAGE, Path("native/LuminaMediaIcons.xcassets"))
     production_files = files_under(

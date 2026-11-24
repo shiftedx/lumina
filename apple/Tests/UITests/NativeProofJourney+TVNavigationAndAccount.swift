@@ -198,13 +198,17 @@ extension NativeProofJourney {
         defer { session.invalidateAndCancel() }
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let targetID = nextUp ? fixture.secondEpisodeID : fixture.episodeID
+        let startingPosition = nextUp ? 0 : 12
         try await api.seedProgress(identity: identity, itemID: fixture.episodeID,
-                                   seconds: nextUp ? 0 : 12, completed: nextUp)
+                                   seconds: startingPosition, completed: nextUp)
+        if nextUp {
+            try await api.seedProgress(identity: identity, itemID: targetID, seconds: startingPosition)
+        }
         _ = try await api.saveHomeLayout(identity: identity, shelves: nil)
         try launchAndResetSession()
         try await performanceQuietPhase("login_form")
         try signIn(using: fixture)
-        let targetID = nextUp ? fixture.secondEpisodeID : fixture.episodeID
         let resume = element("\(nextUp ? "nextUpItem" : "resumeItem")-\(targetID)")
         for _ in 0..<10 where !resume.exists { XCUIRemote.shared.press(.down) }
         try waitForExistence(resume, timeout: 25, named: "Home episode card")
@@ -262,13 +266,18 @@ extension NativeProofJourney {
         XCTAssertTrue(focus(play, timeout: 20))
         try attachFrame(named: "Episode detail with focused playback action")
         XCUIRemote.shared.press(.select)
-        if element("resumePlaybackChoice").waitForExistence(timeout: 3) {
-            try activate(element("resumePlaybackChoice").buttons["Resume"])
+        if !nextUp {
+            let choice = element("resumePlaybackChoice")
+            try waitForExistence(choice, timeout: 8, named: "Continue Watching resume choice")
+            try activate(choice.buttons["Resume"])
         }
         try waitForExistence(element("playbackScreen"), timeout: 25, named: "episode playback after cached navigation")
-        let startedAt = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= startedAt + 2 }
-        try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback")
+        // AVKit's presentation can temporarily invalidate XCTest's clock query.
+        // Poll real playback progress for the selected episode while it is open.
+        let advancedTo = try await waitForServerProgress(
+            api, identity: identity, itemID: targetID, minimum: Double(startingPosition) + 2
+        )
+        try attachPlaybackFrame(named: "Cached TV browsing retains decoded episode playback at \(advancedTo.formatted(.number.precision(.fractionLength(1))))s reported")
         try closePlayer()
         if !nextUp {
             try waitForExistence(play, timeout: 15, named: "episode detail after playback")

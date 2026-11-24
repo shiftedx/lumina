@@ -75,10 +75,9 @@ def register(app: FastAPI, on_change: Callable[[], object] | None = None) -> Non
 
     @app.get("/api/me/resource-jobs")
     def get_my_jobs(user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> list[dict]:
-        from app.services.ai_resources import MODELS
-        kinds = ("enrichment", "summary", "graph", "recap")
+        from app.services.ai_resources import JOB_MODELS
         result = []
-        for kind, model in zip(kinds, MODELS):
+        for kind, model in JOB_MODELS.items():
             for job in db.query(model).filter(model.requested_by == user.id, model.state.in_(("pending", "queued", "running"))).order_by(model.created_at).all():
                 result.append({"id": job.id, "kind": kind, "state": job.state})
         return result
@@ -86,9 +85,9 @@ def register(app: FastAPI, on_change: Callable[[], object] | None = None) -> Non
     @app.post("/api/me/resource-jobs/{kind}/{job_id}/cancel")
     def cancel_my_job(kind: str, job_id: str, user: User = Depends(get_current_user),
                       db: Session = Depends(get_db, scope="function")) -> dict:
-        from app.services.ai_resources import MODELS
+        from app.services.ai_resources import JOB_MODELS
         from app.services import local_asr, summaries
-        model = dict(zip(("enrichment", "summary", "graph", "recap"), MODELS)).get(kind)
+        model = JOB_MODELS.get(kind)
         job = db.get(model, job_id) if model else None
         if job is None or job.requested_by != user.id:
             raise HTTPException(404, "Job not found")

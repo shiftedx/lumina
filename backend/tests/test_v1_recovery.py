@@ -24,6 +24,7 @@ from app.main import app
 from app.models import (
     ArrServer,
     DeviceToken,
+    IdeaGraph,
     LibraryItem,
     LibraryNote,
     ListeningExportConnection,
@@ -72,6 +73,9 @@ def test_backup_restore_isolated_roundtrip(admin, tmp_path) -> None:  # noqa: AN
     with db_module.SessionLocal.begin() as db:
         record = YtDlpService(db).ensure_app_settings()
         record.ai_api_key, record.smtp_password = "sk-test-secret-147", "smtp-secret-258"
+        db.add(IdeaGraph(id="graph-1", library_item_id="item-1", summary_id="summary-1",
+                         transcript_id="transcript-1", transcript_revision=1, model_id="test-model",
+                         state="succeeded", nodes=[{"label": "Archived idea"}]))
         db.add(ArrServer(id="arr", kind="sonarr", name="Sonarr", base_url="http://sonarr.local", api_key="arr-secret-369", path_mappings=[]))
         db.add(ServiceConnector(id="connector", kind="nzbget", name="NZBGet", base_url="http://nzbget.local", api_key="connector-key-741",
                                 username="connector-user-852", password="connector-password-963"))
@@ -108,6 +112,9 @@ def test_backup_restore_isolated_roundtrip(admin, tmp_path) -> None:  # noqa: AN
     assert restored.execute("SELECT body FROM library_notes").fetchall() == [("remember this",)]
     assert restored.execute("SELECT count(*) FROM users").fetchone() == (2,)
     assert restored.execute("SELECT ai_api_key FROM app_settings").fetchall() == [(None,)]
+    assert restored.execute("SELECT state, json_extract(nodes, '$[0].label') FROM idea_graphs WHERE id = 'graph-1'").fetchone() == (
+        "succeeded", "Archived idea",
+    )
     assert restored.execute("SELECT root_id, relative_path FROM media_artifacts").fetchall() == [("root-ext", "show/ep1.mp4")]
     restored.close()
     # External media is referenced, never copied or rewritten.

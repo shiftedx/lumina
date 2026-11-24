@@ -21,7 +21,7 @@ export function SummaryPanel({ itemId, transcripts, onSeek, aiEnabled, onLatest 
     return () => controller.abort();
   }, [itemId]);
 
-  // Moments and the idea graph read this latest summary instead of fetching it again.
+  // Moments use this latest summary instead of fetching it again.
   useEffect(() => { if (latest !== undefined) onLatest?.(latest); }, [latest]);
 
   const jobId = job && !DONE.has(job.state) ? job.id : null;

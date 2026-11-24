@@ -60,7 +60,7 @@ class SummaryBusyError(RuntimeError):
     pass
 
 
-# One registry for summaries and idea graphs (both bounded by MAX_ACTIVE together).
+# Summaries and series recaps share this registry.
 jobs = JobRegistry(MAX_ACTIVE, SummaryBusyError)
 state_of = jobs.state_of
 cancel = jobs.cancel
@@ -205,7 +205,7 @@ def run_job(model: type, job_id: str, load: Callable[[Session, Any], Any], work:
 
 
 def _run_job(model: type, job_id: str, load: Callable[[Session, Any], Any], work: Callable[[AiConfig, Any], dict], label: str) -> None:
-    """Worker body shared by summaries and idea graphs: stored failures are content-free."""
+    """Worker body shared by summaries and series recaps: stored failures are content-free."""
     try:
         with session_scope() as db:
             with write_transaction(db, name="ai_job_start"):

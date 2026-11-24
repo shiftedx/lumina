@@ -350,11 +350,10 @@ def get_navigation(response: Response, caller: Caller, db: Db) -> dict:
 
 
 def _resource_jobs(db: Session, user: User) -> list[dict[str, str]]:
-    from app.services.ai_resources import MODELS
+    from app.services.ai_resources import JOB_MODELS
 
-    kinds = ("enrichment", "summary", "graph", "recap")
     result: list[dict[str, str]] = []
-    for kind, model in zip(kinds, MODELS, strict=True):
+    for kind, model in JOB_MODELS.items():
         rows = (
             db.query(model)
             .filter(model.requested_by == user.id, model.state.in_(("pending", "queued", "running")))
@@ -381,10 +380,9 @@ def get_resource_jobs(response: Response, caller: Caller, db: Db) -> list[dict[s
 @router.post("/resource-jobs/{kind}/{job_id}/cancel")
 def cancel_resource_job(kind: str, job_id: str, caller: Caller, db: Db) -> dict[str, str]:
     from app.services import local_asr, summaries
-    from app.services.ai_resources import MODELS
+    from app.services.ai_resources import JOB_MODELS
 
-    models = dict(zip(("enrichment", "summary", "graph", "recap"), MODELS, strict=True))
-    model = models.get(kind)
+    model = JOB_MODELS.get(kind)
     user = _live_user(db, caller)
     job = db.get(model, job_id) if model else None
     if job is None or job.requested_by != user.id:

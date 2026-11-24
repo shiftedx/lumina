@@ -101,7 +101,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_STORAGE_MOUNT_PARENTS` | `/media` | Comma-separated container paths under which admins may register storage roots. |
 | `LUMINA_PHOTO_DERIVATIVE_CACHE_MAX_BYTES` | `0` (unlimited) | Historical name for the durable 400/1200/2400 px photo-preview admission quota. Existing referenced previews are never evicted when the quota is reached or lowered; new preview sets retry until capacity is available. Any nonzero value must be at least 32 MiB. |
 | `LUMINA_PHOTO_PREVIEW_MIN_FREE_BYTES` | `1073741824` (1 GiB) | Free-space floor retained before a photo decoder starts. It applies even when the preview quota is unlimited; a full volume produces a retryable preview-storage error instead of consuming the reserve. |
-| `LUMINA_AI_BASE_URL` / `_AI_MODEL` | empty (off) | OpenAI-compatible chat endpoint for summaries, moments and idea graphs, e.g. `http://192.0.2.10:8080/v1`. |
+| `LUMINA_AI_BASE_URL` / `_AI_MODEL` | empty (off) | OpenAI-compatible chat endpoint for summaries, recaps and other assistant features, e.g. `http://192.0.2.10:8080/v1`. |
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
 | `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Manage Server → Connections → Metadata** (write-only). |
 | `LUMINA_OMDB_API_KEY` | empty (off) | Optional OMDb key for the IMDb user rating plus Rotten Tomatoes and Metacritic critic scores. Lumina calls OMDb only after a normal TMDB refresh has resolved an IMDb id; set or replace it under **Manage Server → Connections → Metadata** (write-only), then **Refresh all** to backfill. Failed or unavailable scores never interrupt TMDB metadata. OMDb's free plan is limited to 1,000 daily requests and its data is supplied under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/); retain OMDb attribution. |
@@ -384,8 +384,10 @@ AI job plus ten waiting AI jobs per member. Downloads and live recordings share 
 acquisition allowance; recording and download workers keep their existing global
 capacities. The legacy download setting `max_active_jobs_per_user` remains an additional
 queued-plus-running ceiling for DownloadJobs, distinct from the new waiting-only cap.
-Summary, recap, idea graph, ASR, subtitle generation/translation/sync and media-analysis
+Summary, recap, ASR, subtitle generation/translation/sync and media-analysis
 jobs share AI member accounting, with existing model/process concurrency still in force.
+Idea Graph has been retired. On restart, unfinished graph jobs are marked interrupted.
+Existing graph results stay in the schema-44 database.
 Dispatch rotates between eligible members, FIFO within each member; running work is
 not preempted. Lower limits retain queued and running work and prevent further starts
 above the new allowance. Members can cancel their own AI jobs from My Settings;

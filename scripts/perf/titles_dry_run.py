@@ -211,7 +211,8 @@ def category_counts(db) -> dict:  # noqa: ANN001
     """Titles per type and category, and criterion 4's count of movies, shows, seasons and episodes without one."""
     from sqlalchemy import func, select
 
-    from app.models import CATEGORY_OF_TYPE, MediaTitle
+    from app.catalog_models import CATEGORY_OF_TYPE
+    from app.models import MediaTitle
 
     rows = db.execute(select(MediaTitle.type, MediaTitle.category, func.count()).group_by(MediaTitle.type, MediaTitle.category)).all()
     return {

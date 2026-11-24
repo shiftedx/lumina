@@ -265,6 +265,7 @@ describe('Home wiring', () => {
 
     const view = render(<ToastProvider><LuminaApp /></ToastProvider>);
     try {
+      expect(cachedShelf(first.id, 'next_up')).toEqual(['private-to-one']);
       appWorkspace.useAuthenticatedWorkspace.mockReturnValue({ ...workspace, state: { ...state, currentUser: second } });
       view.rerender(<ToastProvider><LuminaApp /></ToastProvider>);
 

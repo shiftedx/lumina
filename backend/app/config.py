@@ -170,9 +170,6 @@ class EnvSettings(BaseSettings):
     omdb_api_key: str = ""
     # Read-only folder of cast photos in the metadata/People layout; unset/"" = off.
     people_dir: str = ""
-    # The name before 2.11, used while LUMINA_PEOPLE_DIR is empty: docker-compose.yml always passes the
-    # new name, so an alias would let its empty value hide an old name set in an override.
-    jellyfin_people_dir: str = ""
 
     model_config = SettingsConfigDict(env_prefix="LUMINA_", extra="ignore")
 

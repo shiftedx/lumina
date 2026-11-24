@@ -109,7 +109,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_MUSIC_METADATA_ENABLED` | `true` | Background MusicBrainz identity, release, artwork and lyric enrichment. Add this variable to Compose's `environment:` block to change it. |
 | `LUMINA_MUSIC_YOUTUBE_DISCOVERY` | `true` | Cached public performance discovery for owned music. Saved local performances remain available when discovery is off. |
 | `LUMINA_MUSIC_REWORK_ENABLED` | `true` | Set `false` in the Compose environment to hide Music Home and contextual mix entry points during staged rollout. Existing browse, playback, queues and saved data remain available. |
-| `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Cast photos for titles whose NFO files name them. `LUMINA_JELLYFIN_PEOPLE_DIR`, the name before 2.11, is still read. |
+| `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Applies to titles whose NFO files name the cast. |
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |

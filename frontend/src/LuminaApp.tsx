@@ -497,18 +497,21 @@ export default function LuminaApp() {
   const navigateStable = useStableCallback((next: Surface) => navigate(next));
   const paletteNavigate = useStableCallback((path: string) => { const url = new URL(path, window.location.origin); openRoute(parseRoute(url.pathname, url.search)); });
   const paletteSignOut = useStableCallback(() => { void handleLogout(); });
+  const paletteTitleId = surface === 'library' || surface === 'video' || surface === 'audio' ? libraryLocation.titleId : undefined;
+  const paletteTitleType = paletteTitleId ? cachedTitle(paletteTitleId)?.type ?? summaryFor(paletteTitleId)?.type : undefined;
+  const { dispatch } = workspace;
   const paletteContext = useMemo<PaletteContext | null>(() => state.currentUser ? ({
     user: state.currentUser,
     theme: state.preferences.theme,
     // openRoute runs the unsaved-changes guard for every palette destination.
     navigate: paletteNavigate,
-    setTheme: (theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } }),
+    setTheme: (theme) => dispatch({ type: 'preferences/patch', patch: { theme } }),
     openNavigation: () => setNavigationOpen(true),
     signOut: paletteSignOut,
     openLinkMode: () => openPaletteMode('link'),
-    titleId: (surface === 'library' || surface === 'video' || surface === 'audio') ? libraryLocation.titleId : undefined,
-    titleType: (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.titleId ? (cachedTitle(libraryLocation.titleId)?.type ?? summaryFor(libraryLocation.titleId)?.type) : undefined,
-  }) : null, [state.currentUser, state.preferences.theme, surface, libraryLocation.titleId, palette.open]); // eslint-disable-line react-hooks/exhaustive-deps -- dispatch is stable; surface and the open title gate the edit actions; the rest read through stable callbacks
+    titleId: paletteTitleId,
+    titleType: paletteTitleType,
+  }) : null, [dispatch, openPaletteMode, paletteNavigate, paletteSignOut, paletteTitleId, paletteTitleType, state.currentUser, state.preferences.theme]);
   const openInterestSettingsStable = useStableCallback(() => openRoute({ surface: 'settings', section: 'discovery' }));
   const retryRecommendations = useCallback(() => setHomeRecommendationRefreshGeneration((generation) => generation + 1), []);
   const runExploreStable = useStableCallback((query: string) => runExplore(query));
@@ -615,14 +618,15 @@ export default function LuminaApp() {
   const inlineSourceHandoff = surface === 'watch' && acquisition.state.failure?.phase === 'preview' && acquisition.state.failure.category === 'unsupported';
   useShellErrorToast(inlineSourceHandoff ? null : acquisition.state.failure?.message ?? null, undefined, acquisition.state.failure);
   const offlineToasted = useRef<number | null>(null);
+  const retryOffline = useStableCallback(() => { void handleRefresh(); });
   useEffect(() => {
     if (state.jobsState === 'offline') {
-      if (offlineToasted.current === null) offlineToasted.current = toast({ tone: 'error', message: "Lumina can't reach the server. Trying again…", action: { label: 'Try again', onAction: () => void handleRefresh() } });
+      if (offlineToasted.current === null) offlineToasted.current = toast({ tone: 'error', message: "Lumina can't reach the server. Trying again…", action: { label: 'Try again', onAction: retryOffline } });
     } else if (offlineToasted.current !== null) {
       toast.remove(offlineToasted.current);
       offlineToasted.current = null;
     }
-  }, [state.jobsState, toast]); // eslint-disable-line react-hooks/exhaustive-deps -- handleRefresh is a hoisted function over current workspace
+  }, [retryOffline, state.jobsState, toast]);
   useEffect(() => { if (!subscriptionContextVisible) subscriptionRetryFocusRequestedRef.current = false; }, [subscriptionContextVisible]);
 
   useEffect(() => {

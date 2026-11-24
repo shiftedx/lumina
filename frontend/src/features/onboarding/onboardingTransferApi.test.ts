@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
-vi.mock('./api', () => ({
+vi.mock('../../api', () => ({
   ApiRequestError: class ApiRequestError extends Error {
     constructor(message: string, public status: number) { super(message); }
   },
@@ -9,7 +9,7 @@ vi.mock('./api', () => ({
   getSession: vi.fn(),
 }));
 
-const { streamHouseholdTransfer } = await import('./features/onboarding/onboardingTransferApi');
+const { streamHouseholdTransfer } = await import('./onboardingTransferApi');
 
 afterEach(() => vi.unstubAllGlobals());
 

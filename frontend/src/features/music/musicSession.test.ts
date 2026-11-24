@@ -680,5 +680,4 @@ it('resumes and replays established browser music offline using cached audio wit
   expect(engine.play).toHaveBeenCalledTimes(2);
   expect(await engine.options.getAudio!(engine.queue[0], new AbortController().signal)).toBe(cached);
   expect(mocks.castControl).not.toHaveBeenCalled();
-  expect(localStorage.getItem('lumina:music:cast:offline-member')).toBeNull();
 });

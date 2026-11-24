@@ -48,9 +48,8 @@ TWITCH_ENDPOINT = f"/api/chat-replay/{quote(TWITCH_IDENTITY, safe='')}"
 
 
 def test_legacy_provider_connection_routes_remain_absent() -> None:
-    """The OAuth + Twitch-connection + Twitch-live-chat routes are gone from
-    the router, the service modules are deleted, and the removed paths have the
-    same fallback semantics as an unregistered sibling path."""
+    """Removed OAuth and Twitch routes stay unregistered and answer like an
+    unknown sibling path."""
     # Route-table proof (primary): no registered route targets the removed
     # prefixes.
     removed = [

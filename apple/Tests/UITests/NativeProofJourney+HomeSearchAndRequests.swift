@@ -779,12 +779,15 @@ extension NativeProofJourney {
         #else
         try waitForExistence(evidence, timeout: 15, named: "track availability")
         #endif
-        XCTAssertTrue(application!.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@", "Japanese", "English")).firstMatch.exists,
-                      "One file must show its Japanese audio and English subtitles together.")
+        let episodeTracks = application!.staticTexts["Season 1, episode 1 · Audio: Japanese · Subtitles: English"]
+        try waitForExistence(episodeTracks, timeout: 10, named: "Japanese audio and English subtitles on the same episode")
         XCTAssertTrue(element("requestViewVaultButton").exists)
         #if os(tvOS)
         let dub = element("requestLanguagePicker").buttons.matching(NSPredicate(format: "label == %@", "English dub")).firstMatch
+        try waitForExistence(dub, timeout: 10, named: "English dub choice for the current title")
         try activate(dub)
+        XCTAssertTrue(waitUntil(timeout: 10) { dub.isSelected },
+                      "English dub must be selected before submitting the language variant.")
         #else
         try revealDetailElement(element("requestLanguagePicker"), in: element("requestDetailScreen"), named: "anime preset", requiresHittable: true)
         try activate(element("requestLanguagePicker"))
@@ -796,6 +799,19 @@ extension NativeProofJourney {
         XCTAssertEqual(submitted.language, "dub")
         XCTAssertEqual(submitted.audioLanguage, "en")
         try attachFrame(named: "Anime language evidence and English request")
+        #if os(tvOS)
+        try waitForExistence(element("requestSubmittedStatus"), timeout: 15, named: "submitted language request status")
+        try closeRequestDetailToRequests()
+        try activate(element("requestsMyListButton"))
+        try waitForExistence(element("requestHistoryScreen"), timeout: 20, named: "My Requests history")
+        let englishRequest = application!.descendants(matching: .any)
+            .matching(identifier: "requestHistory-\(animeKey)")
+            .matching(NSPredicate(format: "value CONTAINS[c] %@", "Audio: English")).firstMatch
+        try waitForExistence(englishRequest, timeout: 20, named: "English variant in My Requests")
+        XCTAssertTrue(hasVisibleFrame(englishRequest), "The English variant must be visible in My Requests.")
+        XCTAssertEqual(englishRequest.label, animeTitle)
+        try attachFrame(named: "English audio variant in My Requests")
+        #endif
         completed = true
     }
 

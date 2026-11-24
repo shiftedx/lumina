@@ -9,6 +9,7 @@ with real threads sharing a temporary on-disk database, never a mocked lock.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import threading
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from app.db import Base, SessionLocal
 from app.main import app, jobs
 from app.models import AppSettings, User, UserSettings
 from app.account_schemas import UserUpdateRequest
-from app.services import job_manager as job_manager_module
+from app.services import backups, job_manager as job_manager_module
 from app.services.rate_limit import rate_limiter
 from app.services.users import UserService
 
@@ -238,9 +239,13 @@ def test_remote_setup_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     # Remote profile + no owner yet: the lifespan gate refuses to start, so the
     # service never serves traffic (startup failure propagates from __enter__).
     try:
-        with pytest.raises(RuntimeError, match="setup over loopback"):
+        with pytest.raises(RuntimeError, match="setup over loopback") as refused_start:
             with TestClient(app, base_url="http://localhost") as refused:
                 del refused
+        # A retained startup traceback would otherwise keep the file open.
+        with (settings.data_dir / backups.LOCK_FILENAME).open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert refused_start.value.__traceback__ is not None
     finally:
         for name, value in original_values.items():
             setattr(settings, name, value)
@@ -256,3 +261,105 @@ def test_remote_setup_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         assert created.status_code == 201
         assert loopback.get("/api/bootstrap/status").json() == {"needs_setup": False}
+    with (settings.data_dir / backups.LOCK_FILENAME).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_lifespan_finishes_shutdown_after_catalog_loop_fails(monkeypatch) -> None:
+    from app import main
+
+    loop_names = (
+        "reconcile_loop",
+        "playback_buffer_loop",
+        "source_automation_loop",
+        "metadata_loop",
+        "request_sync_loop",
+        "observer_loop",
+        "connector_observer_loop",
+        "listening_export_loop",
+        "catalog_warm_loop",
+    )
+    fault = RuntimeError("injected shutdown failure")
+    shutdown_order = []
+
+    async def exercise() -> None:
+        all_started = asyncio.Event()
+        finish_catalog = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        running = {}
+
+        def controlled_loop(name):
+            async def run():
+                running[name] = asyncio.current_task()
+                if len(running) == len(loop_names):
+                    all_started.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    if name == "catalog_warm_loop":
+                        # Catalog is stopped with the other loops, then awaited
+                        # after discovery services have stopped.
+                        await asyncio.wait_for(finish_catalog.wait(), timeout=5)
+                        shutdown_order.append("catalog")
+                        raise fault
+
+            return run
+
+        for name in loop_names:
+            monkeypatch.setattr(main, name, controlled_loop(name))
+
+        def stop_poller():
+            assert running["playback_buffer_loop"].done()
+            assert not main.import_stop_event.is_set()
+            shutdown_order.append("poller")
+            real_stop_poller()
+
+        def close_discovery():
+            assert main.import_stop_event.is_set()
+            assert not running["catalog_warm_loop"].done()
+            shutdown_order.append("discovery")
+            real_close_discovery()
+            loop.call_soon_threadsafe(finish_catalog.set)
+
+        def close_background_work():
+            assert all(task.done() for task in running.values())
+            shutdown_order.append("background_work")
+            real_close_background_work()
+
+        def join_captions():
+            shutdown_order.append("captions")
+            real_join_captions()
+
+        def close_updates():
+            shutdown_order.append("updates")
+            real_close_updates()
+            with (settings.data_dir / backups.LOCK_FILENAME).open("a") as lock:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        real_stop_poller = main.library_automation.stop
+        real_close_discovery = main.twitch_directory.close
+        real_close_background_work = main.background_work.close
+        real_join_captions = main.enrichment_jobs.join_background_captions
+        real_close_updates = main.release_updates.coordinator.close
+        monkeypatch.setattr(main.library_automation, "stop", stop_poller)
+        monkeypatch.setattr(main.twitch_directory, "close", close_discovery)
+        monkeypatch.setattr(main.background_work, "close", close_background_work)
+        monkeypatch.setattr(main.enrichment_jobs, "join_background_captions", join_captions)
+        monkeypatch.setattr(main.release_updates.coordinator, "close", close_updates)
+
+        with pytest.raises(RuntimeError) as caught:
+            async with main.lifespan(app):
+                await asyncio.wait_for(all_started.wait(), timeout=5)
+                assert not main.import_stop_event.is_set()
+        assert caught.value is fault
+        assert not jobs._worker_tasks
+        # Failure keeps the lock handle in the retained lifespan traceback.
+        with (settings.data_dir / backups.LOCK_FILENAME).open("a") as lock:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fault.__traceback__ = None
+        del caught
+
+    asyncio.run(exercise())
+    assert shutdown_order == ["poller", "discovery", "catalog", "background_work", "captions", "updates"]

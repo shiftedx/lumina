@@ -3,10 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ getProvenance: vi.fn() }));
-vi.mock('./api', () => api);
+vi.mock('../../api', () => api);
 
-import { ProvenancePanel } from './features/watch/ProvenancePanel';
-import type { Provenance } from './api';
+import { ProvenancePanel } from './ProvenancePanel';
+import type { Provenance } from '../../api';
 
 afterEach(() => { vi.clearAllMocks(); });
 

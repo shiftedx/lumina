@@ -1169,7 +1169,7 @@ class MediaTitle(Base):
     metadata_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
-    # When the media arrived (db.ADDED_AT_SQL): a leaf's earliest file mtime, a folder's newest child. NULL: no file time.
+    # When the media arrived: a leaf's earliest file mtime, a folder's newest child. NULL: no file time.
     added_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Which Library tab: movies | shows | anime for movie, series, season, episode (db.CATEGORY_SQL); NULL for boxset, album, artist.
     category: Mapped[str | None] = mapped_column(String(8), nullable=True, default=default_category)

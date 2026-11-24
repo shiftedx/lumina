@@ -638,8 +638,7 @@ def test_sections_count_from_indexes(category_env) -> None:  # noqa: ANN001
 
 
 def test_category_sql_seeks_items_by_title(plan_env) -> None:  # noqa: ANN001
-    """The backfill's EXISTS seek each title's items; a scan batch's refresh never walks the title table."""
-    from app.db import CATEGORY_BACKFILL_SQL
+    """A scan batch's category refresh seeks affected items without walking the title table."""
     from app.services.categories import refresh_category
 
     engine, session, user = plan_env
@@ -650,9 +649,6 @@ def test_category_sql_seeks_items_by_title(plan_env) -> None:  # noqa: ANN001
     def plan_of(statement: str, parameters=()) -> str:  # noqa: ANN001
         return "\n".join(str(row[-1]) for row in connection.exec_driver_sql("EXPLAIN QUERY PLAN " + statement, parameters))
 
-    movies, series = plan_of(CATEGORY_BACKFILL_SQL[0]), plan_of(CATEGORY_BACKFILL_SQL[1])
-    assert "ix_library_items_title_id" in movies, movies
-    assert "ix_library_items_title_id" in series and "ix_media_titles_parent_id" in series, series
     updates: list[tuple[str, object]] = []
 
     def capture(_connection, _cursor, statement, parameters, _context, _executemany) -> None:  # noqa: ANN001

@@ -35,7 +35,7 @@ make check                                      # full gate, required before a P
 - Behavior changes must have a meaningful regression check at the public API, service boundary, or user workflow. Reuse or extend an existing contract test before adding another.
 - Do not add one test per helper, CSS declaration, class name, or implementation detail. Prefer observable behavior; keep release/build contracts and trust-boundary edge cases.
 - Before deleting a test, name the retained contract that covers its useful behavior. Do not merge unrelated assertions merely to lower the reported count.
-- Schema changes: add a step to `MIGRATIONS` in `backend/app/db.py`, keep upgrades additive, document the rollback in `docker/README.md`.
+- Schema changes: keep the supported SQLite schema at version 44, refresh `backend/tests/schema_snapshot.json`, and retain current-schema restart and backup/restore checks.
 - Deployments: follow `docker/README.md#retaining-a-rollback-image`; create image pins with `scripts/preserve-rollback.sh`, keep rollback containers stopped, and preserve their cleanup exclusions. After health and public workflow verification succeeds, run `scripts/finalize-deployment.py` as documented there; a deployment is complete only after retention verifies the current image plus at most two prior known-good images.
 - Treat AI model output as untrusted input (ADR 0013).
 - Never write credentials, tokens, real hostnames or private media details into code, tests, docs or issues.

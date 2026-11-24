@@ -1,16 +1,8 @@
 from __future__ import annotations
-
-import re
-from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import create_engine, inspect, text
-
 from app import book_models  # noqa: F401 - registers Books metadata before db_factory creates its schema
-from app import db as db_module
 from app.book_models import BookItem, BookState
-from app.config import settings
-from app.db import Base
 
 from test_book_native import pdf, rar
 from test_books_api import _cbz, _epub, _user
@@ -151,36 +143,3 @@ def test_trash_hides_root_and_children_without_removing_files_or_state(api_clien
         assert restored.status_code == 200 and restored.json()["id"] == root["id"]
         assert client.get(f"/api/books/{child['id']}").json()["progress"]["unit_index"] == 1
         assert client.get("/api/books/trash").json() == []
-
-
-def test_schema_20_to_21_adds_bundle_columns_without_losing_books_or_states(tmp_path, monkeypatch) -> None:
-    engine = create_engine(f"sqlite:///{tmp_path / 'app.db'}", future=True)
-    Base.metadata.create_all(engine)
-    with engine.begin() as connection:
-        connection.execute(text("DROP INDEX IF EXISTS ix_book_items_bundle_parent_id"))
-        connection.execute(text("DROP INDEX IF EXISTS ix_book_items_deleted_at"))
-        connection.execute(text("ALTER TABLE book_items DROP COLUMN filename"))
-        connection.execute(text("ALTER TABLE book_items DROP COLUMN bundle_parent_id"))
-        connection.execute(text("ALTER TABLE book_items DROP COLUMN deleted_at"))
-        connection.execute(text("INSERT INTO book_items (id, storage_key, format, kind, title, genres, reading_direction, manifest, visibility, owner_user_id, available, created_at, updated_at) VALUES ('legacy-book', '00000000-0000-0000-0000-000000000021.epub', 'epub', 'ebook', 'Legacy', '[]', 'ltr', '{\"chapters\": []}', 'private', 'legacy-owner', 1, '2026-10-13 00:00:00', '2026-10-13 00:00:00')"))
-        connection.execute(text("INSERT INTO book_states (id, user_id, book_id, unit_index, offset, completed, favorite, reading_list, last_read_at, updated_at, created_at) VALUES ('legacy-state', 'legacy-owner', 'legacy-book', 0, 0.5, 0, 1, 0, '2026-10-13 00:00:00', '2026-10-13 00:00:00', '2026-10-13 00:00:00')"))
-        connection.execute(text("PRAGMA user_version = 20"))
-    monkeypatch.setattr(db_module, "engine", engine)
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-    db_module.init_db()
-    columns = {column["name"] for column in inspect(engine).get_columns("book_items")}
-    assert {"filename", "bundle_parent_id", "deleted_at"} <= columns
-    with engine.connect() as connection:
-        assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION
-        assert connection.scalar(text("SELECT title FROM book_items WHERE id = 'legacy-book'")) == "Legacy"
-        assert connection.scalar(text("SELECT offset FROM book_states WHERE id = 'legacy-state'")) == 0.5
-
-
-def test_bundling_rollback_sql_is_additive_to_files_and_states() -> None:
-    readme = Path(__file__).parents[2] / "docker" / "README.md"
-    match = re.search(r"\| Before Books format bundling \(schema 20\) \| `([^`]+)`", readme.read_text(encoding="utf-8"))
-    assert match
-    statements = match.group(1).split("; ")
-    assert statements[0].startswith("UPDATE book_items SET bundle_parent_id = NULL")
-    assert "DROP COLUMN filename" in match.group(1)
-    assert "PRAGMA user_version = 20" in match.group(1)

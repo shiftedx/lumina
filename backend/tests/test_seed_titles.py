@@ -47,15 +47,9 @@ def test_a_small_seed_has_the_pinned_shape(tmp_path: Path) -> None:
     again = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert again.returncode != 0 and "not empty" in again.stderr
 
-    # Check category derivation and real music covers on the same seeded corpus.
-    from app.db import CATEGORY_BACKFILL_SQL
-
+    # Check persisted category values and real music covers on the same seeded corpus.
     database = target / "data" / "app.db"
     with closing(sqlite3.connect(database)) as db:
-        changes = db.total_changes
-        for statement in CATEGORY_BACKFILL_SQL:
-            db.execute(statement)
-        assert db.total_changes == changes  # every seeded category is what the scan would derive
         assert db.execute("SELECT count(*) FROM media_titles WHERE category = 'anime' AND type IN ('movie', 'series')").fetchone()[0] == 5
         assert db.execute("SELECT count(*) FROM media_titles WHERE type = 'album' AND key NOT LIKE 'album:%/%'").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM media_titles WHERE type = 'artist' AND key NOT LIKE 'artist:%'").fetchone()[0] == 0

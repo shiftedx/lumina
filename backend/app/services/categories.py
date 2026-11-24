@@ -51,7 +51,7 @@ def category_sql(folders: Sequence[str], ids: Mapping[str, Sequence[str]] | None
 
     ``ids`` ({"movie_ids": …, "series_ids": …}) narrows each statement to its db.CATEGORY_SCOPES entry; None derives
     every title. An empty ``folders`` makes nothing anime. Every statement carries KEEP_FILELESS (the step-8 backfill
-    uses db.CATEGORY_BACKFILL_SQL, which has no such guard, so that no title is left NULL).
+    only applies to the supplied scan batch, preserving categories outside that batch).
     """
     tests = " OR ".join(f"'/' || r.path || '/' || a.relative_path LIKE :p{n} ESCAPE '\\'" for n in range(len(folders)))
     match = f"({tests})" if folders else "0"

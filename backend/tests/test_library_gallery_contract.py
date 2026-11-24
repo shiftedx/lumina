@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import bindparam, select, text
 
-from app.db import ANIME_DEFAULT_MATCH, CATEGORY_SCOPES, CATEGORY_SQL
+from app.db import CATEGORY_SCOPES, CATEGORY_SQL
 from app.media_schemas import CLIENT_METRIC_LABELS, MediaServerSettingsUpdate
 from app.models import MediaTitle, User
 from app.services.client_metrics import BUDGETS
@@ -44,7 +44,9 @@ def test_scoped_category_statements_touch_only_the_given_titles(gallery) -> None
         ids = {"movie_ids": [ANIME_MOVIE], "series_ids": [ANIME_SERIES]}
         for statement, scope in zip(CATEGORY_SQL, CATEGORY_SCOPES, strict=True):
             names = [name for name in ids if f":{name}" in scope]
-            clause = text(statement.format(match=ANIME_DEFAULT_MATCH, scope=scope)).bindparams(*(bindparam(name, expanding=True) for name in names))
+            clause = text(statement.format(
+                match="('/' || r.path || '/' || a.relative_path LIKE '%/Anime/%' ESCAPE '\\')", scope=scope,
+            )).bindparams(*(bindparam(name, expanding=True) for name in names))
             session.execute(clause, {name: ids[name] for name in names})
         session.commit()
         category = dict(session.execute(select(MediaTitle.id, MediaTitle.category)).all())

@@ -30,7 +30,7 @@ Until every cleanup lane has landed, a `cleanup/<lane>` PR whose base is `cleanu
 
 - Never commit credentials, cookies, tokens, real hostnames or personal media details, including in tests and fixtures. Use `example.com`, `home.arpa` and documentation IP ranges.
 - No new runtime dependency without a reason in the PR description.
-- Schema changes need an upgrade step and a documented rollback (see [Upgrades](docker/README.md#upgrades)).
+- Schema changes must preserve the supported schema-44 creation, restart, and backup/restore contracts (see [Upgrades](docker/README.md#upgrades)).
 - Security issues go through [SECURITY.md](SECURITY.md), not public issues.
 
 Coding agents: start with [AGENTS.md](AGENTS.md).

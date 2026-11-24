@@ -209,25 +209,23 @@ def test_restored_sessions_invites_and_cast_capabilities_are_revoked(admin, tmp_
     restored_engine.dispose()
 
 
-def test_restore_accepts_a_backup_from_before_cast_ticket_tables(admin, tmp_path) -> None:  # noqa: ANN001
+def test_restore_refuses_an_unsupported_backup_before_replacing_current_data(admin, tmp_path) -> None:  # noqa: ANN001
     name = backups.create_backup()["name"]
     backup = backups.backup_root() / f"{name}.db"
-    with sqlite3.connect(backup) as old:
-        old.execute("DROP TABLE media_cast_tickets")
-        old.execute("DROP TABLE music_cast_tickets")
-        old.execute("DROP TABLE mobile_pairings")
-        old.execute("PRAGMA user_version = 17")
+    with sqlite3.connect(backup) as copy:
+        copy.execute("PRAGMA user_version = 43")
     manifest_path = backup.with_suffix(".json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.update(schema_version=17, size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
+    manifest.update(schema_version=43, size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     target = tmp_path / "restored-old"
-    restore(backup, target)
-    with sqlite3.connect(target / settings.database_filename) as copy:
-        assert copy.execute("SELECT count(*) FROM users").fetchone() == (2,)
-        tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert "music_cast_tickets" not in tables and "media_cast_tickets" not in tables and "mobile_pairings" not in tables
+    target.mkdir()
+    live = target / settings.database_filename
+    live.write_bytes(b"current-schema-data")
+    with pytest.raises(SystemExit, match="verification"):
+        restore(backup, target)
+    assert live.read_bytes() == b"current-schema-data"
 
 
 def test_restore_refuses_while_server_holds_data_dir(admin, tmp_path) -> None:  # noqa: ANN001
@@ -259,19 +257,6 @@ def test_scheduled_backup_retention_keeps_manual(admin) -> None:  # noqa: ANN001
     assert len(list(root.glob("*-scheduled.db"))) == 2  # pruned copies are gone from disk
 
 
-def test_pre_upgrade_backups_keep_the_newest_three(admin) -> None:  # noqa: ANN001
-    manual = backups.create_backup("manual")
-    root = backups.backup_root()
-    stamps = [datetime.now(UTC) - timedelta(days=days_ago) for days_ago in (1, 2, 3, 4, 5)]
-    for stamp in stamps:
-        name = f"lumina-{stamp:%Y%m%dT%H%M%S}Z-pre-upgrade"
-        (root / f"{name}.db").write_bytes((root / f"{manual['name']}.db").read_bytes())
-        (root / f"{name}.json").write_text(json.dumps({**manual, "name": name, "kind": "pre-upgrade", "created_at": stamp.isoformat()}))
-    backups.run_scheduled(keep=7)
-    names = [row["name"] for row in backups.list_backups()]
-    kept = [name for name in names if name.endswith("-pre-upgrade")]
-    assert kept == [f"lumina-{stamp:%Y%m%dT%H%M%S}Z-pre-upgrade" for stamp in stamps[:3]]  # the newest three
-    assert manual["name"] in names and len(list(root.glob("*-pre-upgrade.db"))) == 3
 
 
 def test_server_lock_is_shared_between_instances() -> None:

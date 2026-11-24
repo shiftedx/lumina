@@ -527,6 +527,14 @@ final class NativeHomeLayoutReordersHidesAndPersistsTests: NativeProofJourney { 
 #endif
 @MainActor
 final class NativeRequestsDiscoverSelectAndSubmitThroughTheServerTests: NativeProofJourney { func testNativeRequestsDiscoverSelectAndSubmitThroughTheServer() async throws { try await journeyNativeRequestsDiscoverSelectAndSubmitThroughTheServer() } }
+#if os(tvOS)
+@MainActor
+final class NativeTVRequestQuotaRetryTests: NativeProofJourney {
+    func testQuotaFailureBlocksSubmissionUntilRemoteRetry() async throws {
+        try await journeyTVRequestQuotaRetry()
+    }
+}
+#endif
 @MainActor
 final class NativeServerNavigationTests: NativeProofJourney {
     func testServerFeaturesAndRemovedLibraryUpdateNavigation() async throws {
@@ -750,6 +758,7 @@ struct ProofFixture: Decodable {
     let requestShowTitle: String?
     let requestUnavailableShowKey: String?
     let requestUnavailableShowTitle: String?
+    let requestQuotaOutageAvailable: Bool?
     let requestAnimeKey: String?
     let requestAnimeTitle: String?
     let requestFreshAnimeKey: String?
@@ -952,6 +961,12 @@ struct ProofAPI {
         request.setValue(mediaBrowserAuthorization(identity.token), forHTTPHeaderField: "Authorization")
         let response = try JSONDecoder().decode(APIRequestPage.self, from: await send(request))
         return response.items
+    }
+
+    func setRequestQuotaOutage(_ failing: Bool) async throws -> [String: Int] {
+        var request = URLRequest(url: origin.appendingPathComponent("proof/request-quota-outage/\(failing)"))
+        request.httpMethod = "POST"
+        return try JSONDecoder().decode([String: Int].self, from: await send(request))
     }
 
     func requestsMetrics() async throws -> RequestsCatalogMetrics {

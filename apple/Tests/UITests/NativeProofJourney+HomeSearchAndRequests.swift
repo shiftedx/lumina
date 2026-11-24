@@ -461,6 +461,63 @@ extension NativeProofJourney {
 
     #endif
 
+    #if os(tvOS)
+    func journeyTVRequestQuotaRetry() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        guard fixture.requestQuotaOutageAvailable == true else {
+            throw XCTSkip("Generate a NativeTVRequestQuotaRetryTests fixture.")
+        }
+        let showKey = try XCTUnwrap(fixture.requestUnavailableShowKey)
+        let showTitle = try XCTUnwrap(fixture.requestUnavailableShowTitle)
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        let before = try await api.requestRecords(identity: identity)
+        XCTAssertFalse(before.contains { $0.key == showKey }, "The request target must start unrequested.")
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        _ = try await api.setRequestQuotaOutage(true)
+        try selectDestination("Requests", screen: "requestsScreen")
+        let search = try openTVRequestsSearch()
+        try enter(showTitle, into: search)
+        let poster = try revealRequestPoster(showKey, named: "quota retry show poster")
+        try activate(poster)
+
+        let retry = element("requestRetryQuotaButton")
+        let confirm = element("requestConfirmButton")
+        try waitForExistence(retry, timeout: 20, named: "quota retry after a failed allowance check")
+        try waitForExistence(confirm, timeout: 10, named: "disabled request confirmation")
+        XCTAssertFalse(confirm.isEnabled, "A failed allowance check must disable submission.")
+        guard focus(retry, timeout: 20), hasVisibleFrame(retry) else {
+            throw ProofFailure.ui("The remote could not focus the visible quota retry button.")
+        }
+        XCTAssertFalse(confirm.hasFocus, "The disabled request must be skipped by remote focus.")
+        try attachFrame(named: "Quota check failed with Try again focused")
+
+        let outage = try await api.setRequestQuotaOutage(false)
+        XCTAssertGreaterThan(try XCTUnwrap(outage["failed_checks"]), 0)
+        XCTAssertEqual(outage["submit_attempts"], 0, "No request POST is allowed during the quota outage.")
+        XCTAssertFalse(confirm.isEnabled, "Restoring the server must not enable submission before a successful check.")
+        XCUIRemote.shared.press(.select)
+        guard disappears(retry, timeout: 10), waitUntil(timeout: 20, condition: { confirm.isEnabled }) else {
+            throw ProofFailure.ui("Remote quota retry did not enable the request.")
+        }
+        try activate(confirm)
+        let submitted = try await waitForNativeRequest(api, identity: identity, key: showKey)
+        XCTAssertFalse(before.contains { $0.id == submitted.id })
+        let recovered = try await api.setRequestQuotaOutage(false)
+        XCTAssertEqual(recovered["submit_attempts"], 1, "Retry should permit exactly one new request POST.")
+        try waitForExistence(element("requestSubmittedStatus"), timeout: 15, named: "submitted request status")
+        try attachFrame(named: "Request submitted after remote quota retry")
+        completed = true
+    }
+    #endif
+
     func journeyNativeRequestsDiscoverSelectAndSubmitThroughTheServer() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }

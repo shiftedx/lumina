@@ -107,6 +107,7 @@ from proof_server_metrics import (
     install_navigation_fixture_controls,
     install_performance_request_log,
     install_playback_info_delay,
+    install_request_quota_failure,
     install_requests_catalog_metrics,
     install_streaming_fixture,
     performance_catalogue_count,
@@ -848,6 +849,9 @@ def main() -> None:
         import uvicorn
         from app.main import app
         install_showcase_art_fixture(state_root, ORIGIN)
+        quota_failure_proof = FIXTURE_PATH.stem.split("-", 1)[0] == "NativeTVRequestQuotaRetryTests"
+        if quota_failure_proof:
+            install_request_quota_failure(app)
         if os.environ.get("LUMINA_NATIVE_STREAMING_PROOF") == "1":
             install_streaming_fixture(app, provisioned)
         if "NativeServerNavigationTests" in str(FIXTURE_PATH):
@@ -884,6 +888,8 @@ def main() -> None:
 
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
+        if quota_failure_proof:
+            verified["requestQuotaOutageAvailable"] = True
         if activate_video_format_failure is not None:
             client_demux_target = os.environ.get(CLIENT_DEMUX_VIDEO_FORMAT_RECOVERY_ENV) == "1"
             target = verified["convertedItemID"] if client_demux_target else verified["directItemID"]

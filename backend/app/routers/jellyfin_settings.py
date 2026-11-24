@@ -25,9 +25,10 @@ from app.routers import admin_library_automation, requests as member_requests
 from app.routers import profile_export, reco as reco_routes, search_history
 from app.services.resource_policy import effective as effective_resource_allowances
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller
+from app.account_schemas import UserResponse, UserSelfUpdateRequest
 from app.schemas import (
     RecoveryCodesResponse, TwoFactorCodeRequest, TwoFactorSetupResponse, TwoFactorStatusResponse,
-    UserResponse, UserSelfUpdateRequest, UserSettingsResponse, UserSettingsUpdateRequest,
+    UserSettingsResponse, UserSettingsUpdateRequest,
 )
 from app.security import DEVICE_TOKEN_IDLE_DAYS, PasswordPolicyError, audit_log, hash_password, session_digest, validate_password_policy, verify_password
 from app.services import autoplay_presence, invites, member_access, public_address, two_factor

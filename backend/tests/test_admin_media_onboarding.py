@@ -10,7 +10,7 @@ import pytest
 from app import db as db_module
 from app.config import settings
 from app.models import User
-from app.schemas import InvitationRedeemRequest, UserCreateRequest
+from app.account_schemas import InvitationRedeemRequest, UserCreateRequest
 from app.services.users import UserService
 from support import make_user
 

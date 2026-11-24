@@ -36,7 +36,7 @@ from app.config import settings
 from app.db import Base
 from app.main import app
 from app.models import ChatReplayAsset, LiveRecording
-from app.schemas import UserResponse
+from app.account_schemas import UserResponse
 from app.security import hash_password
 from app.services.remote_playback import RemotePlaybackProgressService
 from app.services.yt_dlp_service import YtDlpService

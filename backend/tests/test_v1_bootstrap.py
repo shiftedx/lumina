@@ -21,7 +21,7 @@ from app.config import settings
 from app.db import Base, SessionLocal
 from app.main import app, jobs
 from app.models import AppSettings, User, UserSettings
-from app.schemas import UserUpdateRequest
+from app.account_schemas import UserUpdateRequest
 from app.services import job_manager as job_manager_module
 from app.services.rate_limit import rate_limiter
 from app.services.users import UserService

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.models import User
-from app.schemas import UserCreateRequest
+from app.account_schemas import UserCreateRequest
 from app.services.member_onboarding import MemberOnboardingService
 from app.services.member_recommendations import MemberInterestService
 from app.services.users import UserService

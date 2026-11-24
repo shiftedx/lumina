@@ -12,8 +12,6 @@ const session = (owner = 'member-a') => ({
   owner, ticket: 'ticket_123', name: 'Kitchen', playing: true,
   baseIndex: 2, index: 2, position: 12, duration: 180, volume: .4, queued: 3,
 });
-const legacy = () => JSON.stringify({ version: 1, expiresAt: Date.now() + 60_000, session: session() });
-const key = 'lumina:music:cast:member-a';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -64,21 +62,6 @@ describe('memory-only music cast controller', () => {
     expect(cast.musicCast()).toBeNull();
   });
 
-  it.each([legacy(), '{malformed', JSON.stringify({ version: 1, expiresAt: 0, session: session() })])('removes legacy state without reading it or touching other member preferences (%s)', async (stored) => {
-    localStorage.setItem(key, stored);
-    localStorage.setItem('lumina:music:cast:member-b', 'other-member-state');
-    localStorage.setItem('lumina:music:queue:member-a', 'queue-preference');
-    const get = vi.spyOn(Storage.prototype, 'getItem');
-    const cast = await import('./musicCastSession');
-    await cast.restoreMusicCast('member-a');
-    expect(get).not.toHaveBeenCalled();
-    expect(api.status).not.toHaveBeenCalled();
-    expect(cast.musicCast()).toBeNull();
-    expect(localStorage.getItem(key)).toBeNull();
-    expect(localStorage.getItem('lumina:music:cast:member-b')).toBe('other-member-state');
-    expect(localStorage.getItem('lumina:music:queue:member-a')).toBe('queue-preference');
-  });
-
   it('does not manufacture a controller on a transient restore failure and supports retry', async () => {
     const cast = await import('./musicCastSession');
     api.status.mockRejectedValueOnce(Object.assign(new Error('Gateway'), { status: 502 }));
@@ -98,7 +81,6 @@ describe('memory-only music cast controller', () => {
     api.status.mockRejectedValueOnce(Object.assign(new Error('Rejected'), { status }));
     await cast.restoreMusicCast('member-a');
     expect(cast.musicCast()).toBeNull();
-    expect(localStorage.getItem(key)).toBeNull();
   });
 
   it('rejects URL-shaped server tickets without a status request', async () => {
@@ -114,18 +96,23 @@ describe('memory-only music cast controller', () => {
     api.control.mockRejectedValueOnce(new Error('Speaker unreachable'));
     await expect(cast.stopMusicCast()).rejects.toThrow('Speaker unreachable');
     expect(cast.musicCast()).toBeNull();
-    expect(localStorage.getItem(key)).toBeNull();
   });
 
-  it('stops a cold-reload controller through authenticated server state without using a legacy bearer', async () => {
-    localStorage.setItem(key, legacy());
+  it('stops a cold-reload controller through authenticated server state', async () => {
     api.shared.mockResolvedValueOnce({ active_output: { kind: 'sonos', ticket_id: 'server_ticket' } });
     const cast = await import('./musicCastSession');
     await cast.stopMusicCast('member-a');
     expect(api.shared).toHaveBeenCalledOnce();
     expect(api.control).toHaveBeenCalledWith('server_ticket', 'stop');
     expect(cast.musicCast()).toBeNull();
-    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it('does not send a speaker stop for authenticated browser output after cold reload', async () => {
+    api.shared.mockResolvedValueOnce({ active_output: { kind: 'browser' } });
+    const cast = await import('./musicCastSession');
+    await cast.stopMusicCast('member-a');
+    expect(api.shared).toHaveBeenCalledOnce();
+    expect(api.control).not.toHaveBeenCalled();
   });
 
   it('stops only the requested owner and forgets an account-switch controller', async () => {
@@ -166,16 +153,7 @@ describe('memory-only music cast controller', () => {
     expect(api.control).not.toHaveBeenCalled();
   });
 
-  it('does not stop a legacy controller absent from the authenticated server session', async () => {
-    localStorage.setItem(key, legacy());
-    const cast = await import('./musicCastSession');
-    await cast.stopMusicCast('member-a');
-    expect(api.control).not.toHaveBeenCalled();
-    expect(localStorage.getItem(key)).toBeNull();
-  });
-
   it('supports playback, validated restore and stop when browser storage is denied', async () => {
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('Denied'); });
     const writes = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Denied'); });
     const cast = await import('./musicCastSession');
     cast.setMusicCast(session());

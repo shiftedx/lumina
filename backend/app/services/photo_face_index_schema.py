@@ -140,6 +140,13 @@ TRIGGER_SQL: tuple[str, ...] = (
        WHERE face_id IN (SELECT id FROM photo_faces WHERE photo_id = OLD.id) AND active = 1;
     END""",
 )
+TRIGGER_NAMES = (
+    "trg_photo_face_index_insert",
+    "trg_photo_face_index_update",
+    "trg_photo_face_index_delete",
+    "trg_photo_face_index_photo_update",
+    "trg_photo_face_index_photo_delete",
+)
 
 def ensure_schema(connection: Connection) -> None:
     """Install tables/indexes/triggers without rescanning historical faces."""

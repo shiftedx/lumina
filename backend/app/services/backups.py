@@ -135,7 +135,8 @@ def list_backups() -> list[dict[str, Any]]:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if manifest.get("name") == manifest_path.stem and manifest_path.with_suffix(".db").is_file():
+        path = manifest_path.with_suffix(".db")
+        if manifest.get("name") == manifest_path.stem and path.is_file() and not verify_file(path):
             backups.append(manifest)
     return sorted(backups, key=lambda item: item["created_at"], reverse=True)
 
@@ -162,6 +163,11 @@ def verify_file(path: Path) -> list[str]:
         problems.append("SQLite integrity check failed")
     if version != db_module.SCHEMA_VERSION or manifest.get("schema_version") != version:
         problems.append(f"Schema version {version} cannot be restored by this release ({db_module.SCHEMA_VERSION})")
+    if not problems:
+        try:
+            db_module.validate_database_file(path)
+        except db_module.SchemaVersionError as exc:
+            problems.append(str(exc))
     return problems
 
 

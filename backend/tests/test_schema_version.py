@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, inspect, text
 from app import db as db_module
 from app.config import settings
 from app.db import Base
+from app.services.photo_face_index_schema import TRIGGER_NAMES
 
 
 def _init(tmp_path, monkeypatch):  # noqa: ANN001, ANN202
@@ -33,13 +34,7 @@ def test_fresh_database_matches_the_current_schema_snapshot_and_restarts(tmp_pat
     with engine.begin() as connection:
         assert set(connection.scalars(text(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_photo_face_index_%'"
-        ))) == {
-            "trg_photo_face_index_insert",
-            "trg_photo_face_index_update",
-            "trg_photo_face_index_delete",
-            "trg_photo_face_index_photo_update",
-            "trg_photo_face_index_photo_delete",
-        }
+        ))) == set(TRIGGER_NAMES)
         connection.execute(text(
             "INSERT INTO app_maintenance_state (key, value, updated_at) VALUES ('restart-proof', 'kept', CURRENT_TIMESTAMP)"
         ))
@@ -75,5 +70,17 @@ def test_stamped_but_corrupt_database_is_refused_before_mutation(tmp_path, monke
     database = tmp_path / "app.db"
     before = database.read_bytes()
     with pytest.raises(db_module.SchemaVersionError, match="incomplete or corrupt"):
+        _init(tmp_path, monkeypatch)
+    assert database.read_bytes() == before
+
+
+def test_stamped_database_missing_a_live_trigger_is_refused_before_mutation(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    engine = _init(tmp_path, monkeypatch)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TRIGGER trg_photo_face_index_insert"))
+    engine.dispose()
+    database = tmp_path / "app.db"
+    before = database.read_bytes()
+    with pytest.raises(db_module.SchemaVersionError, match="trg_photo_face_index_insert"):
         _init(tmp_path, monkeypatch)
     assert database.read_bytes() == before

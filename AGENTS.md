@@ -11,7 +11,7 @@ Lumina is a self-hosted household media server: FastAPI + SQLite backend, React 
 | `frontend/src/` | React app; Vitest tests (`*.test.ts[x]`) |
 | `frontend/e2e/` | Playwright: mocked API specs, plus `realstack/` against the real backend |
 | `docs/adr/` | Architecture decisions. Read the relevant ones before changing a boundary |
-| `docker/README.md` | Operator guide. Some backend tests parse its rollback SQL blocks |
+| `docker/README.md` | Operator guide for current-schema backup, restore, and release retention |
 
 ## Commands
 

@@ -228,6 +228,24 @@ def test_restore_refuses_an_unsupported_backup_before_replacing_current_data(adm
     assert live.read_bytes() == b"current-schema-data"
 
 
+def test_restore_refuses_a_corrupt_current_backup_before_replacing_current_data(admin, tmp_path) -> None:  # noqa: ANN001
+    name = backups.create_backup()["name"]
+    backup = backups.backup_root() / f"{name}.db"
+    with sqlite3.connect(backup) as copy:
+        copy.execute("DROP TRIGGER trg_photo_face_index_insert")
+    manifest_path = backup.with_suffix(".json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    target = tmp_path / "restored-corrupt"
+    target.mkdir()
+    live = target / settings.database_filename
+    live.write_bytes(b"current-schema-data")
+    with pytest.raises(SystemExit, match="trg_photo_face_index_insert"):
+        restore(backup, target)
+    assert live.read_bytes() == b"current-schema-data"
+
+
 def test_restore_refuses_while_server_holds_data_dir(admin, tmp_path) -> None:  # noqa: ANN001
     name = backups.create_backup()["name"]
     lock = backups.hold_server_lock()

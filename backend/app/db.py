@@ -126,6 +126,29 @@ def _validate_current_schema(connection) -> None:  # noqa: ANN001
         raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({detail}); refusing to start.")
 
 
+def validate_database_file(path) -> None:  # noqa: ANN001
+    """Read a current SQLite file without opening the WAL-configuring engine."""
+    copy = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        version = copy.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if version != SCHEMA_VERSION:
+            raise SchemaVersionError(f"Database schema version {version} is unsupported by this release (requires {SCHEMA_VERSION}); refusing to start.")
+        missing = set(Base.metadata.tables) - tables
+        changed = {
+            table for table in set(Base.metadata.tables) - missing
+            if {row[1] for row in copy.execute(f"PRAGMA table_info({table})")} != {column.name for column in Base.metadata.tables[table].columns}
+        }
+        indexes = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        expected_indexes = {index.name for table in Base.metadata.tables.values() for index in table.indexes if index.name}
+        triggers = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+        absent = missing | changed | (expected_indexes - indexes) | (set(photo_face_index_schema.TRIGGER_NAMES) - triggers)
+        if absent:
+            raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({', '.join(sorted(absent))}); refusing to start.")
+    finally:
+        copy.close()
+
+
 def init_db() -> None:
     """Create the current schema on an empty database and validate a stamped current database."""
     from app import (  # noqa: F401  (registers model metadata)
@@ -137,22 +160,9 @@ def init_db() -> None:
         raise RuntimeError(f"SQLite 3.33 or later is required; this Python links SQLite {sqlite3.sqlite_version}.")
 
     init_storage()
-    with engine.connect() as connection:
-        version = int(connection.scalar(text("PRAGMA user_version")) or 0)
-        has_tables = bool(inspect(connection).get_table_names())
-    if version == 0 and has_tables:
-        raise SchemaVersionError(
-            "Database has tables but no Lumina schema version stamp; refusing to start. "
-            "Point Lumina at an empty data directory."
-        )
-    if version != 0 and version != SCHEMA_VERSION:
-        raise SchemaVersionError(
-            f"Database schema version {version} is unsupported by this release (requires {SCHEMA_VERSION}); "
-            "refusing to start. Restore a current-schema backup."
-        )
-    if version == SCHEMA_VERSION:
-        with engine.connect() as connection:
-            _validate_current_schema(connection)
+    database = settings.data_dir / settings.database_filename
+    if database.exists():
+        validate_database_file(database)
     else:
         with engine.begin() as connection:
             Base.metadata.create_all(bind=connection)

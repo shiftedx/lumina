@@ -1,11 +1,12 @@
 PYTHON ?= python3
 
-.PHONY: help bootstrap bootstrap-test backend-test backend-smoke backend-full frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
+.PHONY: help bootstrap bootstrap-test repo-hygiene backend-test backend-smoke backend-full frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
 
 help:
 	@echo "Available targets:"
 	@echo "  bootstrap          Install locked backend and frontend dependencies"
 	@echo "  bootstrap-test     Test platform-specific bootstrap behavior"
+	@echo "  repo-hygiene       Check tracked Markdown links, source length, and likely private data"
 	@echo "  backend-test       Full backend tier: parallel pytest contracts, under 45 minutes"
 	@echo "  backend-smoke      Critical backend contracts, under 10 minutes"
 	@echo "  backend-full       Full parallel backend contract tier, under 45 minutes"
@@ -27,6 +28,9 @@ bootstrap:
 
 bootstrap-test:
 	$(PYTHON) -m unittest discover -s scripts -p 'test_*.py'
+
+repo-hygiene:
+	$(PYTHON) scripts/check_repo_hygiene.py
 
 # Each driver invocation owns an empty, private output root.  Override the knobs
 # when retaining a report at a known path or qualifying a repeated tier.

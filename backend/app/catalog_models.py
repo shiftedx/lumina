@@ -41,9 +41,9 @@ class WatchQueueEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
-WALL_TYPES_SQL = "type IN ('movie', 'series')"  # the only types a wall lists; titles.WALL_TYPES repeats it for the planner
-MUSIC_TYPES_SQL = "type IN ('album', 'artist')"  # the music titles; titles.MUSIC_TYPES repeats it for the planner
-# A new title's category until db.CATEGORY_SQL decides anime (the scan's categories.refresh_category, schema step 8).
+WALL_TYPES_SQL = "type IN ('movie', 'series')"
+MUSIC_TYPES_SQL = "type IN ('album', 'artist')"
+# Default category until db.CATEGORY_SQL decides anime.
 CATEGORY_OF_TYPE = {"movie": "movies", "series": "shows", "season": "shows", "episode": "shows"}
 
 
@@ -56,13 +56,9 @@ class MediaTitle(Base):
 
     __tablename__ = "media_titles"
     __table_args__ = (
-        # Wall pages seek these; the sort expression is titles.SORT_NAME verbatim. Partial, so an
-        # unanalyzed planner can never walk every episode through them instead of seeking parent_id (titles.WALL_TYPES).
         Index("ix_media_titles_type_sort", "type", text("coalesce(sort_name, name) COLLATE NOCASE"), "id", sqlite_where=text(WALL_TYPES_SQL)),
         Index("ix_media_titles_type_created", "type", text("created_at DESC"), "id", sqlite_where=text(WALL_TYPES_SQL)),
-        # Recently added (titles.ADDED): superseded ix_media_titles_type_created, which stays so a rollback finds it.
         Index("ix_media_titles_type_added", "type", text("coalesce(added_at, created_at) DESC"), "id", sqlite_where=text(WALL_TYPES_SQL)),
-        # Library gallery: category walls and music walls. Partial; each query repeats its WHERE as literals.
         Index("ix_media_titles_category_sort", "category", text("coalesce(sort_name, name) COLLATE NOCASE"), "id", sqlite_where=text(WALL_TYPES_SQL)),
         Index("ix_media_titles_category_added", "category", text("coalesce(added_at, created_at) DESC"), "id", sqlite_where=text(WALL_TYPES_SQL)),
         Index("ix_media_titles_music_sort", "type", text("coalesce(sort_name, name) COLLATE NOCASE"), "id", sqlite_where=text(MUSIC_TYPES_SQL)),
@@ -100,7 +96,7 @@ class MediaTitle(Base):
     # {field: {"source": "nfo"|"tmdb"|"path"|None, "value": ...}} for user-sourced fields and every field of a locked item:
     # what the sources currently offer, for revert. Write only through media_titles helpers. Deferred: walls never load it.
     source_values: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False, deferred=True)
-    # 2.8.0 member access: normalized certificate (G … NC-17, TV-Y … TV-MA) and its rank on the title's scale (film for movies, TV for series; member_access.rating_rank);
+    # Member access: normalized certificate (G … NC-17, TV-Y … TV-MA) and its rank on the title's scale (film for movies, TV for series; member_access.rating_rank);
     # NULL = unrated. Source in field_sources["rating"] (user > nfo > tmdb); seasons and episodes copy their series'.
     rating: Mapped[str | None] = mapped_column(String(8), nullable=True)
     rating_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -231,7 +227,6 @@ class DeviceToken(Base):
     __table_args__ = (UniqueConstraint("user_id", "device_id", name="uq_device_tokens_user_device"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # user_id seeks are served by the leading column of uq_device_tokens_user_device.
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # jellyfin | agent | app_password
     scope: Mapped[str] = mapped_column(String(8), nullable=False)  # read | write

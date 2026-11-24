@@ -628,7 +628,6 @@ class LiveSnapshotResponse(PopularSnapshotResponse):
     followed_unavailable: list[FollowedSourceUnavailable] = Field(default_factory=list)
 
 
-# ---- YouTube channel pages and Library channels ----
 class ChannelLiveResponse(BaseModel):
     webpage_url: str
     title: str | None = None

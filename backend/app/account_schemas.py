@@ -205,7 +205,6 @@ class WebhookTestResponse(BaseModel):
     message: str
 
 
-# ---- Member access (2.8.0, ADR 0019). Also an invite's preset (account_tokens.access). ------------------------------
 class StreamingAccess(BaseModel):
     model_config = ConfigDict(extra="forbid")
     youtube: bool = True

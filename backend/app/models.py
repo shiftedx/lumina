@@ -17,8 +17,6 @@ class DownloadJob(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # user_id seeks are served by the leading column of
-    # ix_download_jobs_user_status_created.
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
@@ -51,7 +49,6 @@ class LibraryItem(Base):
         ),
         Index("ix_library_items_user_downloaded", "user_id", text("downloaded_at DESC")),
         Index("ix_library_items_extractor_remote_id", "extractor", "remote_id"),
-        # Library views (Movies/Series/Music/...) page one kind in recency order.
         Index(
             "ix_library_items_kind_downloaded_created_id",
             "kind",
@@ -59,13 +56,10 @@ class LibraryItem(Base):
             text("created_at DESC"),
             "id",
         ),
-        # A member's saves per channel.
         Index("ix_library_items_user_channel", "user_id", "channel_key"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # Single-column seeks on user_id, visibility, and extractor are served by
-    # the leading columns of the v4 composite indexes above.
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     visibility: Mapped[str] = mapped_column(String(24), default="shared")
     extractor: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -75,7 +69,6 @@ class LibraryItem(Base):
     playlist_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Indexed for source dedupe and Home's already-saved check (remote_id IN ... OR webpage_url IN ...).
     webpage_url: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -240,12 +233,10 @@ class PlaybackProgress(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "item_id", name="uq_playback_progress_user_item"),
         Index("ix_playback_progress_user_completed_watched", "user_id", "completed", text("last_watched_at DESC")),
-        # Recent plays across completed states (Home channel affinity, profile export).
         Index("ix_playback_progress_user_watched", "user_id", text("last_watched_at DESC")),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # user_id seeks are served by ix_playback_progress_user_completed_watched.
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     item_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     position_seconds: Mapped[int] = mapped_column(Integer, default=0)
@@ -412,7 +403,6 @@ class LiveRecording(Base):
     # Bookkeeping for restart recovery: how many times this recording has been
     # (re)claimed by a worker. Bounded so a poison recording cannot loop forever.
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # -- scheduling + from-start (issue #98) --------------------------------
     # The best-available provider start time for an UPCOMING broadcast. When set,
     # the recording starts durably in ``waiting`` and the waiter wakes near this
     # time with bounded retries; a schedule change durably updates it. Null for a
@@ -505,7 +495,6 @@ class UserSettings(Base):
     ui_prefs: Mapped[dict] = mapped_column(JSON, default=dict)
     notification_prefs: Mapped[dict] = mapped_column(JSON, default=dict)
     remote_playback_cache: Mapped[dict] = mapped_column(JSON, default=dict)
-    # 2.6.0 Requests: where request emails go (NULL = none) and whether this member wants them.
     notify_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_requests: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -612,7 +601,6 @@ class SourceAutomation(Base):
     # Last-known newest entries from the latest successful check (bounded); a failed
     # check keeps them so the follow feed stays useful through a provider outage.
     feed_entries: Mapped[list] = mapped_column(JSON, default=list)
-    # Schema-only for now: a later stage implements Automation run lease semantics.
     run_lease_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     run_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -732,11 +720,11 @@ class AppSettings(Base):
     plex_import_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Folder names whose titles are Anime rather than Movies or Shows; [] = nothing is anime.
     anime_folders: Mapped[list] = mapped_column(JSON, default=lambda: ["Anime"], server_default=text("'[\"Anime\"]'"), nullable=False)
-    # 2.1.0 (ADR 0016): household members may edit title details too; vault owners always can.
+    # Household members may edit title details too; vault owners always can (ADR 0016).
     members_edit_metadata: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
-    # 2.1.0 library automation: the server-local hour (0-23) at which nightly scans become due.
+    # Server-local hour (0-23) at which nightly scans become due.
     library_scan_night_hour: Mapped[int] = mapped_column(Integer, default=3, server_default=text("3"), nullable=False)
-    # 2.6.0 Requests (ADR 0018). smtp_password is write-only, never serialized, and nulled in backups.
+    # Requests (ADR 0018): smtp_password is write-only, never serialized, and nulled in backups.
     requests_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     smtp_host: Mapped[str | None] = mapped_column(Text, nullable=True)
     smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -744,13 +732,13 @@ class AppSettings(Base):
     smtp_username: Mapped[str | None] = mapped_column(Text, nullable=True)
     smtp_password: Mapped[str | None] = mapped_column(Text, nullable=True)
     smtp_from: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 2.8.0 member access: the address invite links use (e.g. https://lumina.example.com); NULL = the request's own origin.
+    # Member access: the address invite links use (e.g. https://lumina.example.com); NULL = the request's own origin.
     public_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The home-network address (e.g. http://lumina.home.arpa), LAN HTTP mode only; NULL = none (ADR 0001 local address).
     local_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Default MemberAccess preset an invite starts from (services/member_access.py field names); {} = no limits.
     invite_permissions: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
-    # 2.9.0: vault owners must turn on two-step verification before using owner settings.
+    # Vault owners must turn on two-step verification before using owner settings.
     require_owner_two_factor: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -772,7 +760,7 @@ class User(Base):
     )
     # Only the first bootstrap owner enters server media setup; upgrades and other members keep the false default.
     vault_setup_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
-    # 2.9.0 two-step verification (services/two_factor.py). The TOTP secret is AES-GCM encrypted under a key derived from
+    # Two-step verification (services/two_factor.py). The TOTP secret is AES-GCM encrypted under a key derived from
     # the app secret; it is a pending enrollment until totp_enabled_at is set. Recovery codes are stored as SHA-256 digests.
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -799,7 +787,7 @@ class StorageRoot(Base):
     # Managed: the root ID written to the sentinel. External: the observed st_dev.
     identity: Mapped[str | None] = mapped_column(String(64), nullable=True)
     observation: Mapped[dict] = mapped_column(JSON, default=dict)
-    # 2.1.0 library automation. External roots only; a managed root keeps the defaults.
+    # External roots only; a managed root keeps the defaults.
     scan_schedule: Mapped[str] = mapped_column(String(8), default="off", server_default=text("'off'"), nullable=False)  # off|15m|1h|6h|nightly
     watch_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     watch_interval_s: Mapped[int] = mapped_column(Integer, default=300, server_default=text("300"), nullable=False)  # 60|300|900
@@ -961,7 +949,6 @@ class AsrJob(Base):
     __tablename__ = "asr_jobs"
     __table_args__ = (
         Index("ix_asr_jobs_item_model", "library_item_id", "model_id", "state"),
-        # pump_pending() admits the oldest pending rows.
         Index("ix_asr_jobs_state_created", "state", "created_at"),
     )
 
@@ -995,7 +982,7 @@ class AccountToken(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    # 2.8.0 external invites: who it was emailed to, the member access preset redeeming applies, when it was last sent.
+    # External invites: recipient, member access preset, and last-send time.
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
     access: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -1138,8 +1125,6 @@ class RecoEvent(Base):
     __table_args__ = (
         Index("ix_reco_events_user_at", "user_id", "at"),
         Index("ix_reco_events_user_item", "user_id", "item_key", "at"),
-        # Covers Diagnostics' three window scans (services/reco/metrics.py) so none reads the table, and orders the grouped one so it
-        # streams without a sort. Each impression batch item pays for one extra ~110-byte entry; `at` trails kind, so a window is a filter.
         Index("ix_reco_events_kind_surface", "kind", "surface", "slot", "target_kind", "at", "list_id", "user_id", "item_key"),
     )
 

@@ -141,19 +141,6 @@ TRIGGER_SQL: tuple[str, ...] = (
     END""",
 )
 
-BACKFILL_SQL = """INSERT INTO photo_face_index_vectors
-    (face_id, owner_user_id, pipeline_signature, embedding, active, created_at)
-SELECT f.id, f.owner_user_id, f.pipeline_signature, f.embedding, 1, CURRENT_TIMESTAMP
-  FROM photo_faces f
- WHERE NOT EXISTS (
-   SELECT 1 FROM photo_face_index_vectors v WHERE v.face_id = f.id AND v.active = 1
- )"""
-
-# Existing databases need the backfill once in the numbered migration. Fresh
-# databases are empty when metadata's after_create hook installs the triggers.
-MIGRATION_SQL: tuple[str, ...] = (*TABLE_SQL, BACKFILL_SQL, *TRIGGER_SQL)
-
-
 def ensure_schema(connection: Connection) -> None:
     """Install tables/indexes/triggers without rescanning historical faces."""
     tables = inspect(connection).get_table_names()

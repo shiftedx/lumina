@@ -340,7 +340,7 @@ struct NativeRequestsView: View {
                     Text(overview).font(.body).lineLimit(3).frame(maxWidth: 580, alignment: .leading)
                 }
                 HStack(spacing: 16) {
-                    let hasVaultItem = item.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    let hasVaultItem = item.vaultTitleID != nil
                     Button { searchVisible = false; selected = item } label: {
                         Label(hasVaultItem ? "View" : ((item.canRequest && item.status.canCreateRequest) ? "Request" : (item.status.label.isEmpty ? "Details" : item.status.label)),
                               glyph: hasVaultItem ? .library : ((item.canRequest && item.status.canCreateRequest) ? .add : .info))
@@ -406,15 +406,8 @@ private struct RequestDetailSheet: View {
     @State private var detail: RequestCatalogDetail?
     @State private var loading = true
     @State private var problem: String?
-    @State private var submitting = false
-    @State private var created: RequestRecord?
+    @State private var draft = RequestDraft()
     @State private var recommendation: RequestCatalogItem?
-    @State private var seasonMode = "all"
-    @State private var pickedSeasons = Set<Int>()
-    @State private var language: RequestLanguage?
-    @State private var audioLanguage = ""
-    @State private var subtitleLanguage = ""
-    @State private var languageRequired = false
     @State private var vaultItem: MediaItem?
     @State private var openingVault = false
     @State private var vaultProblem: String?
@@ -424,29 +417,7 @@ private struct RequestDetailSheet: View {
 
     private var current: RequestCatalogItem { detail?.item ?? item }
     private var quota: RequestQuota? { catalog.quotas.first { $0.kind == current.kind } }
-    private var vaultID: String? {
-        guard let id = current.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else { return nil }
-        return id
-    }
-    private var series: Bool { current.mediaType == .tv }
-    private var supportsLanguages: Bool { current.status.canRequestLanguageVariant }
-    private var canRequestMore: Bool { vaultID != nil && (supportsLanguages || series && current.status.state == .partiallyAvailable) }
-    private var canRequestChoice: Bool { current.status.canCreateRequest || supportsLanguages }
-    private var asksLanguage: Bool { (current.kind == .anime && series) || languageRequired }
-    private var seasons: RequestSeasonSelection? {
-        guard series else { return nil }
-        if seasonMode == "choose" { return pickedSeasons.isEmpty ? nil : .selected(pickedSeasons.sorted()) }
-        if seasonMode == "latest" {
-            guard let latest = detail?.seasons.map(\.number).filter({ $0 > 0 }).max() else { return nil }
-            return .selected([latest])
-        }
-        return .all
-    }
-    private var canSubmit: Bool {
-        (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && canRequestChoice && (current.status.canCreateRequest || !audioLanguage.isEmpty || !subtitleLanguage.isEmpty)
-        && quota?.canRequest != false && quota?.remaining != 0
-        && (!series || seasons != nil) && (!asksLanguage || (supportsLanguages ? (!audioLanguage.isEmpty || !subtitleLanguage.isEmpty) : language != nil))
-    }
+    private var canSubmit: Bool { !loading && draft.canSubmit(current, detail: detail, quota: quota) }
 
     var body: some View {
         NavigationStack {
@@ -486,27 +457,27 @@ private struct RequestDetailSheet: View {
                                 .accessibilityIdentifier("requestYouTubeTrailerButton")
                             }
                             if loading { ProgressView("Loading title details…") }
-                            else if vaultID != nil {
+                            else if current.vaultTitleID != nil {
                                 vaultAction
                                 languageEvidence
-                                if canRequestMore {
-                                    if let created {
+                                if current.canRequestMore {
+                                    if let created = draft.created {
                                         Label(created.status.label, glyph: .check)
                                             .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
                                             .accessibilityIdentifier("requestSubmittedStatus")
                                         Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
                                             .foregroundStyle(.secondary)
-                                    } else if current.canRequest && canRequestChoice {
+                                    } else if current.canRequest && current.hasRequestChoices {
                                         requestChoices
                                     }
                                 }
-                            } else if let created {
+                            } else if let created = draft.created {
                                 Label(created.status.label, glyph: .check)
                                     .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
                                     .accessibilityIdentifier("requestSubmittedStatus")
                                 Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
                                     .foregroundStyle(.secondary)
-                            } else if current.canRequest && canRequestChoice {
+                            } else if current.canRequest && current.hasRequestChoices {
                                 requestChoices
                             } else {
                                 Label(current.status.state == .none ? "Not available to request yet" : current.status.label, glyph: .info)
@@ -573,20 +544,21 @@ private struct RequestDetailSheet: View {
     }
 
     private var requestChoices: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if series {
-                Picker("Seasons", selection: $seasonMode) {
-                    Text("All seasons").tag("all")
-                    if detail?.seasons.contains(where: { $0.number > 0 }) == true {
-                        Text("Latest season").tag("latest")
+        @Bindable var draft = draft
+        return VStack(alignment: .leading, spacing: 20) {
+            if current.mediaType == .tv {
+                Picker("Seasons", selection: $draft.seasonMode) {
+                    Text("All seasons").tag(RequestDraft.SeasonMode.all)
+                    if detail?.latestRegularSeason != nil {
+                        Text("Latest season").tag(RequestDraft.SeasonMode.latest)
                     }
-                    if detail?.seasons.isEmpty == false { Text("Choose seasons").tag("choose") }
+                    if detail?.seasons.isEmpty == false { Text("Choose seasons").tag(RequestDraft.SeasonMode.chosen) }
                 }
                 .accessibilityIdentifier("requestSeasonPicker")
-                if seasonMode == "choose" {
+                if draft.seasonMode == .chosen {
                     ForEach((detail?.seasons ?? []).sorted { ($0.number == 0 ? Int.max : $0.number) < ($1.number == 0 ? Int.max : $1.number) }) { season in
-                        Toggle(isOn: Binding(get: { pickedSeasons.contains(season.number) }, set: { value in
-                            if value { pickedSeasons.insert(season.number) } else { pickedSeasons.remove(season.number) }
+                        Toggle(isOn: Binding(get: { draft.selectedSeasons.contains(season.number) }, set: { value in
+                            if value { draft.selectedSeasons.insert(season.number) } else { draft.selectedSeasons.remove(season.number) }
                         })) {
                             VStack(alignment: .leading) {
                                 Text(season.name)
@@ -598,41 +570,30 @@ private struct RequestDetailSheet: View {
                     }
                 }
             }
-            if asksLanguage {
+            if draft.needsLanguage(for: current) {
                 Picker("Anime language preset", selection: Binding(
-                    get: {
-                        guard supportsLanguages else { return language }
-                        if audioLanguage == "en" && subtitleLanguage.isEmpty { return .dub }
-                        if audioLanguage == "ja" && subtitleLanguage == "en" { return .sub }
-                        return nil
-                    },
-                    set: { selected in
-                        language = selected
-                        if supportsLanguages, let selected {
-                            audioLanguage = selected == .dub ? "en" : "ja"
-                            subtitleLanguage = selected == .dub ? "" : "en"
-                        }
-                    }
+                    get: { draft.languagePreset(for: current) },
+                    set: { draft.setLanguagePreset($0, for: current) }
                 )) {
                     Text("Choose language").tag(nil as RequestLanguage?)
                     Text("English dub").tag(Optional(RequestLanguage.dub))
                     Text("Japanese + subtitles").tag(Optional(RequestLanguage.sub))
                 }.accessibilityIdentifier("requestLanguagePicker")
             }
-            if supportsLanguages {
-                Picker("Audio language", selection: $audioLanguage) {
+            if current.status.canRequestLanguageVariant {
+                Picker("Audio language", selection: $draft.audioLanguage) {
                     Text("Any audio language").tag("")
                     ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
                         Text(RequestLanguageOptions.label(code)).tag(code)
                     }
                 }.accessibilityIdentifier("requestAudioLanguagePicker")
-                Picker("Subtitle language", selection: $subtitleLanguage) {
+                Picker("Subtitle language", selection: $draft.subtitleLanguage) {
                     Text("No subtitle preference").tag("")
                     ForEach(RequestLanguageOptions.codes(current.status.languageAvailability), id: \.self) { code in
                         Text(RequestLanguageOptions.label(code)).tag(code)
                     }
                 }.accessibilityIdentifier("requestSubtitleLanguagePicker")
-                if !audioLanguage.isEmpty || !subtitleLanguage.isEmpty {
+                if draft.hasLanguagePreference {
                     Text("Language searches depend on the server’s configured profiles; other combinations need owner review. The download manager may replace the existing file.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -649,8 +610,8 @@ private struct RequestDetailSheet: View {
                 Task { await submit() }
             } label: {
                 HStack {
-                    if submitting { ProgressView() }
-                    Label(canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add)
+                    if draft.submitting { ProgressView() }
+                    Label(current.canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -678,7 +639,7 @@ private struct RequestDetailSheet: View {
     }
 
     @ViewBuilder private var vaultAction: some View {
-        if let id = vaultID {
+        if let id = current.vaultTitleID {
             Button {
                 Task { await openVault(id: id) }
             } label: {
@@ -716,19 +677,12 @@ private struct RequestDetailSheet: View {
 
     private func submit() async {
         guard canSubmit else { return }
-        submitting = true; problem = nil
-        defer { submitting = false }
+        problem = nil
         do {
-            let legacyLanguage: RequestLanguage? = supportsLanguages
-                ? (audioLanguage == "en" && subtitleLanguage.isEmpty ? .dub : audioLanguage == "ja" && subtitleLanguage == "en" ? .sub : nil)
-                : language
-            created = try await catalog.create(current, seasons: seasons, language: legacyLanguage,
-                                               audioLanguage: supportsLanguages && !audioLanguage.isEmpty ? audioLanguage : nil,
-                                               subtitleLanguage: supportsLanguages && !subtitleLanguage.isEmpty ? subtitleLanguage : nil)
-            await catalog.loadQuotas()
-            await catalog.loadHome()
+            try await draft.submit(current, detail: detail, quota: quota, using: catalog) {
+                await catalog.loadQuotas()
+            }
         } catch {
-            if case RequestAPIError.server(_, "language_required") = error { languageRequired = true }
             problem = error.localizedDescription
         }
     }

@@ -198,13 +198,11 @@ def resolve(db: Session, user: User, refs: Any, *, policy: str, active_entry: in
             if policy == "wait" and active_entry is not None and original_index >= active_entry:
                 blocked = True
             continue
-        available = [] if blocked else resolved[:MAX_ENTRIES - len(tracks)]
-        if available:
+        descriptor_tracks = [] if blocked else resolved[:MAX_ENTRIES - len(tracks)]
+        entry["tracks"] = descriptor_tracks
+        if descriptor_tracks:
             offsets[original_index] = len(tracks)
-            tracks.extend(available)
-        # Safe descriptors retain playable tail intent even when it is beyond the
-        # engine's 5k window; never mislabel it as a failed/awaiting request.
-        entry["tracks"] = available
-        if not available and (resolved or row.foreign_album_id in album_visible_beyond_cap if ref["kind"] == "acquisition" else True):
+            tracks.extend(descriptor_tracks)
+        else:
             entry["message"] = "Available after the current queue"
     return ResolvedQueue(entries, tracks, [track.id for track in tracks], retained, offsets)

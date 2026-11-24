@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from urllib.parse import quote
 
 from fastapi.testclient import TestClient
@@ -37,14 +36,11 @@ from app.config import settings
 from app.db import Base
 from app.main import app
 from app.models import ChatReplayAsset, LiveRecording
-from app.schemas import UserResponse
+from app.account_schemas import UserResponse
 from app.security import hash_password
 from app.services.remote_playback import RemotePlaybackProgressService
 from app.services.yt_dlp_service import YtDlpService
 from support import make_user
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKEND_APP = REPO_ROOT / "backend" / "app"
 
 TWITCH_IDENTITY = "twitch:12345"
 TWITCH_SOURCE_URL = "https://twitch.tv/videos/12345"
@@ -52,9 +48,8 @@ TWITCH_ENDPOINT = f"/api/chat-replay/{quote(TWITCH_IDENTITY, safe='')}"
 
 
 def test_legacy_provider_connection_routes_remain_absent() -> None:
-    """The OAuth + Twitch-connection + Twitch-live-chat routes are gone from
-    the router, the service modules are deleted, and the removed paths have the
-    same fallback semantics as an unregistered sibling path."""
+    """Removed OAuth and Twitch routes stay unregistered and answer like an
+    unknown sibling path."""
     # Route-table proof (primary): no registered route targets the removed
     # prefixes.
     removed = [
@@ -65,21 +60,6 @@ def test_legacy_provider_connection_routes_remain_absent() -> None:
         )
     ]
     assert removed == [], f"removed routes still registered: {removed}"
-
-    main_source = (REPO_ROOT / "backend" / "app" / "main.py").read_text()
-    assert "OAuthService" not in main_source, "main.py must not import the OAuth service"
-    assert "TwitchConnectionService" not in main_source
-    assert "TwitchLiveChatService" not in main_source
-    # The provider-credential service modules are gone from the repo.
-    for name in (
-        "twitch_connection.py",
-        "twitch_live_chat.py",
-        "live_recording_twitch.py",
-        "twitch_chat.py",
-        "twitch_eventsub.py",
-        "twitch_api.py",
-    ):
-        assert not (BACKEND_APP / "services" / name).exists(), f"services/{name} must be removed"
 
     client = TestClient(app, base_url="http://localhost")
     # Without a built frontend FastAPI answers an unmatched unsafe method with

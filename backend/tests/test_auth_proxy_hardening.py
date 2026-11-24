@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.config import EnvSettings, settings
-from app.schemas import UserCreateRequest
+from app.account_schemas import UserCreateRequest
 from app.security import hash_password
 from app.services.rate_limit import resolve_client_key
 from app.services.users import UserService

@@ -237,7 +237,7 @@ Before logo/color/button/navigation changes, read the [brand contract](../../app
 - Use CUA for Xcode/Device Hub UI interaction. CLI builds/tests and simulator lifecycle commands remain useful. When the Mac is locked, request unlock and continue independent work; report blocked UI/hardware checks accurately.
 - Give concurrent Xcode builds/tests separate DerivedData directories. Wait for the process to exit before reusing its directory or simulator. A passed/failed log line is not process completion. Wait on returned session IDs and bound log output.
 - Current navigation has a Library tab; old tests can still look for the removed Home Browse menu. Poster context menus can give misleading AX hittable results. Repair test entry through visible public controls and observed frames, retaining the actual behavior assertions.
-- Cleanup removed this chat's stale dogfood worktree and 11 merged branches. Older release packages were moved into this checkout's ignored `apple/Distribution/`. Recovery bundle, manifest and historical output evidence are at `/Users/kmcdowell/Documents/Codex/worktree-recovery/lumina-final-cleanup-20261028/`. Other worktrees/stashes belong to separate work. Recent focused evidence remains in ignored `output/` and retained XCResults; disposable build caches were removed.
+- Cleanup removed this chat's stale dogfood worktree and 11 merged branches. Older release packages were moved into this checkout's ignored `apple/Distribution/`. Recovery bundle, manifest and historical output evidence are retained separately. Other worktrees/stashes belong to separate work. Recent focused evidence remains in ignored `output/` and retained XCResults; disposable build caches were removed.
 
 ## Only when the owner requests another build
 

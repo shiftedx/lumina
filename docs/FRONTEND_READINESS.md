@@ -65,56 +65,21 @@ UI journeys and are not included in either tier's count or timing. They must not
 be described as qualified by a normal full run. See
 [performance audit](performance/comprehensive-audit-2026-10-17.md) and the Playwright configs.
 
-## Qualification record
+## Historical qualification
 
-Before pruning, the mocked run selected 659 cases: 657 passed, one production
-entry was intentionally skipped and Firefox failed during browser launch; wall
-962.432 s. The ordinary realstack run selected 57: 51 passed, five skipped and
-the timestamped-note journey failed; wall about 14 minutes. These are observed
-failing baselines, not green performance claims. A configuration edit triggered
-one Vite reload during the mocked baseline, so these runs do not support a
-controlled before/after speedup ratio.
+The Playwright audit retained 708 cases, moved 13 and deleted 86 across the
+original 807 expanded cases. The [case ledger](agents/playwright-ledger.md)
+maps removed or moved tests to retained contracts. [The history review](agents/playwright-history.md)
+records the audit and behavior-revert proofs.
 
-The audit reduced the mocked suite **659 → 592**; the subsequent main merge of
-PR #143 adds two retained onboarding journeys, making the current selection
-**594 cases**. Across the original 807
-expanded instances: **708 keep, 13 move, 86 delete**. Two kept cases were renamed
-and trimmed to their routing journey; their original ledger rows name the new
-contracts. The current full tier selects **650** cases (648 audited cases plus those two
-new journeys), including realstack and WebKit;
-60 retained benchmark instances stay opt-in as described above.
+| Tier | Passed per run | First run | Second run | Failures, skips and flakes |
+| --- | ---: | ---: | ---: | --- |
+| Smoke | 50 | 128.370 s | 136.789 s | Zero |
+| Full | 650 | 1,071.455 s | 1,060.199 s | Zero |
 
-Final qualification on the integrated branch passed twice with four workers:
-
-| Tier | Selected and passed per run | Run 1 | Run 2 | Budget | Failures / skips / flakes |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Smoke | 50 | 128.370 s | 136.789 s | <600 s | 0 / 0 / 0 in both |
-| Full | 650 | 1,071.455 s | 1,060.199 s | <2700 s | 0 / 0 / 0 in both |
-
-Build time is separate: smoke 14.315 s; full 10.512 s. Browser wall times include
-selection, fixture/server startup, tests and teardown. All 30 ordinary performance
-cases and all three real WebKit decode cases passed in both full runs. Both
-Firefox journeys and both protected regression catchers passed twice. The 60
-opt-in benchmark instances remain outside this qualification.
-
-The complete gate passed in phases: backend **5,279 passed**, 11 existing skips,
-598.78 s; final Vitest **2,659 passed in 305 files**, 41.88 s; bootstrap, the three
-Node runner checks, frontend/E2E typecheck and production/style/bundle gates passed.
-After the frontend-only draft fix, the gate resumed with unchanged backend checks
-preserved and all frontend checks plus two full browser runs repeated:
-
-```sh
-mise exec -- make check E2E_REPEAT=2 E2E_OUTPUT=<fresh-private-directory>
-# After repairing the frontend regression found by that run:
-mise exec -- make check -o bootstrap-test -o e2e-tier-test -o backend-test E2E_REPEAT=2 E2E_OUTPUT=<another-fresh-private-directory>
-```
-
-Earlier pre-isolation full attempts selected 648 cases: each passed 613, failed
-both Firefox launches and left 33 dependent cases unrun, in 905.665 s and
-993.213 s. Those incomplete attempts are not passing budget measurements. A later
-integrated attempt caught the filter Back regression and was stopped for repair.
-The final complete runs above supersede those failed/interrupted attempts; no
-application assertion or budget was weakened to obtain green results.
-
-All owned browser, fixture and Vite processes exited. Successful fixture roots
-were removed; diagnostic failure evidence remains in private artifact directories.
+Both full runs included all 30 ordinary performance cases, three real WebKit
+decode cases and both protected regression catchers. The 60 opt-in benchmarks
+were outside this qualification. The full gate also passed 5,279 backend cases
+with 11 declared prerequisite skips, plus 2,659 Vitest cases across 305 files.
+These counts describe that audit. Use the current runner manifest for the
+selection and the [verification matrix](VERIFICATION.md) for today's complete gate.

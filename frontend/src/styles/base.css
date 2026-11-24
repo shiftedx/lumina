@@ -1,4 +1,3 @@
-/* Split from lumina.css. Owner: */
 @font-face {
   font-family: 'Newsreader';
   src: url('/fonts/Newsreader-variable.woff2') format('woff2-variations');
@@ -55,9 +54,7 @@ img[data-artwork-loading='true'] { opacity: .58; background: var(--g-paper-3); }
 /* Metric-matched serif fallback: the Newsreader swap moves no line box by more than 1px. */
 @font-face { font-family: 'Newsreader Fallback'; src: local('Georgia'); size-adjust: 102.85%; ascent-override: 71.95%; descent-override: 25.28%; line-gap-override: 0%; }
 
-/* Focus: one ring from the tokens; overlays restate it with --g-overlay-focus. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }
-/* Route headings and the main landmark receive focus for announcements and remote navigation. */
 :is(h1, h2, h3, h4, h5, h6, main)[tabindex='-1']:focus { outline: none; }
 .lumina-main :focus-visible, #main-content { scroll-margin-top: calc(var(--g-topbar) + 16px + env(safe-area-inset-top)); }
 

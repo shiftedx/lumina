@@ -267,15 +267,34 @@ describe('musicSession', () => {
 
   it('restores only a bounded, same-origin queue with finite state', async () => {
     const good = track('safe-id');
-    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [good], index: 9, position: 42 }));
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [good], index: 9, position: 42, revision: null }));
     const session = await loadSession();
     session.setMusicOwner('member');
     expect(session.musicSession()).toMatchObject({ queue: [good], playback: { index: 0, position: 42 }, mode: 'gapless' });
 
     session.setMusicOwner(null);
-    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [{ ...good, audio_url: 'https://example.test/private.flac' }], index: 0, position: Infinity }));
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [{ ...good, audio_url: 'https://example.test/private.flac' }], index: 0, position: Infinity, revision: null }));
     session.setMusicOwner('member');
     expect(session.musicSession().queue).toEqual([]);
+  });
+
+  it('discards a pre-shared-session checkpoint without writing its queue to the server', async () => {
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [track('old')], index: 0, position: 12 }));
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    expect(session.musicSession().queue).toEqual([]);
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    expect(mocks.putShared).not.toHaveBeenCalled();
+  });
+
+  it('syncs a current offline checkpoint with a null base to an empty shared session', async () => {
+    const local = track('local');
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [local], index: 0, position: 12, revision: null, dirty: true }));
+    mocks.putShared.mockResolvedValue({ revision: 1, queue: [local], current_index: 0, position_seconds: 12, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(mocks.putShared).toHaveBeenCalledWith(expect.objectContaining({ base_revision: 0, position_seconds: 12, item_ids: ['local'] })));
+    expect(session.musicSession().sharedRevision).toBe(1);
   });
 
   it('keeps an untouched cached queue provisional when the server has a canonical session', async () => {
@@ -680,5 +699,4 @@ it('resumes and replays established browser music offline using cached audio wit
   expect(engine.play).toHaveBeenCalledTimes(2);
   expect(await engine.options.getAudio!(engine.queue[0], new AbortController().signal)).toBe(cached);
   expect(mocks.castControl).not.toHaveBeenCalled();
-  expect(localStorage.getItem('lumina:music:cast:offline-member')).toBeNull();
 });

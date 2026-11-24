@@ -1,6 +1,6 @@
 # Web native integration
 
-Implementation branch: `codex/web-native-integration`, application base `e5573ea1` (current origin/main at kickoff, November 1, 2026). Worktree: `/Users/kmcdowell/.codex/worktrees/web-native-integration/lumina`. Original main checkout clean; all other worktrees and design branch preserved. Approved reference: `codex/web-native-mockups`, pinned prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`. Reference source is not merged into production.
+Implementation branch: `codex/web-native-integration`, application base `e5573ea1` (current origin/main at kickoff, November 1, 2026). Original main checkout clean; all other worktrees and design branch preserved. Approved reference: `codex/web-native-mockups`, pinned prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`. Reference source is not merged into production.
 
 Completed extension: approved My settings and Manage server integration, from `eb7e402`. Settings approval `5d4881a`; prototype `f5486e4482d81de13b549eb3bc0e5415d1f8295c`. [Settings ownership/validation](#approved-settings-extension--active-integration) supersedes the earlier settings exclusion. This extension remains undeployed.
 
@@ -79,7 +79,7 @@ An initial real-stack attempt exposed stale test assumptions about a volume's ac
 
 ## Captures and limits
 
-The local [capture gallery](../../output/web-native/index.html) includes desktop/phone views for all seven primary surfaces, navigation, and album/artist/book details. Individual captures and exact logs are retained under `output/web-native/`; source suites additionally retain Home/Books/Requests and real-stack screenshots in their established output directories. Capture data is synthetic; missing/one-pixel fixture artwork is deliberately present in some catalog checks. No private household media was used. The clean-base capability inventory was recorded, but a portable before-capture set was not retained; the screenshots are integrated-production evidence rather than a before/after benchmark.
+The integrated-production capture evidence includes desktop/phone views for all seven primary surfaces, navigation, and album/artist/book details. Individual captures and exact logs are retained under `output/web-native/`; source suites additionally retain Home/Books/Requests and real-stack screenshots in their established output directories. Capture data is synthetic; missing/one-pixel fixture artwork is deliberately present in some catalog checks. No private household media was used. The clean-base capability inventory was recorded, but a portable before-capture set was not retained; the screenshots are integrated-production evidence rather than a before/after benchmark.
 
 External provider accounts/network playback, physical casting devices, and physical CBR/PDF reader qualification were not exercised. Provider/live/chat/recording gates retain existing production contracts and focused fixture tests; real-backend browser playback/reading used synthetic episodes, EPUB and CBZ. PDF/unmarked archives remain page-only by design; ComicInfo bookmarks are required for illustrated chapters. No feature is described as having inferred chapters.
 

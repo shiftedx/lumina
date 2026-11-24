@@ -22,7 +22,6 @@ type CastStatus = { transport_state?: unknown; state?: unknown; volume?: unknown
 
 const OWNER = /^[A-Za-z0-9_-]{1,128}$/;
 const TICKET = /^[A-Za-z0-9_-]{1,256}$/;
-const keyFor = (owner: string) => `lumina:music:cast:${owner}`;
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
 const boundedInteger = (value: unknown, minimum: number, maximum: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum;
 
@@ -48,12 +47,6 @@ function validSession(value: unknown, owner?: string): value is MusicCastSession
     && (cast.volume === null || typeof cast.volume === 'number' && Number.isFinite(cast.volume) && cast.volume >= 0 && cast.volume <= 1)
     && boundedInteger(cast.queued, 1, 100)
     && (!cast.queueIndices || Array.isArray(cast.queueIndices) && cast.queueIndices.length === cast.queued && cast.queueIndices.every((value) => boundedInteger(value, 0, 5000)));
-}
-
-function clearLegacy(owner: string): void {
-  if (!OWNER.test(owner)) return;
-  try { localStorage.removeItem(keyFor(owner)); }
-  catch { /* storage may be unavailable; playback is memory-only */ }
 }
 
 function replaceCurrent(value: MusicCastSession | null): void {
@@ -98,13 +91,8 @@ export function setMusicCast(value: MusicCastSession | null): void {
   browserOwner = null;
   lifecycleGeneration += 1;
   restoreGeneration += 1;
-  if (!value) {
-    if (current) clearLegacy(current.owner);
-    replaceCurrent(null);
-    return;
-  }
+  if (!value) return replaceCurrent(null);
   if (!validSession(value)) return;
-  clearLegacy(value.owner);
   replaceCurrent(value);
 }
 
@@ -112,7 +100,6 @@ export function forgetMusicCast(owner: string): void {
   browserOwner = null;
   lifecycleGeneration += 1;
   restoreGeneration += 1;
-  clearLegacy(owner);
   if (current?.owner === owner) replaceCurrent(null);
 }
 
@@ -131,7 +118,6 @@ export function handleMusicCastStatusError(ticket: string, error: unknown): bool
 /** Validate a server-restored descriptor before publishing speaker controls. */
 export async function restoreSharedMusicCast(value: MusicCastSession): Promise<void> {
   browserOwner = null;
-  clearLegacy(value.owner);
   const generation = ++restoreGeneration;
   if (!validSession(value)) return;
   try {
@@ -146,9 +132,8 @@ export async function restoreSharedMusicCast(value: MusicCastSession): Promise<v
   }
 }
 
-/** Forget legacy browser state; authenticated shared-session restore owns reload recovery. */
+/** Restore the authenticated shared-session controller for an owner. */
 export async function restoreMusicCast(owner: string): Promise<void> {
-  clearLegacy(owner);
   if (current?.owner !== owner) {
     if (browserOwner !== owner) browserOwner = null;
     if (current) { lifecycleGeneration += 1; restoreGeneration += 1; replaceCurrent(null); }
@@ -160,7 +145,6 @@ export async function restoreMusicCast(owner: string): Promise<void> {
 export async function stopMusicCast(owner?: string): Promise<void> {
   const generation = lifecycleGeneration;
   restoreGeneration += 1;
-  if (owner) clearLegacy(owner);
   if (owner && current && current.owner !== owner) return;
   const leaving = current;
   let ticket = leaving?.ticket;
@@ -178,7 +162,6 @@ export async function stopMusicCast(owner?: string): Promise<void> {
   if (!ticket) return;
   try { await controlMusicCast(ticket, 'stop'); }
   finally {
-    if (leaving) clearLegacy(leaving.owner);
     if (generation === lifecycleGeneration) {
       restoreGeneration += 1;
       if (current?.ticket === ticket && (!owner || current.owner === owner)) replaceCurrent(null);

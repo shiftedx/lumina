@@ -1,4 +1,3 @@
-/* Watch page chrome (moved from legacy.css; the editorial rules below it override these). */
 .capability-note { width: 100%; margin: 7px 0 0; color: var(--g-ink-3); font-size: 11px; }
 .watch-surface:not(.watch-mini) { width: 100%; max-width: none; padding-top: 14px; padding-inline: max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
 .watch-back { margin-bottom: 8px; }
@@ -43,7 +42,6 @@
 .watch-episode-byline { margin: 0 0 6px; color: var(--g-ink-3); font-size: 13px; }
 .watch-episode-byline .g-text-button { min-height: var(--g-control); padding: 0; color: var(--g-gold-ink); font-size: inherit; }
 
-/* Playing library media: compact identity/actions, continuation, then working details. */
 .watch-layout.is-library-title, .watch-layout.is-library-title.theater { display: block; }
 .watch-layout.is-library-title .watch-main, .watch-layout.is-library-title.theater .watch-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); grid-template-rows: auto auto 1fr; gap: 16px 24px; align-items: start; }
 .watch-layout.is-library-title .watch-main:has(.watch-local-continuation:empty) { grid-template-columns: minmax(0, 1fr); }
@@ -111,9 +109,7 @@
   .watch-episode-byline { font-size: 17px; }
   .watch-episode-byline .g-text-button { min-height: var(--g-control); }
 }
-/* The web-video watch page. Movies and episodes keep lumina.css's watch styles. */
 .watch-layout.is-editorial { grid-template-columns: minmax(0, 1fr); }
-/* Standard (not theater): the player shares the row with Up next, like movies and episodes. */
 @media (min-width: 961px) {
   .surface > .watch-layout.is-editorial.standard .watch-main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: auto 1fr; column-gap: 32px; align-items: start; }
   .surface > .watch-layout.is-editorial.standard .player-frame { grid-column: 1; grid-row: 1; }
@@ -137,7 +133,7 @@
 .gallery .g-watch-description.is-clamped p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
 .gallery .g-watch-side { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 32px; min-width: 0; padding-left: 24px; border-left: var(--g-rule); }
 .gallery .g-chat-seam h2 { margin: 0 0 8px; }
-.gallery .g-chat-seam summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; } /* the phone disclosure is a touch target */
+.gallery .g-chat-seam summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; }
 @media (max-width: 680px) { .gallery a.g-watch-channel { display: inline-flex; align-items: center; min-height: 44px; } }
 .gallery .g-chat-note { display: flex; gap: 8px; margin: 0; color: var(--g-ink-2); }
 .gallery .g-chat-note svg { width: 16px; height: 16px; flex: none; }
@@ -158,13 +154,10 @@
 
 .g-live-chat-events { max-height: min(60vh, 560px); }
 
-/* The A watch layout keeps the media frame, title, tools and chat as distinct quiet groups. */
 .watch-surface:not(.watch-mini) { padding-inline: var(--g-gutter); padding-top: 24px; }
 .watch-info h1 { font: var(--g-type-media-title); }
 .watch-info { padding: 24px 0 0; }
 .description-card { padding: 0; background: none; }
-/* The shared player predates the A gutter. Keep its phone stage full-bleed
-   from the actual surface edge rather than its former 24px edge. */
 @media (max-width: 680px) {
   .watch-surface:not(.watch-mini) .player-frame { width: calc(100% + 2 * var(--g-gutter)); max-width: calc(100% + 2 * var(--g-gutter)); margin-left: calc(-1 * var(--g-gutter)); }
 }

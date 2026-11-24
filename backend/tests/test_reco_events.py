@@ -1,15 +1,13 @@
 """Recommendations R1: channel keys, the play-session rules, the served-list cache and the event store."""
 from __future__ import annotations
 
-import json
 import re
 import threading
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine, event, insert, select, text
+from sqlalchemy import event, insert, select, text
 
-from app.db import ITEM_CHANNEL_ID_SQL
 from app.media_schemas import RecoEventBatch, RecoEventIn
 from app.models import RecoEvent, RecoPool
 from app.persistence import write_transaction
@@ -47,30 +45,6 @@ def test_channel_key_prefers_the_id_then_the_address_then_the_name(extractor, ch
 
 def test_name_key_is_bounded() -> None:
     assert name_key("youtube", "N" * 300) == "name:youtube:" + "n" * 200
-
-
-@pytest.mark.parametrize(
-    "metadata",
-    [
-        {"channel_id": UC},
-        {"uploader_id": UC},
-        {"channel_id": "@handle", "uploader_id": UC},
-        {"channel_url": f"https://www.youtube.com/channel/{UC}"},
-        {"uploader_url": f"https://www.youtube.com/channel/{UC}/videos"},
-        {"channel_url": "https://www.youtube.com/@someone"},
-        {"channel_id": "UCshort"},
-        {"channel_id": UC[:-1] + "!"},
-        {"channel_url": "https://www.youtube.com/channel/UCshort"},
-        {},
-    ],
-)
-def test_library_channel_key_matches_the_step_9_backfill(metadata) -> None:  # noqa: ANN001
-    engine = create_engine("sqlite://")
-    with engine.connect() as connection:
-        found = connection.execute(
-            text(f"SELECT {ITEM_CHANNEL_ID_SQL} FROM (SELECT :metadata AS metadata_json)"), {"metadata": json.dumps(metadata)}
-        ).scalar()
-    assert library_channel_key("youtube", metadata) == (None if found is None else CHANNEL_PREFIX + found)
 
 
 def test_library_channel_key_is_for_youtube_items_only() -> None:

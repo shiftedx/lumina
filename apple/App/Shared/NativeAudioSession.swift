@@ -1,28 +1,6 @@
 import AVFoundation
 import LuminaCore
 import Observation
-import UIKit
-
-/// Both music and reader checkpoints must surrender their assertion when iOS expires it.
-@MainActor
-enum NativeBackgroundCheckpoint {
-    static func run(name: String, onExpiration: @escaping @MainActor () -> Void = {},
-                    operation: @escaping @MainActor () async -> Void) async {
-        var identifier = UIBackgroundTaskIdentifier.invalid
-        let work = ExpiringBackgroundWork {
-            guard identifier != .invalid else { return }
-            UIApplication.shared.endBackgroundTask(identifier)
-            identifier = .invalid
-        }
-        identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
-            work.expire()
-            onExpiration()
-        }
-        guard identifier != .invalid else { work.expire(); return }
-        work.start(operation)
-        await work.wait()
-    }
-}
 
 private enum NativeAudioOutputError: LocalizedError {
     case returnRequired
@@ -39,7 +17,7 @@ final class NativeAudioSession {
     private(set) var tracks: [LuminaCore.MusicTrack] = []
     private(set) var lyrics: MusicLyrics?
     private(set) var lyricsError: String?
-    private(set) var lyricsLoading = false
+    var lyricsLoading = false
     private(set) var retryAllowedAt: Date?
     private(set) var speakers: [MusicSpeaker] = []
     private(set) var outputStatus: MusicOutputStatus?
@@ -77,16 +55,16 @@ final class NativeAudioSession {
     // NotificationCenter permits unregistering its tokens during nonisolated deinit.
     nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
     nonisolated(unsafe) private var routeObserver: NSObjectProtocol?
-    private var store: LuminaStore?
-    private var identity: String?
+    private(set) var store: LuminaStore?
+    private(set) var identity: String?
     private var restoreTask: Task<Void, Never>?
     private var restoreStartTask: Task<Void, Never>?
     private var restoreTaskGeneration = 0
     private var startTask: Task<Void, Never>?
-    private var lyricsTask: Task<Void, Never>?
-    private var isForeground = true
-    private var statusTask: Task<Void, Never>?
-    private var syncTask: Task<Void, Never>?
+    var lyricsTask: Task<Void, Never>?
+    var isForeground = true
+    var statusTask: Task<Void, Never>?
+    var syncTask: Task<Void, Never>?
     private var sleepTimer: DispatchSourceTimer?
     private var transport: NativeMusicTransport?
     private var dirty = false
@@ -773,7 +751,7 @@ final class NativeAudioSession {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .airPlay }
     }
 
-    private func cancelContinuation() {
+    func cancelContinuation() {
         continuationTask?.cancel()
         continuationTask = nil
     }
@@ -926,7 +904,7 @@ final class NativeAudioSession {
             await syncNow()
         }
     }
-    private func persist() {
+    func persist() {
         store?.music.persistCheckpoint(snapshot: snapshot, owner: identity)
         if let identity { LuminaPreferences.defaults.set(dirty, forKey: "lumina.music.dirty.\(identity)") }
     }
@@ -1184,47 +1162,13 @@ final class NativeAudioSession {
             sleepTimer?.cancel(); sleepTimer = timer; timer.resume()
         } else { sleepUntil = nil }
     }
-    private func enforceSleepDeadline() {
+    func enforceSleepDeadline() {
         guard let sleepUntil, Date() >= sleepUntil else { return }
         cancelContinuation()
         transport?.pause()
         setSleep(minutes: nil)
         message = "Sleep timer paused playback."
     }
-    func connectivityDidChange() {
-        if store?.isOffline == true {
-            cancelContinuation()
-            lyricsTask?.cancel()
-            statusTask?.cancel()
-            syncTask?.cancel(); syncTask = nil
-            lyricsLoading = false
-        } else {
-            Task { await refreshSharedQueue() }
-        }
-    }
-
-    func enterBackground() {
-        isForeground = false
-        lyricsTask?.cancel(); lyricsTask = nil
-        lyricsLoading = false
-        statusTask?.cancel(); statusTask = nil
-    }
-
-    func resumeAfterActivation() {
-        isForeground = true
-        enforceSleepDeadline()
-        if isSonos { startStatusPolling() }
-        if playback != nil, lyrics?.refreshing != false { loadLyrics() }
-    }
-
-    func flushCheckpoint() async {
-        guard let store, identity == store.music.sessionIdentity else { return }
-        persist()
-        await NativeBackgroundCheckpoint.run(name: "Music checkpoint") {
-            await store.music.flushCheckpoint()
-        }
-    }
-
     func discoverSpeakers() async {
         guard let store else { return }
         let owner = identity
@@ -1312,7 +1256,7 @@ final class NativeAudioSession {
             conflict = server; message = "Output ownership changed. Resolve the shared queue before returning here."
         } catch { if owner == store.music.sessionIdentity, token == generation { message = error.localizedDescription } }
     }
-    private func startStatusPolling() {
+    func startStatusPolling() {
         statusTask?.cancel()
         guard isForeground else { statusTask = nil; return }
         statusTask = Task { [weak self] in

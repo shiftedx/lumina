@@ -23,10 +23,9 @@ from app import db as db_module
 from app.config import APP_VERSION, settings
 from app.persistence import atomic_write
 
-NAME = re.compile(r"^lumina-\d{8}T\d{6}Z-(manual|scheduled|pre-upgrade)$")
+NAME = re.compile(r"^lumina-\d{8}T\d{6}Z-(manual|scheduled)$")
 COUNTED_TABLES = ("users", "library_items", "media_artifacts", "library_notes", "playback_progress", "storage_roots")
 SCHEDULE_INTERVAL = timedelta(days=1)
-PRE_UPGRADE_KEEP = 3  # each upgrade adds a full copy; older ones only repeat a schema the newest already covers
 LOCK_FILENAME = ".lumina.lock"
 _create_lock = threading.Lock()
 
@@ -89,7 +88,6 @@ def create_backup(kind: str = "manual") -> dict[str, Any]:
                 # API keys never leave the live database; secure_delete zeroes the freed bytes too.
                 # jellyfin_server_key is kept on purpose: a restore keeps the same ServerId for clients.
                 destination.execute("PRAGMA secure_delete=ON")
-                # A pre-upgrade backup snapshots the old schema before the media-vault columns exist.
                 columns = {row[1] for row in destination.execute("PRAGMA table_info(app_settings)")}
                 with destination:
                     destination.execute("UPDATE app_settings SET ai_api_key = NULL")
@@ -137,7 +135,9 @@ def list_backups() -> list[dict[str, Any]]:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if manifest.get("name") == manifest_path.stem and manifest_path.with_suffix(".db").is_file():
+        path = manifest_path.with_suffix(".db")
+        if (manifest.get("name") == manifest_path.stem and path.is_file()
+                and manifest.get("schema_version") == db_module.SCHEMA_VERSION and NAME.fullmatch(manifest_path.stem)):
             backups.append(manifest)
     return sorted(backups, key=lambda item: item["created_at"], reverse=True)
 
@@ -162,9 +162,13 @@ def verify_file(path: Path) -> list[str]:
         return [f"The copy cannot be opened as a database ({exc.__class__.__name__})"]
     if integrity != "ok":
         problems.append("SQLite integrity check failed")
-    # An older version is a valid recovery point: startup upgrades it after restore.
-    if not 1 <= version <= db_module.SCHEMA_VERSION or manifest.get("schema_version") != version:
+    if version != db_module.SCHEMA_VERSION or manifest.get("schema_version") != version:
         problems.append(f"Schema version {version} cannot be restored by this release ({db_module.SCHEMA_VERSION})")
+    if not problems:
+        try:
+            db_module.validate_database_file(path)
+        except db_module.SchemaVersionError as exc:
+            problems.append(str(exc))
     return problems
 
 
@@ -175,7 +179,7 @@ def delete_backup(name: str) -> None:
 
 
 def run_scheduled(keep: int, now: datetime | None = None) -> dict[str, Any] | None:
-    """Daily backup plus retention of the newest ``keep`` scheduled and PRE_UPGRADE_KEEP pre-upgrade ones.
+    """Daily backup plus retention of the newest ``keep`` scheduled copies.
 
     Manual backups are never pruned.
     """
@@ -186,7 +190,6 @@ def run_scheduled(keep: int, now: datetime | None = None) -> dict[str, Any] | No
     if not scheduled or now - datetime.fromisoformat(scheduled[0]["created_at"]) >= SCHEDULE_INTERVAL:
         created = create_backup("scheduled")
         scheduled.insert(0, created)
-    pre_upgrade = [item for item in listed if item.get("kind") == "pre-upgrade"]
-    for stale in scheduled[keep:] + pre_upgrade[PRE_UPGRADE_KEEP:]:
+    for stale in scheduled[keep:]:
         delete_backup(stale["name"])
     return created

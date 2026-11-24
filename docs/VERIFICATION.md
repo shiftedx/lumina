@@ -47,8 +47,11 @@ The accessibility checks run axe with the WCAG 2.0 to 2.2 A and AA rule tags and
 | Type contracts | `mise exec -- make frontend-typecheck` | TypeScript compilation of `frontend/src` and `frontend/e2e` without emitting files. |
 | Web production output | `mise exec -- make frontend-build` | Type checking plus a Vite production bundle in `frontend/dist/`. |
 | Mocked-API browser specs, including responsive and accessibility resilience | `mise exec -- make e2e-mocked` | Every `frontend/e2e` spec outside `realstack/` against a mocked API. The resilience specs cover mocked desktop and native 320px responsive behavior; keyboard order, activation, focus indication and containment; plus tagged axe checks on success, error, and loading states at a moderate-or-higher threshold. Not a conformance certification. |
-| Complete ordinary gate | `mise exec -- make check` | Every row above, plus the combined full browser tier (`make e2e-full`). Required before opening a pull request. |
+| Repository hygiene | `mise exec -- make repo-hygiene` | Tracked Markdown links, portable paths, likely secrets, and source line limits. |
+| Complete repository gate | `mise exec -- make check` | Every row above, plus the combined full browser tier (`make e2e-full`). Required before opening a pull request. |
 | Real-browser remux/transcode decode | `cd frontend && npx playwright install webkit` once, then `mise exec -- make e2e-browsers` | WebKit actually decodes the backend's H.264/AAC HLS output for a remux and a transcode session (`currentTime` advances), and that a seek past the converted range restarts the conversion and lands near the target (#137). Included in the full tier and `make check`; install WebKit before running. Required for changes to local remux/transcode playback (`backend/app/services/local_playback_sessions.py`, `frontend/src/localPlayer.tsx`). |
+
+New source files have a 1,500-line limit. Two existing composition roots have fixed ceilings of 3,681 lines in [the backend app](../backend/app/main.py) and 1,895 lines in [the web app](../frontend/src/LuminaApp.tsx).
 
 ## Manual and provider-dependent gaps
 

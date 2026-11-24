@@ -2,7 +2,7 @@
 
 This report consolidates the formal app-wide design review completed on 2026-10-11. Lumina’s identity is confirmed and should be preserved: paper, ink, and gold; serif media hierarchy; restrained standard controls; and flows that keep household capabilities available. The work focused on verified geometry, clarity, accessibility, status, and recovery defects.
 
-Every score is a **subjective design judgment**, not an objective certification, telemetry result, or measured task-completion rate. The machine-readable [JSON](app-quality-audit.json) and [CSV](app-quality-audit.csv) contain all 140 reviewed rows, all ten Nielsen dimensions, before scores where evidenced, current or after scores, evidence references, findings, and row limitations.
+Every score is a **subjective design judgment**, not an objective certification, telemetry result, or measured task-completion rate. The durable record is this historical narrative and the committed synthetic screenshots cited below; generated machine-readable exports are not retained.
 
 ## Holistic assessment
 
@@ -36,7 +36,7 @@ Three overlapping Collections rows from the Root critique were removed from the 
 
 ## Evidenced score changes
 
-Only rows with an independently recorded before and after score appear here. Unchanged Root and Requests rows retain their formal baseline as the current score and are marked “carried forward” in JSON/CSV.
+Only rows with an independently recorded before and after score appear here. Unchanged Root and Requests rows retain their formal baseline as the current score.
 
 | Surface | View | Before | After | Δ |
 | --- | --- | ---: | ---: | ---: |
@@ -115,7 +115,7 @@ The matched-episode header-geometry calibration and final phone tab wrap are inc
 - `output/app-quality/watch-quality-assessment.json`
 - `/tmp/lumina-detector-dispositions.json`
 
-Temporary assessment paths identify the inputs used during this audit. Durable per-view results and evidence references are copied into the companion JSON and CSV.
+Temporary assessment paths identify the inputs used during this audit. Durable findings and evidence references are retained in this narrative and the committed screenshots below.
 
 ## Retained visual examples
 

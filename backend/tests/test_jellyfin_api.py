@@ -265,17 +265,17 @@ def test_series_children_and_recursive_episodes(jf: TestClient) -> None:
 
 
 def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services import jellyfin
+    from app.services import jellyfin_dtos
 
     converted = []
-    convert = jellyfin.jellyfin_id
-    jellyfin.jid.cache_clear()
+    convert = jellyfin_dtos.jellyfin_id
+    jellyfin_dtos.jid.cache_clear()
 
     def record_conversion(value: str) -> str:
         converted.append(value)
         return convert(value)
 
-    monkeypatch.setattr(jellyfin, "jellyfin_id", record_conversion)
+    monkeypatch.setattr(jellyfin_dtos, "jellyfin_id", record_conversion)
     listed = get(jf, "/Items", ParentId=MOVIES, IncludeItemTypes="Movie", Recursive="true").json()["Items"][0]
     assert "MediaSources" not in listed
     assert "MediaSources" in get(jf, "/Items", ParentId=MOVIES, Recursive="true", Fields="MediaSources,Overview").json()["Items"][0]
@@ -297,8 +297,8 @@ def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient,
     boxset = get(jf, f"/Items/{HEX(BOXSET)}").json()
     assert (boxset["Type"], boxset["ChildCount"]) == ("BoxSet", 1)
     assert len(converted) == len(set(converted)), "nested DTOs should convert each UUID once"
-    assert jellyfin.jid.cache_info().maxsize == 4096
-    jellyfin.jid.cache_clear()
+    assert jellyfin_dtos.jid.cache_info().maxsize == 4096
+    jellyfin_dtos.jid.cache_clear()
 
 
 def test_ids_accept_dashed_undashed_any_case_and_aliases(jf: TestClient) -> None:

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import MemberAccess, SourceAutomation, User, utcnow
 from app.persistence import write_transaction
-from app.schemas import MemberAccessIn, MemberAccessOut, MemberFollowIn, MemberFollowOut, MyAccessResponse, SectionInfo
+from app.account_schemas import MemberAccessIn, MemberAccessOut, MemberFollowIn, MemberFollowOut, MyAccessResponse, SectionInfo
 from app.security import get_admin_user, get_current_user
 from app.services import member_access
 from app.services.member_follows import CHANNEL_SOURCE_TYPE, FollowRequest, MemberFollowService

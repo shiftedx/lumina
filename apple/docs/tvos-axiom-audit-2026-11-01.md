@@ -4,7 +4,7 @@ The initial audit found that the custom tvOS transport had no interactive video 
 
 ## Scope and installation
 
-Audited source: main at `ae2d56e7`, in the isolated `codex/tvos-axiom-audit` worktree. This is current-source qualification, not identification of the owner's installed TestFlight binary. At that initial audit stage, product source was unchanged; a characterization probe and Resume-dialog adaptation extended an existing UI journey. The subsequent repair is isolated in the same worktree, now retained at `/Users/kmcdowell/.codex/worktrees/lumina-tvos-native-avkit` on branch `codex/tvos-native-avkit`.
+Audited source: main at `ae2d56e7`, in the isolated `codex/tvos-axiom-audit` worktree. This is current-source qualification, not identification of the owner's installed TestFlight binary. At that initial audit stage, product source was unchanged; a characterization probe and Resume-dialog adaptation extended an existing UI journey. The subsequent repair is isolated in the same worktree, now retained on branch `codex/tvos-native-avkit`.
 
 Axiom revision `58ae15ac93b1fa59db628f634a6c257e86e794b2` supplied the tvOS Focus Engine, Siri Remote, AVPlayer, Menu state-machine, and SwiftUI navigation checks. The six relevant Codex skills were installed under the local Codex skills directory: `axiom-swift`, `axiom-media`, `axiom-build`, `axiom-tools`, `axiom-swiftui`, and `axiom-audit-swiftui-nav`. This installs skill content; it does not enable plugin hooks or MCP services. The skills become discoverable on the next turn and were read directly for this audit.
 

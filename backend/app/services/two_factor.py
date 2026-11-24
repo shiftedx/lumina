@@ -4,7 +4,7 @@ TOTP is SHA-1, 6 digits, 30-second steps, accepting one step either side; a step
 (``totp_last_step``), so a code seen over someone's shoulder cannot be replayed. The shared secret is encrypted at rest
 with AES-GCM under its own key (app-data/totp-key, 0600, made on first enrollment) and bound to the user id: deleting
 that file makes every enrolled authenticator unreadable, and members then sign in with a recovery code or are reset by
-an owner. 2.9.0 sealed with a key derived from app-data/art-secret ("v1:"); startup reseals those (reseal_legacy).
+an owner.
 
 Owner recovery without a working second factor (documented in docker/README.md)::
 
@@ -130,13 +130,6 @@ def _key(*, create: bool = False) -> bytes | None:
     return value
 
 
-def _legacy_key() -> bytes | None:
-    """2.9.0's key, derived from app-data/art-secret; None without that file (art_urls.secret would mint a new one)."""
-    if not art_urls.secret_path().exists():
-        return None
-    return hmac.new(art_urls.secret(), b"lumina-totp-secret-v1", hashlib.sha256).digest()
-
-
 def _aad(user_id: str) -> bytes:
     return f"lumina-totp:{user_id}".encode()
 
@@ -151,43 +144,26 @@ def seal(secret: bytes, user_id: str) -> str:
 
 def unseal(value: str | None, user_id: str) -> bytes | None:
     """The secret, or None when missing or unreadable (the key is gone, the value was tampered with or belongs to another
-    account). "v1:" values (2.9.0, art-secret key, no user binding) still open until startup reseals them."""
-    if not value or value[:3] not in ("v1:", "v2:"):
+    account)."""
+    if not value or not value.startswith("v2:"):
         return None
-    key = _key() if value.startswith("v2:") else _legacy_key()
+    key = _key()
     if key is None:
         return None
     try:
         raw = base64.urlsafe_b64decode(value[3:])
         cipher = AES.new(key, AES.MODE_GCM, nonce=raw[:12])
-        if value.startswith("v2:"):
-            cipher.update(_aad(user_id))
+        cipher.update(_aad(user_id))
         return cipher.decrypt_and_verify(raw[12:-16], raw[-16:])
     except (ValueError, KeyError):
         return None
 
 
-def reseal_legacy(db: Session) -> None:
-    """Startup: move "v1:" secrets to "v2:" (totp-key, bound to the user id). One transaction, so a crash part-way leaves
-    every row as it was and the next start retries; "v2:" rows are never touched, so it is a no-op once done. A "v1:"
-    row the old key cannot open (art-secret deleted) is left as it is: restoring art-secret and restarting moves it."""
+def report_key_status(db: Session) -> None:
+    """Report an unavailable current key at startup without modifying authenticator records."""
     try:
-        with write_transaction(db, name="two_factor_reseal"):
-            moved = stuck = 0
-            for record in db.scalars(select(User).where(User.totp_secret.like("v1:%"))).all():
-                secret = unseal(record.totp_secret, record.id)
-                if secret is None:
-                    stuck += 1
-                    continue
-                record.totp_secret = seal(secret, record.id)
-                moved += 1
-            db.flush()
-        if moved:
-            audit_log.info("two_factor.resealed count=%s", moved)
-        if stuck:
-            logger.error("Two-step verification: %s authenticator secret(s) could not be opened with app-data/art-secret; "
-                         "restore that file and restart, or reset those members' two-step verification", stuck)
-        if _key() is None and db.scalar(select(User.id).where(User.totp_secret.like("v2:%")).limit(1)) is not None:
+        has_current_secret = db.scalar(select(User.id).where(User.totp_secret.like("v2:%")).limit(1)) is not None
+        if has_current_secret and _key() is None:
             logger.error("Two-step verification: app-data/totp-key is missing, so every authenticator is unreadable; "
                          "restore it from your backup of app-data and restart")
     except RuntimeError as exc:  # a damaged totp-key: say so, keep serving (recovery codes still sign in)

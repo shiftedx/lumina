@@ -18,19 +18,16 @@
 .rq-tabs [aria-current] { border-bottom-color: var(--g-gold); color: var(--g-ink); }
 .rq-chips { display: flex; gap: 8px; margin: 0 0 var(--g-space-3); padding: 4px 0; overflow-x: auto; scrollbar-width: none; }
 .rq-chips .g-chip { flex: none; }
-/* Unfilled chips: pull the row back by the chip padding so the first label sits on the content edge. */
 .rq-chips { margin-inline-start: -16px; }
 @media (pointer: fine) and (min-width: 600px) { .rq-chips { margin-inline-start: -12px; } }
 .rq-filter-line { display: flex; flex-wrap: wrap; gap: 0 var(--g-space-6); }
 
-/* Art */
 .rq-frame { position: relative; display: block; overflow: hidden; aspect-ratio: 2 / 3; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .rq-frame[style]::after { content: ''; position: absolute; inset: 0; background: linear-gradient(transparent 55%, color-mix(in srgb, var(--g-accent) 40%, transparent)); pointer-events: none; }
 .rq-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity var(--g-fade); }
 .rq-img.is-loaded { opacity: 1; }
 .rq-art-fallback { display: flex; width: 100%; height: 100%; align-items: flex-end; padding: 12%; background: var(--g-paper-3); color: var(--g-ink-2); font: italic 700 18px / 1.15 var(--g-serif); overflow-wrap: anywhere; }
 
-/* Cards */
 .rq-card { position: relative; width: var(--rq-poster); }
 .rq-card.is-large { width: var(--rq-poster-lg); }
 .rq-card-open { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 0; border: 0; border-radius: var(--g-radius-sheet); background: none; color: inherit; text-align: start; cursor: pointer; }
@@ -54,7 +51,6 @@
 .rq-ring .rq-ring-fill { stroke: var(--g-gold); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; }
 .rq-hero-actions .rq-ribbon { position: static; min-height: var(--g-control); padding: 0 16px; }
 
-/* Rails and the grid */
 .rq-rail { margin-top: var(--g-space-7); }
 .rq-rail-head { display: flex; align-items: flex-end; gap: var(--g-space-4); margin-bottom: var(--g-space-3); padding-top: var(--g-space-4); border-top: var(--g-rule); }
 .rq-rail-head > div { flex: 1; min-width: 0; }
@@ -68,7 +64,6 @@
 .rq-grid .rq-card { width: auto; }
 .rq-more { display: flex; justify-content: center; margin-top: var(--g-space-6); }
 
-/* The hero */
 .rq-hero, .rq-title-hero { position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); }
 .rq-hero { height: min(70vh, 640px); min-height: 460px; }
 .rq-hero-slide { position: absolute; inset: 0; display: flex; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-8); animation: rq-fade var(--g-fade); }
@@ -93,7 +88,6 @@
 @keyframes rq-pip { from { transform: scaleX(0); } }
 @keyframes rq-fade { from { opacity: 0; } }
 @media (max-width: 599px) {
-  /* On a phone, the feature artwork ends before the factual request copy starts. */
   .rq-hero { height: auto; min-height: 520px; background: var(--g-paper); color: var(--g-ink); }
   .rq-hero-slide { padding-bottom: var(--g-space-6); }
   .rq-hero:has(.hero-frame) { height: calc(56.25vw + 360px); }
@@ -105,7 +99,6 @@
   .rq-pips { top: var(--g-space-2); bottom: auto; color: var(--g-on-art); }
 }
 
-/* Inline trailer: Lumina's own player in the hero */
 .rq-trailer { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--g-overlay-bg); color: var(--g-overlay-ink); }
 .rq-trailer .player-frame { flex: 1; width: 100%; max-width: none; min-height: 0; margin: 0; aspect-ratio: auto; border: 0; border-radius: 0; }
 .rq-trailer-note { margin: 0; padding: var(--g-space-5); font: var(--g-type-lede); text-align: center; }
@@ -113,7 +106,6 @@
 .rq-trailer-picks { display: flex; gap: 8px; overflow-x: auto; }
 .rq-trailer .g-chip, .rq-trailer .g-icon-button { flex: none; border: 0; color: inherit; }
 
-/* Title page */
 .rq-title-hero { height: max(min(62vh, 560px), min(42vw, 82vh, 800px)); min-height: 300px; }
 .rq-title-hero .rq-hero-scrim { background: linear-gradient(transparent 25%, color-mix(in srgb, var(--g-paper) 75%, transparent) 75%, var(--g-paper)); }
 .rq-title:has(.rq-trailer) .rq-title-hero { height: auto; aspect-ratio: 16 / 9; max-height: 80vh; }
@@ -136,7 +128,6 @@
 .rq-person-photo .rq-img { object-position: 50% 20%; }
 .rq-person-photo .rq-art-fallback { align-items: center; justify-content: center; padding: 0; background: var(--g-paper-2); font: italic 600 40px / 1 var(--g-serif); }
 
-/* Anime */
 .rq-season-switch { display: flex; align-items: center; justify-content: center; gap: var(--g-space-4); margin: var(--g-space-5) 0; }
 .rq-surface .rq-season-name { min-width: 7em; font: var(--g-type-chapter); text-align: center; }
 .rq-season-side { font: var(--g-type-ui); }
@@ -152,7 +143,6 @@
 .rq-countdown { color: var(--g-gold-ink); font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: none; }
 @media (max-width: 599px) { .rq-season-side { display: none; } .rq-schedule-days { grid-template-columns: repeat(7, 72vw); } }
 
-/* My requests and Manage */
 .rq-manage { margin-top: var(--g-space-6); }
 .rq-manage > h2 { margin-bottom: var(--g-space-4); }
 .rq-status-select { display: none; }
@@ -175,7 +165,6 @@
   .rq-status-select { display: block; max-width: 320px; margin-bottom: var(--g-space-4); }
 }
 
-/* The request sheet (inside the shared Dialog) */
 .rq-sheet-head { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--g-space-4); margin-bottom: var(--g-space-5); }
 .rq-sheet-head p { margin: 2px 0; }
 .rq-sheet-title { font: var(--g-type-h3); }
@@ -194,7 +183,6 @@
 .rq-sheet-note.is-problem { color: var(--g-danger); }
 @media (max-width: 599px) { .rq-language { grid-template-columns: 1fr; } .rq-language-option { min-height: 88px; } }
 
-/* Review fixes: skeletons, schedule cap, overview clamp, phone title page */
 .rq-bar { display: block; width: 180px; height: 14px; border-radius: var(--g-radius); background: var(--g-wash); }
 .rq-rail-skeleton .g-skeleton.is-poster { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: var(--rq-poster); overflow: hidden; gap: var(--rq-gap); }
 .rq-hero-skeleton { display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; padding: 0 var(--g-gutter) var(--g-space-8); background: var(--g-paper-2); }
@@ -217,7 +205,6 @@
   .rq-tagline, .rq-overview { margin: 0; }
 }
 
-/* Approved A Discover: context and search sit over the opening artwork. */
 .rq-surface.is-discover:has(.rq-hero) { position: relative; padding-top: 0; }
 .rq-surface.is-discover:has(.rq-hero) > .g-masthead { position: absolute; z-index: 4; top: calc(var(--g-topbar) + 16px); right: var(--g-gutter); width: min(340px, 28%); border: 0; padding: 0; }
 .rq-surface.is-discover:has(.rq-hero) > .g-masthead .g-masthead-copy { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

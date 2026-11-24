@@ -241,11 +241,6 @@ export function workspaceSettingsChanges(state: Pick<WorkspaceState, 'preference
   };
 }
 
-function hasWorkspaceSettingsChanges(state: Pick<WorkspaceState, 'preferences' | 'userSettings'>, keys: WorkspaceSettingsKeys): boolean {
-  const changes = workspaceSettingsChanges(state, keys);
-  return changes.download_defaults !== undefined || Object.keys(changes.ui_prefs).length > 0;
-}
-
 type HealthPayload = Awaited<ReturnType<typeof getHealth>>;
 
 export type WorkspaceAction =

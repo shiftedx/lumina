@@ -19,7 +19,6 @@ Done: you can name the production implementation base, the pinned prototype, the
 - Prototype snapshot: `f5486e4482d81de13b549eb3bc0e5415d1f8295c`; original application base: `ae2d56e7`.
 - Committed source: `frontend/src/prototypes/native-web/`; A is `VariantNative.tsx` with its media-specific views. B/C are earlier comparisons.
 - The current plan and handoff updates follow that prototype snapshot on the same design branch.
-- Current local review worktree: `/Users/kmcdowell/.codex/visualizations/2026/11/01/01a194dd-a76e-7d33-9453-86cda62d2abd/lumina-web-native-prototype`.
 - Interactive preview, while running: `http://127.0.0.1:4337/?mockup=native&variant=A&screen=music`. Other `screen` values: `home`, `movies`, `shows`, `books`, `detail`, `requests`, `streaming`, `settings`, `manage`. For settings sections, initial review links accept `setting=playback`, `library`, `connections`, etc.; production retains its existing settings routes.
 - Settings comparison gallery: `http://127.0.0.1:4338/settings.html`, when running.
 - Comparison gallery/captures: local `output/native-prototype-review/`, optionally served at port 4338. Those generated review files/scripts are ignored artifacts, not a portable implementation dependency. Regenerate captures from the committed prototype if absent.

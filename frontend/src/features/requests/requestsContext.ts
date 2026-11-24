@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useInsertionEffect, useRef, useState } from 'react';
 
 import type { RequestsRoute } from '../../app/routes';
 import type { UserProfile } from '../../types';
@@ -44,14 +44,16 @@ export type Loaded<T> = { data: T | null; error: unknown; loading: boolean; relo
 export function useLoad<T>(key: string, load: (signal: AbortSignal) => Promise<T>): Loaded<T> {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{ key: string; data: T | null; error: unknown }>({ key: '', data: null, error: null });
+  const loadRef = useRef(load);
+  useInsertionEffect(() => { loadRef.current = load; }, [load]);
   useEffect(() => {
     const controller = new AbortController();
-    load(controller.signal).then(
+    loadRef.current(controller.signal).then(
       (data) => { if (!controller.signal.aborted) setState({ key, data, error: null }); },
       (error) => { if (!controller.signal.aborted) setState({ key, data: null, error }); },
     );
     return () => controller.abort();
-  }, [key, attempt]); // eslint-disable-line react-hooks/exhaustive-deps -- `key` names the load
+  }, [key, attempt]);
   const current = state.key === key;
   return { data: current ? state.data : null, error: current ? state.error : null, loading: !current, reload: () => setAttempt((value) => value + 1) };
 }

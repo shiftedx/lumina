@@ -1,6 +1,6 @@
 /** The Requests tab's building blocks: artwork, the status ribbon, the card, a rail, the infinite grid and the calm problem states. */
 import { Check, ChevronLeft, ChevronRight, Clapperboard, Plus } from '../../luminaIcons';
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useInsertionEffect, useRef, useState } from 'react';
 
 import { prefersReducedMotion } from '../gallery/galleryModel';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui';
@@ -128,9 +128,9 @@ export function InfiniteGrid({ queryKey, load, emptyTitle }: { queryKey: string;
   const [state, setState] = useState<{ key: string; items: CatalogItem[]; page: number; total: number; error: unknown; loading: boolean }>({ key: '', items: [], page: 0, total: 1, error: null, loading: false });
   const sentinel = useRef<HTMLDivElement>(null);
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useInsertionEffect(() => { loadRef.current = load; }, [load]);
   const controller = useRef<AbortController | null>(null);
-  const fetchPage = (page: number, fresh: boolean) => {
+  const fetchPage = useCallback((page: number, fresh: boolean) => {
     controller.current?.abort();
     const current = new AbortController();
     controller.current = current;
@@ -139,8 +139,8 @@ export function InfiniteGrid({ queryKey, load, emptyTitle }: { queryKey: string;
       (result) => { if (!current.signal.aborted) setState((value) => ({ key: queryKey, items: dedupe([...value.items, ...result.items]), page: result.page, total: result.total_pages, error: null, loading: false })); },
       (error) => { if (!current.signal.aborted) setState((value) => ({ ...value, error, loading: false })); },
     );
-  };
-  useEffect(() => { fetchPage(1, true); return () => controller.current?.abort(); }, [queryKey]); // eslint-disable-line react-hooks/exhaustive-deps -- the key names the query
+  }, [queryKey]);
+  useEffect(() => { fetchPage(1, true); return () => controller.current?.abort(); }, [fetchPage]);
   const more = state.key === queryKey && !state.loading && !state.error && state.page < state.total;
   useEffect(() => {
     const node = sentinel.current;
@@ -148,7 +148,7 @@ export function InfiniteGrid({ queryKey, load, emptyTitle }: { queryKey: string;
     const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) fetchPage(state.page + 1, false); }, { rootMargin: '0px 0px 600px 0px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }); // eslint-disable-line react-hooks/exhaustive-deps -- re-armed after every page
+  }, [fetchPage, more, state.page]);
   if (state.error && !state.items.length) return <LoadProblem error={state.error} onRetry={() => fetchPage(1, true)} what="these titles" />;
   if (state.key === queryKey && !state.loading && !state.items.length) return <EmptyState title={emptyTitle} />;
   return (

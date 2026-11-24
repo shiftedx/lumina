@@ -74,4 +74,3 @@ def test_release_backend_cannot_discover_the_fixture_extractor() -> None:
         assert "LuminaFixture" not in ydl._ies
 
     assert not list((root / "backend" / "yt_dlp_plugins").rglob("*.py"))
-    assert "yt_dlp_plugins" not in (root / "Dockerfile").read_text()

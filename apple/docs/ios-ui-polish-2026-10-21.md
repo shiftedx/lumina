@@ -10,7 +10,7 @@ The iOS client follows the supplied Netflix and Apple TV references: artwork lea
 - Audio keeps its real queue, playlists, downloads and listening controls. Books keeps the reader handoff, bounded cover worker and physical-right selected-page invariant. Native management lists and adaptive action rows remain accessible.
 - Dark surfaces are neutral theater black, with adaptive light and increased-contrast variants. Sign-in, Account and filter sheets use the same hierarchy.
 - Home has no separate black header overlay. Its masthead reads “Lumina”; the sunrise horizon aligns with the wordmark baseline. Featured titles are 25% smaller and reserve scaled space below the masthead. Home has no category buttons on any display; catalog type and filter options live in Video’s overflow. Artwork continues directly beneath the trailing rail without a reflected or blurred extension.
-- The five native tabs use bespoke Lumina artwork, exported as 28-point template assets in `apple/Assets/iOS.xcassets/`.
+- The five native tabs render `LuminaGlyph` icons from `apple/Assets/LuminaMediaIcons.xcassets/`.
 - Video browsing removes the editorial masthead and visible type/sort pills. A compact native overflow contains Type, Sort and Filters. The catalog keeps ordered 2:3 covers with an occasional two-column lead poster beside smaller covers; narrow phones and accessibility sizes adapt the same content. Captions are hidden in this wall while complete title/metadata labels remain accessible.
 
 ## Regression coverage

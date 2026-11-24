@@ -77,7 +77,7 @@ export type WorkspacePreferences = {
   normalizeLoudness: boolean;
   /** Auto-skip intro/credits/recap segments (`ui_prefs.auto_skip`). */
   autoSkip: AutoSkipPref;
-  /** Caption size and background (`ui_prefs.captions`, app polish 10.2). */
+  /** Caption size and background (`ui_prefs.captions`). */
   captions: CaptionPrefs;
   /** Mute strong language in the web player (`ui_prefs.profanity`). */
   profanity: ProfanityPref;
@@ -128,7 +128,6 @@ function profanityFromUiPrefs(uiPrefs: Record<string, unknown> | undefined): Pro
   return { enabled: stored.enabled, words: stored.words.filter((word): word is string => typeof word === 'string').slice(0, PROFANITY_MAX_WORDS) };
 }
 
-/** The raw ui_prefs.home_shelves list; anything else (absent, null, malformed) is no preference. Home normalises it. */
 function homeShelvesFromUiPrefs(uiPrefs: Record<string, unknown> | undefined): HomeShelfPref[] | null {
   const value = uiPrefs?.home_shelves;
   return Array.isArray(value) ? (value as HomeShelfPref[]) : null;
@@ -402,9 +401,8 @@ function appendUniqueById<T extends { id: string }>(current: T[], incoming: T[])
 }
 
 /**
- * Ranks two rows in the backend's library ordering: downloaded_at DESC NULLS
- * LAST, created_at DESC, id DESC. Returns a negative number when `a` ranks
- * ahead of (sorts before) `b`.
+ * Ranks rows using the backend's library ordering: downloaded_at DESC NULLS
+ * LAST, created_at DESC, id DESC.
  */
 function compareRecencyDesc(a: string | null | undefined, b: string | null | undefined): number {
   const left = a ?? null;
@@ -436,14 +434,6 @@ export function compareJobOrder(a: DownloadJob, b: DownloadJob): number {
   return a.id < b.id ? 1 : -1;
 }
 
-/**
- * Applies the partial-window reconciliation rule to the paged Downloads feed:
- * update a job already present in place; prepend a job that sorts at or before
- * the head (a freshly queued job, or any job when the feed is empty); otherwise
- * return the same reference because the job lives beyond the loaded window and
- * a later page will carry it — prepending it would surface an older running job
- * above newer rows.
- */
 function reconcileJobsWindow(list: DownloadJob[], job: Partial<DownloadJob> & { id: string }): DownloadJob[] {
   const index = list.findIndex((entry) => entry.id === job.id);
   if (index !== -1) {
@@ -455,17 +445,6 @@ function reconcileJobsWindow(list: DownloadJob[], job: Partial<DownloadJob> & { 
   return [{ ...job } as DownloadJob, ...list];
 }
 
-/**
- * Applies the partial-window reconciliation rule to one ordered list: update an
- * item already present at its ordered position (a re-download refreshes
- * downloaded_at, so the merged row re-sorts within the window instead of
- * staying mid-window until refresh); prepend a row that sorts at or before the
- * head (a fresh download, or any row when the list is empty) and re-bound so
- * the list never grows past `bound`; otherwise return the same reference
- * because the row lives beyond the loaded window and a later page will carry
- * it. Returning the same reference lets callers detect a no-op without a deep
- * compare.
- */
 function reconcileOrderedWindow(
   list: LibraryItem[],
   item: Partial<LibraryItem> & { id: string },
@@ -485,12 +464,6 @@ function reconcileOrderedWindow(
   return prepended.length > bound ? prepended.slice(0, bound) : prepended;
 }
 
-/**
- * Reconciles a realtime `library_item_upserted` against both the scroll window
- * (bounded to {@link MAX_LIBRARY_WINDOW_ITEMS}) and the page-one Home snapshot
- * (bounded to {@link LIBRARY_PAGE_SIZE}). Avoids full-library refetch storms on
- * every upsert while keeping Home's newest-first shelf correct.
- */
 function reconcileLibraryUpsert(state: WorkspaceState, item: Partial<LibraryItem> & { id: string }): WorkspaceState {
   const library = reconcileOrderedWindow(state.library, item, MAX_LIBRARY_WINDOW_ITEMS);
   const libraryRecent = reconcileOrderedWindow(state.libraryRecent, item, LIBRARY_PAGE_SIZE);
@@ -771,8 +744,6 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'library/pageAppended': {
       const merged = appendUniqueById(state.library, action.items);
       const library = merged.length > MAX_LIBRARY_WINDOW_ITEMS ? merged.slice(merged.length - MAX_LIBRARY_WINDOW_ITEMS) : merged;
-      // A head-drop can trim the selected row out of the mounted window; move
-      // the grid highlight to the first available row instead of dangling.
       const selectedLibraryId = state.selectedLibraryId && !library.some((item) => item.id === state.selectedLibraryId)
         ? firstAvailableId(library)
         : state.selectedLibraryId;
@@ -806,7 +777,6 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'continueWatching/checkpoint': {
       const incoming = action.progress;
       const previous = state.continueWatching.find((entry) => entry.item_id === incoming.item_id);
-      // A checkpoint PUT for a title-less entry (e.g. autoplay's next episode) must not blank the hero's title.
       const progress = incoming.title ? incoming : { ...incoming, title: previous?.title ?? incoming.title };
       const without = state.continueWatching.filter((entry) => entry.item_id !== progress.item_id);
       return {

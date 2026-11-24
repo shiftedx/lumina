@@ -1,7 +1,6 @@
 """Candidate sources and the refresher."""
 from __future__ import annotations
 
-import inspect
 import logging
 import threading
 from array import array
@@ -12,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select, update
 
 from app import db as db_module
@@ -800,9 +800,18 @@ def test_the_maintenance_cycle_schedules_the_refresher_and_the_lifespan_closes_i
     main.run_library_maintenance_cycle()
 
     assert scheduled == [1]
-    assert "reco_refresher.close" in inspect.getsource(main.lifespan)
-    main.reco_refresher.close()
-    main.reco_refresher.close()  # closing twice is harmless
+
+    closed: list[None] = []
+
+    class Refresher:
+        def close(self) -> None:
+            closed.append(None)
+
+    monkeypatch.setattr(main, "reco_refresher", Refresher())
+    with TestClient(main.app, base_url="http://localhost"):
+        pass
+
+    assert closed == [None]
 
 
 # ---- title candidates ----

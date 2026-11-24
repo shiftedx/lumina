@@ -24,7 +24,6 @@ import socket
 import threading
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from urllib.parse import quote
 
 from fastapi.testclient import TestClient
@@ -49,9 +48,6 @@ from app.services.twitch_irc_chat import ProviderLiveChatFetcher
 from app.services.timed_chat import TimedChatBudget
 from app.services.yt_dlp_service import PUBLIC_OPTION_ALLOWLIST, YtDlpService, _PREVIEW_CACHE, _SEARCH_CACHE
 from support import make_user, memory_session_factory
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKEND_APP = REPO_ROOT / "backend" / "app"
 
 TWITCH_IDENTITY = "twitch:12345"
 TWITCH_SOURCE_URL = "https://twitch.tv/videos/12345"
@@ -309,11 +305,6 @@ def test_auth_profile_surface_absent() -> None:
         if getattr(route, "path", "").startswith("/api/live-chat")
     ]
     assert live_chat_routes == [("/api/live-chat", {"GET"})]
-
-    # The app module must not wire the removed service surface.
-    main_source = (BACKEND_APP / "main.py").read_text(encoding="utf-8")
-    for name in ("AuthProfileService", "LiveChatService", "secret_storage"):
-        assert name not in main_source, f"main.py still references the removed surface: {name}"
 
     # An unregistered unsafe method is 404 without a frontend build and 405
     # through the GET/HEAD-only SPA mount. Derive the exact fallback from the

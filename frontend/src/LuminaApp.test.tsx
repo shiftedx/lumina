@@ -5,9 +5,9 @@ import { useState } from 'react';
 import { ToastProvider } from './ui';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { LibraryItem } from './types';
-import { classifyCollectionLoadProblem } from './workspace';
-import { CollectionAnnouncer, collectionLoadAnnouncement, preloadLikelySurfaces, useShellErrorToast } from './LuminaApp';
+import type { LibraryItem, UserProfile } from './types';
+import { classifyCollectionLoadProblem, createInitialWorkspaceState } from './workspace';
+import LuminaApp, { CollectionAnnouncer, collectionLoadAnnouncement, preloadLikelySurfaces, useShellErrorToast } from './LuminaApp';
 import { DownloadsSurface } from './features/downloads/DownloadsSurface';
 import { HomeSurface } from './features/home/HomeSurface';
 import type { LiveShelfProps } from './features/home/LiveShelf';
@@ -15,6 +15,10 @@ import { MobileTabs, NavigationPopover } from './app/Navigation';
 import { OnboardingSurface } from './features/onboarding/Onboarding';
 import { SettingsSurface } from './features/settings/SettingsSurface';
 import { CollectionRecovery, StaleCollectionNotice } from './features/media/MediaCards';
+import { cachedShelf, forgetHomeCache, rememberShelf } from './features/home/homeCache';
+
+const appWorkspace = vi.hoisted(() => ({ useAuthenticatedWorkspace: vi.fn() }));
+vi.mock('./workspace', async (importOriginal) => ({ ...(await importOriginal<typeof import('./workspace')>()), useAuthenticatedWorkspace: appWorkspace.useAuthenticatedWorkspace }));
 
 vi.mock('./features/home/LiveShelf', async () => {
   const { useEffect } = await import('react');
@@ -25,13 +29,14 @@ vi.mock('./features/home/LiveShelf', async () => {
     },
   };
 });
-const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), getHomeArrivals: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn() }));
+const homeApi = vi.hoisted(() => ({ listNextUp: vi.fn(), getHomeArrivals: vi.fn(), listTitles: vi.fn(), getHomeTitleRows: vi.fn(), listHouseholdCollections: vi.fn(), getServerNavigation: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...homeApi }));
 homeApi.listNextUp.mockResolvedValue([]);
 homeApi.listTitles.mockResolvedValue({ items: [] });
 homeApi.getHomeArrivals.mockResolvedValue([]);
 homeApi.getHomeTitleRows.mockResolvedValue({ rows: [] });
 homeApi.listHouseholdCollections.mockResolvedValue([]);
+homeApi.getServerNavigation.mockResolvedValue({ categories: ['movies'], features: { streaming: false, requests: false } });
 
 // The title page chunk is only ever imported lazily, so its factory running means it was fetched.
 const chunks = vi.hoisted(() => ({ titlePage: vi.fn() }));
@@ -226,14 +231,50 @@ describe('first-run onboarding surface presentation', () => {
 });
 
 describe('Home wiring', () => {
-  it('forgets Home\'s cache on a member switch', async () => {
-    const { rememberShelf, cachedShelf } = await import('./features/home/homeCache');
-    const { URL: NodeURL } = await import('node:url');
-    const source = (await import('node:fs')).readFileSync(new NodeURL('./LuminaApp.tsx', import.meta.url), 'utf8');
-    // The member-switch effect clears walls, titles, playback warm-up and Home together.
-    expect(source).toMatch(/forgetTitles\(\);\s*forgetHomeCache\(\);/);
-    rememberShelf('member-1', 'next_up', []);
-    expect(cachedShelf('member-1', 'next_up')).toEqual([]);
+  it('forgets Home\'s cache when the authenticated member changes', async () => {
+    const first: UserProfile = { id: 'member-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true };
+    const second: UserProfile = { ...first, id: 'member-2', username: 'two', display_name: 'Two' };
+    const state = createInitialWorkspaceState();
+    Object.assign(state, { authStage: 'ready', currentUser: first, jobs: [], jobsState: 'empty', library: [], libraryRecent: [], libraryState: 'empty', settingsHydrated: false });
+    const workspace = {
+      state,
+      dispatch: vi.fn(),
+      loadAuthenticated: vi.fn(),
+      loadPublic: vi.fn(),
+      retryCollection: vi.fn(),
+      refreshLibraryCollection: vi.fn(),
+      refreshContinueWatching: vi.fn(),
+      loadMoreJobs: vi.fn(),
+      captureSessionToken: vi.fn(() => 1),
+      isSessionTokenCurrent: vi.fn(() => true),
+      reset: vi.fn(),
+      holdEvents: vi.fn(),
+    };
+    appWorkspace.useAuthenticatedWorkspace.mockReturnValue(workspace);
+    rememberShelf(first.id, 'next_up', ['private-to-one']);
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+
+    const view = render(<ToastProvider><LuminaApp /></ToastProvider>);
+    try {
+      expect(cachedShelf(first.id, 'next_up')).toEqual(['private-to-one']);
+      appWorkspace.useAuthenticatedWorkspace.mockReturnValue({ ...workspace, state: { ...state, currentUser: second } });
+      view.rerender(<ToastProvider><LuminaApp /></ToastProvider>);
+
+      await waitFor(() => expect(cachedShelf(first.id, 'next_up')).toBeUndefined());
+    } finally {
+      view.unmount();
+      forgetHomeCache();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

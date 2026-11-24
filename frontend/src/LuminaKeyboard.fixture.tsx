@@ -253,7 +253,6 @@ beforeEach(() => {
     loadPublic: vi.fn(),
     retryCollection: vi.fn(),
     refreshLibraryCollection: vi.fn(),
-    loadMoreLibrary: vi.fn(),
     loadMoreJobs: vi.fn(),
     captureSessionToken: vi.fn(() => 1),
     isSessionTokenCurrent: vi.fn(() => true),

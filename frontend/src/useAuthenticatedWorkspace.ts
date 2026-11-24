@@ -59,7 +59,6 @@ export type AuthenticatedWorkspace = {
   retryCollection: (resource: CollectionResource) => Promise<boolean>;
   refreshLibraryCollection: () => Promise<boolean>;
   refreshContinueWatching: () => Promise<boolean>;
-  loadMoreLibrary: () => Promise<boolean>;
   loadMoreJobs: () => Promise<boolean>;
   captureSessionToken: () => number;
   isSessionTokenCurrent: (generation: number) => boolean;
@@ -164,7 +163,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
   errorReporterRef.current = onError;
   const stateRef = useRef(state);
   stateRef.current = state;
-  const loadMoreGuardRef = useRef<{ jobs: boolean; library: boolean }>({ jobs: false, library: false });
+  const loadMoreJobsGuardRef = useRef(false);
   const [eventsHeld, holdEvents] = useState(false);
   const scheduleSettingsAutosaveRef = useRef<(ownerId: string, revision: number, delay: number) => void>(() => undefined);
 
@@ -297,7 +296,6 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     const jobsNextCursor = jobsResult.status === 'fulfilled' ? jobsResult.value.next_cursor : null;
     const jobsProblem = jobsResult.status === 'rejected' ? classifyCollectionLoadProblem(jobsResult.reason) : null;
     const library = libraryResult.status === 'fulfilled' ? libraryResult.value.items : null;
-    const libraryNextCursor = libraryResult.status === 'fulfilled' ? libraryResult.value.next_cursor : null;
     const libraryProblem = libraryResult.status === 'rejected' ? classifyCollectionLoadProblem(libraryResult.reason) : null;
     const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null;
     const automations = automationResult.status === 'fulfilled' ? automationResult.value : [];
@@ -318,7 +316,6 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
       jobsNextCursor,
       library,
       libraryProblem,
-      libraryNextCursor,
       userSettings: settings,
       sourceAutomations: automations,
       continueWatching,
@@ -352,7 +349,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     try {
       const page = await listLibrary({ limit: LIBRARY_PAGE_SIZE });
       if (!requestGateRef.current.isCurrent(token)) return false;
-      dispatchBase({ type: 'library/loadSucceeded', library: page.items, nextCursor: page.next_cursor });
+      dispatchBase({ type: 'library/loadSucceeded', library: page.items });
       return true;
     } catch (error) {
       if (!requestGateRef.current.isCurrent(token)) return false;
@@ -367,7 +364,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     try {
       const page = await refreshLibrary();
       if (!requestGateRef.current.isCurrent(token)) return false;
-      dispatchBase({ type: 'library/loadSucceeded', library: page.items, nextCursor: page.next_cursor });
+      dispatchBase({ type: 'library/loadSucceeded', library: page.items });
       return true;
     } catch (error) {
       if (!requestGateRef.current.isCurrent(token)) return false;
@@ -388,32 +385,11 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     }
   }, []);
 
-  const loadMoreLibrary = useCallback(async (): Promise<boolean> => {
-    const current = stateRef.current;
-    const startCursor = current.libraryNextCursor;
-    if (!startCursor || current.libraryLoadingMore || loadMoreGuardRef.current.library) return false;
-    loadMoreGuardRef.current.library = true;
-    const generation = requestGateRef.current.currentSession();
-    dispatchBase({ type: 'library/pageLoading' });
-    try {
-      const page = await listLibrary({ cursor: startCursor, limit: LIBRARY_PAGE_SIZE });
-      if (!requestGateRef.current.isSessionCurrent(generation) || stateRef.current.libraryNextCursor !== startCursor) return false;
-      dispatchBase({ type: 'library/pageAppended', items: page.items, nextCursor: page.next_cursor });
-      return true;
-    } catch (error) {
-      if (!requestGateRef.current.isSessionCurrent(generation) || stateRef.current.libraryNextCursor !== startCursor) return false;
-      dispatchBase({ type: 'library/pageFailed', message: classifyCollectionLoadProblem(error).message });
-      return false;
-    } finally {
-      loadMoreGuardRef.current.library = false;
-    }
-  }, []);
-
   const loadMoreJobs = useCallback(async (): Promise<boolean> => {
     const current = stateRef.current;
     const startCursor = current.jobsNextCursor;
-    if (!startCursor || current.jobsLoadingMore || loadMoreGuardRef.current.jobs) return false;
-    loadMoreGuardRef.current.jobs = true;
+    if (!startCursor || current.jobsLoadingMore || loadMoreJobsGuardRef.current) return false;
+    loadMoreJobsGuardRef.current = true;
     const generation = requestGateRef.current.currentSession();
     dispatchBase({ type: 'jobs/pageLoading' });
     try {
@@ -426,7 +402,7 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
       dispatchBase({ type: 'jobs/pageFailed', message: classifyCollectionLoadProblem(error).message });
       return false;
     } finally {
-      loadMoreGuardRef.current.jobs = false;
+      loadMoreJobsGuardRef.current = false;
     }
   }, []);
 
@@ -549,5 +525,5 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
 
   useEffect(() => () => clearWorkspaceSettingsAutosave(settingsAutosaveRef.current), []);
 
-  return { state, dispatch, loadAuthenticated, loadPublic, retryCollection, refreshLibraryCollection, refreshContinueWatching, loadMoreLibrary, loadMoreJobs, captureSessionToken, isSessionTokenCurrent, reset, holdEvents };
+  return { state, dispatch, loadAuthenticated, loadPublic, retryCollection, refreshLibraryCollection, refreshContinueWatching, loadMoreJobs, captureSessionToken, isSessionTokenCurrent, reset, holdEvents };
 }

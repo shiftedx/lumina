@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { MediaServerSettings, MediaServerSettingsUpdate } from '../../types';
-import { restoreAllStore, saveAllStore } from '../gallery/allStore';
 
 const api = vi.hoisted(() => ({ getMediaServerSettings: vi.fn(), updateMediaServerSettings: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
@@ -93,7 +92,6 @@ describe('AnimeFolders', () => {
       .mockResolvedValueOnce(settings({ recategorising: true }))
       .mockResolvedValueOnce(settings({ recategorising: true }))
       .mockResolvedValue(settings());
-    saveAllStore({ spotlight: null, slices: {}, scrollY: 0, focus: null });
     render(<AnimeFolders />);
     await flush();
     expect(screen.getByText('Re-sorting titles into Anime…')).toBeTruthy();
@@ -102,7 +100,6 @@ describe('AnimeFolders', () => {
     expect(screen.getByText('Re-sorting titles into Anime…')).toBeTruthy();
     await flush(RESORT_POLL_MS);
     expect(screen.getByText('Titles re-sorted.')).toBeTruthy();
-    expect(restoreAllStore()).toBeNull(); // the All landing asks again after a re-sort
     await flush(RESORTED_NOTE_MS);
     expect(screen.queryByText('Titles re-sorted.')).toBeNull();
     await flush(RESORT_POLL_MS * 3);
@@ -112,11 +109,9 @@ describe('AnimeFolders', () => {
   it('confirms a re-sort that finishes before Save returns', async () => {
     api.getMediaServerSettings.mockResolvedValue(settings());
     api.updateMediaServerSettings.mockResolvedValue(settings({ anime_folders: [], recategorising: false }));
-    saveAllStore({ spotlight: null, slices: {}, scrollY: 0, focus: null });
     render(<AnimeFolders />);
     await userEvent.click(await screen.findByRole('button', { name: 'Remove Anime' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Titles re-sorted.')).toBeTruthy();
-    expect(restoreAllStore()).toBeNull();
   });
 });

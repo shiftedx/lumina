@@ -1,25 +1,17 @@
-/**
- * Video destinations use a utility row; embedded legacy libraries retain their scoped tabs and
- * the quiet Deleted link. It renders at once from the member's last sections answer, kept in localStorage, and follows
- * GET /api/library/sections.
- */
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useState } from 'react';
 
 import { getLibrarySections } from '../../api';
-import type { LibrarySections, ServerNavigation } from '../../types';
+import type { VideoLibraryView } from '../../app/routes';
+import type { LibrarySections } from '../../types';
 import { TabScroller } from '../../ui';
-import { LENS_LABELS, LIBRARY_LENSES, type LibraryLens } from './libraryLens';
+import type { LibraryLens } from './libraryLens';
 
-/** Where in the Library a member can be: a lens, the All landing at /library, or the Collections pages. */
 export type LibraryPlace = LibraryLens | 'all' | 'collections';
-type Tab = Exclude<LibraryPlace, 'deleted' | 'collections'>;
+export type LibraryTool = 'collections' | 'deleted';
 
-const TABS: readonly Tab[] = ['all', ...LIBRARY_LENSES.filter((lens): lens is Exclude<LibraryLens, 'deleted'> => lens !== 'deleted')];
 const SECTION_KEYS: ReadonlyArray<keyof LibrarySections> = ['movies', 'shows', 'anime', 'albums', 'artists', 'saved_audio', 'youtube', 'recordings', 'deleted'];
 const FOCUSABLE = 'a[href], button:not(:disabled), select:not(:disabled), input:not(:disabled)';
 const storageKey = (member: string) => `lumina.sections.${member}`;
-
-export const placePath = (place: LibraryPlace): string => (place === 'all' ? '/library' : `/library/${place}`);
 
 /** A stored answer counts only with every count a whole number; an older or edited value is ignored. */
 function asSections(value: unknown): LibrarySections | null {
@@ -47,66 +39,46 @@ function storeSections(member: string, sections: LibrarySections): void {
 }
 
 /** What the member can see per tab: the stored answer at once, then the server's. `refresh` asks again. */
-export function useLibrarySections(member: string): { sections: LibrarySections | null; failed: boolean; refresh: () => void } {
-  const [state, setState] = useState(() => ({ member, sections: readStoredSections(member), failed: false }));
+export function useLibrarySections(member: string): { sections: LibrarySections | null; refresh: () => void } {
+  const [state, setState] = useState(() => ({ member, sections: readStoredSections(member) }));
   const [attempt, setAttempt] = useState(0);
-  const current = state.member === member ? state : { member, sections: readStoredSections(member), failed: false };
+  const sections = state.member === member ? state.sections : readStoredSections(member);
   useEffect(() => {
     const controller = new AbortController();
     getLibrarySections({ signal: controller.signal }).then((sections) => {
       if (controller.signal.aborted) return;
       storeSections(member, sections);
-      setState({ member, sections, failed: false });
+      setState({ member, sections });
     }, () => {
-      if (!controller.signal.aborted) setState((previous) => ({ member, sections: previous.member === member ? previous.sections : readStoredSections(member), failed: true }));
+      if (!controller.signal.aborted) setState((previous) => previous.member === member ? previous : { member, sections: readStoredSections(member) });
     });
     return () => controller.abort();
   }, [member, attempt]);
-  const refresh = useCallback(() => {
-    setState((previous) => ({ ...previous, failed: false }));
-    setAttempt((value) => value + 1);
-  }, []);
+  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   useEffect(() => {
     const foreground = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', foreground);
     return () => document.removeEventListener('visibilitychange', foreground);
   }, [refresh]);
-  return { sections: current.sections, failed: current.failed, refresh };
-}
-
-/** All always; Music for albums or saved audio; every other tab when its count is above 0. */
-export function tabShown(tab: Tab, sections: LibrarySections | null): boolean {
-  if (tab === 'all') return true;
-  if (!sections) return false;
-  if (tab === 'music') return sections.albums + sections.saved_audio > 0;
-  return sections[tab] > 0;
+  return { sections, refresh };
 }
 
 /** A plain primary click opens the place in the app; ctrl, meta, shift, alt and middle clicks stay the browser's. */
-export function followInApp(event: MouseEvent<HTMLAnchorElement>, open: () => void): void {
+function followInApp(event: MouseEvent<HTMLAnchorElement>, open: () => void): void {
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   open();
 }
 
 export type LibraryTabsProps = {
-  navigation?: ServerNavigation | null;
-  videoOnly?: boolean;
-  current: LibraryPlace;
+  current: VideoLibraryView | LibraryTool;
   sections: LibrarySections | null;
   /** Vault owners always see Deleted, to restore anyone's file. */
   isAdmin: boolean;
-  onOpen: (place: LibraryPlace) => void;
+  onOpen: (place: LibraryTool) => void;
 };
 
-export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false, navigation }: LibraryTabsProps) {
-  const shownTabs = videoOnly ? [] : TABS.filter((tab) => {
-    if (tab === 'all') return true;
-    if (videoOnly && tab === 'music') return false;
-    if (tab === 'recordings') return Boolean(navigation?.categories.includes('recordings')) && tabShown(tab, sections);
-    const category = tab === 'shows' ? 'tv' : tab;
-    return Boolean(navigation?.categories.includes(category));
-  });
+export function LibraryTabs({ current, sections, isAdmin, onOpen }: LibraryTabsProps) {
   const deletedShown = isAdmin || (sections?.deleted ?? 0) > 0;
   /** Left and Right step along the row and stop at its ends; Down leaves for the page's next control. */
   const keys = (event: KeyboardEvent<HTMLElement>) => {
@@ -126,14 +98,13 @@ export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = fa
       }
     }
   };
-  const link = (place: LibraryPlace, label: string, className: string) => (
-    <a aria-current={current === place ? 'page' : undefined} className={className} href={placePath(place)} key={place} onClick={(event) => followInApp(event, () => onOpen(place))}>{label}</a>
+  const link = (place: LibraryTool, label: string) => (
+    <a aria-current={current === place ? 'page' : undefined} className="g-tabs-deleted" href={`/library/${place}`} onClick={(event) => followInApp(event, () => onOpen(place))}>{label}</a>
   );
   return (
-    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel={videoOnly ? 'Library tools' : 'Library'} as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
-      {shownTabs.map((tab) => link(tab, tab === 'all' ? 'All' : LENS_LABELS[tab], 'g-tab'))}
-      {link('collections', 'Collections', 'g-tabs-deleted')}
-      {deletedShown ? link('deleted', LENS_LABELS.deleted, 'g-tabs-deleted') : null}
+    <TabScroller activeKey={`${current}:${deletedShown}`} ariaLabel="Library tools" as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
+      {link('collections', 'Collections')}
+      {deletedShown ? link('deleted', 'Deleted') : null}
     </TabScroller>
   );
 }

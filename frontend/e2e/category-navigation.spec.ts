@@ -53,6 +53,20 @@ test('legacy video addresses canonicalize to the first enabled category', async 
   await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
 });
 
+test('the Video umbrella stays blocked when the member only has Audio', async ({ page }) => {
+  await mockApi(page, {}, { categories: ['music'], features: { streaming: false, requests: false } });
+  await page.goto('/library');
+  await signIn(page);
+
+  await expect(page).toHaveURL(/\/video$/);
+  await expect(page.getByRole('heading', { name: "This library or feature isn't available right now" })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Library tools' })).toHaveCount(0);
+
+  await page.goto('/library/music?view=artists');
+  await expect(page).toHaveURL(/\/audio\?view=artists$/);
+  await expect(page.getByRole('button', { name: 'Artists', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('legacy video and mobile navigation fall back to Anime when it is the only enabled category', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });

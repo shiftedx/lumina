@@ -192,8 +192,6 @@ type CollectionsPageProps = {
   library: LibraryItem[];
   api?: CollectionApi;
   route: CollectionsRoute;
-  /** The All landing's chapter: tiles and a See all link only. */
-  embedded?: boolean;
   /** The Library lens row, shown first on the full page. */
   lenses?: ReactNode;
   onOpenCollection: (id: string) => void;
@@ -210,8 +208,6 @@ type CollectionsPageProps = {
   /** Franchise boxsets are ordinary read-only media titles, paged separately from household collections. */
   listFranchises?: TitleLister;
 };
-
-const TILES_EMBEDDED = 6;
 
 function FranchiseCollections({ list, onCount, onOpenTitle }: { list?: TitleLister; onCount: (count: number) => void; onOpenTitle?: (title: TitleSummary) => void }) {
   const query = wallQueryFor('boxsets', undefined);
@@ -277,12 +273,12 @@ function NewCollectionDialog({ error, onClose, onCreate }: { error?: string | nu
 
 /** The Collections Library page: a poster-mosaic tile per collection, the detail by route. */
 export function CollectionsPage({
-  route, embedded = false, lenses, onOpenCollection, onBackToList, onRouteHandled, api = collectionApi, currentUserId, library: _library,
+  route, lenses, onOpenCollection, onBackToList, onRouteHandled, api = collectionApi, currentUserId, library: _library,
   onOpenLibrary, onOpenRemote, onQueueRemote, isQueueing, onOpenTitle, formatSelection, outputProfile, listFranchises,
 }: CollectionsPageProps) {
   const mounted = useRef(true);
   const [collections, setCollections] = useState<HouseholdCollection[] | null>(null);
-  const [franchiseCount, setFranchiseCount] = useState<number | null>(embedded ? 0 : null);
+  const [franchiseCount, setFranchiseCount] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -310,12 +306,12 @@ export function CollectionsPage({
 
   const create = route.collections === 'list' ? route.create : undefined;
   useEffect(() => {
-    if (embedded || !create) return;
+    if (!create) return;
     if (create === 'smart') setBuilding(true); else setCreating(true);
     onRouteHandled();
-  }, [create, embedded]);
+  }, [create]);
 
-  const detailId = !embedded && route.collections === 'detail' ? route.collectionId : null;
+  const detailId = route.collections === 'detail' ? route.collectionId : null;
   const known = detailId ? collections?.find((entry) => entry.id === detailId) : undefined;
   useEffect(() => {
     setDetailFailed(false);
@@ -341,9 +337,7 @@ export function CollectionsPage({
   }
 
   const all = collections ?? [];
-  const tiles = embedded ? all.slice(0, TILES_EMBEDDED) : all;
   const actions = <><Button onClick={() => setCreating(true)} variant="primary">New collection</Button><Button icon={<Sparkles />} onClick={() => setBuilding(true)}>New smart collection</Button></>;
-  const emptyAction = embedded ? <Button onClick={onBackToList}>See movie collections</Button> : actions;
 
   if (detailId && known && detail?.id === detailId) {
     return (
@@ -372,16 +366,15 @@ export function CollectionsPage({
   }
 
   return (
-    <div className={`gallery g-collections-page${embedded ? ' is-embedded' : ''}`}>
-      {embedded ? null : lenses}
-      {embedded ? null : <Masthead actions={actions} title="Collections" />}
+    <div className="gallery g-collections-page">
+      {lenses}
+      <Masthead actions={actions} title="Collections" />
       {failed ? <ErrorState onRetry={() => { setRetrying(true); void load(); }} retrying={retrying} title="Lumina could not load your collections." />
         : detailId && known && detailFailed ? <ErrorState onRetry={() => setDetailTry((n) => n + 1)} title="Lumina could not load this collection." />
-        : collections === null || (detailId && known && detail?.id !== detailId) ? <Skeleton count={embedded ? 3 : 6} label="Loading collections…" shape="still" />
-          : all.length === 0 ? (embedded || franchiseCount === 0 ? <EmptyState action={emptyAction} body="Group titles your household loves, or let a smart collection gather them." size={embedded ? 'inline' : 'page'} title={embedded ? 'No household collections yet.' : 'No collections yet.'} /> : null)
-            : <ul className="g-collection-grid">{tiles.map((entry) => <li key={entry.id}><CollectionTile collection={entry} onOpen={onOpenCollection} /></li>)}</ul>}
-      {!embedded && (collections !== null || failed) ? <FranchiseCollections list={listFranchises} onCount={setFranchiseCount} onOpenTitle={onOpenTitle} /> : null}
-      {embedded && all.length ? <a className="g-collections-all" href="/library/collections" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); onBackToList(); }}>See all</a> : null}
+        : collections === null || (detailId && known && detail?.id !== detailId) ? <Skeleton count={6} label="Loading collections…" shape="still" />
+          : all.length === 0 ? (franchiseCount === 0 ? <EmptyState action={actions} body="Group titles your household loves, or let a smart collection gather them." size="page" title="No collections yet." /> : null)
+            : <ul className="g-collection-grid">{all.map((entry) => <li key={entry.id}><CollectionTile collection={entry} onOpen={onOpenCollection} /></li>)}</ul>}
+      {collections !== null || failed ? <FranchiseCollections list={listFranchises} onCount={setFranchiseCount} onOpenTitle={onOpenTitle} /> : null}
       {creating ? <NewCollectionDialog error={createError} onClose={() => { setCreating(false); setCreateError(null); }} onCreate={createPlain} /> : null}
       {building ? <SmartCollectionBuilder aiAvailable={Boolean(enrichment?.ai_summaries)} create={api.create} mode="new" onCancel={() => setBuilding(false)} onCreated={(made) => { added(made); setBuilding(false); }} open /> : null}
     </div>

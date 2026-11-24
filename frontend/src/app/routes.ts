@@ -69,7 +69,7 @@ export type AppRoute =
 
 const PLAIN_SURFACES = ['library', 'downloads'] as const;
 const PROVIDERS: readonly StreamingProvider[] = ['twitch', 'kick'];
-// A lens with its own address; /library itself is the All landing.
+// Category and utility addresses under the legacy Library prefix.
 const LENS_PATH = new RegExp(`^/library/(${LIBRARY_LENSES.join('|')})$`);
 const LIBRARY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_QUERY = 200;
@@ -340,7 +340,7 @@ export function routeFocusKey(route: AppRoute | null): string {
 
 /**
  * Back from a title, album or artist page: the place it was opened from with that lens's
- * last wall; for a deep link, the title's own lens by type and category; else the All landing.
+ * last wall; for a deep link, the title's own lens by type and category, or the Video umbrella.
  */
 export function libraryBackRoute(type: TitleType | null, category: TitleCategory | null | undefined, lastLens: LibraryLens | 'all' | null, lastWalls: Partial<Record<LibraryPlace, string>>): AppRoute {
   const lens = lastLens ?? titleLens(type, category);

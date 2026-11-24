@@ -64,7 +64,7 @@ export function CollectionDetail({
 }: {
   collection: HouseholdCollection;
   owner: boolean;
-  /** Set by the Collections page: renders the editorial header (back, rename, delete); absent in the All landing's embedded panel. */
+  /** Set by the Collections page: renders the editorial header (back, rename, delete); optional when the detail is embedded. */
   onBack?: () => void;
   onRename?: (name: string) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;

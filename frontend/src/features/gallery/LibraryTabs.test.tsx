@@ -4,84 +4,52 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../../api';
 import { librarySections } from '../../test/galleryFixtures';
 import type { LibrarySections } from '../../types';
-import { forgetStoredSections, type LibraryPlace, LibraryTabs, readStoredSections, useLibrarySections } from './LibraryTabs';
+import { forgetStoredSections, LibraryTabs, readStoredSections, useLibrarySections } from './LibraryTabs';
 
-function Harness({ current = 'all', isAdmin = false, onOpen = vi.fn(), videoOnly = false }: { current?: LibraryPlace; isAdmin?: boolean; onOpen?: (place: LibraryPlace) => void; videoOnly?: boolean }) {
+function Harness({ current = 'movies', isAdmin = false, onOpen = vi.fn() }: Partial<Parameters<typeof LibraryTabs>[0]>) {
   const { sections } = useLibrarySections('member-1');
-  return <div className="gallery"><LibraryTabs navigation={sections ? { categories: [ ...(sections.movies ? ['movies' as const] : []), ...(sections.shows ? ['tv' as const] : []), ...(sections.anime ? ['anime' as const] : []), ...(sections.albums + sections.saved_audio ? ['music' as const] : []), ...(sections.youtube ? ['youtube' as const] : []), ...(sections.recordings ? ['recordings' as const] : []) ], features: { streaming: true, requests: false } } : null} current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} videoOnly={videoOnly} /><button type="button">Sort</button></div>;
+  return <div className="gallery"><LibraryTabs current={current} isAdmin={isAdmin} onOpen={onOpen} sections={sections} /><button type="button">Refresh</button></div>;
 }
-const links = () => within(screen.getByRole('navigation', { name: 'Library' })).queryAllByRole('link');
+const links = () => within(screen.getByRole('navigation', { name: 'Library tools' })).getAllByRole('link');
 const names = () => links().map((link) => link.textContent);
 const answer = (patch: Partial<LibrarySections> = {}) => vi.spyOn(api, 'getLibrarySections').mockResolvedValue(librarySections(patch));
 
 beforeEach(() => window.localStorage.clear());
 afterEach(() => { vi.restoreAllMocks(); window.localStorage.clear(); });
 
-describe('LibraryTabs', () => {
-  it('shows All and every tab with something to see, in tab order', async () => {
-    answer({ anime: 0, recordings: 0 });
-    render(<Harness />);
-    await waitFor(() => expect(names()).toEqual(['All', 'Movies', 'Shows', 'Music', 'YouTube', 'Collections']));
-    expect(links().map((link) => link.getAttribute('href'))).toEqual(['/library', '/library/movies', '/library/shows', '/library/music', '/library/youtube', '/library/collections']);
-  });
-
-  it('shows Music for saved audio alone, and hides it with neither albums nor saved audio', async () => {
-    answer({ albums: 0, artists: 0, saved_audio: 2 });
-    const first = render(<Harness />);
-    await waitFor(() => expect(names()).toContain('Music'));
-    first.unmount();
-    window.localStorage.clear();
-    answer({ albums: 0, artists: 0, saved_audio: 0 });
-    render(<Harness />);
-    await waitFor(() => expect(names()).toEqual(['All', 'Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Collections']));
-  });
-
-  it('marks the current tab, and renders no tab for a hidden lens opened by its link', async () => {
-    answer({ anime: 0 });
-    const first = render(<Harness current="shows" />);
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Shows' }).getAttribute('aria-current')).toBe('page'));
-    expect(screen.getByRole('link', { name: 'All' }).getAttribute('aria-current')).toBeNull();
-    first.unmount();
-    render(<Harness current="anime" />);
-    await waitFor(() => expect(names()).toContain('Movies'));
-    expect(names()).not.toContain('Anime');
-    expect(links().some((link) => link.getAttribute('aria-current') === 'page')).toBe(false);
-  });
-
-  it('shows the quiet Deleted link to a vault owner, or to a member with deleted files', async () => {
+describe('Library tools', () => {
+  it('shows only Collections and Deleted for an owner, with the active destination marked', async () => {
     answer({ deleted: 0 });
-    const member = render(<Harness />);
-    await waitFor(() => expect(names()).toContain('Movies'));
-    expect(names()).not.toContain('Deleted');
-    member.unmount();
     render(<Harness current="deleted" isAdmin />);
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Deleted' }).getAttribute('href')).toBe('/library/deleted'));
+    expect(names()).toEqual(['Collections', 'Deleted']);
+    expect(links().map((link) => link.getAttribute('href'))).toEqual(['/library/collections', '/library/deleted']);
     expect(screen.getByRole('link', { name: 'Deleted' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('shows Deleted to a member once they have deleted files', async () => {
     answer({ deleted: 3 });
-    render(<Harness />);
-    await waitFor(() => expect(names()).toContain('Deleted'));
+    render(<Harness current="collections" />);
+    expect(names()).toEqual(['Collections']);
+    expect(screen.getByRole('link', { name: 'Collections' }).getAttribute('aria-current')).toBe('page');
+    await waitFor(() => expect(names()).toEqual(['Collections', 'Deleted']));
   });
 
   it('renders at once from the stored answer, then follows the server and stores it', async () => {
-    window.localStorage.setItem('lumina.sections.member-1', JSON.stringify(librarySections({ recordings: 12 })));
+    window.localStorage.setItem('lumina.sections.member-1', JSON.stringify(librarySections({ deleted: 12 })));
     let finish: (sections: LibrarySections) => void = () => undefined;
     vi.spyOn(api, 'getLibrarySections').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     render(<Harness />);
-    expect(names()).toContain('Recordings'); // synchronously, before any answer
-    finish(librarySections({ recordings: 0 }));
-    await waitFor(() => expect(names()).not.toContain('Recordings'));
-    expect(readStoredSections('member-1')?.recordings).toBe(0);
+    expect(names()).toContain('Deleted');
+    finish(librarySections({ deleted: 0 }));
+    await waitFor(() => expect(names()).not.toContain('Deleted'));
+    expect(readStoredSections('member-1')?.deleted).toBe(0);
   });
 
-  it('ignores a stored value of another shape and shows only All until the answer', () => {
-    window.localStorage.setItem('lumina.sections.member-1', JSON.stringify({ movies: 'lots' }));
+  it('ignores a stored value of another shape until the server answers', () => {
+    window.localStorage.setItem('lumina.sections.member-1', JSON.stringify({ deleted: 2 }));
     vi.spyOn(api, 'getLibrarySections').mockReturnValue(new Promise(() => undefined));
     render(<Harness />);
-    expect(names()).toEqual(['All', 'Collections']);
-    expect(screen.getByRole('navigation', { name: 'Library' }).className).toBe('g-tabs');
+    expect(names()).toEqual(['Collections']);
   });
 
   it('works when localStorage throws', async () => {
@@ -89,76 +57,47 @@ describe('LibraryTabs', () => {
     vi.spyOn(window.localStorage, 'getItem').mockImplementation(denied);
     vi.spyOn(window.localStorage, 'setItem').mockImplementation(denied);
     vi.spyOn(window.localStorage, 'removeItem').mockImplementation(denied);
-    answer();
+    answer({ deleted: 2 });
     render(<Harness />);
-    expect(names()).toEqual(['All', 'Collections']);
-    await waitFor(() => expect(names()).toContain('Recordings'));
+    expect(names()).toEqual(['Collections']);
+    await waitFor(() => expect(names()).toContain('Deleted'));
     expect(readStoredSections('member-1')).toBeNull();
     expect(() => forgetStoredSections('member-1')).not.toThrow();
   });
 
-  it('opens a tab in the app on a plain click and leaves a modified click to the browser', async () => {
+  it('follows a plain click in the app and leaves a modified click to the browser', () => {
     answer();
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} />);
-    const movies = await screen.findByRole('link', { name: 'Movies' });
-    expect(fireEvent.click(movies)).toBe(false); // default prevented
-    expect(onOpen).toHaveBeenCalledWith('movies');
+    const collections = screen.getByRole('link', { name: 'Collections' });
+    expect(fireEvent.click(collections)).toBe(false);
+    expect(onOpen).toHaveBeenCalledWith('collections');
     onOpen.mockClear();
-    expect(fireEvent.click(movies, { ctrlKey: true })).toBe(true);
-    expect(fireEvent.click(movies, { metaKey: true })).toBe(true);
+    expect(fireEvent.click(collections, { ctrlKey: true })).toBe(true);
+    expect(fireEvent.click(collections, { metaKey: true })).toBe(true);
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it('moves along the row with Left and Right, stops at its ends, and leaves it with Down', async () => {
+  it('moves along the row with Left and Right, stops at its ends, and leaves it with Down', () => {
     answer();
-    render(<Harness />);
-    const all = screen.getByRole('link', { name: 'All' });
-    await screen.findByRole('link', { name: 'Movies' });
-    all.focus();
-    fireEvent.keyDown(all, { key: 'ArrowLeft' });
-    expect(document.activeElement).toBe(all);
-    fireEvent.keyDown(all, { key: 'ArrowRight' });
-    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Movies' }));
+    render(<Harness isAdmin />);
+    const collections = screen.getByRole('link', { name: 'Collections' });
+    collections.focus();
+    fireEvent.keyDown(collections, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(collections);
+    fireEvent.keyDown(collections, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Deleted' }));
     fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Sort' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' }));
   });
 
-  it('offers a quiet Collections link before Deleted, even when Deleted is hidden', async () => {
-    answer({ deleted: 0 });
-    const onOpen = vi.fn();
-    const first = render(<Harness current="collections" onOpen={onOpen} />);
-    await waitFor(() => expect(names()).toContain('Collections'));
-    const link = screen.getByRole('link', { name: 'Collections' });
-    expect(link.getAttribute('href')).toBe('/library/collections');
-    expect(link.getAttribute('aria-current')).toBe('page');
-    expect(names()).not.toContain('Deleted');
-    fireEvent.click(link);
-    expect(onOpen).toHaveBeenCalledWith('collections');
-    first.unmount();
-    answer({ deleted: 3 });
+  it('refreshes visible library sections when returning to the app after server changes', async () => {
+    const fetch = vi.spyOn(api, 'getLibrarySections').mockResolvedValueOnce(librarySections({ deleted: 0 })).mockResolvedValueOnce(librarySections({ deleted: 2 }));
     render(<Harness />);
-    await waitFor(() => expect(names().slice(-2)).toEqual(['Collections', 'Deleted']));
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    expect(screen.queryByRole('link', { name: 'Deleted' })).toBeNull();
+    fireEvent(document, new Event('visibilitychange'));
+    await screen.findByRole('link', { name: 'Deleted' });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
-
-  it('renders only retained library tools on a dedicated video category page', async () => {
-    answer({ deleted: 2 });
-    render(<Harness current="movies" isAdmin videoOnly />);
-    const tools = await screen.findByRole('navigation', { name: 'Library tools' });
-    expect(within(tools).getAllByRole('link').map((link) => link.textContent)).toEqual(['Collections', 'Deleted']);
-    expect(within(tools).queryByRole('link', { name: /^(All|Movies|Shows|Anime|Music|YouTube|Recordings)$/ })).toBeNull();
-    expect(within(tools).getByRole('link', { name: 'Collections' }).getAttribute('href')).toBe('/library/collections');
-    expect(within(tools).getByRole('link', { name: 'Deleted' }).getAttribute('href')).toBe('/library/deleted');
-  });
-});
-
-
-it('refreshes visible library sections when returning to the app after server changes', async () => {
-  const fetch = vi.spyOn(api, 'getLibrarySections').mockResolvedValueOnce(librarySections({ albums: 0, artists: 0, saved_audio: 0 })).mockResolvedValueOnce(librarySections({ albums: 12, artists: 4, saved_audio: 0 }));
-  render(<Harness />);
-  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
-  expect(screen.queryByRole('link', { name: 'Music' })).toBeNull();
-  fireEvent(document, new Event('visibilitychange'));
-  await screen.findByRole('link', { name: 'Music' });
-  expect(fetch).toHaveBeenCalledTimes(2);
 });

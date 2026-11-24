@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as api from '../api';
 import type { ServerNavigation } from '../types';
-import { LibraryTabs } from '../features/gallery/LibraryTabs';
 import { MobileTabs, NavigationPopover } from './Navigation';
 import { useServerNavigation } from './useServerNavigation';
 
@@ -10,9 +9,8 @@ const available: ServerNavigation = { categories: ['movies', 'books', 'recording
 const setHidden = (hidden: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, value: hidden });
 afterEach(() => { Reflect.deleteProperty(document, 'hidden'); vi.useRealTimers(); vi.restoreAllMocks(); });
 
-it('uses server capabilities across desktop, mobile and library navigation, even with stale section counts', () => {
-  const sections = { movies: 0, shows: 5, anime: 0, albums: 4, artists: 1, saved_audio: 0, youtube: 0, recordings: 1, deleted: 0 };
-  render(<><NavigationPopover navigation={available} activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface="home" /><MobileTabs navigation={available} activeDownloads={0} moreOpen={false} onMore={vi.fn()} onNavigate={vi.fn()} onSearch={vi.fn()} surface="home" /><LibraryTabs navigation={available} current="all" isAdmin={false} onOpen={vi.fn()} sections={sections} /></>);
+it('uses server capabilities across desktop and mobile navigation', () => {
+  render(<><NavigationPopover navigation={available} activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface="home" /><MobileTabs navigation={available} activeDownloads={0} moreOpen={false} onMore={vi.fn()} onNavigate={vi.fn()} onSearch={vi.fn()} surface="home" /></>);
   const primary = within(screen.getByRole('navigation', { name: 'Primary' }));
   expect(primary.getByRole('button', { name: 'Movies' })).toBeTruthy();
   expect(primary.getByRole('button', { name: 'Books' })).toBeTruthy();
@@ -22,11 +20,6 @@ it('uses server capabilities across desktop, mobile and library navigation, even
   const mobile = within(screen.getByRole('navigation', { name: 'Mobile primary navigation' }));
   expect(mobile.queryByRole('button', { name: 'Streaming' })).toBeNull();
   expect(mobile.getByRole('button', { name: 'Requests' })).toBeTruthy();
-  const library = within(screen.getByRole('navigation', { name: 'Library' }));
-  expect(library.getByRole('link', { name: 'Movies' })).toBeTruthy();
-  expect(library.queryByRole('link', { name: 'Shows' })).toBeNull();
-  expect(library.queryByRole('link', { name: 'Music' })).toBeNull();
-  expect(library.getByRole('link', { name: 'Recordings' })).toBeTruthy();
 });
 
 it('fails closed for a new member', async () => {

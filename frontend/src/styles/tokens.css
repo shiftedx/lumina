@@ -177,10 +177,6 @@
   .gallery.home { --g-gutter: 72px; --g-type-masthead: var(--g-type-media-title); }
 }
 
-@media (min-width: 1920px) {
-  .gallery.g-all { --g-gutter: 72px; }
-}
-
 @media (max-width: 1023px) {
   :root {
     --g-type-display: var(--g-type-media-title);

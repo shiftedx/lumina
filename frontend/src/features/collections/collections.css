@@ -61,16 +61,13 @@
 }
 
 .g-collections-page { padding: 32px var(--g-gutter) 96px; }
-.g-collections-page.is-embedded { padding: 0; }
 .g-collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--g-grid-gap); margin: 32px 0 0; padding: 0; list-style: none; }
-.g-collections-page.is-embedded .g-collection-grid { margin-top: 12px; }
 .g-collection-tile { display: grid; gap: 6px; border-radius: var(--g-radius-sheet); color: var(--g-ink); text-decoration: none; }
 .g-collection-tile:focus-visible { outline-offset: 4px; }
 @media (hover: hover) { .g-collection-tile:hover .g-caption-title { text-decoration: underline; } }
 .g-mosaic { display: grid; overflow: hidden; aspect-ratio: 16 / 9; grid-template-columns: repeat(4, 1fr); gap: 2px; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .g-mosaic.is-1 { grid-template-columns: 1fr; }
 .g-mosaic .g-art { aspect-ratio: auto; height: 100%; }
-.g-collections-all { display: inline-block; margin-top: 12px; color: var(--g-ink); }
 .g-franchise-collections { margin-top: 48px; }
 .g-franchise-collections > .g-h2 { margin: 0 0 20px; }
 

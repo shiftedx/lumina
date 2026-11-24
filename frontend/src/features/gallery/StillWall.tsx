@@ -5,7 +5,7 @@
  * reports every changed item.
  */
 import { Disc3, MonitorPlay, Radio, Search } from '../../luminaIcons';
-import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { deleteLibraryFile, type LibraryPageQuery, listLibrary, restoreLibraryFile } from '../../api';
 import { ContextualSearch } from '../../app/ContextualSearch';
@@ -16,9 +16,8 @@ import { moveFocus } from '../media/focusNav';
 import { EmptyShelf } from '../media/MediaCards';
 import { Button, Select, useToast } from '../../ui';
 import { queueMedia } from '../watch/WatchQueue';
-import { chapterColumns, countLabel, gridGap, useElementWidth } from './allStore';
 import { GalleryArt } from './GalleryArt';
-import { fallbackColour } from './galleryModel';
+import { countNoun, fallbackColour } from './galleryModel';
 import { HeroFrame } from './HeroFrame';
 import { StillCard, type StillKind } from './StillCard';
 import { useMediaQuery } from './WallGrid';
@@ -104,6 +103,25 @@ export function usePagedLibrary(query: LibraryPageQuery | null) {
   return { ...current, loadMore: () => { if (current.cursor && !current.loading) load(current.cursor); }, retry: () => load(null), patch };
 }
 
+/** An element's content width as state, following resizes; the window's width where it has none yet (jsdom). */
+function useElementWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+    const measure = () => setWidth(element.clientWidth || window.innerWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
 // non-virtualised DOM; virtualise (reuse WallGrid with an item store) when any member's tab exceeds 2,000 items.
 export function StillWall({ kind, embedded = false, shape, wall, onWallChange, lenses, header, viewSwitch, count, onPlay, canDelete, onItemChanged }: StillWallProps) {
   const query = parseStillQuery(kind, wall);
@@ -115,7 +133,12 @@ export function StillWall({ kind, embedded = false, shape, wall, onWallChange, l
   const tenFoot = useMediaQuery('(min-width: 1920px)');
   const measure = useRef<HTMLDivElement>(null);
   const width = useElementWidth(measure);
-  const columns = narrow && shape === 'still' ? 1 : chapterColumns(shape, width, gridGap(window.innerWidth), phone, tenFoot);
+  const still = shape === 'still';
+  const viewport = window.innerWidth;
+  const gap = viewport >= 1024 ? 24 : viewport >= 600 ? 16 : 8;
+  const minColumns = still ? 2 : 3;
+  const minWidth = still ? (tenFoot ? 320 : 280) : (tenFoot ? 200 : 168);
+  const columns = narrow && still ? 1 : phone ? minColumns : Math.max(minColumns, Math.floor((width + gap) / (minWidth + gap)));
   const grid = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
   const toast = useToast();
   const visible = paged.items.filter((item) => item.status !== 'missing');
@@ -170,7 +193,7 @@ export function StillWall({ kind, embedded = false, shape, wall, onWallChange, l
   }
 
   const sortedBy = `Sorted by ${query.sort === 'title' ? 'title' : 'recently added'}`;
-  const kicker = [query.search ? `Saved video results for “${query.search}”` : query.source ? 'Filtered' : count === null ? null : countLabel(count, NOUNS[kind]), sortedBy].filter(Boolean).join(' · ');
+  const kicker = [query.search ? `Saved video results for “${query.search}”` : query.source ? 'Filtered' : count === null ? null : countNoun(count, NOUNS[kind]), sortedBy].filter(Boolean).join(' · ');
   let body: ReactNode;
   if (paged.loading && !paged.items.length) {
     body = <div aria-busy="true" aria-label="Loading" className="g-still-grid" role="status" style={grid}>{Array.from({ length: 2 * columns }, (_, index) => <span className="g-still-slot" key={index} />)}</div>;

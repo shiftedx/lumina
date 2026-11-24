@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app import schemas
 
-TS = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "types.ts").read_text()
+TS = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "contracts" / "media.ts").read_text()
 BLOCK = re.compile(r"^export interface (\w+)(?: extends (\w+))? \{\n(.*?)\n\}", re.M | re.S)
 NEW_MODELS = [
     schemas.RemoteProgressAnnotation, schemas.ChannelLiveResponse, schemas.ChannelHeaderResponse, schemas.ChannelPageResponse,

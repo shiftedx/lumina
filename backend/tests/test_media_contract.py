@@ -18,7 +18,13 @@ from app.services.library import LibraryService
 from app.services.media_titles import FIELD_SOURCE_RANK
 
 SRC = Path(__file__).resolve().parents[2] / "frontend" / "src"
-TS = (SRC / "types.ts").read_text() + (SRC / "api.ts").read_text()
+TS = "\n".join(
+    path.read_text()
+    for path in [
+        *(SRC / "contracts" / name for name in ("media.ts", "library.ts", "titles.ts", "admin.ts", "automation.ts")),
+        SRC / "api.ts",
+    ]
+)
 BLOCK = re.compile(r"^export (?:interface (\w+)(?: extends (\w+))?|type (\w+) =) \{\n(.*?)\n\}", re.M | re.S)
 MODELS = [
     v for k, v in vars(contract).items()

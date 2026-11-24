@@ -1,6 +1,6 @@
 # Web native integration
 
-Implementation branch: `codex/web-native-integration`, application base `e5573ea1` (current origin/main at kickoff, November 1, 2026). Worktree: `/Users/kmcdowell/.codex/worktrees/web-native-integration/lumina`. Original main checkout clean; all other worktrees and design branch preserved. Approved reference: `codex/web-native-mockups`, pinned prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`. Reference source is not merged into production.
+Implementation branch: `codex/web-native-integration`, application base `e5573ea1` (current origin/main at kickoff, November 1, 2026). Original main checkout clean; all other worktrees and design branch preserved. Approved reference: `codex/web-native-mockups`, pinned prototype `e8720a92fd6c9b03c76d08e7c8351d0b6b32ca32`. Reference source is not merged into production.
 
 Completed extension: approved My settings and Manage server integration, from `eb7e402`. Settings approval `5d4881a`; prototype `f5486e4482d81de13b549eb3bc0e5415d1f8295c`. [Settings ownership/validation](#approved-settings-extension--active-integration) supersedes the earlier settings exclusion. This extension remains undeployed.
 

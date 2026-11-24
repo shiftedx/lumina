@@ -6,14 +6,17 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import (
-    JellyfinHousehold, JellyfinHouseholdRequest, JellyfinImportRequest, JellyfinImportStatus, JellyfinImportSummary,
+    JellyfinHousehold, JellyfinHouseholdMember, JellyfinHouseholdRequest,
+    JellyfinImportRequest, JellyfinImportStatus, JellyfinImportSummary,
 )
 from app.models import User
 from app.persistence import write_transaction
 from app.security import get_admin_user, get_current_user
-from app.services import jellyfin_household
+from app.services import household_import
 from app.services.jellyfin_history import apply, plan
-from app.services.jellyfin_history_client import JellyfinHistory, JellyfinImportError, admin_session, fetch_history, list_users
+from app.services.jellyfin_history_client import (
+    JellyfinHistory, JellyfinImportError, admin_session, fetch_history, list_users, read_history,
+)
 from app.services.rate_limit import enforce_rate_limit
 from app.services.yt_dlp_service import YtDlpService
 
@@ -67,10 +70,16 @@ def _household(db: Session, request: Request, admin: User, payload: JellyfinImpo
     server = _server(db, request, admin, NOT_SET_ADMIN)
     try:
         with admin_session(server, payload.username, payload.password) as (session, admin_jellyfin_id):
-            members = jellyfin_household.run(db, admin, session, admin_jellyfin_id, list_users(session), chosen)
+            rows = household_import.run(
+                db, admin, admin_jellyfin_id, list_users(session), chosen,
+                read=lambda user_id: read_history(session, user_id), source="Jellyfin",
+            )
     except JellyfinImportError as exc:  # sign-in, not an administrator, or the user list; per-user failures are rows
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    return JellyfinHousehold(members=members)
+    return JellyfinHousehold(members=[JellyfinHouseholdMember(
+        jellyfin_id=row.source_id, jellyfin_name=row.source_name,
+        **row.model_dump(exclude={"source_id", "source_name"}),
+    ) for row in rows])
 
 
 def preview_household(

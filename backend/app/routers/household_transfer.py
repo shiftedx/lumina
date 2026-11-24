@@ -12,12 +12,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_db, stream_session_scope
-from app.media_schemas import HouseholdTransfer, HouseholdTransferRequest, JellyfinHouseholdMember
+from app.media_schemas import HouseholdTransfer, HouseholdTransferMember, HouseholdTransferRequest
 from app.models import User
 from app.security import get_admin_user
-from app.services import jellyfin_household, plex_history_client
+from app.services import household_import, plex_history_client
 from app.services.jellyfin_history_client import (
-    JellyfinImportError, JellyfinSession, JellyfinUser, admin_session, list_users,
+    JellyfinHistory, JellyfinImportError, JellyfinUser, admin_session, list_users, read_history,
 )
 from app.services.media_response import ClosingStreamingResponse
 from app.services.rate_limit import enforce_rate_limit
@@ -31,10 +31,9 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class SourceHousehold:
     label: str
-    handle: JellyfinSession | str
     owner_id: str
     users: list[JellyfinUser]
-    read: Callable[[Any, str], Any] | None = None
+    read: Callable[[str], JellyfinHistory]
     errors: dict[str, str] | None = None
 
 
@@ -64,7 +63,9 @@ def _server(db: Session, request: Request, admin: User, provider: Provider) -> s
 def _source(provider: Provider, server: str, first: str, second: str) -> Iterator[SourceHousehold]:
     if provider == "jellyfin":
         with admin_session(server, first, second) as (session, owner_id):
-            yield SourceHousehold("Jellyfin", session, owner_id, list_users(session))
+            yield SourceHousehold(
+                "Jellyfin", owner_id, list_users(session), read=lambda user_id: read_history(session, user_id),
+            )
         return
 
     owner_id, users, tokens = plex_history_client.household(server, first)
@@ -73,28 +74,18 @@ def _source(provider: Provider, server: str, first: str, second: str) -> Iterato
         for user in users if user.id not in tokens
     }
     yield SourceHousehold(
-        "Plex", server, owner_id, users,
-        read=lambda base_url, user_id: plex_history_client.read_history(base_url, tokens[user_id]),
+        "Plex", owner_id, users,
+        read=lambda user_id: plex_history_client.read_history(server, tokens[user_id]),
         errors=missing,
     )
 
 
-def _member(row: JellyfinHouseholdMember) -> dict[str, Any]:
-    summary = row.summary.model_dump(mode="json") if row.summary else None
-    if summary is not None:
-        summary["unmatched_names"] = []
-    return {
-        "source_id": row.jellyfin_id,
-        "source_name": row.jellyfin_name,
-        "disabled": row.disabled,
-        "action": row.action,
-        "lumina_username": row.lumina_username,
-        "reason": row.reason,
-        "error": row.error,
-        "summary": summary,
-        "reset_url": row.reset_url,
-        "reset_expires_at": row.reset_expires_at.isoformat() if row.reset_expires_at else None,
-    }
+def _member(row: HouseholdTransferMember) -> dict[str, Any]:
+    member = row.model_dump(mode="json", exclude={"reset_expires_at"})
+    if member["summary"] is not None:
+        member["summary"]["unmatched_names"] = []
+    member["reset_expires_at"] = row.reset_expires_at.isoformat() if row.reset_expires_at else None
+    return member
 
 
 def discover(
@@ -109,7 +100,7 @@ def discover(
     server = _server(db, request, admin, provider)
     try:
         with _source(provider, server, first, second) as source:
-            rows = jellyfin_household.discover(
+            rows = household_import.discover(
                 db, admin, source.owner_id, source.users, source=source.label, errors=source.errors,
             )
     except JellyfinImportError as exc:
@@ -139,11 +130,11 @@ def _events(
                 return
             with _source(provider, server, first, second) as source:
                 chosen = set(payload.member_ids)
-                discovered = jellyfin_household.discover(
+                discovered = household_import.discover(
                     db, admin, source.owner_id, source.users, source=source.label, errors=source.errors,
                 )
                 actionable = {
-                    row.jellyfin_id for row in discovered if row.action != "skip" and row.error is None
+                    row.source_id for row in discovered if row.action != "skip" and row.error is None
                 }
                 if not chosen.issubset(actionable):
                     yield _event({
@@ -153,17 +144,17 @@ def _events(
                     return
                 completed = 0
                 total = 0
-                steps = jellyfin_household.iter_run(
-                    db, admin, source.handle, source.owner_id, source.users, chosen,
+                steps = household_import.iter_run(
+                    db, admin, source.owner_id, source.users, chosen,
                     read=source.read, source=source.label, progress=True, include_unselected=False,
                 )
                 for step in steps:
-                    if isinstance(step, jellyfin_household.ReadProgress):
+                    if isinstance(step, household_import.ReadProgress):
                         total = step.total
                         yield _event({
                             "type": "progress",
-                            "source_id": step.pairing.jellyfin.id,
-                            "source_name": step.pairing.jellyfin.name,
+                            "source_id": step.pairing.member.id,
+                            "source_name": step.pairing.member.name,
                             "completed": step.completed,
                             "total": step.total,
                         })

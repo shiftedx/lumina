@@ -12,7 +12,7 @@ from app.media_schemas import (
 from app.models import User
 from app.persistence import write_transaction
 from app.security import get_admin_user, get_current_user
-from app.services import jellyfin_household, plex_history_client
+from app.services import household_import, plex_history_client
 from app.services.jellyfin_history import apply, plan
 from app.services.jellyfin_history_client import JellyfinHistory, JellyfinImportError
 from app.services.rate_limit import enforce_rate_limit
@@ -64,15 +64,15 @@ def _household(db: Session, request: Request, admin: User, payload: PlexImportRe
     server = _server(db, request, admin)
     try:
         owner_id, users, tokens = plex_history_client.household(server, payload.token)
-        rows = jellyfin_household.run(
-            db, admin, server, owner_id, users, chosen, source="Plex",
-            read=lambda base_url, user_id: plex_history_client.read_history(base_url, tokens[user_id]),
+        rows = household_import.run(
+            db, admin, owner_id, users, chosen, source="Plex",
+            read=lambda user_id: plex_history_client.read_history(server, tokens[user_id]),
         )
     except JellyfinImportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return PlexHousehold(members=[PlexHouseholdMember(
-        plex_id=row.jellyfin_id, plex_name=row.jellyfin_name,
-        **row.model_dump(exclude={"jellyfin_id", "jellyfin_name"}),
+        plex_id=row.source_id, plex_name=row.source_name,
+        **row.model_dump(exclude={"source_id", "source_name"}),
     ) for row in rows])
 
 

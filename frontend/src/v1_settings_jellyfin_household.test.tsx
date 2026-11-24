@@ -15,7 +15,7 @@ const row = (jellyfin_id: string, jellyfin_name: string, action: 'import' | 'cre
 });
 const PAIRED = 'root is already paired with the Lumina member dana.';
 const PREVIEW = { members: [
-  row('jf-root', 'root', 'import', 'dana', { summary: counts(40) }),
+  row('jf-root', 'root', 'import', 'dana', { summary: { ...counts(40), favorites: 3 } }),
   row('jf-carol', 'Carol', 'create', 'carol', { summary: counts(12) }),
   row('jf-dave', 'Dave', 'create', 'dave', { disabled: true }),
   row('jf-dana', 'Dana', 'skip', null, { reason: PAIRED, summary: null }),
@@ -57,11 +57,12 @@ describe('Bring members over from Jellyfin', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Bring members over from Jellyfin?' });
     expect(api.previewJellyfinHousehold).toHaveBeenCalledWith('root', 'jf-admin-pw');
     expect(within(dialog).getByText(/Create member carol/)).toBeTruthy();
-    expect(within(dialog).getByText(/40 watched/)).toBeTruthy();
+    expect(within(dialog).getByText(/40 watched, 0 in progress, 3 new favorites/)).toBeTruthy();
     expect(within(dialog).getByText(new RegExp(PAIRED))).toBeTruthy();
     const box = (name: RegExp) => within(dialog).getByRole('checkbox', { name }) as HTMLInputElement;
     expect([box(/^root/), box(/^Carol/), box(/^Dave/), box(/^Dana/)].map((input) => input.checked)).toEqual([true, true, false, false]);
     expect(box(/^Dana/).disabled).toBe(true);
+    expect(box(/^Dave/).disabled).toBe(false);
     await userEvent.click(box(/^root/));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Bring members over' }));
     expect(api.runJellyfinHousehold).toHaveBeenCalledWith('root', 'jf-admin-pw', ['jf-carol']);

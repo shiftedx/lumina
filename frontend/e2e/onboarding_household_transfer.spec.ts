@@ -2,16 +2,20 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { mockApi, user } from './lumina-mock';
 
-for (const viewport of [{ name: 'phone', width: 390, height: 900 }, { name: 'desktop', width: 1440, height: 900 }]) {
-  test(`${viewport.name} first-owner transfer shows responsive streamed progress without accessibility or overflow regressions`, async ({ page }, testInfo) => {
-    await page.setViewportSize(viewport);
+for (const { viewport, provider } of [
+  { viewport: { name: 'phone', width: 390, height: 900 }, provider: 'plex' },
+  { viewport: { name: 'desktop', width: 1440, height: 900 }, provider: 'plex' },
+  { viewport: { name: 'phone', width: 390, height: 900 }, provider: 'jellyfin' },
+] as const) {
+  test(`${viewport.name} first-owner ${provider === 'jellyfin' ? 'Jellyfin ' : ''}transfer shows responsive streamed progress without accessibility or overflow regressions`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await mockApi(page, {});
-    await page.addInitScript(() => {
+    await page.addInitScript((source) => {
       const nativeFetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
       window.fetch = (input, init) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-        if (!url.includes('/api/admin/household-transfer/plex/import')) return nativeFetch(input, init);
+        if (!url.includes(`/api/admin/household-transfer/${source}/import`)) return nativeFetch(input, init);
         return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
           start(controller) {
             controller.enqueue(encoder.encode('data: {"type":"connecting"}\n\ndata: {"type":"progress","source_id":"owner","source_name":"Owner","completed":0,"total":2}\n\n'));
@@ -23,22 +27,27 @@ for (const viewport of [{ name: 'phone', width: 390, height: 900 }, { name: 'des
           },
         }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
       };
-    });
+    }, provider);
     await page.route('**/api/session/me', (route) => route.fulfill({ json: { user: { ...user, onboarding_status: 'pending', vault_setup_pending: true } } }));
     await page.route('**/api/admin/onboarding/media', (route) => route.fulfill({ json: { mount_parents: ['/media'] } }));
     await page.route('**/api/admin/storage/roots', (route) => route.fulfill({ json: [{ id: 'films', label: 'Films', path: '/media/films', mode: 'external', enabled: true, minimum_free_bytes: 0, artifact_count: 24, observation: { state: 'available' } }] }));
     await page.route('**/api/admin/imports', (route) => route.fulfill({ json: [] }));
-    await page.route('**/api/admin/media-server', (route) => route.fulfill({ json: { jellyfin_import_url: null, plex_import_url: 'http://plex.local:32400' } }));
-    await page.route('**/api/admin/household-transfer/plex/discover', (route) => route.fulfill({ json: { members: [
+    await page.route('**/api/admin/media-server', (route) => route.fulfill({ json: { jellyfin_import_url: 'http://jellyfin.test:8096', plex_import_url: 'http://plex.local:32400' } }));
+    await page.route(`**/api/admin/household-transfer/${provider}/discover`, (route) => route.fulfill({ json: { members: [
       { source_id: 'owner', source_name: 'Owner', disabled: false, action: 'import', lumina_username: 'alexandria', reason: null, error: null, summary: null, reset_url: null, reset_expires_at: null },
       { source_id: 'sam', source_name: 'Sam', disabled: false, action: 'create', lumina_username: 'sam', reason: null, error: null, summary: null, reset_url: null, reset_expires_at: null },
     ] } }));
 
     await page.goto('/');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('radio', { name: /Plex/ }).check();
+    await page.getByRole('radio', { name: provider === 'plex' ? /Plex/ : /Jellyfin/ }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByLabel('Plex server owner token').fill('fixture-owner-token');
+    if (provider === 'plex') {
+      await page.getByLabel('Plex server owner token').fill('fixture-owner-token');
+    } else {
+      await page.getByLabel('Jellyfin administrator username').fill('fixture-admin');
+      await page.getByLabel('Jellyfin administrator password').fill('fixture-password');
+    }
     await page.getByRole('button', { name: 'Find people' }).click();
     await expect(page.getByText('2 found · 1 new · 1 already in Lumina · 2 selected')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`household-transfer-${viewport.name}-selection.png`), fullPage: true });

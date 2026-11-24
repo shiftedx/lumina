@@ -147,29 +147,14 @@ export type WorkspaceState = {
   jobsLoadingMore: boolean;
   jobsLoadMoreError: string | null;
   library: LibraryItem[];
-  /**
-   * Page-one snapshot the Home surface reads for its "Recently saved" shelf. It
-   * is never head-dropped by infinite scroll, so scrolling deep into the Library
-   * window can't make Home present stale rows as the newest.
-   */
+  /** The first library page and recent realtime updates for Home's "Recently saved" shelf. */
   libraryRecent: LibraryItem[];
   libraryState: CollectionLoadState;
   libraryProblem: CollectionLoadProblem | null;
   libraryRetrying: boolean;
-  libraryNextCursor: string | null;
-  libraryLoadingMore: boolean;
-  libraryLoadMoreError: string | null;
-  /**
-   * Bumped whenever the library window is replaced wholesale (initial load,
-   * refresh, retry) — never on append or realtime upsert. Surfaces fold it into
-   * their infinite-scroll reset key so a refresh restarts progress tracking
-   * cleanly, even when it returns the identical rows.
-   */
-  libraryGeneration: number;
   userSettings: UserSettings | null;
   settingsHydrated: boolean;
   sourceAutomations: SourceAutomation[];
-  selectedLibraryId: string | null;
   selectedJobId: string | null;
   continueWatching: PlaybackProgress[];
   realtimePreview: PreviewResponse | null;
@@ -255,7 +240,6 @@ export type WorkspaceAction =
       jobsNextCursor?: string | null;
       library: LibraryItem[] | null;
       libraryProblem: CollectionLoadProblem | null;
-      libraryNextCursor?: string | null;
       userSettings: UserSettings | null;
       sourceAutomations: SourceAutomation[];
       continueWatching?: PlaybackProgress[] | null;
@@ -273,15 +257,10 @@ export type WorkspaceAction =
   | { type: 'jobs/pageLoading' }
   | { type: 'jobs/pageAppended'; jobs: DownloadJob[]; nextCursor: string | null }
   | { type: 'jobs/pageFailed'; message: string }
-  | { type: 'library/upsert'; item: Partial<LibraryItem> & { id: string }; select?: boolean }
-  | { type: 'library/replace'; library: LibraryItem[]; nextCursor?: string | null }
+  | { type: 'library/upsert'; item: Partial<LibraryItem> & { id: string } }
   | { type: 'library/retrying' }
-  | { type: 'library/loadSucceeded'; library: LibraryItem[]; nextCursor?: string | null }
+  | { type: 'library/loadSucceeded'; library: LibraryItem[] }
   | { type: 'library/loadFailed'; problem: CollectionLoadProblem }
-  | { type: 'library/pageLoading' }
-  | { type: 'library/pageAppended'; items: LibraryItem[]; nextCursor: string | null }
-  | { type: 'library/pageFailed'; message: string }
-  | { type: 'selection/library'; id: string | null }
   | { type: 'selection/job'; id: string | null }
   | { type: 'continueWatching/replace'; entries: PlaybackProgress[] }
   | { type: 'continueWatching/checkpoint'; progress: PlaybackProgress }
@@ -327,14 +306,9 @@ export function createInitialWorkspaceState(): WorkspaceState {
     libraryState: 'loading',
     libraryProblem: null,
     libraryRetrying: false,
-    libraryNextCursor: null,
-    libraryLoadingMore: false,
-    libraryLoadMoreError: null,
-    libraryGeneration: 0,
     userSettings: null,
     settingsHydrated: false,
     sourceAutomations: [],
-    selectedLibraryId: null,
     selectedJobId: null,
     continueWatching: [],
     realtimePreview: null,
@@ -369,10 +343,6 @@ function outputContainerFromSettings(value: unknown): OutputContainer {
   return value === 'webm' || value === 'mkv' ? value : 'mp4';
 }
 
-function firstAvailableId(items: LibraryItem[]): string | null {
-  return items.find((item) => item.status !== 'missing')?.id || null;
-}
-
 function upsert<T extends { id: string }>(current: T[], next: Partial<T> & { id: string }): T[] {
   const index = current.findIndex((entry) => entry.id === next.id);
   const merged = { ...(current[index] || {}), ...next } as T;
@@ -382,11 +352,7 @@ function upsert<T extends { id: string }>(current: T[], next: Partial<T> & { id:
 /** First page size the UI requests for each collection. Kept below the backend clamp of 100. */
 export const LIBRARY_PAGE_SIZE = 60;
 export const JOBS_PAGE_SIZE = 50;
-/**
- * The library grid keeps at most five pages (300 rows) mounted. Appending past
- * this drops from the head so the DOM stays bounded on any library tier; a head
- * drop trims the top of the list, so returning to the newest rows is a Refresh.
- */
+/** Realtime inserts can grow the workspace library cache beyond its first page. */
 export const MAX_LIBRARY_WINDOW_ITEMS = 300;
 
 function appendUniqueById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
@@ -468,15 +434,11 @@ function reconcileLibraryUpsert(state: WorkspaceState, item: Partial<LibraryItem
   const library = reconcileOrderedWindow(state.library, item, MAX_LIBRARY_WINDOW_ITEMS);
   const libraryRecent = reconcileOrderedWindow(state.libraryRecent, item, LIBRARY_PAGE_SIZE);
   if (library === state.library && libraryRecent === state.libraryRecent) return state;
-  const selectedLibraryId = item.status === 'missing' && state.selectedLibraryId === item.id
-    ? firstAvailableId(library)
-    : state.selectedLibraryId || firstAvailableId(library);
   return {
     ...state,
     library,
     libraryRecent,
     libraryState: state.libraryState === 'ready' || state.libraryState === 'empty' ? successfulLibraryState(library) : 'stale',
-    selectedLibraryId,
   };
 }
 
@@ -590,16 +552,11 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         jobsLoadMoreError: null,
         library: action.library ?? previousLibrary,
         libraryRecent: action.library ?? previousLibraryRecent,
-        libraryGeneration: action.library ? state.libraryGeneration + 1 : state.libraryGeneration,
         libraryState: action.library
           ? successfulLibraryState(action.library)
           : failedCollectionState(availableLibraryCount(previousLibrary), action.libraryProblem || classifyCollectionLoadProblem(null)),
         libraryProblem: action.library ? null : action.libraryProblem,
         libraryRetrying: false,
-        libraryNextCursor: action.library ? action.libraryNextCursor ?? null : state.libraryNextCursor,
-        libraryLoadingMore: false,
-        libraryLoadMoreError: null,
-        selectedLibraryId: sameUser ? state.selectedLibraryId || (action.library ? firstAvailableId(action.library) : null) : action.library ? firstAvailableId(action.library) : null,
         continueWatching: action.continueWatching ?? previousContinueWatching,
         userSettings: settings,
         settingsHydrated: settings !== null,
@@ -713,52 +670,17 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         selectedJobId: state.selectedJobId && completedIds.has(state.selectedJobId) ? null : state.selectedJobId,
       };
     }
-    case 'library/upsert': {
-      const reconciled = reconcileLibraryUpsert(state, action.item);
-      return action.select ? { ...reconciled, selectedLibraryId: action.item.id } : reconciled;
-    }
-    case 'library/replace': {
-      const visible = action.library.filter((item) => item.status !== 'missing');
-      const selectedLibraryId =
-        state.selectedLibraryId && visible.some((item) => item.id === state.selectedLibraryId)
-          ? state.selectedLibraryId
-          : visible[0]?.id || null;
+    case 'library/upsert':
+      return reconcileLibraryUpsert(state, action.item);
+    case 'library/loadSucceeded':
       return {
         ...state,
         library: action.library,
         libraryRecent: action.library,
-        libraryGeneration: state.libraryGeneration + 1,
         libraryState: successfulLibraryState(action.library),
         libraryProblem: null,
         libraryRetrying: false,
-        libraryNextCursor: action.nextCursor ?? null,
-        libraryLoadingMore: false,
-        libraryLoadMoreError: null,
-        selectedLibraryId,
       };
-    }
-    case 'library/loadSucceeded':
-      return workspaceReducer(state, { type: 'library/replace', library: action.library, nextCursor: action.nextCursor });
-    case 'library/pageLoading':
-      return { ...state, libraryLoadingMore: true, libraryLoadMoreError: null };
-    case 'library/pageAppended': {
-      const merged = appendUniqueById(state.library, action.items);
-      const library = merged.length > MAX_LIBRARY_WINDOW_ITEMS ? merged.slice(merged.length - MAX_LIBRARY_WINDOW_ITEMS) : merged;
-      const selectedLibraryId = state.selectedLibraryId && !library.some((item) => item.id === state.selectedLibraryId)
-        ? firstAvailableId(library)
-        : state.selectedLibraryId;
-      return {
-        ...state,
-        library,
-        selectedLibraryId,
-        libraryState: state.libraryState === 'ready' || state.libraryState === 'empty' ? successfulLibraryState(library) : state.libraryState,
-        libraryNextCursor: action.nextCursor,
-        libraryLoadingMore: false,
-        libraryLoadMoreError: null,
-      };
-    }
-    case 'library/pageFailed':
-      return { ...state, libraryLoadingMore: false, libraryLoadMoreError: action.message };
     case 'library/retrying':
       return { ...state, libraryRetrying: true };
     case 'library/loadFailed':
@@ -768,8 +690,6 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         libraryProblem: action.problem,
         libraryRetrying: false,
       };
-    case 'selection/library':
-      return { ...state, selectedLibraryId: action.id };
     case 'selection/job':
       return { ...state, selectedJobId: action.id };
     case 'continueWatching/replace':

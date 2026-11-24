@@ -8,6 +8,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -344,6 +345,18 @@ def test_backup_incomplete_safe(admin) -> None:  # noqa: ANN001
         restore(path, settings.data_dir.parent / "elsewhere")
 
 
+def test_backup_refuses_a_malformed_source_without_publishing_a_copy(admin) -> None:  # noqa: ANN001
+    client, headers = admin
+    with db_module.engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE service_connectors RENAME TO old_connectors")
+
+    response = client.post("/api/admin/backups", headers=headers)
+
+    assert response.status_code == 409, response.text
+    assert "service_connectors" in response.json()["detail"]
+    assert list(backups.backup_root().iterdir()) == []
+
+
 def test_restored_sessions_invites_and_cast_capabilities_are_revoked(admin, tmp_path) -> None:  # noqa: ANN001
     client, headers = admin
     invite = client.post("/api/admin/invitations", json={"role": "viewer"}, headers=headers).json()
@@ -429,15 +442,31 @@ def test_restore_refuses_an_unsupported_backup_before_replacing_current_data(adm
     assert live.read_bytes() == b"current-schema-data"
 
 
-def test_restore_refuses_a_corrupt_current_backup_before_replacing_current_data(admin, tmp_path) -> None:  # noqa: ANN001
+@pytest.mark.parametrize("corrupt_stage", [False, True], ids=["source", "staged-copy"])
+def test_restore_refuses_a_corrupt_current_backup_before_replacing_current_data(admin, tmp_path, monkeypatch, corrupt_stage) -> None:  # noqa: ANN001
     name = backups.create_backup()["name"]
     backup = backups.backup_root() / f"{name}.db"
-    with sqlite3.connect(backup) as copy:
-        copy.execute("DROP TRIGGER trg_photo_face_index_insert")
-    manifest_path = backup.with_suffix(".json")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.update(size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def drop_trigger(path: Path) -> None:
+        with closing(sqlite3.connect(path)) as copy:
+            copy.execute("DROP TRIGGER trg_photo_face_index_insert")
+
+    if corrupt_stage:
+        copyfile = shutil.copyfile
+
+        def copy_then_corrupt(source: Path, destination: Path) -> Path:
+            copyfile(source, destination)
+            drop_trigger(destination)
+            return destination
+
+        monkeypatch.setattr(shutil, "copyfile", copy_then_corrupt)
+    else:
+        drop_trigger(backup)
+        manifest_path = backup.with_suffix(".json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.update(size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     target = tmp_path / "restored-corrupt"
     target.mkdir()
     live = target / settings.database_filename
@@ -445,6 +474,7 @@ def test_restore_refuses_a_corrupt_current_backup_before_replacing_current_data(
     with pytest.raises(SystemExit, match="trg_photo_face_index_insert"):
         restore(backup, target)
     assert live.read_bytes() == b"current-schema-data"
+    assert not live.with_name(live.name + ".restoring").exists()
 
 
 def test_standalone_restore_refuses_a_missing_mapped_table_before_replacing_current_data(admin, tmp_path) -> None:  # noqa: ANN001

@@ -46,16 +46,11 @@ def restore(backup: Path, data_dir: Path) -> Path | None:
         try:
             # Bearer material captured before the backup must not work again after a restore.
             copy.execute("DELETE FROM app_sessions")
-            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_tokens'").fetchone():
-                copy.execute("DELETE FROM device_tokens")  # a v2 backup predates Connected apps and has no such table
-            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='music_cast_tickets'").fetchone():
-                copy.execute("DELETE FROM music_cast_tickets")
-            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='music_receiver_tickets'").fetchone():
-                copy.execute("DELETE FROM music_receiver_tickets")
-            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='media_cast_tickets'").fetchone():
-                copy.execute("DELETE FROM media_cast_tickets")
-            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_pairings'").fetchone():
-                copy.execute("DELETE FROM mobile_pairings")
+            copy.execute("DELETE FROM device_tokens")
+            copy.execute("DELETE FROM music_cast_tickets")
+            copy.execute("DELETE FROM music_receiver_tickets")
+            copy.execute("DELETE FROM media_cast_tickets")
+            copy.execute("DELETE FROM mobile_pairings")
             copy.execute("UPDATE account_tokens SET revoked_at = ? WHERE used_at IS NULL AND revoked_at IS NULL", (now.replace(tzinfo=None).isoformat(" "),))
             copy.commit()
         finally:

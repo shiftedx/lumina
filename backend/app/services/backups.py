@@ -8,6 +8,7 @@ Restore is offline only — see ``app.restore``.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 import fcntl
 from hashlib import sha256
@@ -79,35 +80,26 @@ def create_backup(kind: str = "manual") -> dict[str, Any]:
             raise BackupError("A backup was created a moment ago; try again")
         partial = root / f"{name}.db.partial"
         os.close(os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
-        raw = db_module.engine.raw_connection()
         try:
-            destination = sqlite3.connect(partial)
-            try:
+            with closing(db_module.engine.raw_connection()) as raw, closing(sqlite3.connect(partial)) as destination:
                 raw.driver_connection.backup(destination)  # one consistent snapshot, writers keep going
                 destination.execute("PRAGMA journal_mode=DELETE")  # self-contained single file
+                db_module.validate_database_schema(destination)
                 # API keys never leave the live database; secure_delete zeroes the freed bytes too.
                 # jellyfin_server_key is kept on purpose: a restore keeps the same ServerId for clients.
                 destination.execute("PRAGMA secure_delete=ON")
-                columns = {row[1] for row in destination.execute("PRAGMA table_info(app_settings)")}
                 with destination:
-                    destination.execute("UPDATE app_settings SET ai_api_key = NULL")
-                    if "tmdb_api_key" in columns:
-                        destination.execute("UPDATE app_settings SET tmdb_api_key = NULL")
-                    if "omdb_api_key" in columns:
-                        destination.execute("UPDATE app_settings SET omdb_api_key = NULL")
-                    if "smtp_password" in columns:  # 2.6.0 Requests: the SMTP password and Sonarr/Radarr keys too
-                        destination.execute("UPDATE app_settings SET smtp_password = NULL")
-                        destination.execute("UPDATE arr_servers SET api_key = NULL")
-                    if destination.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_connectors'").fetchone():
-                        destination.execute("UPDATE service_connectors SET api_key = NULL, username = NULL, password = NULL")
-                    if destination.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='listening_export_connections'").fetchone():
-                        destination.execute("UPDATE listening_export_connections SET credentials = NULL, enabled = 0")
+                    destination.execute("UPDATE app_settings SET ai_api_key = NULL, tmdb_api_key = NULL, omdb_api_key = NULL, smtp_password = NULL")
+                    destination.execute("UPDATE arr_servers SET api_key = NULL")
+                    destination.execute("UPDATE service_connectors SET api_key = NULL, username = NULL, password = NULL")
+                    destination.execute("UPDATE listening_export_connections SET credentials = NULL, enabled = 0")
                 counts = {table: destination.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in COUNTED_TABLES}  # noqa: S608
-                schema_version = destination.execute("PRAGMA user_version").fetchone()[0]
-            finally:
-                destination.close()
-        finally:
-            raw.close()
+        except db_module.SchemaVersionError as exc:
+            partial.unlink(missing_ok=True)
+            raise BackupError(f"Backup source failed validation: {exc}") from exc
+        except sqlite3.DatabaseError as exc:
+            partial.unlink(missing_ok=True)
+            raise BackupError(f"Backup source could not be copied ({exc.__class__.__name__})") from exc
         with partial.open("rb") as handle:
             os.fsync(handle.fileno())
         os.replace(partial, target)
@@ -116,7 +108,7 @@ def create_backup(kind: str = "manual") -> dict[str, Any]:
             "kind": kind,
             "created_at": now.isoformat(),
             "app_version": APP_VERSION,
-            "schema_version": schema_version,
+            "schema_version": db_module.SCHEMA_VERSION,
             "size": target.stat().st_size,
             "sha256": _sha256(target),
             "counts": counts,

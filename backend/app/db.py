@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, closing, contextmanager
+from pathlib import Path
 from typing import Iterator
 
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.config import settings
@@ -108,52 +109,30 @@ def register_models() -> None:
     )
 
 
-def _validate_current_schema(connection) -> None:  # noqa: ANN001
-    """Reject a stamped database whose mapped tables no longer match schema 44."""
-    inspector = inspect(connection)
-    actual_tables = set(inspector.get_table_names())
-    expected_tables = set(Base.metadata.tables)
-    missing_tables = expected_tables - actual_tables
-    changed_tables = {
-        table
-        for table in expected_tables - missing_tables
-        if {column["name"] for column in inspector.get_columns(table)}
-        != {column.name for column in Base.metadata.tables[table].columns}
-    }
-    actual_indexes = set(connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type = 'index'").scalars())
-    missing_indexes = {
-        index.name
-        for table in expected_tables - missing_tables
-        for index in Base.metadata.tables[table].indexes
-        if index.name is not None and index.name not in actual_indexes
-    }
-    if missing_tables or changed_tables or missing_indexes:
-        detail = ", ".join(sorted(missing_tables | changed_tables | missing_indexes))
-        raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({detail}); refusing to start.")
-
-
-def validate_database_file(path) -> None:  # noqa: ANN001
-    """Read a current SQLite file without opening the WAL-configuring engine."""
+def validate_database_schema(copy: sqlite3.Connection) -> None:
+    """Require the current version and its mapped schema."""
     register_models()
-    copy = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    try:
-        version = copy.execute("PRAGMA user_version").fetchone()[0]
-        tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        if version != SCHEMA_VERSION:
-            raise SchemaVersionError(f"Database schema version {version} is unsupported by this release (requires {SCHEMA_VERSION}); refusing to start.")
-        missing = set(Base.metadata.tables) - tables
-        changed = {
-            table for table in set(Base.metadata.tables) - missing
-            if {row[1] for row in copy.execute(f"PRAGMA table_info({table})")} != {column.name for column in Base.metadata.tables[table].columns}
-        }
-        indexes = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
-        expected_indexes = {index.name for table in Base.metadata.tables.values() for index in table.indexes if index.name}
-        triggers = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
-        absent = missing | changed | (expected_indexes - indexes) | (set(photo_face_index_schema.TRIGGER_NAMES) - triggers)
-        if absent:
-            raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({', '.join(sorted(absent))}); refusing to start.")
-    finally:
-        copy.close()
+    version = copy.execute("PRAGMA user_version").fetchone()[0]
+    if version != SCHEMA_VERSION:
+        raise SchemaVersionError(f"Database schema version {version} is unsupported by this release (requires {SCHEMA_VERSION}); refusing to start.")
+    tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    missing = set(Base.metadata.tables) - tables
+    changed = {
+        table for table in set(Base.metadata.tables) - missing
+        if {row[1] for row in copy.execute(f"PRAGMA table_info({table})")} != {column.name for column in Base.metadata.tables[table].columns}
+    }
+    indexes = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    expected_indexes = {index.name for table in Base.metadata.tables.values() for index in table.indexes if index.name}
+    triggers = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+    absent = missing | changed | (expected_indexes - indexes) | (set(photo_face_index_schema.TRIGGER_NAMES) - triggers)
+    if absent:
+        raise SchemaVersionError(f"Database schema {SCHEMA_VERSION} is incomplete or corrupt ({', '.join(sorted(absent))}); refusing to start.")
+
+
+def validate_database_file(path: Path) -> None:
+    """Read a current SQLite file without opening the WAL-configuring engine."""
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as copy:
+        validate_database_schema(copy)
 
 
 def init_db() -> None:

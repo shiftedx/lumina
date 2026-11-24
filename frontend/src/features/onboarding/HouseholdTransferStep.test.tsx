@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { HouseholdTransferEvent, HouseholdTransferMember } from './types';
+import type { HouseholdTransferEvent, HouseholdTransferMember } from '../../types';
 
 const api = vi.hoisted(() => ({
   discoverHouseholdTransfer: vi.fn(),
@@ -12,10 +12,10 @@ const api = vi.hoisted(() => ({
   updateMediaServerSettings: vi.fn(),
 }));
 const transfer = vi.hoisted(() => ({ streamHouseholdTransfer: vi.fn() }));
-vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
-vi.mock('./features/onboarding/onboardingTransferApi', () => transfer);
+vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
+vi.mock('./onboardingTransferApi', () => transfer);
 
-const { HouseholdTransferStep } = await import('./features/onboarding/HouseholdTransferStep');
+const { HouseholdTransferStep } = await import('./HouseholdTransferStep');
 
 const mediaSettings = { jellyfin_import_url: null, plex_import_url: 'http://plex.local:32400' };
 const root = { id: 'films', label: 'Films', path: '/media/films', mode: 'external', enabled: true, minimum_free_bytes: 0, artifact_count: 12, observation: { state: 'available' } };

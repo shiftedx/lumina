@@ -309,6 +309,7 @@ describe('workspaceReducer', () => {
 
     expect(userB.jobs).toEqual([]);
     expect(userB.library).toEqual([]);
+    expect(userB.libraryRecent).toEqual([]);
     expect(userB.jobsState).toBe('failed');
     expect(userB.libraryState).toBe('failed');
   });
@@ -339,7 +340,6 @@ describe('workspaceReducer', () => {
       item: { id: 'library-1', status: 'missing' },
     });
     expect(missing.libraryState).toBe('empty');
-    expect(missing.selectedLibraryId).toBeNull();
   });
 
   it('classifies timeout, offline, unauthorized, and server failures for durable recovery guidance', () => {
@@ -358,54 +358,31 @@ function libraryItem(id: string, downloadedAt: string | null, extra: Partial<Lib
   return { id, title: `Item ${id}`, status: 'available', downloaded_at: downloadedAt, ...extra } as LibraryItem;
 }
 
-describe('library paging window', () => {
-  const hydrated = resolve({ jobsNextCursor: 'jobs-cursor-2', library: [libraryItem('lib-b', '2026-06-10T00:00:00Z'), libraryItem('lib-a', '2026-06-01T00:00:00Z')], libraryNextCursor: 'cursor-2' });
+describe('workspace library windows', () => {
+  const hydrated = resolve({ library: [libraryItem('lib-b', '2026-06-10T00:00:00Z'), libraryItem('lib-a', '2026-06-01T00:00:00Z')] });
 
-  it('records the first-page cursors from the authenticated hydration', () => {
-    expect(hydrated.libraryNextCursor).toBe('cursor-2');
-    expect(hydrated.jobsNextCursor).toBe('jobs-cursor-2');
-    expect(hydrated.libraryLoadingMore).toBe(false);
-  });
+  it('bounds the workspace and Home windows independently as new downloads arrive', () => {
+    const initialItems = Array.from({ length: 60 }, (_, index) =>
+      libraryItem(`seed-${String(59 - index).padStart(2, '0')}`, '2026-06-01T00:00:00Z'));
+    let state = resolve({ library: initialItems });
+    for (let index = 0; index < 241; index++) {
+      const item = libraryItem(`new-${String(index).padStart(3, '0')}`, '2026-06-02T00:00:00Z');
+      state = reconcileWorkspaceEvent(state, { type: 'library_item_upserted', payload: { user_id: user.id, item } });
+    }
 
-  it('appends and de-duplicates the next page onto the ordered window', () => {
-    const loading = workspaceReducer(hydrated, { type: 'library/pageLoading' });
-    expect(loading.libraryLoadingMore).toBe(true);
-
-    const appended = workspaceReducer(loading, {
-      type: 'library/pageAppended',
-      items: [libraryItem('lib-a', '2026-06-01T00:00:00Z'), libraryItem('lib-c', '2026-05-20T00:00:00Z')],
-      nextCursor: 'cursor-3',
-    });
-
-    expect(appended.library.map((item) => item.id)).toEqual(['lib-b', 'lib-a', 'lib-c']);
-    expect(appended.libraryNextCursor).toBe('cursor-3');
-    expect(appended.libraryLoadingMore).toBe(false);
-  });
-
-  it('bounds the mounted window to five pages by dropping from the head', () => {
-    const firstPage = Array.from({ length: 300 }, (_, index) => libraryItem(`seed-${String(index).padStart(3, '0')}`, `2026-06-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-    const seeded = resolve({ library: firstPage, libraryNextCursor: 'cursor-2' });
-    const nextPage = Array.from({ length: 60 }, (_, index) => libraryItem(`page2-${index}`, `2026-05-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-
-    const appended = workspaceReducer(seeded, { type: 'library/pageAppended', items: nextPage, nextCursor: 'cursor-3' });
-
-    expect(appended.library).toHaveLength(300);
-    expect(appended.library[0].id).toBe('seed-060');
-    expect(appended.library[appended.library.length - 1].id).toBe('page2-59');
-  });
-
-  it('clears the loading flag and records a retry affordance when a page fetch fails', () => {
-    const loading = workspaceReducer(hydrated, { type: 'library/pageLoading' });
-    const failed = workspaceReducer(loading, { type: 'library/pageFailed', message: 'Could not load more of your library.' });
-    expect(failed.libraryLoadingMore).toBe(false);
-    expect(failed.libraryLoadMoreError).toBe('Could not load more of your library.');
+    expect(state.library).toHaveLength(300);
+    expect(state.library.at(-1)?.id).toBe('seed-01');
+    expect(state.libraryRecent).toHaveLength(60);
+    expect(state.libraryRecent.at(-1)?.id).toBe('new-181');
+    expect(state.libraryRecent).toEqual(state.library.slice(0, 60));
   });
 
   it('updates a windowed item in place when a realtime upsert matches it', () => {
     const event = { type: 'library_item_upserted', payload: { user_id: user.id, item: { id: 'lib-b', title: 'Renamed in place' } } } as AppEvent;
     const next = reconcileWorkspaceEvent(hydrated, event);
     expect(next.library.map((item) => item.id)).toEqual(['lib-b', 'lib-a']);
-    expect(next.library[0].title).toBe('Renamed in place');
+    expect(next.library[0]).toMatchObject({ title: 'Renamed in place', status: 'available', downloaded_at: '2026-06-10T00:00:00Z' });
+    expect(next.libraryRecent[0]).toEqual(next.library[0]);
   });
 
   it('prepends a brand-new download that sorts before the window head', () => {
@@ -422,57 +399,27 @@ describe('library paging window', () => {
     expect(next.library.map((entry) => entry.id)).toEqual(['lib-b', 'lib-a']);
   });
 
-  it('keeps the Home recent snapshot anchored to page one after the window head-drops', () => {
-    const firstPage = Array.from({ length: 300 }, (_, index) => libraryItem(`seed-${String(index).padStart(3, '0')}`, `2026-06-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-    const seeded = resolve({ library: firstPage, libraryNextCursor: 'cursor-2' });
-    const nextPage = Array.from({ length: 60 }, (_, index) => libraryItem(`page2-${index}`, `2026-05-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-
-    const appended = workspaceReducer(seeded, { type: 'library/pageAppended', items: nextPage, nextCursor: 'cursor-3' });
-
-    expect(appended.library[0].id).toBe('seed-060');
-    expect(appended.libraryRecent[0].id).toBe('seed-000');
-    expect(appended.libraryRecent.map((item) => item.id)).toEqual(firstPage.map((item) => item.id));
-  });
-
   it('reflects a fresh download in the Home recent snapshot', () => {
     const item = libraryItem('lib-new', '2026-06-20T00:00:00Z', { title: 'Just downloaded' });
     const next = reconcileWorkspaceEvent(hydrated, { type: 'library_item_upserted', payload: { user_id: user.id, item } } as AppEvent);
     expect(next.libraryRecent[0].id).toBe('lib-new');
   });
 
-  it('rebuilds the Home recent snapshot from page one on refresh', () => {
-    const appended = workspaceReducer(hydrated, {
-      type: 'library/pageAppended', items: [libraryItem('lib-c', '2026-05-20T00:00:00Z')], nextCursor: 'cursor-3',
+  it('preserves both windows when a refresh fails and rebuilds them from the recovered first page', () => {
+    const fresh = libraryItem('lib-fresh', '2026-07-01T00:00:00Z');
+    const stale = workspaceReducer(hydrated, {
+      type: 'library/loadFailed',
+      problem: classifyCollectionLoadProblem(new TypeError('fetch failed'), 'refresh'),
     });
-    const refreshed = workspaceReducer(appended, {
-      type: 'library/loadSucceeded', library: [libraryItem('lib-fresh', '2026-07-01T00:00:00Z')], nextCursor: 'fresh-cursor',
-    });
-    expect(refreshed.libraryRecent.map((item) => item.id)).toEqual(['lib-fresh']);
-  });
+    expect(stale.libraryState).toBe('stale');
+    expect(stale.library).toEqual(hydrated.library);
+    expect(stale.libraryRecent).toEqual(hydrated.libraryRecent);
 
-  it('resets the window and cursor when a refresh replaces the library', () => {
-    const appended = workspaceReducer(hydrated, {
-      type: 'library/pageAppended', items: [libraryItem('lib-c', '2026-05-20T00:00:00Z')], nextCursor: 'cursor-3',
-    });
-    const refreshed = workspaceReducer(appended, {
-      type: 'library/loadSucceeded', library: [libraryItem('lib-fresh', '2026-07-01T00:00:00Z')], nextCursor: 'fresh-cursor',
-    });
-    expect(refreshed.library.map((item) => item.id)).toEqual(['lib-fresh']);
-    expect(refreshed.libraryNextCursor).toBe('fresh-cursor');
-    expect(refreshed.libraryLoadingMore).toBe(false);
-    expect(refreshed.libraryLoadMoreError).toBeNull();
-  });
-
-  it('bumps the window generation on replace but not on append', () => {
-    const appended = workspaceReducer(hydrated, {
-      type: 'library/pageAppended', items: [libraryItem('lib-c', '2026-05-20T00:00:00Z')], nextCursor: 'cursor-3',
-    });
-    expect(appended.libraryGeneration).toBe(hydrated.libraryGeneration);
-
-    const refreshed = workspaceReducer(appended, {
-      type: 'library/loadSucceeded', library: [libraryItem('lib-fresh', '2026-07-01T00:00:00Z')], nextCursor: 'fresh',
-    });
-    expect(refreshed.libraryGeneration).toBe(hydrated.libraryGeneration + 1);
+    const refreshed = workspaceReducer(stale, { type: 'library/loadSucceeded', library: [fresh] });
+    expect(refreshed.library).toEqual([fresh]);
+    expect(refreshed.libraryRecent).toEqual([fresh]);
+    expect(refreshed.libraryState).toBe('ready');
+    expect(refreshed.libraryProblem).toBeNull();
   });
 
   it('re-sorts a re-downloaded mid-window item to the window head on a fresh downloaded_at', () => {
@@ -491,28 +438,12 @@ describe('library paging window', () => {
     const next = reconcileWorkspaceEvent(hydrated, event);
     expect(next.library.map((item) => item.id)).toEqual(['lib-b', 'lib-a']);
   });
+});
 
-  it('moves the grid highlight to the first available row when a head-drop trims the selected item', () => {
-    const firstPage = Array.from({ length: 300 }, (_, index) => libraryItem(`seed-${String(index).padStart(3, '0')}`, `2026-06-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-    const seeded = resolve({ library: firstPage, libraryNextCursor: 'cursor-2' });
-    expect(seeded.selectedLibraryId).toBe('seed-000');
-    const nextPage = Array.from({ length: 60 }, (_, index) => libraryItem(`page2-${index}`, `2026-05-01T00:00:${String(index % 60).padStart(2, '0')}Z`));
-
-    const appended = workspaceReducer(seeded, { type: 'library/pageAppended', items: nextPage, nextCursor: 'cursor-3' });
-
-    expect(appended.library.some((item) => item.id === 'seed-000')).toBe(false);
-    expect(appended.selectedLibraryId).toBe('seed-060');
-  });
-
-  it('keeps the selected item highlighted when a page append does not trim it', () => {
-    const appended = workspaceReducer(hydrated, {
-      type: 'library/pageAppended', items: [libraryItem('lib-c', '2026-05-20T00:00:00Z')], nextCursor: 'cursor-3',
-    });
-    expect(appended.selectedLibraryId).toBe(hydrated.selectedLibraryId);
-  });
-
+describe('downloads feed paging window', () => {
   it('appends and de-duplicates the next jobs page for the downloads feed', () => {
     const withJobs = resolve({ jobs: [job], jobsNextCursor: 'jobs-cursor-2' });
+    expect(withJobs.jobsNextCursor).toBe('jobs-cursor-2');
     const appended = workspaceReducer(withJobs, {
       type: 'jobs/pageAppended',
       jobs: [job, { id: 'job-2', source_url: 'https://example.test/2', status: 'completed' } as DownloadJob],
@@ -521,9 +452,7 @@ describe('library paging window', () => {
     expect(appended.jobs.map((entry) => entry.id)).toEqual(['job-1', 'job-2']);
     expect(appended.jobsNextCursor).toBeNull();
   });
-});
 
-describe('downloads feed paging window', () => {
   function jobRow(id: string, createdAt: string | null, extra: Partial<DownloadJob> = {}): DownloadJob {
     return { id, source_url: `https://example.test/${id}`, status: 'queued', created_at: createdAt, ...extra } as DownloadJob;
   }

@@ -5,7 +5,7 @@ type StoredQueue = {
   queue: MusicTrack[];
   index: number;
   position: number;
-  revision?: number | null;
+  revision: number | null;
   repeat?: unknown;
   shuffle?: unknown;
   dirty?: unknown;
@@ -33,16 +33,18 @@ function validEntry(entry: MusicQueueEntry): boolean {
 
 export function readMusicCheckpoint(owner: string): StoredQueue | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(key(owner)) || 'null') as Partial<StoredQueue> | null;
-    if (!Array.isArray(saved?.queue) || !saved.queue.length || saved.queue.length > 5000 || !saved.queue.every(validTrack)) return null;
+    const saved = JSON.parse(localStorage.getItem(key(owner)) || 'null') as StoredQueue | null;
+    if (!saved) return null;
+    const { queue, revision, index, position, entryIndex } = saved;
+    if (!Array.isArray(queue) || !queue.length || queue.length > 5000 || !queue.every(validTrack)) return null;
+    if (revision !== null && (!Number.isInteger(revision) || revision < 0)) return null;
     const entries = Array.isArray(saved.entries) && saved.entries.length <= 5000 && saved.entries.every(validEntry) ? saved.entries : undefined;
     return {
       ...saved,
-      queue: saved.queue,
-      index: Math.max(0, Math.min(Number.isInteger(saved.index) ? Number(saved.index) : 0, saved.queue.length - 1)),
-      position: typeof saved.position === 'number' && Number.isFinite(saved.position) && saved.position >= 0 ? saved.position : 0,
+      index: Math.max(0, Math.min(Number.isInteger(index) ? index : 0, queue.length - 1)),
+      position: Number.isFinite(position) && position >= 0 ? position : 0,
       entries,
-      entryIndex: entries && Number.isInteger(saved.entryIndex) && entries[Number(saved.entryIndex)] ? saved.entryIndex : null,
+      entryIndex: Number.isInteger(entryIndex) && entries?.[entryIndex as number] ? entryIndex : null,
     };
   } catch { return null; }
 }

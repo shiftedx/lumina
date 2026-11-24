@@ -149,13 +149,12 @@ export function setMusicOwner(owner: string | null): void {
     if (stored) {
       state = {
         ...state, queue: stored.queue, repeat: stored.repeat === 'all' || stored.repeat === 'one' ? stored.repeat : 'off',
-        shuffle: stored.shuffle === true, sharedRevision: Number.isInteger(stored.revision) ? Number(stored.revision) : null,
+        shuffle: stored.shuffle === true, sharedRevision: stored.revision,
         sharedEntries: stored.entries ?? [], sharedEntryIndex: stored.entryIndex ?? null,
         unavailablePolicy: stored.unavailablePolicy === 'wait' ? 'wait' : 'skip',
         playback: { ...EMPTY_PLAYBACK, index: stored.index, position: stored.position },
       };
-      // Cache entries from before shared sessions are a one-time ID-only migration.
-      sharedDirty = stored.dirty === true || stored.revision === undefined;
+      sharedDirty = stored.dirty === true;
     }
     try {
       const until = Number(localStorage.getItem(`lumina:music:sleep:${owner}`));
@@ -229,8 +228,6 @@ export async function restoreMusicSharedSession(owner: string): Promise<void> {
     if (current !== generation || owner !== state.owner) return;
     if (sharedDirty && state.sharedRevision === server.revision) { await syncMusicSharedSession(); return; }
     if (sharedDirty && state.sharedRevision === null && server.revision === 0) { state = { ...state, sharedRevision: 0 }; await syncMusicSharedSession(); return; }
-    // A pre-shared-session cache has no base revision, so it cannot replace an
-    // established server queue. It is only migrated into the empty revision-0 row.
     if (sharedDirty && state.sharedRevision === null) { applyMusicSharedSnapshot(server); return; }
     if (sharedDirty && state.sharedRevision !== server.revision) { emit({ sharedConflict: server, message: 'Your saved queue differs from the server. Choose which queue to keep.' }); return; }
     applyMusicSharedSnapshot(server);

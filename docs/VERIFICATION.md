@@ -4,7 +4,7 @@ This matrix maps a change's risk to the verification that covers it. All checks 
 
 ## Before opening a pull request
 
-Run `mise exec -- make check` before opening a pull request. It covers bootstrap,
+Run `mise exec -- make check` before opening an ordinary pull request. It covers bootstrap,
 backend and Vitest contracts, TypeScript checking (including `frontend/e2e`),
 the production build, then the full parallel browser tier. For UI changes,
 `mise exec -- make e2e-smoke` is the fast merge bar. Before release, qualify
@@ -32,6 +32,8 @@ LUMINA_DV_M2TS_FIXTURES=/tmp/lumina-m2ts-fixtures mise exec -- make check
 The full tier rejects skips caused by an unconfigured corpus; do not add them
 to its allowed skips. Regenerate the corpus if its temporary directory is removed.
 
+For a temporary `cleanup/<lane>` PR targeting `cleanup/production-integration`, use the canonical [production-cleanup process](../CONTRIBUTING.md#temporary-production-cleanup-process). It expires before the final integration-to-`main` candidate, which must pass `mise exec -- make check`.
+
 Install all pinned engines once: `cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
 The tier runner allocates fresh loopback ports and private fixture/output roots;
 see its printed artifact path and pass/fail times. Legacy `make e2e-mocked` and
@@ -47,6 +49,7 @@ The accessibility checks run axe with the WCAG 2.0 to 2.2 A and AA rule tags and
 | Type contracts | `mise exec -- make frontend-typecheck` | TypeScript compilation of `frontend/src` and `frontend/e2e` without emitting files. |
 | Web production output | `mise exec -- make frontend-build` | Type checking plus a Vite production bundle in `frontend/dist/`. |
 | Mocked-API browser specs, including responsive and accessibility resilience | `mise exec -- make e2e-mocked` | Every `frontend/e2e` spec outside `realstack/` against a mocked API. The resilience specs cover mocked desktop and native 320px responsive behavior; keyboard order, activation, focus indication and containment; plus tagged axe checks on success, error, and loading states at a moderate-or-higher threshold. Not a conformance certification. |
+| Temporary production-cleanup lane | See [the canonical process](../CONTRIBUTING.md#temporary-production-cleanup-process) | Exact-HEAD focused evidence for each applicable check, independent review, rebase proof, and `git diff --check`; only while the PR targets `cleanup/production-integration`. |
 | Complete ordinary gate | `mise exec -- make check` | Every row above, plus the combined full browser tier (`make e2e-full`). Required before opening a pull request. |
 | Real-browser remux/transcode decode | `cd frontend && npx playwright install webkit` once, then `mise exec -- make e2e-browsers` | WebKit actually decodes the backend's H.264/AAC HLS output for a remux and a transcode session (`currentTime` advances), and that a seek past the converted range restarts the conversion and lands near the target (#137). Included in the full tier and `make check`; install WebKit before running. Required for changes to local remux/transcode playback (`backend/app/services/local_playback_sessions.py`, `frontend/src/localPlayer.tsx`). |
 

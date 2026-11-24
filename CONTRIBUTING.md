@@ -16,11 +16,15 @@ mise exec -- make bootstrap
 
 1. Branch from `main`. `main` is protected: changes land through pull requests only.
 2. Keep each PR to one change. Test observable behavior at API/service boundaries or user workflows, extending existing contract tests where possible. Avoid tests for individual helpers, CSS declarations, or incidental implementation details. Preserve security, data-integrity, and concurrency regressions; name retained coverage when removing redundant tests.
-3. Run `mise exec -- make check` and paste its final lines in the PR. There is no hosted CI, so this local run is the gate. [docs/VERIFICATION.md](docs/VERIFICATION.md) maps each kind of change to faster focused commands.
+3. Run `mise exec -- make check` and paste its final lines in the PR. There is no hosted CI, so this local run is the gate. [docs/VERIFICATION.md](docs/VERIFICATION.md) maps each kind of change to faster focused commands. The temporary production-cleanup process below is the only exception.
 4. Read the relevant [ADR](docs/adr/) before changing an architectural boundary. If you change one, add or amend an ADR in the same PR.
 5. Update [docker/README.md](docker/README.md) when operator-facing behaviour changes.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org): `fix(player): ...`, `feat(library): ...`, `docs: ...`. Reference the issue (`#123`) when there is one.
+
+## Temporary production-cleanup process
+
+Until every cleanup lane has landed, a `cleanup/<lane>` PR whose base is `cleanup/production-integration` may use this temporary exception to the ordinary `mise exec -- make check` gate; the initial `cleanup/standards` lane uses it. The PR must record its exact HEAD and the applicable focused tests, typecheck, production build, and analyzer; an independent review; rebase proof against `cleanup/production-integration`; and a passing `git diff --check`. This is not an allowed-skips list: each applicable check must run at that exact HEAD. The exception is scoped to those cleanup PRs only; after all cleanup lanes land, remove this section from the final `cleanup/production-integration`-to-`main` candidate and require that candidate's passing `mise exec -- make check` before opening the main PR.
 
 ## Rules
 

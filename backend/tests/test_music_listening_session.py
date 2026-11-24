@@ -279,3 +279,4 @@ def test_logical_order_retains_playable_tail_when_flat_queue_cap_is_reached(list
     assert [track["id"] for track in result["queue"]] == [TRACK_ONE, TRACK_TWO, TRACK_ONE]
     assert [entry["state"] for entry in result["entries"]] == ["playable", "playable", "playable"]
     assert result["entries"][2]["tracks"] == []
+    assert result["entries"][2]["message"] == "Available after the current queue"

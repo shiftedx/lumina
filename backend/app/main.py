@@ -7,7 +7,7 @@ import logging
 import re
 import threading
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -898,34 +898,39 @@ async def lifespan(app: FastAPI):
     background_work.start()
     settings.validate_runtime_security()
     server_lock = backups.hold_server_lock()  # the offline restore refuses while this is held
-    init_db()
-    release_updates.coordinator.start()
-    with session_scope() as db:
-        two_factor.report_key_status(db)
-    configured_concurrency = 1
-    with session_scope() as db:
-        UserService(db).require_remote_bootstrap_ready(settings.remote_https_enabled)
-        from app.services.ai_resources import recover as recover_ai_resources
-        recover_ai_resources(db)
-        app_settings = YtDlpService(db).ensure_app_settings()
-        resource_policy.configure_runtime(resource_policy.household(db))
-        configured_concurrency = app_settings.concurrency
-        public_address.set_origin(app_settings.public_address)
-        public_address.set_local_origin(app_settings.local_address)
-        network_policy.set_extra_ports((app_settings.ui_prefs or {}).get("extra_source_ports"))
-        hwaccel.warm(media_tool(db, "ffmpeg"), app_settings.hwaccel or "auto")
-        if app_settings.jellyfin_enabled:
-            warm_selected_stream_statement(db)
-        UserSettingsService(db).ensure_for_all_users()
-        cache_owner_ids = [owner_id for owner_id, in db.query(User.id).all()]
-    # Reconcile durable member policies before the global ceiling. This also
-    # finishes a settings change if the prior process stopped after committing
-    # the preference but before deleting now-ineligible cache entries.
-    for owner_id in cache_owner_ids:
-        remote_stream_cache.prune_owner(owner_id)
-    remote_stream_cache.prune()
-    local_playback_sessions.close_all()  # derivatives are disposable; drop any a crash left
-    enrichment_jobs.recover_after_restart()  # before any worker starts: re-pend once, then fail
+    try:
+        init_db()
+        release_updates.coordinator.start()
+        with session_scope() as db:
+            two_factor.report_key_status(db)
+        configured_concurrency = 1
+        with session_scope() as db:
+            UserService(db).require_remote_bootstrap_ready(settings.remote_https_enabled)
+            from app.services.ai_resources import recover as recover_ai_resources
+            recover_ai_resources(db)
+            app_settings = YtDlpService(db).ensure_app_settings()
+            resource_policy.configure_runtime(resource_policy.household(db))
+            configured_concurrency = app_settings.concurrency
+            public_address.set_origin(app_settings.public_address)
+            public_address.set_local_origin(app_settings.local_address)
+            network_policy.set_extra_ports((app_settings.ui_prefs or {}).get("extra_source_ports"))
+            hwaccel.warm(media_tool(db, "ffmpeg"), app_settings.hwaccel or "auto")
+            if app_settings.jellyfin_enabled:
+                warm_selected_stream_statement(db)
+            UserSettingsService(db).ensure_for_all_users()
+            cache_owner_ids = [owner_id for owner_id, in db.query(User.id).all()]
+        # Reconcile durable member policies before the global ceiling. This also
+        # finishes a settings change if the prior process stopped after committing
+        # the preference but before deleting now-ineligible cache entries.
+        for owner_id in cache_owner_ids:
+            remote_stream_cache.prune_owner(owner_id)
+        remote_stream_cache.prune()
+        local_playback_sessions.close_all()  # derivatives are disposable; drop any a crash left
+        enrichment_jobs.recover_after_restart()  # before any worker starts: re-pend once, then fail
+    except BaseException:
+        # No background writer has started, so restore can acquire the lock.
+        server_lock.close()
+        raise
     probe_warming.start()  # background ffprobe + loudness, one file at a time; also woken after each import
     m2ts_irap_indexes.start()
     library_automation.start(first_tick_delay_s=FIRST_TICK_DELAY_S)  # scheduled scans and folder watching; polls off the event loop
@@ -948,29 +953,30 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(reconcile_arr_operations)
     reconcile_task = asyncio.create_task(reconcile_loop())
     playback_buffer_task = asyncio.create_task(playback_buffer_loop())
-    automation_task = asyncio.create_task(source_automation_loop())
-    metadata_task = asyncio.create_task(metadata_loop())
-    request_sync_task = asyncio.create_task(request_sync_loop())  # skips cleanly while Requests are off or no server is set
-    arr_observer_task = asyncio.create_task(observer_loop())  # enabled connections are observed even with Requests off
-    connector_observer_task = asyncio.create_task(connector_observer_loop())
-    listening_export_task = asyncio.create_task(listening_export_loop())
-    catalog_warm_task = asyncio.create_task(catalog_warm_loop())  # Requests catalog first-load warm-up; idle while Requests are off
+    service_loops = [
+        asyncio.create_task(run())
+        for run in (
+            source_automation_loop,
+            metadata_loop,
+            request_sync_loop,  # idle when Requests are off or no server is set
+            observer_loop,  # enabled Arr connections are observed even with Requests off
+            connector_observer_loop,
+            listening_export_loop,
+            catalog_warm_loop,  # idle when Requests are off
+        )
+    ]
     popular_discovery.start()
     live_discovery.start()
     try:
         yield
     finally:
+        # Cancel the asyncio loops. A tick already running in to_thread can
+        # outlive cancellation, so keep the service-specific stops below.
         reconcile_task.cancel()
         playback_buffer_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await playback_buffer_task
-        automation_task.cancel()
-        metadata_task.cancel()
-        request_sync_task.cancel()
-        arr_observer_task.cancel()
-        connector_observer_task.cancel()
-        listening_export_task.cancel()
-        catalog_warm_task.cancel()
+        playback_result, = await asyncio.gather(playback_buffer_task, return_exceptions=True)
+        for task in service_loops:
+            task.cancel()
         await asyncio.to_thread(library_automation.stop)
         import_stop_event.set()
         remote_streams.close_all()
@@ -988,28 +994,7 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(channel_pages.close)
         await asyncio.to_thread(reco_refresher.close)
         await asyncio.to_thread(twitch_directory.close)
-        try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await automation_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await metadata_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await request_sync_task
-        except asyncio.CancelledError:
-            pass
-        with suppress(asyncio.CancelledError):
-            await arr_observer_task
-        with suppress(asyncio.CancelledError):
-            await connector_observer_task
-        with suppress(asyncio.CancelledError):
-            await listening_export_task
+        loop_results = await asyncio.gather(reconcile_task, *service_loops, return_exceptions=True)
         await asyncio.to_thread(photo_imports.worker.close)
         await asyncio.to_thread(photo_faces.worker.close)
         await asyncio.to_thread(model_downloads.manager.shutdown)  # partial files stay for the next start
@@ -1021,6 +1006,14 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(client_metric_store.flush)  # keep the last minutes of client metrics
         await jobs.stop()
         await asyncio.to_thread(release_updates.coordinator.close)
+        loop_failures = [
+            result for result in (playback_result, *loop_results)
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError)
+        ]
+        if len(loop_failures) == 1:
+            raise loop_failures[0]
+        if loop_failures:
+            raise BaseExceptionGroup("Background service loops failed", loop_failures)
         server_lock.close()
 
 

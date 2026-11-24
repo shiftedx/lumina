@@ -1,4 +1,3 @@
-/* Split from lumina.css. Owner: */
 .collection-recovery, .collection-stale { display: flex; width: 100%; align-items: flex-start; gap: 12px; padding: 16px 0; }
 .collection-recovery > span { display: grid; flex: none; color: var(--g-danger); }
 .collection-recovery > span svg { width: 20px; height: 20px; }
@@ -61,7 +60,6 @@
   .collection-recovery .g-button, .collection-stale .g-button { width: 100%; min-height: var(--g-control); }
 }
 
-/* Collections: Library pages on the gallery system. Tokens only. */
 .g-collections-page { padding: 32px var(--g-gutter) 96px; }
 .g-collections-page.is-embedded { padding: 0; }
 .g-collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--g-grid-gap); margin: 32px 0 0; padding: 0; list-style: none; }
@@ -76,13 +74,11 @@
 .g-franchise-collections { margin-top: 48px; }
 .g-franchise-collections > .g-h2 { margin: 0 0 20px; }
 
-/* Collection detail: rule chips and ordered manual rows, tokens only. */
 .g-rule-chips { margin: 0 0 24px; padding: 0; list-style: none; }
 .g-rule-chips .g-chip { min-height: 32px; cursor: default; }
 .collection-detail .collection-entry-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: var(--g-hairline); }
 .collection-detail .collection-entry-watch { min-width: 0; flex: 1; }
 
-/* Smart collection builder dialog. */
 .g-builder { display: grid; gap: 20px; }
 .g-builder-rules { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .g-builder-rule { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; gap: 8px; align-items: start; }

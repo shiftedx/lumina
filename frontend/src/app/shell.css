@@ -1,4 +1,3 @@
-/* Split from lumina.css. Owner: */
 .lumina-app { min-height: 100vh; background: var(--g-paper); }
 .app-background, .lumina-main { min-height: 100vh; }
 .app-background { position: relative; }
@@ -8,7 +7,6 @@
 @media (max-width: 680px) {
   .lumina-main:has(> .watch-mini) { padding-bottom: calc(148px + env(safe-area-inset-bottom)); }
 }
-/* ---- anchored navigation; pages retain the full width below the header ---- */
 .g-navigation-popover { overflow-y: auto; overscroll-behavior: contain; }
 .g-navigation-grid { display: grid; gap: 12px; }
 .g-nav-group { display: grid; align-content: start; gap: 4px; }
@@ -30,7 +28,6 @@
   .g-mobile-tabs .g-nav-count { position: absolute; top: 6px; left: calc(50% + 6px); margin: 0; }
 }
 @media (forced-colors: active) { .g-nav-item.is-active, .g-mobile-tabs button.is-active { border-color: Highlight; } }
-/* Direction A: compact toolbar; the media stage continues behind it. */
 .g-topbar { position: var(--topbar-position, sticky); inset: 0 0 auto; z-index: var(--g-z-topbar); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: calc(var(--g-topbar) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--g-gutter) 0 16px; border-bottom: 0; background: var(--g-paper); }
 .g-topbar-start, .g-topbar-end { display: flex; align-items: center; gap: 8px; }
 .g-topbar-brand { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; color: var(--g-ink); text-decoration: none; }
@@ -70,7 +67,6 @@
   .g-library-activity progress::-webkit-progress-value { background: Highlight; }
   .g-library-activity progress::-moz-progress-bar { background: Highlight; }
 }
-/* ---- shell states ---- */
 .g-route-loading { max-width: var(--g-reading-width); padding: 32px var(--g-gutter); }
 .g-route-loading-masthead { height: 72px; margin-bottom: 24px; border-bottom: var(--g-rule); }
 .g-skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; display: inline-flex; min-height: var(--g-control); align-items: center; padding: 0 16px; border-radius: var(--g-radius); background: var(--g-ink); color: var(--g-paper); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; clip-path: inset(50%); transform: translateY(-200%); }
@@ -80,7 +76,6 @@
 .g-topbar-context { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--g-type-ui-strong); color: var(--g-ink-2); }
 
 
-/* Route context stays quiet beside artwork; actual media names retain the display role. */
 .gallery.g-streaming > .g-masthead h1, .gallery.rq-surface > .g-masthead h1,
 .books-surface:not(:has(.books-detail)) > .g-masthead h1, .gallery .g-masthead h1 { font: var(--g-type-page-title); }
 
@@ -110,7 +105,6 @@
 
 .g-topbar .g-kbd { color: inherit; border-color: currentColor; }
 
-/* Settings keeps forms clear of media navigation while retaining the global menu. */
 @media (max-width: 680px) {
   .lumina-app[data-surface='settings'] .lumina-main { padding-bottom: env(safe-area-inset-bottom); }
   .lumina-app[data-surface='settings'] .g-navigation-popover { height: 100dvh; max-height: 100dvh; }
@@ -131,7 +125,6 @@
   .lumina-app[data-surface='settings']:has(.watch-mini) .g-save-bar.is-pending { bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
 
-/* Keep opening artwork visible, then restore the adaptive reading surface on scroll. */
 .g-topbar { transition: background-color 180ms ease-out; }
 .g-topbar.is-scrolled { --topbar-activity-track: var(--g-rule-soft); }
 .g-topbar:not(.is-scrolled) { background: var(--topbar-opening-background, var(--g-paper)); }

@@ -156,7 +156,6 @@
   --g-overlay-panel: #000;
 }
 
-/* A dark subtree in the light theme (sign-in over release art): the dark set, re-declared where var() resolves. */
 :root[data-theme='light'] .g-dark {
   color-scheme: dark; --g-accent: var(--g-ink);
   --g-control-fill: #efe9dd; --g-control-ink: #0f0e0c;
@@ -263,5 +262,4 @@
 
 @media (max-width: 680px) { :root { --g-topbar: 64px; } }
 
-/* Album rows reserve space for the title, year and source-file quality. */
 .gallery .g-grid.has-audio-facts { --g-caption-height: 132px; }

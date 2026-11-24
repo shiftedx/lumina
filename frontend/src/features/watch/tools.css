@@ -1,10 +1,8 @@
-/* Split from lumina.css. Owner: */
 .watch-tools { min-width: 0; margin-top: 20px; }
 .watch-tools .watch-tools-tabs.g-tabs { min-height: 0; max-width: 100%; flex-wrap: wrap; margin-bottom: 0; }
 .watch-tools-tabs [role='tab'] { flex: none; margin-bottom: -1px; }
 .watch-tools-panel > .description-card, .watch-tools-panel > .watch-curation, .watch-tools-panel > .chapter-navigation { margin-top: 16px; }
 .chat-rail { display: grid; gap: 12px; margin-top: 18px; padding: 16px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
-/* "Record from now": the durable live-recording control + its multi-output panel. */
 .live-recording-controls { display: grid; gap: 12px; margin-top: 18px; padding: 16px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
 .live-recording-start { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .live-recording-start-copy h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--g-ink); font-size: 15px; font-weight: 500; }
@@ -25,7 +23,6 @@
 .live-recording-output dd { margin: 0; color: var(--g-ink-2); font-size: 12px; line-height: 1.5; }
 .live-recording-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .live-recording-error { margin: 0; color: var(--g-ink); font-weight: 600; font-size: 12px; }
-/* Scheduling + from-start (issue #98). */
 .live-recording-start-copy h2 svg { flex: 0 0 auto; }
 .live-recording-intent { flex: 1 1 100%; display: grid; gap: 6px; margin: 0; padding: 10px 12px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
 .live-recording-intent legend { padding: 0 4px; color: var(--g-ink-2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -82,7 +79,6 @@
 .chat-event-text { color: var(--g-ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .chat-emote { display: inline-block; width: 1.25em; height: 1.25em; margin: 0 .08em; object-fit: contain; vertical-align: -.25em; }
 .chat-event.moderated .chat-event-text { font-style: italic; color: var(--g-ink-3); }
-/* Moments: one timeline, each entry labelled with its origin. */
 .moments-panel { display: grid; gap: 12px; }
 .moments-panel .chapter-navigation__item { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .moments-panel .chapter-navigation__seek { flex: 1; min-width: 0; }
@@ -94,7 +90,6 @@
 .moment-origin[data-origin='suggested'] { color: var(--g-ink); }
 .moments-bookmark { display: flex; flex-wrap: wrap; gap: 8px; }
 .moments-bookmark input { flex: 1 1 200px; min-width: 0; }
-/* Transcript tool: toolbar, bounded cue list that follows playback. */
 .transcript-panel { display: grid; gap: 12px; margin-top: 16px; }
 .transcript-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .transcript-version { margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
@@ -117,7 +112,6 @@
 .transcript-time { color: var(--g-ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .transcript-cues button[aria-current='true'] .transcript-time { color: var(--g-ink); }
 .transcript-cues mark { border-radius: 3px; background: color-mix(in srgb, var(--g-gold) 35%, transparent); color: inherit; }
-/* Summary tool: generated text kept visibly distinct from source description. */
 .summary-panel { display: grid; max-width: 75ch; justify-items: start; gap: 14px; margin-top: 16px; }
 .summary-card { display: grid; gap: 12px; width: 100%; padding: 18px 20px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
 .summary-card h3 { margin: 6px 0 0; color: var(--g-ink); font-size: 13px; font-weight: 600; letter-spacing: .02em; }
@@ -171,7 +165,6 @@
 .notes-list strong { color: var(--g-ink-2); font-size: 11px; }
 .notes-list header span { margin-left: auto; color: var(--g-ink); font-size: 11px; }
 .notes-list article > p { margin: 0; color: var(--g-ink); font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-/* Idea graph: list first; the map is the same data on a radial layout. */
 .idea-graph__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
 .idea-graph__views { display: inline-flex; gap: 4px; }
 .idea-graph__views button { min-width: var(--g-control); min-height: var(--g-control); padding: 0 12px; border-radius: 999px; }
@@ -190,7 +183,6 @@
   .idea-map__index { display: inline; }
   .idea-map__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-/* Source provenance: stored facts only, one origin per item. */
 .provenance { display: grid; gap: 12px; margin-top: 14px; padding: 16px 18px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
 .provenance h2 { margin: 0; color: var(--g-ink); font-size: 16px; font-weight: 600; }
 .provenance dl { display: grid; gap: 2px; margin: 0; }

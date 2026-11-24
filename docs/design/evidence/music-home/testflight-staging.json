@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "build": 356,
+  "bundleIdentifier": "ai.cozylabs.lumina",
+  "archiveSourceRevision": "79561d789a9a68439f5826550b67bf6fdcd37cc2",
+  "qualifiedProductRevision": "fcffcc694887cd9da5c2586d2f0d3bb098978b03",
+  "sourceSnapshotSHA256": "89fb922c167d037bd4cc595c542f433d240d51350389381fe69bdc85697e299d",
+  "packageContents": [
+    "ReleaseManifest.txt",
+    "SHA256SUMS",
+    "What-to-Test.txt"
+  ],
+  "distribution": "Apple App Store distribution signatures verified locally; Organizer-ready",
+  "localBuildNumber": "Reserved",
+  "appStoreConnectBuildNumber": "Availability unverified",
+  "appStoreConnectUpload": "Pending",
+  "processingAndTesterAvailability": "Pending",
+  "platforms": {
+    "iOS": {
+      "ipa": "export-iOS/Lumina-iOS.ipa",
+      "ipaSHA256": "1367e59f3c05ae984a39f28fa8239869a7626c228a1a0d20d6f70b4c46173ba7",
+      "organizerArchive": "Lumina-iOS-Organizer.xcarchive",
+      "executableAndDSYMUUID": "9C6D408D-5EE1-33A1-B066-9076CEB6EDFC"
+    },
+    "tvOS": {
+      "ipa": "export-tvOS/Lumina-tvOS.ipa",
+      "ipaSHA256": "6fa6538eab46e15db91133c3ced98bb9c49e6e7a3d51faff4d8030f452bf0900",
+      "organizerArchive": "Lumina-tvOS-Organizer.xcarchive",
+      "executableAndDSYMUUID": "D664BB3C-6FB6-3F00-8CB1-CFA31DC099CC"
+    }
+  }
+}

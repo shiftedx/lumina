@@ -2425,6 +2425,10 @@ struct PlaybackScreen: View {
     }
 
     @ViewBuilder private var audioQueueRows: some View {
+        if audioSession.hasUpcomingRecommendations {
+            Button("Remove upcoming recommendations") { audioSession.removeUpcomingRecommendations() }
+                .disabled(!audioSession.canEditMixQueue)
+        }
         ForEach(playback.queueRows) { row in
             let index = row.index
             let item = row.item
@@ -2435,7 +2439,13 @@ struct PlaybackScreen: View {
                     HStack(spacing: 16) {
                         LuminaIcon(glyph: index == playback.queueIndex ? .volumeHigh : .music,
                                    variant: .solid, size: 20)
-                        Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading) {
+                            Text(item.name)
+                            if audioSession.isRecommended(at: index) {
+                                Text("Recommended").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .disabled(playback.isReplaying || audioSession.isSonos || audioSession.isRemoteOutput)
@@ -4148,9 +4158,20 @@ final class PlaybackModel {
         reflectQueueRemoval(at: index)
     }
 
-    func configureAudioQueue(_ items: [MediaItem], index: Int, repeatMode: String) {
+    func configureAudioQueue(_ items: [MediaItem], index: Int, repeatMode: String, retainingOccurrences: [Int]? = nil) {
         if queue != items {
-            if queue.map(\.id) != items.map(\.id) { occurrenceIDs = items.map { _ in UUID() } }
+            let ids = items.map(\.id)
+            let oldIDs = queue.map(\.id)
+            if oldIDs != ids {
+                if let retained = retainingOccurrences, retained.allSatisfy({ queue.indices.contains($0) }),
+                   retained.map({ queue[$0].id }) == ids {
+                    occurrenceIDs = retained.map { occurrenceIDs[$0] }
+                } else if ids.starts(with: oldIDs) {
+                    occurrenceIDs += (oldIDs.count..<ids.count).map { _ in UUID() }
+                } else {
+                    occurrenceIDs = items.map { _ in UUID() }
+                }
+            }
             queue = items
             rebuildQueueRows()
         }

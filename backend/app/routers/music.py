@@ -16,11 +16,12 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import AppSettings, LibraryItem, MediaTitle, PlaybackProgress, MusicCastTicket, MusicLookup, MusicTrackOverride, User, utcnow
 from app.media_schemas import TitleSummary
-from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtworkPlan, MusicIdentify, MusicLyrics, MusicPlanApply, MusicPlaylistSave, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit, MusicVideos, MusicWriteback
+from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtworkPlan, MusicHomeLayout, MusicIdentify, MusicLyrics, MusicMixPreview, MusicPlanApply, MusicPlaylistSave, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit, MusicVideos, MusicWriteback
 from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
 from app.security import get_admin_user, get_current_user
-from app.services import resource_policy, music_audio, music_curation, music_library, music_playlists, music_providers, music_videos, public_address, screen_time
+from app.config import settings
+from app.services import resource_policy, music_audio, music_curation, music_home, music_library, music_playlists, music_providers, music_videos, public_address, screen_time
 from app.services.library import LibraryService
 from app.services.media_response import MediaFileResponse
 from app.services.metadata_editor import Batch, can_edit_details, get_detail_editor, write_user_field
@@ -61,6 +62,20 @@ def highlights(title_id: str, limit: int = Query(8, ge=1, le=50), user: User = D
 def recently_played_albums(limit: int = Query(12, ge=1, le=50), user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict[str, list[TitleSummary]]:
     """Member-scoped listening recency, grouped by visible album rather than files."""
     return {"items": music_library.recently_played_albums(db, user, limit)}
+
+
+def home_capability(user: User = Depends(get_current_user)) -> dict[str, bool]:
+    return {"enabled": settings.music_rework_enabled}
+
+
+def home(user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    music_home.require_enabled()
+    return music_home.read(db, user)
+
+
+def save_home_layout(body: MusicHomeLayout, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    music_home.require_enabled()
+    return music_home.save_layout(db, user, body.model_dump())
 
 
 def audio(item_id: str, request: Request, format_: Literal["native", "flac", "wav"] = Query("native", alias="format"),
@@ -459,6 +474,20 @@ def mix(kind: Literal["favorites", "unplayed", "rotation", "radio"], seed_id: st
     return music_playlists.mix(db, user, kind, seed_id)
 
 
+def contextual_mix(
+    seed_kind: Literal["track", "artist", "album"],
+    seed_id: str = Query(min_length=1, max_length=36),
+    exclude_item_ids: list[str] = Query(default=[]),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"),
+) -> MusicMixPreview:
+    music_home.require_enabled()
+    screen_time.enforce(db, user, fresh=True)
+    return music_playlists.contextual_mix(
+        db, user, seed_kind=seed_kind, seed_id=seed_id, exclude_item_ids=exclude_item_ids,
+    )
+
+
 def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     music_providers.configure_artwork(artwork)
     def file_writeback(body: MusicPlanApply, user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> dict:
@@ -485,9 +514,13 @@ def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     app.add_api_route("/api/music/playlists/{playlist_id}", playlist_save, methods=["PUT"])
     app.add_api_route("/api/music/playlists/{playlist_id}", playlist_delete, methods=["DELETE"])
     app.add_api_route("/api/music/playlists/{playlist_id}/tracks", playlist_tracks, methods=["GET"])
+    app.add_api_route("/api/music/contextual-mix", contextual_mix, methods=["GET"])
     app.add_api_route("/api/music/mixes/{kind}", mix, methods=["GET"])
     app.add_api_route("/api/music/queue", queue, methods=["POST"])
     app.add_api_route("/api/music/albums/recently-played", recently_played_albums, methods=["GET"])
+    app.add_api_route("/api/me/music-home/capability", home_capability, methods=["GET"])
+    app.add_api_route("/api/me/music-home", home, methods=["GET"])
+    app.add_api_route("/api/me/music-home/layout", save_home_layout, methods=["PUT"])
     app.add_api_route("/api/music/albums", create_release, methods=["POST"])
     app.add_api_route("/api/music/tracks/edit", edit_tracks, methods=["POST"])
     app.add_api_route("/api/music/edits/{batch_id}/undo", undo, methods=["POST"])

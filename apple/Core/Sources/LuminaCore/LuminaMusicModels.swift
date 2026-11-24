@@ -154,11 +154,13 @@ public struct MusicQueueEntry: Codable, Hashable, Sendable {
     public var name: String?
     public var message: String?
     public var tracks: [MusicTrack]?
-    public init(kind: String, itemID: String? = nil, requestID: String? = nil) {
+    public var provenance: MusicQueueProvenance?
+    public init(kind: String, itemID: String? = nil, requestID: String? = nil, provenance: MusicQueueProvenance? = nil) {
         self.kind = kind; self.itemID = itemID; self.requestID = requestID
+        self.provenance = provenance
     }
     enum CodingKeys: String, CodingKey {
-        case kind, title, status, state, name, message, tracks
+        case kind, title, status, state, name, message, tracks, provenance
         case itemID = "item_id", requestID = "request_id"
     }
 }
@@ -268,4 +270,165 @@ public enum MusicAPIError: Error, LocalizedError {
 struct MusicSessionConflict: Decodable {
     struct Detail: Decodable { var session: MusicListeningSnapshot }
     var detail: Detail
+}
+
+public enum MusicHomeCapability: Equatable, Sendable {
+    case unknown, available, disabled, unsupported
+}
+
+public enum MusicHomeShelf: String, Codable, CaseIterable, Hashable, Sendable {
+    case resume, recent, playlists, downloads, mixes
+}
+
+public struct MusicHomeLayout: Codable, Equatable, Sendable {
+    public var order: [MusicHomeShelf]
+    public var hidden: [MusicHomeShelf]
+
+    public init(order: [MusicHomeShelf], hidden: [MusicHomeShelf]) {
+        self.order = order
+        self.hidden = hidden
+    }
+
+    public static let reset = Self(order: [], hidden: [])
+}
+
+public struct MusicHome: Decodable, Sendable {
+    public var layout: MusicHomeLayout
+    public let resume: MusicHomeResume?
+    public let recent: [MusicHomeAlbum]
+    public let playlists: [MusicPlaylist]
+    public let mixes: [MusicHomeMix]
+
+    var isEmpty: Bool { resume == nil && recent.isEmpty && playlists.isEmpty }
+}
+
+public enum MusicHomeState: Sendable {
+    case idle
+    case loading
+    case empty(MusicHome)
+    case ready(MusicHome)
+    case failed(String)
+
+    public var content: MusicHome? {
+        switch self {
+        case .empty(let home), .ready(let home): home
+        default: nil
+        }
+    }
+}
+
+public struct MusicHomeResume: Decodable, Sendable {
+    public enum State: String, Decodable, Sendable { case playable, waiting, unavailable }
+
+    public struct Track: Decodable, Sendable {
+        public let id: String?
+        public let title: String?
+        public let artist: String?
+        public let album: String?
+        public let albumID: String?
+        public let artworkURL: String?
+        public let duration: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case id, title, artist, album, duration
+            case albumID = "album_id", artworkURL = "artwork_url"
+        }
+    }
+
+    public let state: State
+    public let revision: Int
+    public let entryIndex: Int?
+    public let currentIndex: Int?
+    public let positionSeconds: Double
+    public let track: Track
+
+    enum CodingKeys: String, CodingKey {
+        case state, revision, track
+        case entryIndex = "entry_index", currentIndex = "current_index", positionSeconds = "position_seconds"
+    }
+}
+
+public struct MusicHomeAlbum: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let posterURL: String?
+    public let artistName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case posterURL = "poster_url", artistName = "artist_name"
+    }
+}
+
+public struct MusicHomeMix: Decodable, Identifiable, Sendable {
+    public let kind: String
+    public let name: String
+    public var id: String { kind }
+}
+
+public enum MusicMixSeedKind: String, Codable, Sendable {
+    case track, album, artist
+}
+
+public enum MusicMixReasonCode: String, Codable, Sendable {
+    case seedTrack = "seed_track"
+    case sameArtist = "same_artist"
+    case sharedGenre = "shared_genre"
+}
+
+public struct MusicMixReason: Decodable, Sendable {
+    public let code: MusicMixReasonCode
+    public let itemID: String?
+    public let artistID: String?
+    public let genre: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code, genre
+        case itemID = "item_id", artistID = "artist_id"
+    }
+}
+
+public struct MusicQueueProvenance: Codable, Hashable, Sendable {
+    public enum Source: String, Codable, Sendable { case contextualMix = "contextual_mix" }
+
+    public let source: Source
+    public let reason: MusicMixReasonCode
+
+    public init(reason: MusicMixReasonCode) {
+        source = .contextualMix
+        self.reason = reason
+    }
+}
+
+public struct MusicMixPreview: Decodable, Sendable {
+    public struct Seed: Decodable, Sendable {
+        public let id: String
+        public let kind: MusicMixSeedKind
+        public let name: String
+        public let artistID: String?
+        public let genres: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case id, kind, name, genres
+            case artistID = "artist_id"
+        }
+    }
+
+    public struct Item: Decodable, Identifiable, Sendable {
+        public let track: MusicTrack
+        public let reason: MusicMixReason
+        public var id: String { track.id }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            track = try MusicTrack(from: decoder)
+            reason = try values.decode(MusicMixReason.self, forKey: .reason)
+        }
+
+        enum CodingKeys: String, CodingKey { case reason }
+    }
+
+    public let seed: Seed
+    public let items: [Item]
+    public let exhausted: Bool
 }

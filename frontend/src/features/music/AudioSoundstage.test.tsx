@@ -6,8 +6,8 @@ import { albumSummary, artistSummary, titleDetail, titlePage } from '../../test/
 import { AudioSoundstage, ALBUM_SOURCE_LIMIT, SHOWCASE_LIMIT } from './AudioSoundstage';
 import { AudioSurface } from './AudioSurface';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), title: vi.fn() }));
-vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), listTitles: mocks.list, getTitle: mocks.title }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), title: vi.fn(), capability: vi.fn() }));
+vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), listTitles: mocks.list, getTitle: mocks.title, getMusicHomeCapability: mocks.capability }));
 vi.mock('../gallery/GalleryArt', () => ({ GalleryArt: ({ card, art, className }: { card: { name: string }; art?: { url: string }; className?: string }) => <span className={className} data-art-url={art?.url} data-testid={`art-${card.name}`}>{card.name}</span> }));
 vi.mock('../gallery/LibraryTabs', () => ({ useLibrarySections: () => ({ sections: null }) }));
 vi.mock('../gallery/MusicTab', () => ({ MusicTab: ({ state, tools }: { state?: string; tools?: React.ReactNode }) => <div data-state={state} data-testid="music-browser">Music browser{tools}</div> }));
@@ -27,6 +27,7 @@ const collection = [albumA, albumA2, albumB, albumB2, albumC, albumD, albumE, al
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.title.mockReset();
+  mocks.capability.mockResolvedValue({ enabled: false });
   mocks.list.mockResolvedValue(titlePage(collection));
 });
 
@@ -150,6 +151,14 @@ describe('AudioSurface navigation', () => {
     view.rerender(<AudioSurface {...common} user={{ id: 'editor', role: 'member', can_edit_details: true }} />);
     expect(screen.getByRole('menuitem', { name: 'Manage music' })).toBeTruthy();
     expect(screen.getByTestId('music-browser')).toBeTruthy();
+  });
+
+  it('falls back to Browse for a disabled or unavailable Music Home capability', async () => {
+    mocks.capability.mockRejectedValue(new Error('404'));
+    render(<AudioSurface onItemChanged={vi.fn()} onOpenTitle={vi.fn()} onPlay={vi.fn()} onWallChange={vi.fn()} user={{ id: 'viewer', role: 'member' }} wall="pane=home" />);
+    await waitFor(() => expect(mocks.capability).toHaveBeenCalled());
+    expect(screen.getByTestId('music-browser')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Music Home' })).toBeNull();
   });
 
   it('falls back to the music landing when a viewer follows a saved manage link', async () => {

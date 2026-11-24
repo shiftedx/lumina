@@ -66,6 +66,20 @@ struct LuminaProofApp: App {
                 guard !restorationStarted else { return }
                 restorationStarted = true
                 await store.restore()
+                #if os(tvOS) && LUMINA_UI_TESTING
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing-purge-current-audio"),
+                   let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
+                   UUID(uuidString: namespace) != nil {
+                    await store.music.waitForPersistentCache()
+                    if let snapshot = store.music.cachedSession, let index = snapshot.currentIndex,
+                       snapshot.queue.indices.contains(index),
+                       let url = store.offline.localURL(for: snapshot.queue[index].nativeID) {
+                        try? FileManager.default.removeItem(at: url)
+                        store.offline.refresh()
+                        await store.music.refreshOfflineHome(isDownloaded: { store.offline.localURL(for: $0) != nil })
+                    }
+                }
+                #endif
                 isRestoring = false
             }
         }

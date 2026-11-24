@@ -1108,6 +1108,29 @@ export const bulkEditMetadata = (request: BulkRequest): Promise<BulkResult> => p
 // ── 2.1.0 library automation ──
 const AUTOMATION = '/api/admin/library/automation';
 export const getMusicQueue = (request: { item_ids?: string[]; title_id?: string }): Promise<import('./features/music/musicTypes').MusicTrack[]> => post('/api/music/queue', request);
+export type MusicHomeShelf = 'resume' | 'recent' | 'playlists' | 'downloads' | 'mixes';
+export type MusicHomeLayout = { order: MusicHomeShelf[]; hidden: MusicHomeShelf[] };
+export type MusicHome = {
+  layout: MusicHomeLayout;
+  resume: null | {
+    state: 'playable' | 'waiting'; revision: number; entry_index: number | null; current_index: number | null; position_seconds: number;
+    track: { id: string | null; title: string | null; artist: string | null; album: string | null; album_id: string | null; artwork_url: string | null; duration: number | null };
+  };
+  recent: TitleSummary[];
+  playlists: import('./features/music/musicTypes').MusicPlaylist[];
+  mixes: Array<{ kind: 'rotation' | 'favorites' | 'unplayed'; name: string }>;
+};
+export type MusicMixSeedKind = 'track' | 'album' | 'artist';
+export type MusicMixReason = { code: 'seed_track'; item_id: string } | { code: 'same_artist'; artist_id: string } | { code: 'shared_genre'; genre: string };
+export type MusicMixPreview = { seed: { id: string; kind: MusicMixSeedKind; name: string }; items: Array<import('./features/music/musicTypes').MusicTrack & { reason: MusicMixReason }>; exhausted: boolean };
+export const getMusicHomeCapability = (): Promise<{ enabled: boolean }> => requestJson('/api/me/music-home/capability');
+export const getContextualMusicMix = (kind: MusicMixSeedKind, id: string, exclude: string[] = [], signal?: AbortSignal): Promise<MusicMixPreview> => {
+  const params = new URLSearchParams({ seed_kind: kind, seed_id: id });
+  for (const value of exclude) params.append('exclude_item_ids', value);
+  return requestJson(`/api/music/contextual-mix?${params}`, undefined, { signal, timeoutMs: 8000 });
+};
+export const getMusicHome = (): Promise<MusicHome> => requestJson('/api/me/music-home');
+export const saveMusicHomeLayout = (layout: MusicHomeLayout): Promise<MusicHomeLayout> => requestJson('/api/me/music-home/layout', { method: 'PUT', body: JSON.stringify(layout) });
 export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);
 export const getMusicTrackMetadata = (id: string): Promise<{ fields: Record<string, unknown>; overridden: string[] }> => requestJson(`/api/music/tracks/${enc(id)}/metadata`);
 export const getMusicHighlights = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/titles/${enc(id)}/tracks`);

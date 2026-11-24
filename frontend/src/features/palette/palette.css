@@ -29,7 +29,7 @@
 .g-palette .g-empty, .g-palette .g-error-state { margin: 16px 20px; }
 .g-palette-footer { margin: 0; padding: 10px 20px; border-top: var(--g-rule); color: var(--g-ink-3); font: var(--g-type-small); }
 @media (max-width: 599px) {
-  .g-dialog.g-palette { inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+  .g-dialog.g-palette { inset: 0; width: 100dvw; max-width: none; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
   .g-palette-footer { display: none; }
 }
 @media (forced-colors: active) { .g-palette-option[aria-selected='true'] { border-inline-start-color: Highlight; } }

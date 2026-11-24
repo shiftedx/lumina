@@ -18,6 +18,8 @@ import './music.css';
 import { MusicEnrichment, MusicVideoRail } from '../music/MusicExtras';
 import { MusicEditions } from '../music/MusicEditions';
 import { MusicTrackEditor } from '../music/MusicTrackEditor';
+import { MusicMixButton } from '../music/MusicMix';
+import { useMusicRework } from '../music/useMusicRework';
 
 const COVER_SIZES = '(max-width: 899px) 380px, 420px';
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
@@ -101,7 +103,7 @@ function TrackRow({ track, onPlay }: { track: AlbumTrack; onPlay: (track: AlbumT
 }
 
 /** The rows are one focus column: Up and Down between rows, Left back to the actions. */
-function Tracklist({ tracks, onPlay }: { tracks: AlbumTrack[]; onPlay: (track: AlbumTrack) => void }) {
+function Tracklist({ tracks, onPlay, enabled }: { tracks: AlbumTrack[]; onPlay: (track: AlbumTrack) => void; enabled: boolean }) {
   const discs = byDisc(tracks);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
@@ -119,7 +121,7 @@ function Tracklist({ tracks, onPlay }: { tracks: AlbumTrack[]; onPlay: (track: A
       {discs.map(([disc, rows]) => (
         <div key={disc ?? 'none'}>
           {discs.length > 1 ? <h2 className="g-label g-disc">Disc {disc ?? '–'}</h2> : null}
-          <ol>{rows.map((track) => <li key={track.item_id}><TrackRow onPlay={onPlay} track={track} /></li>)}</ol>
+          <ol>{rows.map((track) => <li className="music-mix-track-row" key={track.item_id}><TrackRow onPlay={onPlay} track={track} /><MusicMixButton enabled={enabled} id={track.item_id} kind="track" name={track.name} /></li>)}</ol>
         </div>
       ))}
     </div>
@@ -147,6 +149,7 @@ function AlbumCredits({ detail }: { detail: TitleDetail }) {
 }
 
 export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKeyDown, onOpenTitle, onPlay, onPatch, canEdit = false, onEdit, onRefreshed, onWatchVideo, user }: AlbumPageProps) {
+  const mixEnabled = useMusicRework(user?.id);
   const phone = useMediaQuery('(max-width: 599px)');
   const [notice, setNotice] = useState<string | null>(null);
   const [managingTracks, setManagingTracks] = useState(false);
@@ -213,6 +216,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
               {phone
                 ? <button aria-label="Favorite" aria-pressed={favorite} className="g-icon-button" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /></button>
                 : <button aria-pressed={favorite} className="g-button g-button-text" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /> Favorite</button>}
+              <MusicMixButton enabled={mixEnabled} id={album.id} kind="album" name={album.name} />
               {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(album.id)} type="button"><Pencil aria-hidden="true" /> Edit details</button> : null}
               {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
             </div>
@@ -223,7 +227,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
         <div className="g-album-content">
           <section aria-label={`${album.name} track list`} className="g-album-track-panel">
             <h2 className="g-chapter">Tracks{count === null ? null : <span className="g-label">{count}</span>}</h2>
-            {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
+            {tracks === null ? null : tracks.length ? <Tracklist enabled={mixEnabled} onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
           </section>
           <div className="g-album-extra-panel">
             {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}

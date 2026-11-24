@@ -1113,18 +1113,22 @@ public enum NavigationLoadState: Equatable, Sendable {
                                                  isNeeded: compatibilityShelves.contains(.continueWatching))
         async let nextUp: Void = loadHomeNextUp(active, generation: generation,
                                                  isNeeded: compatibilityShelves.contains(.nextUp))
-        async let navigation: Void = loadNavigationCategories(active, generation: generation, isNeeded: includesNavigation)
+        async let navigation: Void = loadNavigationCategories(active, isNeeded: includesNavigation)
         _ = await (recent, resume, nextUp, navigation)
     }
 
-    private func loadNavigationCategories(_ active: LuminaSession, generation: Int, isNeeded: Bool = true) async {
+    private func loadNavigationCategories(_ active: LuminaSession, isNeeded: Bool = true) async {
         guard isNeeded else { return }
         navigationGeneration += 1
         let requestGeneration = navigationGeneration
         navigationLoadState = .loading
         do {
             let navigation = try await client.navigationCategories(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
-            guard generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            // Navigation is an independent member/session resource. A concurrent
+            // compatibility-shelf load can advance homeGeneration while this
+            // request is in flight; that must not discard a still-current
+            // navigation response and leave the app without Library destinations.
+            guard requestGeneration == navigationGeneration, isCurrent(active) else { return }
             guard !Task.isCancelled else {
                 restoreNavigationLoadStateAfterCancellation()
                 return
@@ -1136,7 +1140,7 @@ public enum NavigationLoadState: Equatable, Sendable {
             hasLoadedNavigationCategories = true
             lastNavigationLoadState = .loaded
         } catch {
-            guard generation == homeGeneration, requestGeneration == navigationGeneration, isCurrent(active) else { return }
+            guard requestGeneration == navigationGeneration, isCurrent(active) else { return }
             guard !Task.isCancelled else {
                 restoreNavigationLoadStateAfterCancellation()
                 return
@@ -1154,7 +1158,7 @@ public enum NavigationLoadState: Equatable, Sendable {
 
     public func refreshNavigationCategories() async {
         guard let active = session else { return }
-        await loadNavigationCategories(active, generation: homeGeneration)
+        await loadNavigationCategories(active)
     }
 
     private func navigationAuthenticationFailed(_ error: Error) -> Bool {

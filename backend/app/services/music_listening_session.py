@@ -94,9 +94,9 @@ def _canonical(
 ) -> ListeningSession:
     if isinstance(entries, list):
         policy = unavailable_policy if unavailable_policy in ("skip", "wait") else "skip"
-        logical = music_queue_entries.valid_refs(entries)
-        selected_entry = entry_index if isinstance(entry_index, int) and 0 <= entry_index < len(logical) else (current_index if isinstance(current_index, int) and 0 <= current_index < len(logical) else (0 if logical else None))
-        resolved = music_queue_entries.resolve(db, user, logical, policy=policy, active_entry=selected_entry)
+        source_entries, source_indices = music_queue_entries.valid_refs_with_indices(entries)
+        selected_entry = entry_index if isinstance(entry_index, int) and 0 <= entry_index < len(entries) else (current_index if isinstance(current_index, int) and 0 <= current_index < len(entries) else (source_indices[0] if source_indices else None))
+        resolved = music_queue_entries.resolve(db, user, entries, policy=policy, active_entry=selected_entry)
         remapped_entry = None
         if resolved.retained_original_indices:
             if selected_entry in resolved.retained_original_indices:
@@ -105,10 +105,7 @@ def _canonical(
                 remapped_entry = 0
         selected_index = resolved.playable_track_offsets.get(selected_entry) if selected_entry is not None else None
         if selected_index is not None:
-            selected_tracks = next((entry.get("tracks", []) for entry in resolved.entries
-                                    if entry.get("state") == "playable" and entry.get("kind") == logical[selected_entry].get("kind")
-                                    and ((entry.get("item_id") == logical[selected_entry].get("item_id")) if entry.get("kind") == "track"
-                                         else (entry.get("request_id") == logical[selected_entry].get("request_id")))), [])
+            selected_tracks = resolved.entries[remapped_entry].get("tracks", []) if remapped_entry is not None else []
             selected_id = values[current_index] if isinstance(values, list) and isinstance(current_index, int) and 0 <= current_index < len(values) and isinstance(values[current_index], str) else None
             intra = next((index for index, track in enumerate(selected_tracks) if track.id == selected_id), None)
             if intra is None:
@@ -121,7 +118,7 @@ def _canonical(
                 position = min(position, float(duration))
         return ListeningSession(revision, resolved.tracks, selected_index, position,
                                 _repeat(repeat), bool(shuffle), active_output if isinstance(active_output, dict) else _browser_output(None), updated_at,
-                                len(logical) - len(resolved.entries), False, resolved.entries, remapped_entry, policy)
+                                len(source_entries) - len(resolved.entries), False, resolved.entries, remapped_entry, policy)
     raw = list(values) if isinstance(values, list) else []
     items, present = _visible_items(db, user, raw)
     tracks = music_library.manifests(db, user, items)
@@ -173,7 +170,7 @@ def _normalized(db: Session, user: User, row: MusicListeningSession) -> Listenin
         or row.repeat != session.repeat
         or row.shuffle is not session.shuffle
         or row.active_output != session.active_output
-        or row.queue_entries != music_queue_entries.valid_refs(row.queue_entries)
+        or row.queue_entries != music_queue_entries.valid_refs(session.entries)
         or row.entry_index != session.entry_index
         or row.unavailable_policy != session.unavailable_policy
     )
@@ -260,15 +257,14 @@ class MusicListeningSessionService:
                 revision = row.revision + 1
             # Revalidate after writer admission. Hidden, deleted, and stale legacy IDs are pruned without ever
             # returning their old metadata; duplicates and the surviving selected entry retain their order.
-            source_entries = entries if entries is not None else [{"kind": "track", "item_id": item_id} for item_id in item_ids]
             session = _canonical(
                 self.db, user, item_ids, revision=revision, current_index=current_index,
                 position_seconds=position_seconds, repeat=repeat, shuffle=shuffle, updated_at=now,
-                entries=source_entries if entries is not None else None, entry_index=entry_index, unavailable_policy=unavailable_policy,
+                entries=entries, entry_index=entry_index, unavailable_policy=unavailable_policy,
             )
             row.revision = revision
             row.item_ids = [track.id for track in session.queue]
-            row.queue_entries = music_queue_entries.valid_refs(source_entries)
+            row.queue_entries = music_queue_entries.valid_refs(session.entries)
             row.entry_index = session.entry_index
             row.unavailable_policy = session.unavailable_policy
             row.current_index = session.current_index

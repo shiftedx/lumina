@@ -12,9 +12,11 @@ final class NativeMusicTransportTests: XCTestCase {
         let tracks = [fixture.track, fixture.track]
         var occurrences: [Int] = []
         var formats: [MusicPlaybackQuality] = []
+        var naturalEnds: [Int] = []
         let transport = transport(tracks: tracks, url: fixture.url)
         defer { transport.stop() }
         transport.onTrack = { _, index in occurrences.append(index) }
+        transport.onNaturalEnd = { naturalEnds.append($0) }
         transport.onQuality = { if let quality = $0 { formats.append(quality) } }
         await transport.start()
         XCTAssertNil(transport.state.error)
@@ -31,6 +33,10 @@ final class NativeMusicTransportTests: XCTestCase {
         try await observe(timeout: 5) { transport.state.finished }
         XCTAssertFalse(transport.state.playing)
         XCTAssertEqual(transport.state.position, 0.8, accuracy: 0.05)
+        XCTAssertEqual(naturalEnds, [1])
+        await transport.select(0)
+        transport.stop()
+        XCTAssertEqual(naturalEnds, [1], "Stop does not signal natural completion")
     }
 
     func testCrossfadeAdvancesBeforeTheOutgoingTrackEndsAndRetainsTheSuccessor() async throws {
@@ -95,6 +101,8 @@ final class NativeMusicTransportTests: XCTestCase {
             defer { transport.stop() }
             var played: [Int] = []
             var waiting = false
+            var naturalEnds = 0
+            transport.onNaturalEnd = { _ in naturalEnds += 1 }
             transport.onTrack = { _, index in played.append(index) }
             transport.allowsAdvance = { _, next in next != 1 }
             transport.onBlockedAdvance = { from, next in
@@ -106,6 +114,7 @@ final class NativeMusicTransportTests: XCTestCase {
             XCTAssertTrue(confirmed)
             try await observe(timeout: 5) { waiting }
             XCTAssertEqual(played, [0])
+            XCTAssertEqual(naturalEnds, 0)
             XCTAssertEqual(transport.state.index, 0)
             XCTAssertFalse(transport.state.playing)
             XCTAssertFalse(transport.state.finished, "A pending acquisition is a paused boundary, not a completed queue")

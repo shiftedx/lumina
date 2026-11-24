@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app import db as db_module
+from app.config import settings
 from app.main import app
-from app.models import AppSettings, DeviceToken, LibraryItem, MediaTitle, MemberAccess, StorageRoot
+from app.models import AppSettings, DeviceToken, LibraryItem, MediaTitle, MemberAccess, PlaybackProgress, StorageRoot, utcnow
 from app.security import session_digest
 from app.services.media_titles import jellyfin_id
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, ROOT, add_file, jellyfin_household, mediabrowser, uid
@@ -100,6 +101,48 @@ def test_member_queue_duplicates_rewind_conflict_and_visibility_pruning(native):
     assert pruned["revision"] == 3
 
 
+def test_native_session_round_trips_bounded_generated_provenance(native):  # noqa: ANN001
+    saved = call(native, "PUT", "/session", json={
+        **session_body(0, [ONE, TWO], 3),
+        "entries": [
+            {"kind": "track", "item_id": jellyfin_id(ONE)},
+            {"kind": "track", "item_id": jellyfin_id(TWO),
+             "provenance": {"source": "contextual_mix", "reason": "same_artist"}},
+        ],
+        "entry_index": 1,
+    })
+    assert saved.status_code == 200
+    assert saved.json()["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "same_artist"}
+    restored = call(native, "GET", "/session")
+    assert restored.status_code == 200
+    assert restored.json()["entries"][1]["provenance"] == {"source": "contextual_mix", "reason": "same_artist"}
+
+
+def test_instant_mix_returns_visible_bounded_audio_for_music_seeds(native):  # noqa: ANN001
+    headers = mediabrowser(ALICE_TOKEN)
+    def mix(seed, **params):  # noqa: ANN001, ANN202
+        return native.get(f"/Items/{jellyfin_id(seed)}/InstantMix", headers=headers, params=params)
+
+    for seed in (ONE, ALBUM, ARTIST):
+        response = mix(seed, userId=jellyfin_id(ALICE), limit=100, enableImages=True,
+                       enableImageTypes="Primary,Disc,Thumb,Art")
+        assert response.status_code == 200
+        rows = response.json()["Items"]
+        assert {row["Id"] for row in rows} == {jellyfin_id(ONE), jellyfin_id(TWO)}
+        assert all(row["Type"] == "Audio" and row["MediaType"] == "Audio" for row in rows)
+    assert mix(ONE).json()["Items"][0]["Id"] == jellyfin_id(ONE)
+    assert len(mix(ALBUM, limit=1).json()["Items"]) == 1
+    assert mix(ALBUM, limit=0).json()["Items"] == []
+    with db_module.SessionLocal.begin() as db:
+        db.add(MediaTitle(id=uid(888), type="artist", key="native:empty", root_id=ROOT, name="Empty Artist"))
+    assert mix(uid(888)).json()["Items"] == []
+    assert mix(HIDDEN).json()["Items"] == []
+    assert mix(uid(99999)).json()["Items"] == []
+    assert native.get(f"/Users/{jellyfin_id(BOB)}/Items/{jellyfin_id(ONE)}/InstantMix", headers=headers).status_code == 404
+    assert mix(ONE, userId=jellyfin_id(BOB)).status_code == 404
+    assert native.get(f"/Items/{jellyfin_id(ONE)}/InstantMix").status_code == 401
+
+
 def test_native_metadata_lyrics_mixes_and_queue_mapping(native):  # noqa: ANN001
     track = call(native, "GET", f"/tracks/{jellyfin_id(ONE)}").json()
     assert_native_track(track)
@@ -110,7 +153,112 @@ def test_native_metadata_lyrics_mixes_and_queue_mapping(native):  # noqa: ANN001
     for kind in ("unplayed", "rotation", "radio"):
         mixed = call(native, "GET", f"/mixes/{kind}", params={"seed_id": jellyfin_id(ONE)})
         assert mixed.status_code == 200 and {t["id"] for t in mixed.json()} == {ONE, TWO}
+    contextual = call(native, "GET", "/contextual-mix", params={
+        "seed_kind": "track", "seed_id": jellyfin_id(ONE), "exclude_item_ids": jellyfin_id(ONE),
+    })
+    assert contextual.status_code == 200
+    assert contextual.json()["seed"]["id"] == ONE
+    assert [(entry["id"], entry["reason"]["code"]) for entry in contextual.json()["items"]] == [(TWO, "same_artist")]
+    assert_native_track(contextual.json()["items"][0])
     assert call(native, "GET", f"/tracks/{HIDDEN}/lyrics").status_code == 404
+    assert call(native, "GET", "/contextual-mix", params={"seed_kind": "track", "seed_id": HIDDEN}).status_code == 404
+
+
+def test_native_music_home_has_compact_resume_and_shared_layout(native):  # noqa: ANN001
+    with db_module.SessionLocal.begin() as db:
+        db.add(PlaybackProgress(id=uid(899), user_id=ALICE, item_id=ONE, plays=1, last_watched_at=utcnow()))
+
+    playlist = call(native, "POST", "/playlists", json={"name": "Native Home", "item_ids": [ONE]}).json()
+    assert call(native, "PUT", "/session", json=session_body(0, [ONE], 5)).status_code == 200
+    home = call(native, "GET", "/home")
+    assert home.status_code == 200
+    payload = home.json()
+    assert set(payload["resume"]) == {"state", "revision", "entry_index", "current_index", "position_seconds", "track"}
+    assert payload["resume"] | {"track": None} == {
+        "state": "playable", "revision": 1, "entry_index": 0, "current_index": 0, "position_seconds": 5.0, "track": None,
+    }
+    assert set(payload["resume"]["track"]) == {"id", "title", "artist", "album", "album_id", "artwork_url", "duration"}
+    assert payload["resume"]["track"] | {"duration": None} == {
+        "id": ONE, "title": "Track 1", "artist": "Artist", "album": "Album", "album_id": ALBUM,
+        "artwork_url": f"/Items/{jellyfin_id(ALBUM)}/Images/Primary", "duration": None,
+    }
+    assert [entry["id"] for entry in payload["recent"]] == [ALBUM]
+    assert payload["recent"][0]["poster_url"] == f"/Items/{jellyfin_id(ALBUM)}/Images/Primary"
+    assert [entry["id"] for entry in payload["playlists"]] == [playlist["id"]]
+    saved = call(native, "PUT", "/home/layout", json={"order": ["mixes"], "hidden": ["downloads"]})
+    assert saved.json() == {"order": ["mixes", "resume", "recent", "playlists", "downloads"], "hidden": ["downloads"]}
+    assert call(native, "GET", "/home").json()["layout"] == saved.json()
+    assert call(native, "GET", "/home", token=BOB_TOKEN).json()["resume"] is None
+    assert call(native, "PUT", "/home/layout", json={"order": ["mixes", "mixes"]}).status_code == 422
+
+
+def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(native, monkeypatch):  # noqa: ANN001
+    def get(path, *, token=ALICE_TOKEN, **params):  # noqa: ANN001, ANN202
+        return native.get(path, params=params, headers=mediabrowser(token))
+
+    views = get(f"/Users/{jellyfin_id(ALICE)}/Views").json()["Items"]
+    music = next(view for view in views if view["CollectionType"] == "music")
+    scope = {"ParentId": music["Id"], "Recursive": "true"}
+    assert music["Type"] == "CollectionFolder"
+    albums = get("/Items", IncludeItemTypes="MusicAlbum", **scope).json()["Items"]
+    assert [album["Id"] for album in albums] == [jellyfin_id(ALBUM)]
+    assert albums[0]["AlbumArtists"] == [{"Id": jellyfin_id(ARTIST), "Name": "Artist"}]
+    assert [artist["Id"] for artist in get("/Artists/AlbumArtists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
+    assert [artist["Id"] for artist in get("/Artists", **scope).json()["Items"]] == [jellyfin_id(ARTIST)]
+    assert get("/Items", IncludeItemTypes="Movie", **scope).json()["Items"] == []
+    assert get("/Items", IncludeItemTypes="MusicAlbum", AlbumArtistIds=HIDDEN, **scope).json()["Items"] == []
+    songs = get("/Items", IncludeItemTypes="Audio", ArtistIds=jellyfin_id(ARTIST), **scope).json()["Items"]
+    assert {song["Id"] for song in songs} == {jellyfin_id(ONE), jellyfin_id(TWO)}
+    assert [song["Id"] for song in get("/Items", IncludeItemTypes="Audio", Ids=f"{ONE},{HIDDEN}", **scope).json()["Items"]] == [jellyfin_id(ONE)]
+
+    with db_module.SessionLocal.begin() as db:
+        db.add(MemberAccess(user_id=BOB, sections=["movies"]))
+    assert "music" not in {view["CollectionType"] for view in get("/UserViews", token=BOB_TOKEN).json()["Items"]}
+    assert get(f"/Items/{music['Id']}", token=BOB_TOKEN).status_code == 404
+    assert get("/Items", token=BOB_TOKEN, IncludeItemTypes="Audio", **scope).json()["Items"] == []
+
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert "music" not in {view["CollectionType"] for view in get("/UserViews").json()["Items"]}
+    assert get("/Items", IncludeItemTypes="Audio", **scope).json()["Items"] == []
+    assert get("/Items", IncludeItemTypes="Audio").json()["Items"], "Legacy explicit Audio browse stays available"
+
+
+def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(native, monkeypatch):  # noqa: ANN001
+    url = f"/Items/{jellyfin_id(ONE)}/File"
+    assert native.get(url).status_code == 401
+    headers = mediabrowser(ALICE_TOKEN)
+    response = native.get(url, headers={**headers, "Range": "bytes=0-3"})
+    assert response.status_code == 206
+    assert len(response.content) == 4
+    assert response.headers["content-type"] in {"audio/flac", "audio/x-flac"}
+    assert native.head(url, headers=headers).headers["content-length"] == "4096"
+    assert native.get(f"/Items/{jellyfin_id(HIDDEN)}/File", headers=headers).status_code == 404
+    assert native.get(f"/Items/{jellyfin_id(ALBUM)}/File", headers=headers).status_code == 404
+    with db_module.SessionLocal.begin() as db:
+        db.add(MemberAccess(user_id=BOB, can_download=False))
+    assert native.get(url, headers=mediabrowser(BOB_TOKEN)).status_code == 403
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert native.head(url, headers=headers).status_code == 200
+
+
+def test_music_rework_switch_preserves_queue_and_layout(native, monkeypatch):  # noqa: ANN001
+    assert call(native, "GET", "/home/capability", token=None).status_code == 401
+    assert call(native, "GET", "/home/capability").json() == {"enabled": True}
+    layout = {"order": ["mixes", "resume", "recent", "playlists", "downloads"], "hidden": ["downloads"]}
+    assert call(native, "PUT", "/home/layout", json=layout).json() == layout
+    snapshot = call(native, "PUT", "/session", json=session_body(0, [ONE, ONE, TWO], 23)).json()
+
+    monkeypatch.setattr(settings, "music_rework_enabled", False)
+    assert call(native, "GET", "/home/capability").json() == {"enabled": False}
+    assert call(native, "GET", "/home").status_code == 404
+    assert call(native, "PUT", "/home/layout", json={"order": [], "hidden": []}).status_code == 404
+    assert call(native, "GET", "/contextual-mix", params={"seed_kind": "track", "seed_id": ONE}).status_code == 404
+    assert call(native, "GET", "/session").json() == snapshot
+    assert call(native, "GET", f"/tracks/{ONE}").status_code == 200
+
+    monkeypatch.setattr(settings, "music_rework_enabled", True)
+    assert call(native, "GET", "/home").json()["layout"] == layout
+    assert call(native, "GET", "/session").json() == snapshot
 
 
 def test_download_permission_conversion_ranges_and_native_auth(native, monkeypatch, tmp_path):  # noqa: ANN001

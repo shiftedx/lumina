@@ -1,0 +1,918 @@
+{
+  "measurement": {
+    "browse_ready_ms": "Document navigation start to actionable fixture album on /audio?view=albums",
+    "first_audio_ms": "Track Play click to immediate Web Audio scheduling or HTML media playing event",
+    "next_track_ms": "Manual Next click to immediate successor scheduling or media playing event"
+  },
+  "browser": "157.0.8103.80",
+  "host": {
+    "platform": "darwin",
+    "release": "27.2.0",
+    "arch": "arm64",
+    "cpu": "Apple M4 Max"
+  },
+  "scope": "Matched synthetic browser loopback benchmark. Four rounds of five samples per view per revision. Alternating baseline and candidate order. Independent offline proof.",
+  "p95Method": "nearest rank",
+  "cohorts": {
+    "baseline": {
+      "revision": "a45332351a27d795f2f7e63ba0a9b4331086d0de",
+      "samples": [
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 895.1999999880791,
+          "first_audio_ms": 441.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 81.19999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 820.1999999880791,
+          "first_audio_ms": 183.60000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 84.09999996423721,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 811.6999999880791,
+          "first_audio_ms": 118.90000003576279,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 80.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 854.8000000119209,
+          "first_audio_ms": 119.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 84.90000003576279,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 808.7999999523163,
+          "first_audio_ms": 117.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 838.3999999761581,
+          "first_audio_ms": 125,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 82.60000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 820.8999999761581,
+          "first_audio_ms": 130.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.80000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 818.8999999761581,
+          "first_audio_ms": 130.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 88.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 815.7000000476837,
+          "first_audio_ms": 126.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 80.19999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 816.2999999523163,
+          "first_audio_ms": 133,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 108.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 855.5,
+          "first_audio_ms": 306.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.39999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 819.6999999880791,
+          "first_audio_ms": 175.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 78.39999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 836.1000000238419,
+          "first_audio_ms": 145.0999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 103.89999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 836.3999999761581,
+          "first_audio_ms": 164.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 144.89999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 887.3999999761581,
+          "first_audio_ms": 216.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 84.89999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 830.2000000476837,
+          "first_audio_ms": 142.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 102.70000004768372,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 833.8999999761581,
+          "first_audio_ms": 204.0999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 841.8000000119209,
+          "first_audio_ms": 167.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 831.8000000119209,
+          "first_audio_ms": 152.0999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.19999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 896.3000000119209,
+          "first_audio_ms": 191.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 77.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 876,
+          "first_audio_ms": 323.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 143,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 892.1999999880791,
+          "first_audio_ms": 181.89999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 184,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 1030.5999999642372,
+          "first_audio_ms": 137.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.39999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 853.6000000238419,
+          "first_audio_ms": 164.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 98.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 836.6999999880791,
+          "first_audio_ms": 180.89999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 125.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 855.6000000238419,
+          "first_audio_ms": 136.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.40000003576279,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 823.2000000476837,
+          "first_audio_ms": 147,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 90.09999996423721,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 822.7999999523163,
+          "first_audio_ms": 141.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.20000004768372,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 831.4000000357628,
+          "first_audio_ms": 148.9000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 91.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 838.1000000238419,
+          "first_audio_ms": 180.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 83.39999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 924,
+          "first_audio_ms": 343.2999999523163,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 81,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 835.9000000357628,
+          "first_audio_ms": 193.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 153.29999995231628,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 821.8000000119209,
+          "first_audio_ms": 147.89999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 75.80000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 826.5,
+          "first_audio_ms": 174,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 934.8000000119209,
+          "first_audio_ms": 198.39999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 89.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 898.6999999880791,
+          "first_audio_ms": 171.39999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 89.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 840.7999999523163,
+          "first_audio_ms": 164,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 83,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 900.8000000119209,
+          "first_audio_ms": 198.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 84.39999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 867.5,
+          "first_audio_ms": 173.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 98.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 886.3999999761581,
+          "first_audio_ms": 185.0999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 89.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        }
+      ],
+      "statistics": {
+        "desktop": {
+          "browse_ready_ms": {
+            "median": 845.2,
+            "p95": 934.8
+          },
+          "first_audio_ms": {
+            "median": 178.3,
+            "p95": 343.3
+          },
+          "next_track_ms": {
+            "median": 86.2,
+            "p95": 153.3
+          }
+        },
+        "phone": {
+          "browse_ready_ms": {
+            "median": 836.0,
+            "p95": 898.7
+          },
+          "first_audio_ms": {
+            "median": 150.5,
+            "p95": 198.7
+          },
+          "next_track_ms": {
+            "median": 86.0,
+            "p95": 102.7
+          }
+        }
+      }
+    },
+    "candidate": {
+      "revision": "79561d789a9a68439f5826550b67bf6fdcd37cc2",
+      "samples": [
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 840.8999999761581,
+          "first_audio_ms": 282.60000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 96.09999996423721,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 829.5,
+          "first_audio_ms": 120.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 95,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 810.3000000119209,
+          "first_audio_ms": 127.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 87,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 836.5,
+          "first_audio_ms": 125,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 80.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 807.5,
+          "first_audio_ms": 121.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 82.89999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 806.1999999880791,
+          "first_audio_ms": 134.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 81.09999996423721,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 821.1000000238419,
+          "first_audio_ms": 141.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 87.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 863.4000000357628,
+          "first_audio_ms": 146.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 84.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 818.8000000119209,
+          "first_audio_ms": 136.80000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 87.79999995231628,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 821.6999999880791,
+          "first_audio_ms": 138,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.29999995231628,
+          "next_track_marker": "buffer-scheduled",
+          "round": 1
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 871.4000000357628,
+          "first_audio_ms": 306.60000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 116,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 852.7000000476837,
+          "first_audio_ms": 133.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 92.60000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 825.3999999761581,
+          "first_audio_ms": 127.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 89.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 829,
+          "first_audio_ms": 163.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 90.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 808.3000000119209,
+          "first_audio_ms": 141.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 820.2999999523163,
+          "first_audio_ms": 156.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 87.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 1002,
+          "first_audio_ms": 165.4000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 114.29999995231628,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 906.3000000119209,
+          "first_audio_ms": 154.5,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 88.40000003576279,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 846.6000000238419,
+          "first_audio_ms": 164.0999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 88,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 830.1000000238419,
+          "first_audio_ms": 168.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 88.60000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 2
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 916.5999999642372,
+          "first_audio_ms": 327.4000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 118.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 918.2000000476837,
+          "first_audio_ms": 157.10000002384186,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 86.20000004768372,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 827.8999999761581,
+          "first_audio_ms": 166.79999995231628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 91.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 820.8999999761581,
+          "first_audio_ms": 158.5999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 81,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 833.9000000357628,
+          "first_audio_ms": 150.39999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 91.20000004768372,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 873.5,
+          "first_audio_ms": 183.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 127.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 836.6999999880791,
+          "first_audio_ms": 154.89999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 87.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 861.8000000119209,
+          "first_audio_ms": 155.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 94.19999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 887.3000000119209,
+          "first_audio_ms": 207,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 129.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 874,
+          "first_audio_ms": 317.19999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 112.80000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 3
+        },
+        {
+          "view": "desktop",
+          "run": 1,
+          "browse_ready_ms": 918.5,
+          "first_audio_ms": 482,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 90.60000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 2,
+          "browse_ready_ms": 893.9000000357628,
+          "first_audio_ms": 178.30000001192093,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.80000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 3,
+          "browse_ready_ms": 839.3999999761581,
+          "first_audio_ms": 177.39999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 85.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 4,
+          "browse_ready_ms": 919.3000000119209,
+          "first_audio_ms": 135.69999998807907,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 80.5,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "desktop",
+          "run": 5,
+          "browse_ready_ms": 1080.0999999642372,
+          "first_audio_ms": 277.9000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 77.10000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 1,
+          "browse_ready_ms": 906.1999999880791,
+          "first_audio_ms": 207.9000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 138.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 2,
+          "browse_ready_ms": 872.3999999761581,
+          "first_audio_ms": 200.29999995231628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 92.89999997615814,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 3,
+          "browse_ready_ms": 935.8999999761581,
+          "first_audio_ms": 156.39999997615814,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 82.60000002384186,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 4,
+          "browse_ready_ms": 871.1000000238419,
+          "first_audio_ms": 220.5999999642372,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 82.69999998807907,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        },
+        {
+          "view": "phone",
+          "run": 5,
+          "browse_ready_ms": 857,
+          "first_audio_ms": 160.9000000357628,
+          "first_audio_marker": "buffer-scheduled",
+          "next_track_ms": 123.30000001192093,
+          "next_track_marker": "buffer-scheduled",
+          "round": 4
+        }
+      ],
+      "statistics": {
+        "desktop": {
+          "browse_ready_ms": {
+            "median": 837.9,
+            "p95": 919.3
+          },
+          "first_audio_ms": {
+            "median": 157.8,
+            "p95": 327.4
+          },
+          "next_track_ms": {
+            "median": 88.2,
+            "p95": 116
+          }
+        },
+        "phone": {
+          "browse_ready_ms": {
+            "median": 862.6,
+            "p95": 935.9
+          },
+          "first_audio_ms": {
+            "median": 158.7,
+            "p95": 220.6
+          },
+          "next_track_ms": {
+            "median": 88.2,
+            "p95": 129.7
+          }
+        }
+      }
+    }
+  },
+  "medianBudgets": {
+    "desktop": {
+      "browse_ready_ms": {
+        "maximumIncreaseMs": 150,
+        "passed": true
+      },
+      "first_audio_ms": {
+        "maximumIncreaseMs": 100,
+        "passed": true
+      },
+      "next_track_ms": {
+        "maximumIncreaseMs": 100,
+        "passed": true
+      }
+    },
+    "phone": {
+      "browse_ready_ms": {
+        "maximumIncreaseMs": 150,
+        "passed": true
+      },
+      "first_audio_ms": {
+        "maximumIncreaseMs": 100,
+        "passed": true
+      },
+      "next_track_ms": {
+        "maximumIncreaseMs": 100,
+        "passed": true
+      }
+    }
+  }
+}

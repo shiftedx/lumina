@@ -1,0 +1,47 @@
+{
+  "product_source": "60a5763049e0967ab24d608c290071876dae6255",
+  "xcode": "27.1 (27A9269)",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "destination": "Apple TV 4K (3rd generation), tvOS 27.0 simulator",
+  "build_configuration": "Debug",
+  "test": "NativeMusicBaselineTimingTests/testMusicBrowsePlayAndNextTiming",
+  "result": "passed",
+  "markers": [
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795136721.8028588
+    },
+    {
+      "elapsed_ms": 21169,
+      "event": "ready",
+      "phase": "music_baseline_browse",
+      "timestamp": 1795136742.97151
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795136746.410939
+    },
+    {
+      "elapsed_ms": 11884,
+      "event": "ready",
+      "phase": "music_baseline_first_audio",
+      "timestamp": 1795136758.294857
+    },
+    {
+      "elapsed_ms": 0,
+      "event": "begin",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795136759.637854
+    },
+    {
+      "elapsed_ms": 8168,
+      "event": "ready",
+      "phase": "music_baseline_manual_next",
+      "timestamp": 1795136767.8056169
+    }
+  ]
+}

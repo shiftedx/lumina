@@ -52,7 +52,7 @@ seek callback and visibility without a browser mock.
 ## Provenance request failure
 
 Original: `frontend/e2e/v1_provenance.spec.ts`, `test_provenance_error_state`.
-Replacement: `frontend/src/v1_provenance.test.tsx`, “test_provenance_error_state:
+Replacement: `frontend/src/features/watch/ProvenancePanel.test.tsx`, “test_provenance_error_state:
 a failed source request shows the durable recovery state”. A rejected public
 getProvenance request ends loading and renders the recovery message. Replacing
 the production failure handler's `setData(null)` with a no-op made the contract

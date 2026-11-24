@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import LibraryNote, MemberRecommendationSuppression, PlaybackProgress, RemotePlaybackProgress, SourceAutomation, User, utcnow
-from app.schemas import SuppressionResponse, UserResponse, UserSettingsResponse
+from app.account_schemas import UserResponse
+from app.schemas import SuppressionResponse, UserSettingsResponse
 from app.security import get_current_user
 from app.services.member_follows import CHANNEL_SOURCE_TYPE
 from app.services.reco import CONSTANTS

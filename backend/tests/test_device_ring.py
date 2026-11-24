@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from app import main, security
 from app.config import settings
 from app.models import AppSession, User
-from app.schemas import SessionLoginRequest, UserUpdateRequest
+from app.account_schemas import DeviceForgetRequest, SessionSwitchRequest, UserUpdateRequest
+from app.schemas import SessionLoginRequest
 from app.security import hash_password
 from app.services.users import UserService
 from support import make_user
@@ -565,7 +566,7 @@ def test_listing_the_ring_is_rate_limited(client: TestClient) -> None:
 
 
 def test_request_bodies_are_bounded() -> None:
-    from app.schemas import DeviceForgetRequest, SessionSwitchRequest
+    from app.account_schemas import DeviceForgetRequest, SessionSwitchRequest
     for model in (SessionSwitchRequest, DeviceForgetRequest):
         with pytest.raises(ValueError):
             model(user_id="")

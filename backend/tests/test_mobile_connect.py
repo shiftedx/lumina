@@ -12,7 +12,7 @@ from app.config import settings
 from app.db import get_db
 from app.main import app
 from app.models import AppSettings, DeviceToken, MobilePairing, User, utcnow
-from app.schemas import UserUpdateRequest
+from app.account_schemas import UserUpdateRequest
 from app.security import CSRF_HEADER, authenticate_user, hash_password, session_digest
 from app.services import qr
 from app.services.requests import notify

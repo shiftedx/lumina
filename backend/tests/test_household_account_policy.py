@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.main import update_user
 from app.models import AppSession, User
-from app.schemas import UserUpdateRequest
+from app.account_schemas import UserUpdateRequest
 from app.security import hash_password
 from app.services.users import UserService
 from support import make_user, memory_session_factory

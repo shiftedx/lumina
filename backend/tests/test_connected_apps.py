@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.models import DeviceToken, LibraryItem, User
-from app.schemas import UserUpdateRequest
+from app.account_schemas import UserUpdateRequest
 from app.security import CSRF_HEADER, SESSION_TOUCH_INTERVAL_SECONDS, hash_password, session_digest, utcnow
 from app.services.redaction import redact
 from app.services.users import UserService

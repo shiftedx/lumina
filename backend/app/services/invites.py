@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AccountToken, AppSettings, MemberAccess, RequestPolicy, StorageRoot, User
 from app.persistence import write_transaction
-from app.schemas import MemberAccessIn
+from app.account_schemas import MemberAccessIn
 from app.security import session_digest, utcnow
 from app.services import invite_email, public_address
 from app.services.requests import notify

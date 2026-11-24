@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.models import AccountToken, AppSession, AppSettings, DeviceToken, DownloadJob, MobilePairing, User
-from app.schemas import (
+from app.account_schemas import (
     AppSettingsResponse,
     AppSettingsUpdateRequest,
     InvitationRedeemRequest,

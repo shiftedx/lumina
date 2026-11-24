@@ -1,4 +1,4 @@
-"""Deterministic extractor for Lumina's reserved-domain artifact fixtures."""
+"""Deterministic extractor for the real-stack fixture server."""
 
 from __future__ import annotations
 

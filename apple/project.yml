@@ -28,7 +28,6 @@ targets:
     sources:
       - path: App/Shared
       - path: App/iOS
-        excludes: [LuminaApp.swift]
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: Assets/Welcome.xcassets

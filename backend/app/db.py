@@ -102,6 +102,12 @@ def init_storage() -> None:
     settings.archive_path.touch(exist_ok=True)
 
 
+def register_models() -> None:
+    from app import (  # noqa: F401
+        book_models, models, photo_face_index_models, photo_face_models, photo_models, photo_preview_models, photo_root_models,
+    )
+
+
 def _validate_current_schema(connection) -> None:  # noqa: ANN001
     """Reject a stamped database whose mapped tables no longer match schema 44."""
     inspector = inspect(connection)
@@ -128,6 +134,7 @@ def _validate_current_schema(connection) -> None:  # noqa: ANN001
 
 def validate_database_file(path) -> None:  # noqa: ANN001
     """Read a current SQLite file without opening the WAL-configuring engine."""
+    register_models()
     copy = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         version = copy.execute("PRAGMA user_version").fetchone()[0]
@@ -151,10 +158,8 @@ def validate_database_file(path) -> None:  # noqa: ANN001
 
 def init_db() -> None:
     """Create the current schema on an empty database and validate a stamped current database."""
-    from app import (  # noqa: F401  (registers model metadata)
-        book_models, models, photo_face_index_models, photo_face_models, photo_models, photo_preview_models, photo_root_models,
-    )
     from app.services.library_search import ensure_search_index
+    register_models()
 
     if sqlite3.sqlite_version_info < (3, 33):  # UPDATE … FROM (CATEGORY_SQL)
         raise RuntimeError(f"SQLite 3.33 or later is required; this Python links SQLite {sqlite3.sqlite_version}.")

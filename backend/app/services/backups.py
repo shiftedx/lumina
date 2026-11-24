@@ -136,7 +136,8 @@ def list_backups() -> list[dict[str, Any]]:
         except (OSError, ValueError):
             continue
         path = manifest_path.with_suffix(".db")
-        if manifest.get("name") == manifest_path.stem and path.is_file() and not verify_file(path):
+        if (manifest.get("name") == manifest_path.stem and path.is_file()
+                and manifest.get("schema_version") == db_module.SCHEMA_VERSION and NAME.fullmatch(manifest_path.stem)):
             backups.append(manifest)
     return sorted(backups, key=lambda item: item["created_at"], reverse=True)
 

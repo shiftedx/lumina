@@ -275,6 +275,12 @@ def test_scheduled_backup_retention_keeps_manual(admin) -> None:  # noqa: ANN001
     assert len(list(root.glob("*-scheduled.db"))) == 2  # pruned copies are gone from disk
 
 
+def test_listing_current_manifests_never_verifies_backup_contents(admin, monkeypatch) -> None:  # noqa: ANN001
+    manifest = backups.create_backup()
+    monkeypatch.setattr(backups, "verify_file", lambda _path: (_ for _ in ()).throw(AssertionError("listing must stay metadata-only")))
+    assert [item["name"] for item in backups.list_backups()] == [manifest["name"]]
+
+
 
 
 def test_server_lock_is_shared_between_instances() -> None:

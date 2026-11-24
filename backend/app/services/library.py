@@ -21,6 +21,7 @@ from app.models import AppMaintenanceState, LibraryItem, LibraryItemArtifact, Li
 from app.persistence import queue_after_commit, write_transaction
 from app.schemas import LibraryChannelResponse, LibraryGroupResponse, LibraryItemResponse, LibraryTagResponse
 from app.services import member_access
+from app.services.library_channels import CHANNEL_ITEM, UPLOADER, channel_id
 from app.services.library_curation import LibraryCurationService
 from app.services.library_search import SEARCH_MAX_RESULTS, LibrarySearchService
 from app.services.artifact_quarantine import ArtifactQuarantineService
@@ -257,7 +258,6 @@ class LibraryService:
         A renamed channel splits into two groups; add a stored channel_id column if that is ever reported.
         """
         from app.services.channel_discovery import normalize_channel_source_url  # noqa: PLC0415 - keeps library free of discovery imports
-        from app.services.jellyfin import CHANNEL_ITEM, UPLOADER, channel_id  # noqa: PLC0415 - jellyfin imports this module
 
         rows = self.db.execute(
             select(LibraryItem.extractor, UPLOADER, func.count(LibraryItem.id), func.count(PlaybackProgress.id),

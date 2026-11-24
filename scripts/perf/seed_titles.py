@@ -97,6 +97,7 @@ def main(argv: list[str] | None = None) -> None:
     from sqlalchemy import insert
 
     from app import models as m
+    from app.catalog_models import CATEGORY_OF_TYPE
     from app.db import engine, init_db, session_scope
     from app.security import hash_password
     from app.services.library import EXTERNAL_LIBRARY_ORIGIN
@@ -174,7 +175,7 @@ def main(argv: list[str] | None = None) -> None:
             "id": title_id, "type": kind, "key": f"perf:{title_id}", "root_id": root_id, "name": name, "sort_name": None,
             "parent_id": None, "boxset_id": None, "index_number": None, "year": None, "provider_ids": {}, "field_sources": {},
             "images": images(kind), "metadata_json": {}, "created_at": added, "added_at": added,
-            "updated_at": BASE, "category": m.CATEGORY_OF_TYPE.get(kind), **fields,
+            "updated_at": BASE, "category": CATEGORY_OF_TYPE.get(kind), **fields,
         })
         return title_id
 

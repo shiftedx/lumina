@@ -7,20 +7,17 @@ import hashlib
 import logging
 import time
 
-import hmac
 import os
-import secrets
 import threading
 
 import pytest
-from Cryptodome.Cipher import AES
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
 from app import main, security
 from app.models import DeviceToken, User, UserSettings
 from app.security import CSRF_HEADER
-from app.services import art_urls, qr, two_factor
+from app.services import qr, two_factor
 from app.services.requests import notify
 from app.services.rate_limit import RATE_LIMIT_RULES
 from support import seed_app_settings
@@ -333,67 +330,43 @@ def test_migration_14_adds_the_two_step_columns(tmp_path, monkeypatch) -> None: 
     assert "app_password_id" in columns["device_tokens"]
 
 
-def _seal_v1(secret: bytes) -> str:
-    """How 2.9.0 sealed: a key derived from app-data/art-secret, no user binding."""
-    key = hmac.new(art_urls.secret(), b"lumina-totp-secret-v1", hashlib.sha256).digest()
-    nonce = secrets.token_bytes(12)
-    ciphertext, tag = AES.new(key, AES.MODE_GCM, nonce=nonce).encrypt_and_digest(secret)
-    return "v1:" + base64.urlsafe_b64encode(nonce + ciphertext + tag).decode()
-
-
-def test_startup_reseals_2_9_0_secrets_under_the_totp_key(factory, monkeypatch) -> None:  # noqa: ANN001, F811
-    kid = add_member(factory, "kid")
+def test_startup_ignores_unsupported_v1_secret_but_recovery_remains_available(factory, monkeypatch) -> None:  # noqa: ANN001, F811
+    legacy = "v1:obsolete"
+    recovery_code = "safe-recovery-code"
     with factory.begin() as db:
-        for user_id, fill in (("u1", b"a"), (kid, b"b")):
-            db.get(User, user_id).totp_secret = _seal_v1(fill * 20)
+        user = db.get(User, "u1")
+        user.totp_secret = legacy
+        user.totp_enabled_at = security.utcnow()
+        user.totp_recovery = [two_factor.code_digest(recovery_code)]
+    assert two_factor.unseal(legacy, "u1") is None
     assert not two_factor.key_path().exists()
 
-    # A failure part-way (here, sealing the second row) rolls every row back; the next start retries.
-    real_seal, calls = two_factor.seal, []
+    def unexpected_key_read(*, create: bool = False) -> bytes | None:  # noqa: ARG001
+        raise AssertionError("startup must not read a key for an unsupported v1 record")
 
-    def flaky(secret: bytes, user_id: str) -> str:
-        calls.append(user_id)
-        if len(calls) == 2:
-            raise RuntimeError("crash")
-        return real_seal(secret, user_id)
-
-    monkeypatch.setattr(two_factor, "seal", flaky)
+    monkeypatch.setattr(two_factor, "_key", unexpected_key_read)
     with factory() as db:
-        two_factor.reseal_legacy(db)
-    with factory() as db:
-        assert all(u.totp_secret.startswith("v1:") for u in db.query(User).filter(User.totp_secret.is_not(None)))
-    monkeypatch.setattr(two_factor, "seal", real_seal)
-
-    with factory() as db:
-        two_factor.reseal_legacy(db)
-    with factory() as db:
-        sealed = {u.id: u.totp_secret for u in db.query(User).filter(User.totp_secret.is_not(None))}
-    assert all(value.startswith("v2:") for value in sealed.values())
-    assert two_factor.unseal(sealed["u1"], "u1") == b"a" * 20 and two_factor.unseal(sealed[kid], kid) == b"b" * 20
-    # Now independent of art-secret, and a second start changes nothing.
-    art_urls.secret_path().unlink()
-    with factory() as db:
-        two_factor.reseal_legacy(db)
-        assert {u.id: u.totp_secret for u in db.query(User).filter(User.totp_secret.is_not(None))} == sealed
-    assert two_factor.unseal(sealed["u1"], "u1") == b"a" * 20
+        two_factor.report_key_status(db)
+        user = db.get(User, "u1")
+        assert two_factor.verify(db, user, code="000000") is False
+        assert two_factor.verify(db, user, recovery_code=recovery_code) is True
+        assert db.get(User, "u1", populate_existing=True).totp_secret == legacy
+    assert not two_factor.key_path().exists()
 
 
-def test_a_2_9_0_secret_without_its_art_secret_is_left_for_a_later_start(factory, monkeypatch, caplog) -> None:  # noqa: ANN001, F811
+def test_startup_reports_a_missing_current_key_without_touching_recovery(factory, caplog) -> None:  # noqa: ANN001, F811
+    recovery_code = "safe-recovery-code"
     with factory.begin() as db:
-        db.get(User, "u1").totp_secret = legacy = _seal_v1(b"a" * 20)
-    secret_file = art_urls.secret_path().read_bytes()
-    art_urls.secret_path().unlink()
-    monkeypatch.setattr(art_urls, "_secret", None)
+        user = db.get(User, "u1")
+        user.totp_secret = "v2:unreadable"
+        user.totp_enabled_at = security.utcnow()
+        user.totp_recovery = [two_factor.code_digest(recovery_code)]
     with factory() as db, caplog.at_level(logging.ERROR):
-        two_factor.reseal_legacy(db)
-    assert "could not be opened with app-data/art-secret" in caplog.text
-    assert not art_urls.secret_path().exists()  # not minted: a restored art-secret still opens the row
-    with factory() as db:
-        assert db.get(User, "u1").totp_secret == legacy
-    art_urls.secret_path().write_bytes(secret_file)
-    with factory() as db:
-        two_factor.reseal_legacy(db)
-        assert two_factor.unseal(db.get(User, "u1").totp_secret, "u1") == b"a" * 20
+        two_factor.report_key_status(db)
+        user = db.get(User, "u1")
+        assert two_factor.verify(db, user, recovery_code=recovery_code) is True
+    assert "app-data/totp-key is missing" in caplog.text
+    assert not two_factor.key_path().exists()
 
 
 def test_the_totp_key_is_never_replaced(factory) -> None:  # noqa: F811

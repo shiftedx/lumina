@@ -230,8 +230,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE app_settings ADD COLUMN require_owner_two_factor BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE device_tokens ADD COLUMN app_password_id VARCHAR(36)",
     ),
-    # After 2.9.0: no DDL. Startup reseals 2.9.0 authenticator secrets under app-data/totp-key (two_factor.reseal_legacy); the
-    # bump takes a pre-upgrade backup first and stops 2.9.0 opening secrets it cannot read (docker/README.md rollback).
+    # After 2.9.0: no DDL. Step 15 is retained to preserve the schema/version history.
     15: (),
     16: (),  # #164 household people editor: person_overrides comes from create_all; rollback = drop it, user_version = 15.
     17: ("ALTER TABLE app_settings ADD COLUMN local_address TEXT",),  # the local address beside the public one; additive

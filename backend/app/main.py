@@ -913,7 +913,7 @@ async def lifespan(app: FastAPI):
     init_db()
     release_updates.coordinator.start()
     with session_scope() as db:
-        two_factor.reseal_legacy(db)  # 2.9.0 authenticator secrets → app-data/totp-key, before any sign-in
+        two_factor.report_key_status(db)
     configured_concurrency = 1
     with session_scope() as db:
         UserService(db).require_remote_bootstrap_ready(settings.remote_https_enabled)

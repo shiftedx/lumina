@@ -99,6 +99,20 @@ def test_settings_share_member_preferences_but_never_browser_api_or_other_member
     assert native.get("/api/settings/me", headers=mediabrowser(ALICE_TOKEN)).status_code == 401
 
 
+def test_native_resource_jobs_keep_summaries_and_hide_retired_idea_graphs(native: TestClient) -> None:
+    from app.models import IdeaGraph, Summary
+
+    shared = dict(library_item_id="item", transcript_id="transcript", transcript_revision=1,
+                  model_id="test-model", requested_by=ALICE, state="queued")
+    with db_module.SessionLocal.begin() as db:
+        db.add_all([Summary(id="summary", **shared), IdeaGraph(id="graph", summary_id="summary", **shared)])
+
+    assert call(native, "GET", "/resource-jobs").json() == [{"id": "summary", "kind": "summary", "state": "queued"}]
+    assert call(native, "POST", "/resource-jobs/graph/graph/cancel").status_code == 404
+    assert call(native, "POST", "/resource-jobs/summary/summary/cancel").json() == {"state": "canceled"}
+    assert call(native, "GET", "/resource-jobs").json() == []
+
+
 def set_native_streaming_enabled(enabled: bool) -> None:
     with db_module.SessionLocal.begin() as db:
         record = db.get(AppSettings, 1)

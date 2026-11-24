@@ -4,7 +4,7 @@
  */
 import type { TitleCategory, TitleType } from '../../types';
 
-/** Library lenses with a URL of their own, in tab order; All is `/library` itself. */
+/** Library lenses with their own URLs. */
 export const LIBRARY_LENSES = ['movies', 'shows', 'anime', 'music', 'youtube', 'recordings', 'deleted'] as const;
 export type LibraryLens = (typeof LIBRARY_LENSES)[number];
 
@@ -13,7 +13,7 @@ export const LENS_LABELS: Readonly<Record<LibraryLens, string>> = {
 };
 
 /**
- * Back's lens for a deep-linked title page; null = All. Seasons and episodes pass their own
+ * Back's lens for a deep-linked title page; null means the Video umbrella. Seasons and episodes pass their own
  * category, which is always their series'.
  */
 export function titleLens(type: TitleType | null, category?: TitleCategory | null): LibraryLens | null {

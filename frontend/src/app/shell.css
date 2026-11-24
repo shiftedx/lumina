@@ -82,7 +82,7 @@
 .g-topbar { padding-inline: 30px; }
 .g-topbar-start { gap: 16px; }
 .g-topbar-start > .g-icon-button { flex: none; border-radius: 0; background: transparent; color: var(--g-ink); }
-.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .g-all.is-stage-led, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { --topbar-position: fixed; --topbar-opening-background: color-mix(in srgb, var(--g-overlay-halo) 12%, transparent); --topbar-opening-ink: var(--g-on-art); --topbar-activity-track: var(--g-overlay-track); }
+.app-background:has(.has-browse-hero, .home .h-hero, .rq-surface.is-discover .rq-hero, .books-overview-hero, .books-title-hero, .books-series-hero, .t-page .t-hero:not(.is-empty), .rq-title-hero) > .g-topbar { --topbar-position: fixed; --topbar-opening-background: color-mix(in srgb, var(--g-overlay-halo) 12%, transparent); --topbar-opening-ink: var(--g-on-art); --topbar-activity-track: var(--g-overlay-track); }
 .has-stage-header .g-topbar { --topbar-position: fixed; }
 .has-stage-header .lumina-main > :is(.surface, .g-route-loading):not(.has-home-stage, .has-browse-hero, .is-stage-led, .t-page:not(.is-plain)) { border-top: calc(var(--g-topbar) + env(safe-area-inset-top)) solid transparent; }
 .g-profile-trigger .g-avatar { font-family: var(--g-sans); font-style: normal; }

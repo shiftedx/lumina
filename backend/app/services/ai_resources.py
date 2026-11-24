@@ -11,7 +11,11 @@ from app.db import session_scope
 from app.models import AppSettings, AsrJob, IdeaGraph, SeriesRecap, Summary
 from app.services.resource_policy import effective
 
-MODELS = (AsrJob, Summary, IdeaGraph, SeriesRecap)
+JOB_MODELS = {
+    "enrichment": AsrJob,
+    "summary": Summary,
+    "recap": SeriesRecap,
+}
 
 
 class AiCapacityError(RuntimeError):
@@ -24,7 +28,6 @@ def duplicate(db, row, registry):
     keys = {
         AsrJob: ("library_item_id", "kind", "model_id", "params"),
         Summary: ("transcript_id", "transcript_revision", "model_id"),
-        IdeaGraph: ("summary_id", "model_id"),
         SeriesRecap: ("episode_title_id", "model_id", "inputs_digest"),
     }.get(model)
     if keys is None:
@@ -60,7 +63,7 @@ def admit(db, owner: str | None, additional: int = 1) -> None:
         return
     count = sum(db.scalar(select(func.count()).select_from(model).where(
         model.requested_by == owner, model.state.in_(("pending", "queued")),
-    )) or 0 for model in MODELS)
+    )) or 0 for model in JOB_MODELS.values())
     if count + additional > limit:
         raise AiCapacityError("Your AI queue is full. Cancel waiting work or try again after a job finishes.")
 
@@ -135,7 +138,7 @@ def execution(model, job_id: str, registry):
 
 
 def recover(db) -> None:
-    """Summary workers are ephemeral; persist interruption so their queue charges cannot survive restart."""
+    """Persist interruption for ephemeral AI workers, including retired Idea Graph jobs."""
     from app.models import utcnow
     from app.persistence import write_transaction
     with write_transaction(db, name="ai_resources_recover"):
@@ -151,9 +154,9 @@ def interactive_execution(owner: str, member_limit: int, pool_limit: int):
 
     Smart-collection drafting has no durable job row, so waiting would create
     an uncharged, uncancellable HTTP queue outside the member's durable queue.
-    It therefore shares the running counters with summaries, recaps, graphs
-    and ASR, but returns a capacity error when the member or AI pool is full,
-    or when durable work is already waiting for that member.
+    It shares running counters with summaries, recaps and ASR. It returns a
+    capacity error when the member or AI pool is full or durable work is
+    already waiting for that member.
     """
     acquired = False
     with _condition:

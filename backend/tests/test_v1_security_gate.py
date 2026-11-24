@@ -9,12 +9,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.models import DownloadJob, IdeaGraph, LibraryItem, LiveRecording, Summary
+from app.models import DownloadJob, LibraryItem, LiveRecording, Summary
 from app.services.transcripts import TranscriptService
 from support import make_user
 
 REPO = Path(__file__).resolve().parents[2]
-SECRETS = ("secret-title", "secret-cue", "secret-note", "secret-shelf", "secret-watch", "secret-graph", "secret-point")
+SECRETS = ("secret-title", "secret-cue", "secret-note", "secret-shelf", "secret-watch", "secret-point")
 
 
 def test_privacy_matrix_all_surfaces(db_factory, api_client, monkeypatch) -> None:
@@ -30,8 +30,6 @@ def test_privacy_matrix_all_surfaces(db_factory, api_client, monkeypatch) -> Non
         db.add_all([
             Summary(id="sum", library_item_id="priv", transcript_id=transcript.id, transcript_revision=transcript.revision, model_id="m",
                     state="succeeded", overview="o", key_points=[{"text": "secret-point", "cue_ordinals": [0], "start_ms": 0}], chapters=[]),
-            IdeaGraph(id="graph", library_item_id="priv", summary_id="sum", transcript_id=transcript.id, transcript_revision=transcript.revision,
-                      model_id="m", state="succeeded", nodes=[{"id": "n", "label": "secret-graph", "cue_ordinals": [0], "start_ms": 0}], edges=[]),
             LiveRecording(id="rec", user_id="alice", source_url="https://example.com/secret-watch", source_identity="youtube:x",
                           source_identity_key="x", status="partial", library_item_id="priv"),
             DownloadJob(id="job", user_id="alice", source_url="https://example.com/secret-watch", status="failed", format_selection={},
@@ -51,8 +49,8 @@ def test_privacy_matrix_all_surfaces(db_factory, api_client, monkeypatch) -> Non
         ("GET", "/api/library/priv"), ("GET", "/api/library/priv/notes"), ("PUT", f"/api/library/notes/{note}"),
         ("DELETE", f"/api/library/notes/{note}"), ("GET", "/api/library/priv/provenance"), ("GET", "/api/library/priv/transcripts"),
         ("GET", f"/api/transcripts/{tid}/cues"), ("GET", f"/api/transcripts/{tid}/search?q=secret"), ("GET", "/api/library/priv/summary"),
-        ("GET", "/api/summaries/sum"), ("GET", "/api/library/priv/idea-graph"), ("GET", "/api/idea-graphs/graph"),
-        ("POST", "/api/library/priv/idea-graphs"), ("POST", "/api/library/priv/summaries"), ("POST", "/api/library/priv/transcripts/asr"),
+        ("GET", "/api/summaries/sum"),
+        ("POST", "/api/library/priv/summaries"), ("POST", "/api/library/priv/transcripts/asr"),
         ("GET", "/api/live-recordings/rec"), ("PUT", "/api/live-recordings/rec/keep"), ("POST", "/api/live-recordings/rec/stop"),
         ("POST", "/api/live-recordings/rec/cancel"), ("GET", f"/api/collections/{shelf}"), ("PUT", f"/api/collections/{shelf}/name"),
         ("POST", f"/api/collections/{shelf}/remote-items"), ("DELETE", f"/api/collections/{shelf}"), ("POST", "/api/jobs/job/retry"),
@@ -80,6 +78,23 @@ def test_privacy_matrix_all_surfaces(db_factory, api_client, monkeypatch) -> Non
     assert [n["body"] for n in client.get("/api/library/priv/notes").json()] == ["secret-note"]
     assert client.get(f"/api/collections/{shelf}").json()["name"] == "secret-shelf"
     assert client.get("/api/live-recordings/rec").json()["kept"] is False
+
+
+def test_retired_idea_graph_routes_are_unregistered(api_client) -> None:
+    from app.main import app
+
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert not {
+        "/api/library/{item_id}/idea-graph",
+        "/api/library/{item_id}/idea-graphs",
+        "/api/idea-graphs/{graph_id}",
+    }.intersection(paths)
+
+    client = api_client(user=make_user("owner", role="admin"), base_url="http://localhost")
+    assert client.get("/api/library/item/idea-graph").status_code == 404
+    assert client.get("/api/idea-graphs/graph").status_code == 404
+    # The built frontend's static mount rejects unmatched POST requests with 405.
+    assert client.post("/api/library/item/idea-graphs").status_code in (404, 405)
 
 
 def test_realstack_runner_never_ships() -> None:

@@ -3,11 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.routers import idea_graph, media_tools, summaries
+from app.routers import media_tools, summaries
 
 
 @pytest.mark.parametrize("module, name, model", [
-    (idea_graph, "_serialize", idea_graph.IdeaGraphResponse),
     (summaries, "_serialize", summaries.SummaryResponse),
     (media_tools, "_serialize_job", media_tools.AsrJobResponse),
 ])
@@ -15,7 +14,7 @@ def test_state_is_read_before_the_fields(monkeypatch: pytest.MonkeyPatch, module
     row = SimpleNamespace(state="running", error=None)
 
     def state_of(r):  # the worker commits "failed" + its error between the poll's read and the refresh
-        r.state, r.error = "failed", "Model output is not a valid idea graph"
+        r.state, r.error = "failed", "Job failed"
         return r.state
 
     seen = {}
@@ -27,4 +26,4 @@ def test_state_is_read_before_the_fields(monkeypatch: pytest.MonkeyPatch, module
     monkeypatch.setattr(module, "state_of", state_of)
     monkeypatch.setattr(model, "model_validate", validate)
     out = getattr(module, name)(row)
-    assert (out.state, out.error) == ("failed", "Model output is not a valid idea graph")
+    assert (out.state, out.error) == ("failed", "Job failed")

@@ -3,6 +3,56 @@ import LuminaCore
 import UIKit
 import QuartzCore
 
+enum HomeRailCaptionPresentation: Equatable {
+    case standard
+    case continueWatching
+    case nextUp
+
+    init(identifierPrefix: String) {
+        switch identifierPrefix {
+        case "resumeItem": self = .continueWatching
+        case "nextUpItem": self = .nextUp
+        default: self = .standard
+        }
+    }
+
+    var reservesProgressBaseline: Bool {
+        self != .standard
+    }
+}
+
+struct HomeRailCaption {
+    let primary: String
+    let secondary: String?
+    let progress: String?
+
+    init(item: MediaItem, presentation: HomeRailCaptionPresentation) {
+        guard presentation != .standard else {
+            primary = item.name
+            secondary = item.displaySubtitle.isEmpty ? nil : item.displaySubtitle
+            progress = nil
+            return
+        }
+
+        primary = item.type == "Episode" ? item.seriesName ?? item.name : item.name
+        secondary = item.homeHeroSubtitle ?? (item.displaySubtitle.isEmpty ? nil : item.displaySubtitle)
+
+        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            let remaining = Duration.seconds(item.durationSeconds - item.resumeSeconds)
+                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+            progress = "\(remaining) remaining"
+        } else if presentation == .nextUp, item.type == "Episode" {
+            progress = "Next episode"
+        } else {
+            progress = nil
+        }
+    }
+
+    var accessibilityLabel: String {
+        [primary, secondary, progress].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
 extension EnvironmentValues {
     var luminaReduceMotion: Bool {
         #if LUMINA_UI_TESTING

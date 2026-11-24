@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, session_scope
-from app.models import AppSettings, AsrJob, Summary, User
+from app.models import AppSettings, AsrJob, IdeaGraph, Summary, User
 from app.services import ai_resources
 from app.services.local_ai import JobRegistry
 from app.services.yt_dlp_service import YtDlpService
@@ -137,18 +137,32 @@ def test_member_execution_cap_spans_summary_and_asr_pools(db_factory, monkeypatc
 def test_restart_releases_orphan_charges_and_member_can_cancel_own_jobs(api_client, db_factory, monkeypatch):
     seed(db_factory, monkeypatch)
     with db_factory() as db:
+        db.get(AppSettings, 1).resource_policy = {"defaults": {"ai_queued": 1}}
         db.add(summary("orphan"))
+        db.add_all([
+            IdeaGraph(id=f"graph-{state}", library_item_id="item", summary_id="orphan",
+                      transcript_id="transcript", transcript_revision=1, model_id="test-model",
+                      requested_by="a", state=state)
+            for state in ("queued", "running", "succeeded")
+        ])
         db.add(AsrJob(id="waiting", library_item_id="item", kind="asr", model_id="test", requested_by="a", state="pending"))
         db.commit()
         ai_resources.recover(db)
         assert db.get(Summary, "orphan").state == "interrupted"
+        for prior_state in ("queued", "running"):
+            graph = db.get(IdeaGraph, f"graph-{prior_state}")
+            assert graph.state == "interrupted" and graph.completed_at is not None
+        assert db.get(IdeaGraph, "graph-succeeded").state == "succeeded"
         owner, other = db.get(User, "a"), db.get(User, "b")
     client = api_client(user=other, base_url="http://localhost")
     assert client.post("/api/me/resource-jobs/enrichment/waiting/cancel").status_code == 404
     client = api_client(user=owner, base_url="http://localhost")
     assert client.get("/api/me/resource-jobs").json() == [{"id": "waiting", "kind": "enrichment", "state": "pending"}]
+    assert client.post("/api/me/resource-jobs/graph/graph-queued/cancel").status_code == 404
     assert client.post("/api/me/resource-jobs/enrichment/waiting/cancel").json() == {"state": "canceled"}
     assert client.get("/api/me/resource-jobs").json() == []
+    with db_factory() as db:
+        ai_resources.admit(db, owner.id)
 
 
 def test_interactive_work_refuses_when_the_same_member_cross_kind_slot_is_full(db_factory, monkeypatch):

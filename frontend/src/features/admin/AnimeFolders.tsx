@@ -8,7 +8,6 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 're
 import { getMediaServerSettings, updateMediaServerSettings } from '../../api';
 import { Button, Field, fieldProps, Input } from '../../ui';
 import { errorMessage } from '../../utils';
-import { forgetAllStore } from '../gallery/allStore';
 import { forgetWallStores } from '../gallery/wallPages';
 import { type FormStatus, SectionForm } from '../settings/SectionForm';
 import { useAdminResource } from './useAdminResource';
@@ -49,9 +48,8 @@ export function AnimeFolders() {
   const markSorted = useCallback(() => {
     sorting.current = false;
     setResorted(true);
-    // The walls and the All landing kept this tab's pre-sort titles: the next visit asks again.
+    // The walls kept this tab's pre-sort titles: the next visit asks again.
     forgetWallStores();
-    forgetAllStore();
   }, []);
 
   // While the server re-sorts, ask again every 2 s; when it finishes, say so for 10 s.

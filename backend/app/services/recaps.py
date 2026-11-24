@@ -144,7 +144,7 @@ def _inputs(db: Session, user: User, prior: tuple[tuple[MediaTitle, int], ...]) 
 
 
 def evidence_prompt(inputs: Sequence[RecapInput]) -> str:
-    """Key points only (never raw transcripts), wrapped as untrusted DATA like ``idea_graph.evidence_prompt``."""
+    """Wrap summary key points as untrusted DATA."""
     blocks = []
     for item in inputs:
         points = "\n".join(

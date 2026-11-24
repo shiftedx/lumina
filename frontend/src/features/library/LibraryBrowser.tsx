@@ -1,23 +1,16 @@
-/**
- * Independent library destinations with shared collection/recovery tools. Legacy All remains an embedding fallback; Movies,
- * Shows and Anime are gallery walls; Music is the Music tab; YouTube and Recordings are still walls; Deleted lists the
- * files waiting out their retention window.
- */
 import { RefreshCw, RotateCcw } from '../../luminaIcons';
 import { memo, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import { refreshLibrary, restoreLibraryFile, scanLibraries } from '../../api';
+import type { VideoLibraryView } from '../../app/routes';
 import { canDeleteLibraryFile, libraryBadge, libraryByline, libraryThumbnail } from '../../luminaModel';
 import type { LibraryItem, LibrarySections, ServerNavigation, TitleSummary } from '../../types';
-import { AllLanding } from '../gallery/AllLanding';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { fallbackColour } from '../gallery/galleryModel';
 import { GalleryWall } from '../gallery/GalleryWall';
-import { type LibraryPlace, LibraryTabs, useLibrarySections } from '../gallery/LibraryTabs';
-import { MusicTab } from '../gallery/MusicTab';
+import { type LibraryTool, LibraryTabs, useLibrarySections } from '../gallery/LibraryTabs';
 import { StillWall, usePagedLibrary } from '../gallery/StillWall';
 import { forgetWallStores } from '../gallery/wallPages';
-import { EmptyShelf } from '../media/MediaCards';
 import { Button, EmptyState, ErrorState, Masthead, Skeleton, useToast } from '../../ui';
 import { ChannelsView, LibraryViewSwitch } from './ChannelsView';
 import { scanSummary } from '../palette/actions';
@@ -25,16 +18,13 @@ import './library.css';
 
 export type LibraryBrowserProps = {
   navigation?: ServerNavigation | null;
-  videoOnly?: boolean;
-  view: LibraryPlace;
+  view: VideoLibraryView | LibraryTool;
   /** The lens's state in the address, without '?'. */
   wall?: string;
   currentUser: { id: string; role: string; can_edit_details?: boolean };
-  /** Household collections: the All landing's last chapter. */
-  collections?: ReactNode;
   /** The Collections pages, drawn under the lens row. */
   collectionsPage?: (lenses: ReactNode) => ReactNode;
-  onViewChange: (place: LibraryPlace) => void;
+  onViewChange: (place: LibraryTool) => void;
   onWallChange: (wall: string) => void;
   onOpenTitle: (title: TitleSummary) => void;
   onPlay: (item: LibraryItem) => void;
@@ -44,8 +34,8 @@ export type LibraryBrowserProps = {
 };
 
 function LibraryBrowserView(props: LibraryBrowserProps) {
-  const { view, currentUser, onViewChange, videoOnly = false, navigation } = props;
-  const { sections, failed, refresh } = useLibrarySections(currentUser.id);
+  const { view, currentUser, onViewChange } = props;
+  const { sections, refresh } = useLibrarySections(currentUser.id);
   const [refreshing, setRefreshing] = useState(false);
   const [revision, setRevision] = useState(0);
   const refreshButton = useRef<HTMLButtonElement>(null);
@@ -69,18 +59,15 @@ function LibraryBrowserView(props: LibraryBrowserProps) {
     }
   }
   const tabs = <div className="g-library-toolbar">
-    <LibraryTabs navigation={navigation} current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} videoOnly={videoOnly} />
+    <LibraryTabs current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} />
     <Button busy={refreshing} icon={<RefreshCw />} onClick={() => void refreshNow()} ref={refreshButton} title={isAdmin ? 'Refresh the library and rescan imported folders' : 'Refresh the library'}>Refresh</Button>
   </div>;
-  return <LibraryContents {...props} failed={failed} key={`${currentUser.id}:${revision}`} refresh={refresh} sections={sections} tabs={tabs} />;
+  return <LibraryContents {...props} key={`${currentUser.id}:${revision}`} sections={sections} tabs={tabs} />;
 }
 
-function LibraryContents({ navigation, view, wall, currentUser, collections, collectionsPage, onViewChange, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, failed, refresh, tabs, videoOnly = false }: LibraryBrowserProps & { sections: LibrarySections | null; failed: boolean; refresh: () => void; tabs: ReactNode }) {
+function LibraryContents({ navigation, view, wall, currentUser, collectionsPage, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, tabs }: LibraryBrowserProps & { sections: LibrarySections | null; tabs: ReactNode }) {
   const canDelete = (item: LibraryItem) => canDeleteLibraryFile(item, currentUser);
-  const visibleSections = sections && { ...sections, movies: navigation?.categories.includes('movies') ? sections.movies : 0, shows: navigation?.categories.includes('tv') ? sections.shows : 0, anime: navigation?.categories.includes('anime') ? sections.anime : 0, albums: !videoOnly && navigation?.categories.includes('music') ? sections.albums : 0, artists: !videoOnly && navigation?.categories.includes('music') ? sections.artists : 0, saved_audio: !videoOnly && navigation?.categories.includes('music') ? sections.saved_audio : 0, youtube: navigation?.categories.includes('youtube') ? sections.youtube : 0, recordings: navigation?.categories.includes('recordings') ? sections.recordings : 0 };
-  if (view === 'all') return <AllLanding title={videoOnly ? 'Video' : 'Library'} collections={collections} lenses={tabs} onOpenTitle={onOpenTitle} onPlay={onPlay} onRetrySections={refresh} onSeeAll={onViewChange} sections={visibleSections} sectionsFailed={failed} />;
   if (view === 'movies' || view === 'shows' || view === 'anime') return <GalleryWall canEdit={Boolean(currentUser.can_edit_details)} key={view} lenses={tabs} onOpen={onOpenTitle} onPlayAt={onPlayAt} onWallChange={onWallChange} state={wall} wall={view} />;
-  if (view === 'music') return <MusicTab canDelete={canDelete} lenses={tabs} onItemChanged={onItemChanged} onOpen={onOpenTitle} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={wall} />;
   if (view === 'collections') return collectionsPage?.(tabs) ?? <div className="surface gallery">{tabs}<Skeleton count={4} label="Loading collections…" shape="still" /></div>;
   if (view === 'youtube' && new URLSearchParams(wall ?? '').get('view') === 'channels') {
     return <ChannelsView streamingEnabled={Boolean(navigation?.features.streaming)} lenses={tabs} onWallChange={onWallChange} state={wall} viewSwitch={<LibraryViewSwitch current="channels" onWallChange={onWallChange} />} />;

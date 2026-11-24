@@ -62,8 +62,6 @@ test('cross-user matrix: a member cannot read or change another member’s priva
       ['start asr', () => intruder.post(`/api/library/${privateId}/transcripts/asr`, {})],
       ['summary', () => intruder.get(`/api/library/${privateId}/summary`)],
       ['start summary', () => intruder.post(`/api/library/${privateId}/summaries`, {})],
-      ['idea graph', () => intruder.get(`/api/library/${privateId}/idea-graph`)],
-      ['start idea graph', () => intruder.post(`/api/library/${privateId}/idea-graphs`)],
       ['provenance', () => intruder.get(`/api/library/${privateId}/provenance`)],
       ['playback options', () => intruder.get(`/api/library/${privateId}/playback-options`)],
       ['progress', () => intruder.get(`/api/library/${privateId}/playback`)],

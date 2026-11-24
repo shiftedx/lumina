@@ -41,4 +41,5 @@ test('test_summary_evidence_opens_cue', async ({ page }) => {
   await page.getByRole('button', { name: 'Play evidence at 0:07' }).click();
   expect(await page.evaluate(() => (window as unknown as { seekTo: number }).seekTo)).toBe(7.5);
   await expect(page.getByText('2 points omitted: no supporting transcript evidence.')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Idea graph' })).toHaveCount(0);
 });

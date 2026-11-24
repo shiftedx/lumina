@@ -943,18 +943,6 @@ export const listAdminTasks = (kind: TaskKind, status: TaskFilter, cursor?: stri
   requestJson(`/api/admin/tasks${qs({ kind, status, limit: 50, cursor: cursor || undefined })}`);
 export const cancelAdminTask = (kind: TaskKind, id: string): Promise<{ status: string }> => post(`/api/admin/tasks/${kind}/${enc(id)}/cancel`, {});
 
-// Idea graph: bounded concepts/relations of one summary, each citing transcript cues.
-type IdeaGraphNode = { id: string; label: string; cue_ordinals: number[]; start_ms: number };
-type IdeaGraphEdge = { source: string; target: string; label: string; cue_ordinals: number[]; start_ms: number };
-export type IdeaGraph = {
-  id: string; library_item_id: string; summary_id: string; transcript_id: string; transcript_revision: number; model_id: string;
-  state: Summary['state']; nodes: IdeaGraphNode[]; edges: IdeaGraphEdge[]; dropped: number; error: string | null; created_at: string; completed_at: string | null;
-};
-
-export const getLatestIdeaGraph = (itemId: string, signal?: AbortSignal): Promise<IdeaGraph> => requestJson(`/api/library/${enc(itemId)}/idea-graph`, undefined, { signal });
-export const requestIdeaGraph = (itemId: string): Promise<IdeaGraph> => post(`/api/library/${enc(itemId)}/idea-graphs`, {});
-export const getIdeaGraph = (id: string): Promise<IdeaGraph> => requestJson(`/api/idea-graphs/${enc(id)}`);
-
 // Source provenance: stored facts only; addresses are canonical public pages, never paths.
 export type Provenance = {
   origin: 'saved' | 'imported' | 'recording'; provider: string | null; original_url: string | null; channel: string | null; channel_url: string | null;

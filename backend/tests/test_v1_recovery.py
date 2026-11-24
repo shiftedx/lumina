@@ -1,6 +1,7 @@
 """Verifiable online backups and an offline, verified, reversible restore."""
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from datetime import UTC, datetime, timedelta
 import fcntl
 from hashlib import sha256
@@ -10,6 +11,8 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -24,12 +27,14 @@ from app.main import app
 from app.models import (
     ArrServer,
     DeviceToken,
+    IdeaGraph,
     LibraryItem,
     LibraryNote,
     ListeningExportConnection,
     MediaArtifact,
     MediaCastTicket,
     MobilePairing,
+    PlaybackHistory,
     MusicCastTicket,
     ServiceConnector,
     StorageRoot,
@@ -38,8 +43,14 @@ from app.models import (
 from app.restore import restore
 from app.routers import chromecast, mobile_connect, music
 from app.security import CSRF_HEADER, hash_password, session_digest
-from app.services import backups
+from app.services import backups, tmdb
 from app.services.yt_dlp_service import YtDlpService
+from arr_fake import FakeTmdb
+from support import make_user
+from test_books_api import _cbz
+from test_photos import _jpeg
+from test_v1_sessions import login
+from title_support import ALBUM, ALICE, BOB, FILE, MOVIE, MOVIE_1080, SECRET_EPISODE, TRACKS, seed_gallery, seed_tree
 
 PASSWORD = "Test-only-passphrase-1"
 
@@ -72,6 +83,9 @@ def test_backup_restore_isolated_roundtrip(admin, tmp_path) -> None:  # noqa: AN
     with db_module.SessionLocal.begin() as db:
         record = YtDlpService(db).ensure_app_settings()
         record.ai_api_key, record.smtp_password = "sk-test-secret-147", "smtp-secret-258"
+        db.add(IdeaGraph(id="graph-1", library_item_id="item-1", summary_id="summary-1",
+                         transcript_id="transcript-1", transcript_revision=1, model_id="test-model",
+                         state="succeeded", nodes=[{"label": "Archived idea"}]))
         db.add(ArrServer(id="arr", kind="sonarr", name="Sonarr", base_url="http://sonarr.local", api_key="arr-secret-369", path_mappings=[]))
         db.add(ServiceConnector(id="connector", kind="nzbget", name="NZBGet", base_url="http://nzbget.local", api_key="connector-key-741",
                                 username="connector-user-852", password="connector-password-963"))
@@ -108,11 +122,194 @@ def test_backup_restore_isolated_roundtrip(admin, tmp_path) -> None:  # noqa: AN
     assert restored.execute("SELECT body FROM library_notes").fetchall() == [("remember this",)]
     assert restored.execute("SELECT count(*) FROM users").fetchone() == (2,)
     assert restored.execute("SELECT ai_api_key FROM app_settings").fetchall() == [(None,)]
+    assert restored.execute("SELECT state, json_extract(nodes, '$[0].label') FROM idea_graphs WHERE id = 'graph-1'").fetchone() == (
+        "succeeded", "Archived idea",
+    )
     assert restored.execute("SELECT root_id, relative_path FROM media_artifacts").fetchall() == [("root-ext", "show/ep1.mp4")]
     restored.close()
     # External media is referenced, never copied or rewritten.
     assert sorted(p.stat().st_mtime_ns for p in nas.iterdir()) == before
     assert not any(p.suffix == ".mp4" for p in backups.backup_root().iterdir())
+
+
+def test_current_backup_restores_member_activity_and_effective_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    init_db()
+    root = tmp_path / "synthetic-media"
+    with db_module.SessionLocal.begin() as db:
+        password_hash = hash_password(PASSWORD)
+        db.add_all([
+            make_user("owner-id", username="owner", role="admin", password_hash=password_hash),
+            make_user(ALICE, username="alice", password_hash=password_hash),
+            make_user(BOB, username="bob", password_hash=password_hash),
+        ])
+        seed_tree(db, root)
+        seed_gallery(db, root)
+        record = YtDlpService(db).ensure_app_settings()
+        record.requests_enabled = True
+        now = datetime.now(UTC).replace(tzinfo=None)
+        db.add(PlaybackHistory(
+            id="synthetic-history", user_id=ALICE, user_name="Alice", source="library",
+            title="Movie", item_id=MOVIE_1080, client={"kind": "web", "name": "Lumina web"}, method="direct",
+            started_at=now - timedelta(minutes=2), ended_at=now, watched_seconds=120, stopped_by_admin=False,
+        ))
+    tmdb_client = FakeTmdb()
+    tmdb_client.MOVIES = {987654: {"id": 987654, "title": "A Synthetic Premiere"}}
+
+    def request(client: TestClient, method: str, path: str, status: int = 200, **kwargs: Any) -> Any:
+        response = client.request(method, path, **kwargs)
+        assert response.status_code == status, response.text
+        return response.json() if response.headers.get("content-type") == "application/json" else response.content
+
+    def sign_in(client: TestClient, username: str) -> str:
+        client.headers.update({"Origin": settings.allowed_origins_list[0], CSRF_HEADER: login(client, username)})
+        return request(client, "GET", "/api/session/me")["user"]["id"]
+
+    with ExitStack() as clients:
+        owner, alice, bob, anonymous = (
+            clients.enter_context(closing(TestClient(app, base_url="http://localhost"))) for _ in range(4)
+        )
+        members = [(owner, "owner", "owner-id"), (alice, "alice", ALICE), (bob, "bob", BOB)]
+        for client, username, user_id in members:
+            assert sign_in(client, username) == user_id
+
+        sections = {"sections": ["music", "books:manga"], "streaming": {"youtube": False}, "can_download": False}
+        request(owner, "PUT", f"/api/admin/members/{BOB}/access", json=sections)
+        video = f"/api/library/{MOVIE_1080}"
+        request(alice, "PUT", f"{video}/playback", json={"position_seconds": 125, "duration_seconds": 7200})
+        identity = "youtube:RestoreTst1"
+        remote = f"/api/playback/remote/{quote(identity, safe='')}"
+        remote_url = "https://www.youtube.com/watch?v=RestoreTst1"
+        request(alice, "PUT", remote, json={
+            "source_identity": identity, "source_url": remote_url, "title": "Synthetic remote clip",
+            "position_seconds": 47.25, "duration_seconds": 600, "checkpoint_client_id": "rehearsal-player",
+            "checkpoint_sequence": 1, "expected_revision": 0,
+        })
+        title = f"/api/titles/{MOVIE}"
+        request(alice, "PUT", f"/api/me/favorites/{MOVIE}", 204)
+        note = request(alice, "POST", f"{video}/notes", 201, json={"body": "Synthetic private note", "timestamp_ms": 5400})
+        watch_queue = "/api/me/watch-queue"
+        request(alice, "POST", f"{watch_queue}/entries", json={"ref": {"kind": "library", "library_item_id": MOVIE_1080}})
+        queued = request(alice, "POST", f"{watch_queue}/entries", json={
+            "ref": {"kind": "remote", "provider": "youtube", "remote_id": "RestoreTst1", "url": remote_url, "title": "Synthetic remote clip"},
+            "position": "next",
+        })
+        music_session = "/api/me/music-session"
+        request(bob, "PUT", music_session, json={
+            "base_revision": 0, "item_ids": [TRACKS[1], TRACKS[0], TRACKS[1]], "current_index": 2,
+            "position_seconds": 38.5, "repeat": "all", "shuffle": True, "active_output": {"kind": "browser"},
+        })
+        album = request(owner, "POST", "/api/music/albums", json={
+            "item_ids": list(TRACKS[:2]), "name": "Curated Synthetic Release", "artist_name": "Synthetic Artist",
+            "base": {item_id: {"album_id": ALBUM} for item_id in TRACKS[:2]},
+        })
+        book = request(owner, "PUT", "/api/books/import?filename=synthetic.cbz", 201, content=_cbz(pages=3))
+        book_url = f"/api/books/{book['id']}"
+        request(owner, "PATCH", book_url, json={"visibility": "shared"})
+        request(alice, "PATCH", f"{book_url}/state", json={"unit_index": 0, "offset": 0.25})
+        request(bob, "PATCH", f"{book_url}/state", json={"unit_index": 1, "offset": 0.5, "favorite": True, "reading_list": True})
+        with monkeypatch.context() as provider:
+            provider.setattr(tmdb, "client_for", lambda _record: tmdb_client)
+            pending = request(alice, "POST", "/api/requests", 201, json={"kind": "movie", "tmdb_id": 987654})
+        assert pending["status"] == "pending" and pending.get("decided_by") is None
+
+        picks = request(owner, "POST", "/api/collections", 201, json={"name": "Household rehearsal picks", "visibility": "shared"})
+        collection = f"/api/collections/{picks['id']}"
+        request(owner, "POST", f"{collection}/items/{MOVIE_1080}")
+        curated = request(owner, "POST", f"{collection}/items/{TRACKS[0]}")
+        photo = request(owner, "PUT", "/api/photos/import?filename=synthetic.jpg", 201, content=_jpeg())
+        request(owner, "PATCH", f"/api/photos/{photo['id']}", json={"visibility": "shared"})
+        photo_album = request(owner, "POST", "/api/photo-albums", 201, json={"name": "Synthetic photo album", "visibility": "shared"})
+        request(owner, "PUT", f"/api/photo-albums/{photo_album['id']}/photos/{photo['id']}")
+
+        agent_token = request(alice, "POST", "/api/connected-apps", 201, json={"name": "Rehearsal client", "scope": "read"})["token"]
+        app_password = request(bob, "POST", "/api/connected-apps/app-passwords", 201, json={"name": "Rehearsal player"})["password"]
+        bearer = {"Authorization": f"Bearer {agent_token}"}
+        request(anonymous, "GET", "/api/session/me", headers=bearer)
+        request(anonymous, "GET", "/api/session/me", auth=("bob", app_password))
+        manifest = request(owner, "POST", "/api/admin/backups", 201)
+        assert manifest["schema_version"] == 44
+        name = manifest["name"]
+        assert request(owner, "POST", f"/api/admin/backups/{name}/verify") == {"ok": True, "problems": []}
+
+        # Diverge from the snapshot, then close SQLite connections before the offline swap.
+        request(alice, "DELETE", watch_queue, params={"confirm": "true"})
+        assert request(alice, "GET", watch_queue)["entries"] == []
+        data_dir = settings.data_dir
+        backup = backups.backup_root() / f"{name}.db"
+        db_module.engine.dispose()
+        result = subprocess.run(
+            [sys.executable, "-m", "app.restore", str(backup), "--data-dir", str(data_dir)],
+            cwd=Path(__file__).parents[1],
+            env={**os.environ, "LUMINA_DATA_DIR": str(data_dir)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert len(list(data_dir.glob(f"{settings.database_filename}.pre-restore-*"))) == 1
+
+        # Start the regular app against the restored database and try the old credentials first.
+        with TestClient(app, base_url="http://localhost"):
+            for client, _, _ in members:
+                request(client, "GET", "/api/session/me", 401)
+            request(anonymous, "GET", "/api/session/me", 401, headers=bearer)
+            request(anonymous, "GET", "/api/session/me", 401, auth=("bob", app_password))
+            for client, username, user_id in members:
+                assert sign_in(client, username) == user_id
+
+            assert request(alice, "GET", f"{video}/playback")["position_seconds"] == 125
+            assert request(owner, "GET", f"{video}/playback") is None
+            assert request(alice, "GET", remote)["position_seconds"] == 47.25
+            assert request(bob, "GET", remote) is None
+            assert request(alice, "GET", "/api/me/activity-summary")["watched_seconds"] == 120
+            assert request(bob, "GET", "/api/me/activity-summary")["watched_seconds"] == 0
+            assert request(alice, "GET", title)["user_data"]["is_favorite"] is True
+            assert request(owner, "GET", title)["user_data"]["is_favorite"] is False
+            assert request(alice, "GET", f"{video}/notes") == [note]
+            assert request(owner, "GET", f"{video}/notes") == []
+            assert request(alice, "GET", watch_queue) == queued
+            assert request(bob, "GET", watch_queue)["entries"] == []
+
+            resumed = request(bob, "GET", music_session)
+            assert [track["id"] for track in resumed["queue"]] == [TRACKS[1], TRACKS[0], TRACKS[1]]
+            assert (resumed["current_index"], resumed["position_seconds"], resumed["repeat"], resumed["shuffle"]) == (2, 38.5, "all", True)
+            assert request(alice, "GET", music_session)["queue"] == []
+            release = request(bob, "GET", f"/api/titles/{album['album_id']}")
+            assert release["name"] == "Curated Synthetic Release"
+            assert {track["item_id"] for track in release["tracks"]} == set(TRACKS[:2])
+
+            reading = request(bob, "GET", book_url)
+            assert (reading["progress"]["unit_index"], reading["progress"]["offset"]) == (1, 0.5)
+            assert reading["favorite"] and reading["reading_list"]
+            other = request(alice, "GET", book_url)
+            assert other["progress"]["offset"] == 0.25 and not other["favorite"] and not other["reading_list"]
+            request(bob, "GET", f"{book_url}/pages/1")
+
+            mine = request(alice, "GET", "/api/requests?scope=mine")
+            assert mine["counts"]["pending"] == 1 and mine["items"] == [pending]
+            assert request(bob, "GET", "/api/requests")["items"] == []
+            admin_pending = request(owner, "GET", "/api/requests?scope=all&status=pending")["items"]
+            assert [(row["id"], row["status"], row["requested_by"]["id"], row.get("decided_by")) for row in admin_pending] == [
+                (pending["id"], "pending", ALICE, None),
+            ]
+            assert request(alice, "GET", collection)["entries"] == curated["entries"]
+            restricted = request(bob, "GET", collection)["entries"]
+            assert [(entry["availability"], entry["ref"]["library_item_id"]) for entry in restricted] == [
+                ("unavailable", None), ("available", TRACKS[0]),
+            ]
+            assert request(alice, "GET", f"/api/photos?album_id={photo_album['id']}")["items"][0]["id"] == photo["id"]
+            assert request(bob, "GET", "/api/photo-albums")["items"] == []
+            request(bob, "GET", video, 404)
+            request(alice, "GET", f"/api/library/{FILE[SECRET_EPISODE]}", 404)
+
+            access = request(bob, "GET", "/api/me/access")
+            assert access["restricted"] and access["sections"] == sorted(sections["sections"])
+            assert access["blocked_streaming"] == ["youtube"] and access["can_download"] is False
+            assert request(bob, "POST", "/api/preview", 403, json={"source_url": remote_url})["detail"] == "streaming_blocked:youtube"
+            download_url = f"/api/music/tracks/{TRACKS[0]}/audio?format=native&download=true"
+            assert request(bob, "GET", download_url, 403)["detail"] == "downloads_not_allowed"
+            assert request(alice, "GET", download_url)
+            assert request(alice, "GET", "/api/me/access")["restricted"] is False
 
 
 def test_backups_admin_only_and_names_validated(admin) -> None:  # noqa: ANN001

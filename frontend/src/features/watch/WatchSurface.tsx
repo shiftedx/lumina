@@ -31,7 +31,6 @@ import { AudioStage, setAction } from './AudioStage';
 import { TranscriptPanel, useEnrichment, useTranscripts } from './TranscriptPanel';
 import { SummaryPanel } from './SummaryPanel';
 import { buildMoments, MomentsPanel } from './MomentsPanel';
-import { IdeaGraphPanel } from './IdeaGraphPanel';
 import { ProvenancePanel } from './ProvenancePanel';
 import { DEFAULT_AUTO_SKIP, DEFAULT_PROFANITY, type PlaybackPrefs } from '../../workspace';
 import { moveFocus } from '../media/focusNav';
@@ -916,7 +915,6 @@ export function WatchSurface({
       ),
     },
     local ? { id: 'summary', label: 'Summary', panel: <SummaryPanel aiEnabled={enrichment?.ai_summaries} itemId={local.id} key={local.id} onLatest={setLatestSummary} onSeek={seekPlayback} transcripts={transcripts} /> } : null,
-    local && itemSummary ? { id: 'ideas', label: 'Idea graph', panel: <IdeaGraphPanel itemId={local.id} key={local.id} onSeek={seekPlayback} summary={itemSummary} /> } : null,
     transcripts?.length || (transcripts && enrichment?.asr) ? { id: 'transcript', label: 'Transcript', panel: <TranscriptPanel asr={Boolean(enrichment?.asr)} currentTime={currentTime} itemId={local?.id} key={local?.id} onGenerated={() => setTranscriptRevision((value) => value + 1)} onSeek={seekPlayback} transcripts={transcripts} /> } : null,
     local || moments.length ? { id: 'moments', label: 'Moments', panel: <MomentsPanel currentTime={currentTime} getTime={() => playerRef.current?.currentTime || 0} itemId={local?.id} key={local?.id} moments={moments} onBookmarksChanged={() => setNotesRevision((revision) => revision + 1)} onSeek={seekPlayback} onShowSuggested={setShowSuggested} showSuggested={showSuggested} /> } : null,
     local ? { id: 'notes', label: 'Notes', panel: <HouseholdNotesPanel getTime={() => playerRef.current?.currentTime || 0} itemId={local.id} key={local.id} onNotes={setNotes} onSeek={seekPlayback} refreshKey={notesRevision} /> } : null,

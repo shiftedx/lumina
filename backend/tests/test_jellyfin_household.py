@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import AccountToken, AppSettings, MemberFavorite, PlaybackProgress, User
 from app.security import has_local_password
 from app.services import jellyfin_history_client as client
-from app.services import jellyfin_household as household
+from app.services import household_import as household
 from app.services.users import UserService
 from jellyfin_fake import TOKEN, USER_ID, FakeJellyfin, episode, movie, series
 from support import make_user, seed_app_settings
@@ -86,7 +86,7 @@ def test_preview_pairs_every_jellyfin_user_and_changes_nothing(vault, api_client
         ("Carol", "create", "carol", None, None, (1, 0, 1)),
         ("Dana", "skip", None, PAIRED, None, None),
         ("Dave", "create", "dave", None, None, (0, 0, 0)),
-        (LONG, "skip", None, household.INVALID_NAME, None, None),
+        (LONG, "skip", None, "This Jellyfin name cannot be a Lumina username.", None, None),
     ]
     assert [row["disabled"] for row in response.json()["members"]] == [False, False, False, False, True, False]
     assert counts(vault) == before
@@ -102,7 +102,7 @@ def test_bringing_members_over_imports_creates_links_and_a_rerun_changes_nothing
         ("Carol", "create", "carol", None, None, (1, 0, 1)),
         ("Dana", "skip", None, PAIRED, None, None),
         ("Dave", "skip", None, household.NOT_SELECTED, None, None),
-        (LONG, "skip", None, household.INVALID_NAME, None, None),
+        (LONG, "skip", None, "This Jellyfin name cannot be a Lumina username.", None, None),
     ]
     links = {row["jellyfin_name"]: row["reset_url"] for row in response.json()["members"] if row["reset_url"]}
     assert list(links) == ["Carol"] and "/#reset=" in links["Carol"]
@@ -154,8 +154,8 @@ def test_a_member_deleted_after_pairing_errors_and_the_others_still_come_over(va
     caplog.set_level(logging.INFO, logger="lumina.audit")
     real_pair = household.pair
 
-    def pair_then_delete_alice(*args):  # noqa: ANN002, ANN202
-        pairings = real_pair(*args)
+    def pair_then_delete_alice(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        pairings = real_pair(*args, **kwargs)
         with vault() as session:
             session.delete(session.get(User, ALICE))
             session.commit()

@@ -1,7 +1,6 @@
 /**
  * The Music tab: masthead with album and artist counts, the view switch, the Saved audio
- * shelf, and the Albums or Artists wall (GalleryWall) or the saved-audio still wall. The
- * LibraryBrowser mounts it at /library/music.
+ * shelf, and the Albums or Artists wall (GalleryWall) or the saved-audio still wall on /audio.
  */
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 
@@ -22,8 +21,6 @@ export type MusicTabProps = {
   /** The tab's query string without '?': view=albums|artists|saved plus that view's own wall keys. */
   state?: string;
   onWallChange: (state: string) => void;
-  /** The tab row, above the masthead. */
-  lenses?: ReactNode;
   /** The last sections answer (kicker counts, the Saved audio button and shelf); null before it arrives. */
   sections: LibrarySections | null;
   onOpen: (title: TitleSummary) => void;
@@ -91,7 +88,7 @@ function MusicSearch({ query, onChange, onOpen }: { query: string; onChange: (qu
   </section>;
 }
 
-export function MusicTab({ tools, state, onWallChange, lenses, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'artists', onBrowseViewChange }: MusicTabProps) {
+export function MusicTab({ tools, state, onWallChange, sections, onOpen, onPlay, canDelete, onItemChanged, preferredView = 'artists', onBrowseViewChange }: MusicTabProps) {
   const parsed = parseMusicState(state);
   const view = parsed.hasExplicitView || state ? parsed.view : preferredView;
   const wall = parsed.wall;
@@ -127,11 +124,11 @@ export function MusicTab({ tools, state, onWallChange, lenses, sections, onOpen,
     </>
   );
   if (view === 'saved') {
-    return <StillWall canDelete={canDelete} count={sections?.saved_audio ?? null} header={header(null)} kind="audio" lenses={lenses} onItemChanged={onItemChanged} onPlay={onPlay} onWallChange={(next) => onWallChange(serializeMusicState('saved', next))} shape="square" wall={wall} />;
+    return <StillWall canDelete={canDelete} count={sections?.saved_audio ?? null} header={header(null)} kind="audio" onItemChanged={onItemChanged} onPlay={onPlay} onWallChange={(next) => onWallChange(serializeMusicState('saved', next))} shape="square" wall={wall} />;
   }
-  if (search) return <div className="surface gallery">{lenses}{header(null)}</div>;
+  if (search) return <div className="surface gallery">{header(null)}</div>;
   if (view === 'albums') {
-    return <div className="surface gallery g-music-browse">{lenses}{header(null)}<section aria-labelledby="g-all-albums" className="g-music-catalog"><h2 className="g-music-catalog-heading" id="g-all-albums">All albums</h2><GalleryWall header={() => null} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState('albums', next))} state={wall} wall="albums" /></section></div>;
+    return <div className="surface gallery g-music-browse">{header(null)}<section aria-labelledby="g-all-albums" className="g-music-catalog"><h2 className="g-music-catalog-heading" id="g-all-albums">All albums</h2><GalleryWall header={() => null} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState('albums', next))} state={wall} wall="albums" /></section></div>;
   }
-  return <GalleryWall header={header} key={view} lenses={lenses} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState(view, next))} state={wall} wall={view} />;
+  return <GalleryWall header={header} key={view} onOpen={onOpen} onPlayAt={() => undefined} onWallChange={(next) => onWallChange(serializeMusicState(view, next))} state={wall} wall={view} />;
 }

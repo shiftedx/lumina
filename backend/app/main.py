@@ -31,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.config import APP_VERSION, settings
-from app.routers import books, admin_account_management, admin_invites, admin_ai, admin_backups, admin_activity, admin_updates, collections, library_annotations, library_browse, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
+from app.routers import books, admin_account_management, admin_invites, admin_ai, admin_backups, admin_activity, admin_updates, collections, library_annotations, library_browse, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
 from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, device_pairing, jellyfin_auth, mobile_connect, oauth as oauth_routes
 from app.routers import two_factor as two_factor_routes
@@ -1082,7 +1082,6 @@ media_tools.register(app)
 enrichment_routes.register(app)
 admin_imports.register(app)
 summaries.register(app)
-idea_graph.register(app)
 admin_metadata.register(app, artwork)
 title_images_routes.register(app, artwork)
 metadata_editor_routes.register(app)

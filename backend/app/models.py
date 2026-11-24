@@ -922,7 +922,7 @@ class Summary(Base):
 
 
 class IdeaGraph(Base):
-    """Bounded concept map of one summary; every node and edge cites transcript cues. Access follows the item."""
+    """Retired job table retained for schema-44 backups and restart recovery."""
 
     __tablename__ = "idea_graphs"
     __table_args__ = (Index("ix_idea_graphs_summary_model", "summary_id", "model_id", "state"),)

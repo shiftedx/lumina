@@ -498,7 +498,7 @@ extension NativePlayerLayer.Coordinator: AVPictureInPictureControllerDelegate { 
 #if LUMINA_UI_TESTING
 // Aggregate hot callbacks and cap detailed output so diagnosis cannot become a log storm.
 @MainActor
-private final class PlaybackContinuityTrace {
+final class PlaybackContinuityTrace {
     static let enabled = ProcessInfo.processInfo.environment["LUMINA_PLAYBACK_TRACE"] == "1"
     private var counts: [String: Int] = [:]
     private var windowStart = ProcessInfo.processInfo.systemUptime

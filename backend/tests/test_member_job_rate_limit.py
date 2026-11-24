@@ -7,7 +7,6 @@ from support import make_user
 ITEM = "/api/library/00000000-0000-0000-0000-000000000000"
 JOB_ROUTES = [
     (ITEM + "/summaries", {}),
-    (ITEM + "/idea-graphs", None),
     (ITEM + "/subtitle-tracks/generate", None),
     (ITEM + "/subtitle-tracks/t/sync", None),
     (ITEM + "/subtitle-tracks/t/translate", {"language": "fr"}),

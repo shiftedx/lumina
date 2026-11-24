@@ -495,66 +495,6 @@ struct MediaCard: View {
     }
 }
 
-enum HomeRailCaptionPresentation: Equatable {
-    case standard
-    case continueWatching
-    case nextUp
-
-    init(identifierPrefix: String) {
-        switch identifierPrefix {
-        case "resumeItem": self = .continueWatching
-        case "nextUpItem": self = .nextUp
-        default: self = .standard
-        }
-    }
-
-    var reservesProgressBaseline: Bool {
-        self != .standard
-    }
-}
-
-private struct HomeRailCaption {
-    let primary: String
-    let secondary: String?
-    let progress: String?
-
-    init(item: MediaItem, presentation: HomeRailCaptionPresentation) {
-        guard presentation != .standard else {
-            primary = item.name
-            secondary = item.displaySubtitle.isEmpty ? nil : item.displaySubtitle
-            progress = nil
-            return
-        }
-
-        let episodeLabel = Self.episodeLabel(for: item)
-        primary = item.type == "Episode" ? item.seriesName ?? item.name : item.name
-        secondary = episodeLabel ?? (item.displaySubtitle.isEmpty ? nil : item.displaySubtitle)
-
-        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
-            let remaining = Duration.seconds(item.durationSeconds - item.resumeSeconds)
-                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-            progress = "\(remaining) remaining"
-        } else if presentation == .nextUp, item.type == "Episode" {
-            progress = "Next episode"
-        } else {
-            progress = nil
-        }
-    }
-
-    private static func episodeLabel(for item: MediaItem) -> String? {
-        guard item.type == "Episode" else { return nil }
-        let number: String? = switch (item.parentIndexNumber, item.indexNumber) {
-        case let (.some(season), .some(episode)): "S\(season) · E\(episode)"
-        default: nil
-        }
-        return [number, item.name].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    var accessibilityLabel: String {
-        [primary, secondary, progress].compactMap { $0 }.joined(separator: ", ")
-    }
-}
-
 @MainActor
 struct ArtworkView: View {
     let url: URL?

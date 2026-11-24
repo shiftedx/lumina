@@ -705,9 +705,9 @@ final class PlaybackModel {
     var endObserver: NSObjectProtocol?
     nonisolated(unsafe) var playbackDiagnosticObservers: [NSObjectProtocol] = []
     #if LUMINA_UI_TESTING
-    private var uiTestingInjectedClientDemuxFailure = false
-    private var uiTestingInjectedServerVideoRecoveryFailure = false
-    private var uiTestingInjectedServerMediaRecoveryFailure = false
+    var uiTestingInjectedClientDemuxFailure = false
+    var uiTestingInjectedServerVideoRecoveryFailure = false
+    var uiTestingInjectedServerMediaRecoveryFailure = false
     #endif
     // NotificationCenter permits unregistering its token during nonisolated deinit.
     nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
@@ -724,11 +724,11 @@ final class PlaybackModel {
     private(set) var videoSystemPauseInjectionCount = 0
     private(set) var uiTestingNextEpisodeDiagnostics = "initial"
 
-    private func recordNextEpisodeDiagnostic(_ outcome: String) {
+    func recordNextEpisodeDiagnostic(_ outcome: String) {
         uiTestingNextEpisodeDiagnostics = "\(outcome)-finished=\(hasFinished ? 1 : 0)-switching=\(isSwitchingVideoStream ? 1 : 0)-taskcancelled=\(Task.isCancelled ? 1 : 0)"
     }
 
-    private func nextEpisodeFailureKind(_ error: Error) -> String {
+    func nextEpisodeFailureKind(_ error: Error) -> String {
         if error is CancellationError { return "cancelled" }
         let error = error as NSError
         switch error.domain {
@@ -1116,7 +1116,7 @@ final class PlaybackModel {
 }
 
 #if LUMINA_UI_TESTING
-private enum PlaybackLifecycleProbe {
+enum PlaybackLifecycleProbe {
     private static let markerName = "lumina-playback-close.txt"
 
     static func resetCloseMarker() {

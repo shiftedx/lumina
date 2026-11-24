@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models import AccountToken, AppSettings, MemberFavorite, PlaybackProgress, User
-from app.services import jellyfin_household, plex_history_client
+from app.services import household_import, plex_history_client
 from app.services.jellyfin_history_client import JellyfinImportError
 from support import make_user, seed_app_settings
 from title_support import ALICE, BOB, FILE, MOVIE, S1E1, SECRET_EPISODE, seed_tree
@@ -470,14 +470,14 @@ def test_household_is_admin_only_requires_owner_token_and_isolates_member_failur
 
     install_cloud(monkeypatch)
     plex.status[ALICE_TOKEN] = 500
-    real_apply = jellyfin_household.apply
+    real_apply = household_import.apply
 
     def fail_carol(db, user, result):  # noqa: ANN001, ANN202
         if user.username == "carol":
             raise IntegrityError("INSERT", {}, Exception("refused"))
         return real_apply(db, user, result)
 
-    monkeypatch.setattr(jellyfin_household, "apply", fail_carol)
+    monkeypatch.setattr(household_import, "apply", fail_carol)
     caplog.set_level(logging.DEBUG)
     response = admin.post(HOUSEHOLD_URL, json={
         "token": OWNER_TOKEN, "plex_ids": [OWNER_ID, ALICE_PLEX_ID, CAROL_PLEX_ID],
@@ -486,7 +486,7 @@ def test_household_is_admin_only_requires_owner_token_and_isolates_member_failur
     rows = {row["plex_name"]: row for row in response.json()["members"]}
     assert rows["Root"]["summary"]["watched"] == 1
     assert rows["alice"]["error"] == "The Plex server answered with HTTP 500."
-    assert rows["carol"]["error"] == jellyfin_household.SAVE_FAILED
+    assert rows["carol"]["error"] == household_import.SAVE_FAILED
     with vault() as db:
         assert db.query(User).filter_by(username="carol").count() == 0
         assert db.query(AccountToken).count() == 0

@@ -26,6 +26,12 @@ make frontend-typecheck
 make check                                      # full gate, required before a PR
 ```
 
+## Workflow map
+
+- **Plex and Jellyfin migration** starts in [household import](backend/app/services/household_import.py). Read [ADR 0010](docs/adr/0010-connected-apps-and-an-opt-in-jellyfin-compatible-api.md#amendment-2026-10-22-first-owner-household-transfer) for the Settings preview and first-owner transfer contracts and their tests.
+- **Apple Home rail captions** start in [shared media presentation](apple/App/Shared/MediaPresentation.swift). See the [Apple guide](apple/README.md#validation) and the [tvOS Home journey](apple/Tests/UITests/NativeProofJourney+TVNavigationAndAccount.swift) for layout, accessibility and validation.
+- **Domain terminology** lives in the [Lumina glossary](CONTEXT.md).
+
 ## Rules
 
 - Dogfood fixes: when continuing the owner's one-issue-at-a-time batch, read the [continuation handoff](docs/design/dogfood-next-handoff.md) first.

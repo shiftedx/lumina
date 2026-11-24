@@ -1,21 +1,11 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Users } from '../../luminaIcons';
 
 import { getJellyfinImport, previewJellyfinHousehold, runJellyfinHousehold } from '../../api';
-import type { JellyfinHousehold, JellyfinHouseholdMember, JellyfinImportSummary } from '../../types';
-import { Button, Checkbox, Dialog, Field, fieldProps, Input, PasswordInput } from '../../ui';
+import type { JellyfinHousehold } from '../../types';
+import { Button, Field, fieldProps, Input, PasswordInput } from '../../ui';
 import { errorMessage } from '../../utils';
-import { CopyableLink } from '../admin/AdminMembers';
-
-const counts = (summary: JellyfinImportSummary) =>
-  `${summary.watched} watched, ${summary.in_progress} in progress, ${summary.favorites} new favorites, ${summary.up_to_date} already up to date, ${summary.unmatched} not in Lumina`;
-
-function landing(member: JellyfinHouseholdMember, done: boolean): string {
-  if (member.action === 'skip') return `Skipped: ${member.reason ?? ''}`;
-  if (done && member.error) return 'Not brought over';
-  return member.action === 'create' ? `Create member ${member.lumina_username}` : `Import into ${member.lumina_username}`;
-}
+import { HouseholdImportDialog } from './HouseholdImportDialog';
 
 /** Members → Bring members over from Jellyfin. The Jellyfin administrator password lives only in this component's state. */
 export function JellyfinHouseholdImport() {
@@ -95,53 +85,21 @@ export function JellyfinHouseholdImport() {
       <Field label="Jellyfin administrator password">{(ids) => <PasswordInput {...fieldProps(ids)} autoComplete="current-password" maxLength={1024} onChange={(event) => setPassword(event.target.value)} value={password} />}</Field>
       <div className="g-actions"><Button disabled={busy || !username.trim()} icon={<Users />} ref={previewRef} type="submit">Preview</Button></div>
       {error && !preview ? <p className="auth-error" role="alert">{error}</p> : null}
-      {/* Portal: a modal belongs in the top layer, outside the settings pane. */}
-      {preview ? createPortal(<HouseholdDialog busy={busy} chosen={chosen} error={error} onBringOver={() => { void bringOver(); }} onClose={close} onToggle={toggle} preview={preview} result={result} />, document.body) : null}
+      {preview ? (
+        <HouseholdImportDialog
+          busy={busy}
+          chosen={chosen}
+          done={result !== null}
+          error={error}
+          members={(result ?? preview).members.map(({ jellyfin_id, jellyfin_name, ...member }) => ({
+            ...member, source_id: jellyfin_id, source_name: jellyfin_name,
+          }))}
+          onBringOver={() => { void bringOver(); }}
+          onClose={close}
+          onToggle={toggle}
+          provider="Jellyfin"
+        />
+      ) : null}
     </form>
-  );
-}
-
-function HouseholdDialog({ preview, result, chosen, busy, error, onToggle, onBringOver, onClose }: {
-  preview: JellyfinHousehold; result: JellyfinHousehold | null; chosen: ReadonlySet<string>; busy: boolean; error: string | null;
-  onToggle: (id: string) => void; onBringOver: () => void; onClose: () => void;
-}) {
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'GoBack' || event.key === 'BrowserBack') { event.preventDefault(); if (!busy) onClose(); }
-  };
-  // The TV Back key reaches the footer and header buttons too, so the handler wraps the whole Dialog (React bubbles through the portal).
-  return (
-    <div onKeyDown={onKeyDown} style={{ display: 'contents' }}>
-      <Dialog
-        busy={busy}
-        footer={result ? <Button onClick={onClose} variant="primary">Done</Button> : (
-          <>
-            <Button busy={busy} disabled={!chosen.size} onClick={onBringOver} variant="primary">{busy ? 'Bringing members over…' : 'Bring members over'}</Button>
-            <Button disabled={busy} onClick={onClose} variant="quiet">Cancel</Button>
-          </>
-        )}
-        onClose={onClose}
-        open
-        size="md"
-        title={result ? 'Members brought over' : 'Bring members over from Jellyfin?'}
-      >
-          <ul aria-label="Jellyfin users" className="g-list">
-            {(result ?? preview).members.map((member) => (
-              <li className="g-list-row" key={member.jellyfin_id}>
-                {result ? <strong>{member.jellyfin_name}</strong> : (
-                  <Checkbox checked={chosen.has(member.jellyfin_id)} disabled={busy || member.action === 'skip'} label={`${member.jellyfin_name}${member.disabled ? ' (disabled in Jellyfin)' : ''}`} onChange={() => onToggle(member.jellyfin_id)} />
-                )}
-                <span> {landing(member, Boolean(result))}</span>
-                {member.summary ? <small> · {counts(member.summary)}</small> : null}
-                {member.error ? <p className="auth-error">{member.error}</p> : null}
-                {member.reset_url ? <CopyableLink label={`Password link for ${member.lumina_username}`} url={member.reset_url} /> : null}
-              </li>
-            ))}
-          </ul>
-          <p>{result
-            ? 'New members choose a password with their link before they can sign in. Each link works once, for 24 hours; Create reset link on their row makes a new one.'
-            : 'New members join as household members without a password and get a one-time link to choose one. Nothing anyone watched more recently in Lumina changes.'}</p>
-          {error ? <p className="auth-error" role="alert">{error}</p> : null}
-      </Dialog>
-    </div>
   );
 }

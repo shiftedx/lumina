@@ -14,7 +14,7 @@ from app.media_schemas import HouseholdTransferRequest
 from app.models import AccountToken, AppSettings, User
 from app.persistence import writer_admission_lock
 from app.routers import household_transfer
-from app.services import jellyfin_household, plex_history_client
+from app.services import plex_history_client
 from app.services.jellyfin_history_client import JellyfinEntry, JellyfinHistory, JellyfinImportError, JellyfinUser
 from app.services.rate_limit import RATE_LIMIT_RULES
 from support import make_user, seed_app_settings
@@ -143,7 +143,7 @@ def test_stream_keeps_earlier_reset_link_when_a_later_member_read_fails(
 
     monkeypatch.setattr(household_transfer, "admin_session", signed_in)
     monkeypatch.setattr(household_transfer, "list_users", lambda _: users)
-    monkeypatch.setattr(jellyfin_household, "read_history", read)
+    monkeypatch.setattr(household_transfer, "read_history", read)
 
     streamed = events(as_user(api_client, vault).post(
         f"{URL}/jellyfin/import",
@@ -176,7 +176,7 @@ def test_progress_precedes_network_read_and_closing_the_stream_releases_source_w
 
     monkeypatch.setattr(household_transfer, "admin_session", signed_in)
     monkeypatch.setattr(household_transfer, "list_users", lambda _: [JellyfinUser("j-member", "Member")])
-    monkeypatch.setattr(jellyfin_household, "read_history", lambda *_: reads.append(True) or EMPTY)
+    monkeypatch.setattr(household_transfer, "read_history", lambda *_: reads.append(True) or EMPTY)
     payload = HouseholdTransferRequest(username="owner", password="private", member_ids=["j-member"])
     stream = household_transfer._events(
         "jellyfin", "http://jellyfin.test:8096", payload, OWNER, lambda: session_scope(vault),
@@ -206,7 +206,7 @@ def test_transport_disconnect_after_progress_closes_source_before_history_read(v
 
     monkeypatch.setattr(household_transfer, "admin_session", signed_in)
     monkeypatch.setattr(household_transfer, "list_users", lambda _: [JellyfinUser("j-member", "Member")])
-    monkeypatch.setattr(jellyfin_household, "read_history", lambda *_: reads.append(True) or EMPTY)
+    monkeypatch.setattr(household_transfer, "read_history", lambda *_: reads.append(True) or EMPTY)
     content = household_transfer._events(
         "jellyfin", "http://jellyfin.test:8096",
         HouseholdTransferRequest(username="owner", password="private", member_ids=["j-member"]),
@@ -248,7 +248,7 @@ def test_public_post_flushes_progress_and_serves_health_while_member_read_is_blo
     @contextmanager
     def source(*_):  # noqa: ANN002, ANN202
         yield household_transfer.SourceHousehold(
-            "Plex", "http://plex.test:32400", "p-owner", [JellyfinUser("p-member", "Member")],
+            "Plex", "p-owner", [JellyfinUser("p-member", "Member")],
             read=lambda *_: (reading.set(), release.wait(2), EMPTY)[2],
         )
 

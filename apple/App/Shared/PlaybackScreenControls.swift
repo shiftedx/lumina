@@ -11,7 +11,7 @@ import UIKit
 
 extension PlaybackScreen {
     #if LUMINA_UI_TESTING
-    private var systemArtworkProbeValue: String {
+    var systemArtworkProbeValue: String {
         let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
         guard let mediaType = info?[MPNowPlayingInfoPropertyMediaType] as? NSNumber,
               mediaType.uintValue == MPNowPlayingInfoMediaType.audio.rawValue,

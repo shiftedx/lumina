@@ -57,14 +57,6 @@ describe('Collections list', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Collections' })).toBeTruthy();
   });
 
-  it('embedded renders tiles and a See all link and no masthead or create buttons', async () => {
-    page(fakeCollectionApi([collection({ id: 'c1', name: 'Rainy Sundays' })]), { embedded: true });
-    expect(await screen.findByRole('link', { name: /Rainy Sundays/ })).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'See all' }).getAttribute('href')).toBe('/library/collections');
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'New collection' })).toBeNull();
-  });
-
   it('loads with a skeleton and fails with Try again', async () => {
     page(fakeCollectionApi([], { failFirstList: true }));
     expect(screen.getByRole('status').textContent).toBe('Loading collections…');

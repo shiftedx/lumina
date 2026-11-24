@@ -13,7 +13,7 @@ import { forgetWallStores } from './wallPages';
 function tab(state = '', sections: LibrarySections | null = librarySections(), options: Partial<Pick<React.ComponentProps<typeof MusicTab>, 'preferredView' | 'onBrowseViewChange'>> = {}) {
   const onWallChange = vi.fn();
   const onPlay = vi.fn();
-  render(<MusicTab canDelete={() => false} lenses={<nav aria-label="Library" />} onItemChanged={vi.fn()} onOpen={vi.fn()} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={state} {...options} />);
+  render(<MusicTab canDelete={() => false} onItemChanged={vi.fn()} onOpen={vi.fn()} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={state} {...options} />);
   return { onWallChange, onPlay };
 }
 
@@ -30,7 +30,6 @@ describe('MusicTab', () => {
     vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([artistSummary()], { total: 1 }));
     vi.spyOn(api, 'listLibrary').mockResolvedValue({ items: [], next_cursor: null });
     tab();
-    expect(screen.getByRole('navigation', { name: 'Library' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Music' })).toBeTruthy();
     expect(screen.getByText(/^110 albums · 108 artists/)).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Show' })).toBeTruthy();

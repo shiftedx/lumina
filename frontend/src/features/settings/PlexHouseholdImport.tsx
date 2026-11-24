@@ -1,21 +1,11 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Users } from '../../luminaIcons';
 
 import { getPlexImport, previewPlexHousehold, runPlexHousehold } from '../../api';
 import type { JellyfinImportSummary, PlexHousehold, PlexHouseholdMember } from '../../types';
-import { Button, Checkbox, Dialog, Field, fieldProps, PasswordInput } from '../../ui';
+import { Button, Field, fieldProps, PasswordInput } from '../../ui';
 import { errorMessage } from '../../utils';
-import { CopyableLink } from '../admin/AdminMembers';
-
-const counts = (summary: JellyfinImportSummary) =>
-  `${summary.watched} watched, ${summary.in_progress} in progress, ${summary.up_to_date} already up to date, ${summary.unmatched} not in Lumina`;
-
-function landing(member: PlexHouseholdMember, done: boolean): string {
-  if (member.action === 'skip') return `Skipped: ${member.reason ?? ''}`;
-  if (done && member.error) return 'Not brought over';
-  return member.action === 'create' ? `Create member ${member.lumina_username}` : `Import into ${member.lumina_username}`;
-}
+import { HouseholdImportDialog } from './HouseholdImportDialog';
 
 /** Members → Bring members over from Plex. The server owner's Plex token stays in component state only. */
 export function PlexHouseholdImport() {
@@ -92,42 +82,21 @@ export function PlexHouseholdImport() {
       <p className="g-setting-note">Lumina uses the Plex server owner's token with plex.tv to find the owner and accessible shared users. It uses the token for this import and never saves it. Favorites and watchlists are not transferred.</p>
       <div className="g-actions"><Button disabled={busy || !token.trim()} icon={<Users />} type="submit">Preview</Button></div>
       {error && !preview ? <p className="auth-error" role="alert">{error}</p> : null}
-      {preview ? createPortal(<HouseholdDialog busy={busy} chosen={chosen} error={error} onBringOver={() => { void bringOver(); }} onClose={close} onToggle={toggle} preview={preview} result={result} />, document.body) : null}
+      {preview ? (
+        <HouseholdImportDialog
+          busy={busy}
+          chosen={chosen}
+          done={result !== null}
+          error={error}
+          members={(result ?? preview).members.map(({ plex_id, plex_name, ...member }) => ({
+            ...member, source_id: plex_id, source_name: plex_name,
+          }))}
+          onBringOver={() => { void bringOver(); }}
+          onClose={close}
+          onToggle={toggle}
+          provider="Plex"
+        />
+      ) : null}
     </form>
-  );
-}
-
-function HouseholdDialog({ preview, result, chosen, busy, error, onToggle, onBringOver, onClose }: {
-  preview: PlexHousehold; result: PlexHousehold | null; chosen: ReadonlySet<string>; busy: boolean; error: string | null;
-  onToggle: (id: string) => void; onBringOver: () => void; onClose: () => void;
-}) {
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'GoBack' || event.key === 'BrowserBack') { event.preventDefault(); if (!busy) onClose(); }
-  };
-  return (
-    <div onKeyDown={onKeyDown} style={{ display: 'contents' }}>
-      <Dialog
-        busy={busy}
-        footer={result ? <Button onClick={onClose} variant="primary">Done</Button> : <><Button busy={busy} disabled={!chosen.size} onClick={onBringOver} variant="primary">{busy ? 'Bringing members over…' : 'Bring members over'}</Button><Button disabled={busy} onClick={onClose} variant="quiet">Cancel</Button></>}
-        onClose={onClose}
-        open
-        size="md"
-        title={result ? 'Members brought over' : 'Bring members over from Plex?'}
-      >
-        <ul aria-label="Plex users" className="g-list">
-          {(result ?? preview).members.map((member) => (
-            <li className="g-list-row" key={member.plex_id}>
-              {result ? <strong>{member.plex_name}</strong> : <Checkbox checked={chosen.has(member.plex_id)} disabled={busy || member.disabled || member.action === 'skip' || Boolean(member.error)} label={`${member.plex_name}${member.disabled ? ' (disabled in Plex)' : ''}`} onChange={() => onToggle(member.plex_id)} />}
-              <span> {landing(member, Boolean(result))}</span>
-              {member.summary ? <small> · {counts(member.summary)}</small> : null}
-              {member.error ? <p className="auth-error">{member.error}</p> : null}
-              {member.reset_url ? <CopyableLink label={`Password link for ${member.lumina_username}`} url={member.reset_url} /> : null}
-            </li>
-          ))}
-        </ul>
-        <p>{result ? 'New members choose a password with their link before they can sign in. Each link works once, for 24 hours; Create reset link on their row makes a new one.' : 'New members join as household members without a password and get a one-time link to choose one. Nothing anyone watched more recently in Lumina changes.'}</p>
-        {error ? <p className="auth-error" role="alert">{error}</p> : null}
-      </Dialog>
-    </div>
   );
 }

@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from './api';
-import { forgetAllStore } from './features/gallery/allStore';
 import { forgetWallStores } from './features/gallery/wallPages';
 import { LibraryBrowser, type LibraryBrowserProps } from './features/library/LibraryBrowser';
 import { librarySections, stillItem, titlePage } from './test/galleryFixtures';
@@ -13,13 +12,12 @@ import type { TitleSummary } from './types';
 const member = { id: 'member-1', role: 'viewer' };
 
 function browser(overrides: Partial<LibraryBrowserProps> = {}) {
-  const props: LibraryBrowserProps = { navigation: { categories: ['movies', 'tv', 'music', 'youtube', 'recordings'], features: { streaming: true, requests: true } }, currentUser: member, onItemChanged: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(), onPlayAt: vi.fn(), onViewChange: vi.fn(), onWallChange: vi.fn(), view: 'all', ...overrides };
+  const props: LibraryBrowserProps = { navigation: { categories: ['movies', 'tv', 'music', 'youtube', 'recordings'], features: { streaming: true, requests: true } }, currentUser: member, onItemChanged: vi.fn(), onOpenTitle: vi.fn(), onPlay: vi.fn(), onPlayAt: vi.fn(), onViewChange: vi.fn(), onWallChange: vi.fn(), view: 'shows', ...overrides };
   return { props, ...render(<ToastProvider><LibraryBrowser {...props} /></ToastProvider>) };
 }
 const series = (id: string, name: string): TitleSummary => ({ id, type: 'series', name, year: 2021, genres: [], added_at: '2026-09-01T00:00:00Z', poster_url: null, user_data: { played: false, is_favorite: false, position_seconds: 0, unplayed_count: 3 } });
 
 beforeEach(() => {
-  forgetAllStore();
   forgetWallStores();
   window.localStorage.clear();
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} unobserve() {} });
@@ -85,24 +83,24 @@ describe('Library lenses', () => {
     browser({ view: 'youtube' });
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect((await screen.findByRole('alert')).textContent).toContain('Refresh failed: Server unavailable');
-    expect(screen.getByRole('link', { name: 'YouTube' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('heading', { level: 1, name: 'YouTube' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(refresh).toHaveBeenCalledTimes(2);
     expect(await screen.findByText('Library refreshed.')).toBeTruthy();
   });
 
-  it('opens on the All landing under the tab row, and hands tab clicks to the shell', async () => {
+  it('hands collection navigation from a video category to the shell', async () => {
     const { props } = browser();
-    expect(screen.getByRole('heading', { level: 1, name: 'Library' })).toBeTruthy();
-    await userEvent.click(await within(screen.getByRole('navigation', { name: 'Library' })).findByRole('link', { name: 'Shows' }));
-    expect(props.onViewChange).toHaveBeenCalledWith('shows');
+    const tools = screen.getByRole('navigation', { name: 'Library tools' });
+    await userEvent.click(within(tools).getByRole('link', { name: 'Collections' }));
+    expect(props.onViewChange).toHaveBeenCalledWith('collections');
   });
 
   it('test_library_series_and_unclassified: the Shows lens shows one poster per series and opens its page', async () => {
     const harbor = series('series-1', 'Blue Harbor');
     const titles = vi.mocked(api.listTitles).mockResolvedValue({ items: [harbor], next_cursor: null, total: 1, start_index: 0 });
     const { props } = browser({ view: 'shows' });
-    expect(screen.getByRole('navigation', { name: 'Library' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Library tools' })).toBeTruthy();
     await userEvent.click(await screen.findByRole('button', { name: 'Blue Harbor, 3 unwatched episodes' }));
     expect(props.onOpenTitle).toHaveBeenCalledWith(harbor);
     expect(titles).toHaveBeenCalledWith(expect.objectContaining({ category: 'shows', sort: 'created', cursor: null, limit: 60 }), expect.anything());
@@ -128,12 +126,6 @@ describe('Library lenses', () => {
     browser({ view: 'recordings' });
     expect(await screen.findByText('12 recordings · Sorted by recently added')).toBeTruthy();
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'recording' }));
-  });
-
-  it('mounts the Music tab under the tab row', () => {
-    browser({ view: 'music' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Music' })).toBeTruthy();
-    expect(screen.getByRole('navigation', { name: 'Library' })).toBeTruthy();
   });
 
   it('lists deleted files in the gallery and restores one', async () => {

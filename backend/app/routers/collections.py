@@ -17,10 +17,10 @@ from app.services.library import LibraryService
 from app.services.title_summaries import title_summaries
 
 
-def register(app: FastAPI) -> None:
+def register(app: FastAPI):
     COLLECTION_ITEMS_PREVIEW_LIMIT = 100
-    
-    
+
+
     def _collection_entry_response(membership: HouseholdCollectionMembership, item: LibraryItem | None) -> CollectionEntryResponse:
         if membership.library_item_id is not None:
             if item is None:
@@ -39,8 +39,8 @@ def register(app: FastAPI) -> None:
             ref=CollectionEntryRefResponse(kind="remote", provider=membership.provider, remote_id=membership.remote_id, url=membership.source_url),
             title=membership.title, uploader=membership.uploader, artwork_url=membership.artwork_url, duration=membership.duration,
         )
-    
-    
+
+
     def serialize_household_collection(
         db: Session,
         collection: HouseholdCollection,
@@ -111,7 +111,7 @@ def register(app: FastAPI) -> None:
             created_at=collection.created_at,
             updated_at=collection.updated_at,
         )
-    
+
     def _collection_http_error(error: Exception) -> HTTPException:
         if isinstance(error, SmartCollectionEditError):
             return HTTPException(status_code=409, detail=str(error))
@@ -128,8 +128,8 @@ def register(app: FastAPI) -> None:
         if isinstance(error, CollectionFullError):
             return HTTPException(status_code=422, detail="This collection is full.")
         return HTTPException(status_code=400, detail=str(error))
-    
-    
+
+
     @app.post("/api/collections", response_model=HouseholdCollectionResponse, status_code=201)
     async def create_household_collection(
         payload: HouseholdCollectionCreateRequest,
@@ -152,8 +152,8 @@ def register(app: FastAPI) -> None:
         except (ValueError, DuplicateCollectionNameError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.get("/api/collections", response_model=list[HouseholdCollectionResponse])
     def list_household_collections(
         current_user: User = Depends(get_current_user),
@@ -176,8 +176,8 @@ def register(app: FastAPI) -> None:
             serialize_household_collection(db, collection, current_user, include_items=False, item_count=counts.get(collection.id, 0))
             for collection in collections
         ]
-    
-    
+
+
     @app.get("/api/collections/{collection_id}", response_model=HouseholdCollectionResponse)
     def get_household_collection(
         collection_id: str,
@@ -191,8 +191,8 @@ def register(app: FastAPI) -> None:
         except CollectionNotFoundError as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.put("/api/collections/{collection_id}/name", response_model=HouseholdCollectionResponse)
     def rename_household_collection(
         collection_id: str,
@@ -207,8 +207,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, DuplicateCollectionNameError, ValueError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.put("/api/collections/{collection_id}/visibility", response_model=HouseholdCollectionResponse)
     def update_household_collection_visibility(
         collection_id: str,
@@ -225,8 +225,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, ValueError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.put("/api/collections/{collection_id}/rules", response_model=HouseholdCollectionResponse)
     async def set_household_collection_rules(
         collection_id: str,
@@ -235,7 +235,7 @@ def register(app: FastAPI) -> None:
         db: Session = Depends(get_db, scope="function"),
     ) -> HouseholdCollectionResponse:
         """Make an empty collection smart or change its rule; evaluated as each viewer (ADR 0003).
-    
+
         The body is re-parsed strictly through ``parse_rule`` rather than declared as the frozen,
         lax ``SmartCollectionRule`` body model, which would silently coerce a stray bool value to an int.
         """
@@ -248,8 +248,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, SmartCollectionEditError, ValueError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.delete("/api/collections/{collection_id}", status_code=204)
     def delete_household_collection(
         collection_id: str,
@@ -261,8 +261,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError) as exc:
             raise _collection_http_error(exc) from exc
         return Response(status_code=204)
-    
-    
+
+
     @app.post("/api/collections/{collection_id}/items/{item_id}", response_model=HouseholdCollectionResponse)
     def add_household_collection_item(
         collection_id: str,
@@ -281,8 +281,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, InvisibleLibraryItemError, DuplicateCollectionItemError, CollectionFullError, SmartCollectionEditError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.post("/api/collections/{collection_id}/remote-items", response_model=HouseholdCollectionResponse, status_code=201)
     def add_household_collection_remote_item(
         collection_id: str,
@@ -302,8 +302,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, DuplicateCollectionItemError, CollectionFullError, CollectionConflictError, ValueError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.delete("/api/collections/{collection_id}/entries/{entry_id}", response_model=HouseholdCollectionResponse)
     def remove_household_collection_entry(
         collection_id: str,
@@ -320,8 +320,8 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, CollectionConflictError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
+
+
     @app.patch("/api/collections/{collection_id}/entries/{entry_id}", response_model=HouseholdCollectionResponse)
     def move_household_collection_entry(
         collection_id: str,
@@ -338,6 +338,5 @@ def register(app: FastAPI) -> None:
         except (CollectionNotFoundError, CollectionPermissionError, CollectionEntryNotFoundError, CollectionConflictError) as exc:
             raise _collection_http_error(exc) from exc
         return serialize_household_collection(db, collection, current_user, include_items=True)
-    
-    
 
+    return list_household_collections

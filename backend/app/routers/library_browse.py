@@ -25,7 +25,7 @@ SEARCH_SCOPE_TYPES = {
 }
 
 
-def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None]) -> None:
+def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None]):
     @app.get("/api/library", response_model=LibraryPageResponse)
     def list_library(
         search: str | None = Query(default=None, max_length=200),
@@ -73,8 +73,8 @@ def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None])
                     response.progress = ItemProgress(position_seconds=row.position_seconds or 0, duration_seconds=row.duration_seconds,
                                                      completed=bool(row.completed))
         return LibraryPageResponse(items=responses, next_cursor=next_cursor)
-    
-    
+
+
     @app.get("/api/library/groups", response_model=list[LibraryGroupResponse])
     def list_library_groups(
         kind: Literal["episode", "music"],
@@ -83,8 +83,8 @@ def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None])
         db: Session = Depends(get_db, scope="function"),
     ) -> list[LibraryGroupResponse]:
         return LibraryService(db).list_groups(current_user, kind=kind, source=source)
-    
-    
+
+
     @app.get("/api/library/channels", response_model=list[LibraryChannelResponse])
     def list_library_channels(
         source: Literal["youtube"] = Query(default="youtube"),
@@ -94,8 +94,8 @@ def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None])
     ) -> list[LibraryChannelResponse]:
         """Saved YouTube grouped by channel, as Infuse groups it."""
         return LibraryService(db).list_channels(current_user, source=source, sort=sort, artwork_url=artwork_url_resolver)
-    
-    
+
+
     @app.get("/api/search", response_model=SearchResultResponse)
     def search_library(
         q: str = Query(min_length=1, max_length=200),
@@ -141,14 +141,13 @@ def register(app: FastAPI, artwork_url_resolver: Callable[[object], str | None])
             items=[match.item for match in matches if match.item is not None],
             index_generation=discovery.index_generation,
         )
-    
-    
+
+
     @app.get("/api/library/{item_id}", response_model=LibraryItemResponse)
     def get_library_item(item_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LibraryItemResponse:
         service = LibraryService(db)
         item = visible_item_or_404(db, item_id, current_user)
         service.prime_media_states([item])
         return service.serialize(item, current_user)
-    
-    
 
+    return list_library, search_library

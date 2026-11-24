@@ -103,6 +103,3 @@ def register(app: FastAPI) -> None:
             service.delete_tag(item_id, tag_value, current_user)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-

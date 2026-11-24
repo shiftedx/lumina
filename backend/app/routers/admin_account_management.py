@@ -18,7 +18,7 @@ from app.services.webhooks import WebhookService
 from app.services.yt_dlp_service import YtDlpService
 
 
-def register(app: FastAPI, jobs: JobManager, live_recording_manager: LiveRecordingManager) -> None:
+def register(app: FastAPI, jobs: JobManager, live_recording_manager: LiveRecordingManager):
     @app.get("/api/admin/users", response_model=list[AdminUserResponse])
     def list_users(current_user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> list[AdminUserResponse]:
         del current_user
@@ -122,3 +122,5 @@ def register(app: FastAPI, jobs: JobManager, live_recording_manager: LiveRecordi
         if not ok:
             raise HTTPException(status_code=400, detail=message)
         return WebhookTestResponse(ok=ok, message=message)
+
+    return update_user

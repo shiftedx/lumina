@@ -3224,8 +3224,8 @@ def _resolve_settled_entry(
     return None, validated_url
 
 
-collections.register(app)
-library_browse.register(app, lambda url: _remote_artwork_url(url))
+list_household_collections = collections.register(app)
+list_library, search_library = library_browse.register(app, lambda url: _remote_artwork_url(url))
 @app.get("/api/playback/continue", response_model=list[PlaybackProgressResponse])
 def list_continue_watching(
     current_user: User = Depends(get_current_user),
@@ -3673,7 +3673,7 @@ def delete_automation(automation_id: str, current_user: User = Depends(get_curre
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-admin_account_management.register(app, jobs, live_recording_manager)
+update_user = admin_account_management.register(app, jobs, live_recording_manager)
 
 
 frontend_dist = resolve_frontend_dist()

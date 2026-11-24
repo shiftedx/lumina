@@ -301,9 +301,6 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     const libraryProblem = libraryResult.status === 'rejected' ? classifyCollectionLoadProblem(libraryResult.reason) : null;
     const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null;
     const automations = automationResult.status === 'fulfilled' ? automationResult.value : [];
-    // Continue watching is preloaded so the Home shelf paints in its final
-    // position without a later insert. A failure is non-critical: fall back to
-    // the last-known window for the same member, or an empty shelf otherwise.
     const continueWatching = continueWatchingResult.status === 'fulfilled' ? continueWatchingResult.value : null;
     if (settingsResult.status === 'rejected') hydrationIssues.push('personal settings');
     if (automationResult.status === 'rejected') hydrationIssues.push('automation');
@@ -478,9 +475,8 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
       hintTimer = undefined;
       listLibrary({ limit: LIBRARY_PAGE_SIZE }, { background: true }).then((page) => {
         if (!active || !requestGateRef.current.isSessionCurrent(generation)) return;
-        // Oldest first: each row then sorts at or before the head and is kept.
         startTransition(() => { for (const item of [...page.items].reverse()) dispatchBase({ type: 'library/upsert', item }); });
-      }, () => undefined); // a failed background refetch waits for the next hint or reload
+      }, () => undefined);
     };
     const source = connectEvents((event) => {
       if (!active || !requestGateRef.current.isSessionCurrent(generation)) return;

@@ -29,15 +29,28 @@ async def finish_on_cancel(work: Coroutine[Any, Any, T]) -> T:
         raise
 
 
-async def run_blocking(work: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
-    return await finish_on_cancel(asyncio.to_thread(work, *args, **kwargs))
-
-
 # Detached work may create another writer before its own last callback returns.
 # Register at submission, then drain after the service producers have stopped.
 _writers_lock = threading.Lock()
 _writer_threads: set[threading.Thread] = set()
 _writer_futures: set[Future] = set()
+
+
+async def run_blocking(work: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    # A server can cancel a request and begin shutdown before awaiting it.
+    # Track completion from inside the thread, independent of the request task.
+    done: Future[None] = Future()
+
+    def invoke() -> T:
+        try:
+            return work(*args, **kwargs)
+        finally:
+            done.set_result(None)
+
+    with _writers_lock:
+        _writer_futures.intersection_update(future for future in _writer_futures if not future.done())
+        _writer_futures.add(done)
+    return await finish_on_cancel(asyncio.to_thread(invoke))
 
 
 def start_writer(thread: threading.Thread) -> None:

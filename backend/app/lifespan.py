@@ -54,8 +54,8 @@ class LifespanCleanup:
         if pending:
             self._stop_failures.append(RuntimeError("Background service loops did not stop during shutdown"))
             logger.error("Background service loops did not stop during shutdown")
-        for task in done:
-            if not task.cancelled() and (exc := task.exception()) is not None:
+        for task in tasks:
+            if task in done and not task.cancelled() and (exc := task.exception()) is not None:
                 self._loop_failures.append(exc)
 
     async def release_lock(self) -> None:

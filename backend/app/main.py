@@ -1860,7 +1860,7 @@ async def preview(
 
     started = time.monotonic()
     try:
-        response = await asyncio.to_thread(run_preview)
+        response = await run_blocking(run_preview)
     except yt_dlp.utils.DownloadError as exc:
         raise _download_error_http_exception(exc) from exc
     # Time to first frame, step by step: extraction (or a cache hit / joined prefetch) for this click.

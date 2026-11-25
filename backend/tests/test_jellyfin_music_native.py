@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app import db as db_module
 from app.config import settings
 from app.main import app
-from app.models import AppSettings, DeviceToken, LibraryItem, MediaTitle, MemberAccess, PlaybackProgress, StorageRoot, utcnow
+from app.models import AppSettings, DeviceToken, LibraryItem, MediaTitle, MemberAccess, MusicTrackOverride, PlaybackProgress, StorageRoot, utcnow
 from app.security import session_digest
 from app.services.media_titles import jellyfin_id
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, ROOT, add_file, jellyfin_household, mediabrowser, uid
@@ -221,6 +221,53 @@ def test_jellyfin_music_view_supports_finamp_browse_without_leaking_tracks(nativ
     assert "music" not in {view["CollectionType"] for view in get("/UserViews").json()["Items"]}
     assert get("/Items", IncludeItemTypes="Audio", **scope).json()["Items"] == []
     assert get("/Items", IncludeItemTypes="Audio").json()["Items"], "Legacy explicit Audio browse stays available"
+
+
+def test_finamp_playback_advertises_and_serves_only_visible_library_lyrics(native):  # noqa: ANN001
+    def get(path, token=ALICE_TOKEN):  # noqa: ANN001, ANN202
+        return native.get(path, headers=mediabrowser(token))
+
+    def lyrics(item_id):  # noqa: ANN001, ANN202
+        return f"/Audio/{jellyfin_id(item_id)}/Lyrics"
+
+    def lyric_codecs(item_id):  # noqa: ANN001, ANN202
+        sources = get(f"/Items/{jellyfin_id(item_id)}/PlaybackInfo").json()["MediaSources"]
+        return [stream["Codec"] for stream in sources[0]["MediaStreams"] if stream["Type"] == "Lyric"]
+
+    with db_module.SessionLocal.begin() as db:
+        db.add_all([
+            MusicTrackOverride(item_id=ONE, fields={"lyrics": "[offset:-10]\n[00:01.295]Second cue\n[00:00.00]First cue"}),
+            MusicTrackOverride(item_id=TWO, fields={"lyrics": "First line\nSecond line"}),
+        ])
+
+    assert lyric_codecs(ONE) == ["lrc"]
+    timed = get(lyrics(ONE))
+    assert timed.headers["Cache-Control"] == "private, no-store"
+    assert timed.json() == {
+        "Metadata": {"IsSynced": True},
+        "Lyrics": [{"Start": 0, "Text": "First cue"}, {"Start": 12_850_000, "Text": "Second cue"}],
+    }
+    assert lyric_codecs(TWO) == ["txt"]
+    assert get(lyrics(TWO)).json() == {
+        "Metadata": {"IsSynced": False}, "Lyrics": [{"Text": "First line"}, {"Text": "Second line"}],
+    }
+
+    with db_module.SessionLocal.begin() as db:
+        track = db.get(LibraryItem, TWO)
+        track.metadata_json = {"artist": "Artist"}
+        db.delete(db.get(MusicTrackOverride, TWO))
+
+    assert lyric_codecs(TWO) == []
+    absent = get(lyrics(TWO))
+    assert (absent.status_code, absent.content) == (404, b"")
+    hidden = get(lyrics(HIDDEN))
+    assert (hidden.status_code, hidden.content) == (absent.status_code, absent.content)
+    assert get(f"/Items/{jellyfin_id(HIDDEN)}/PlaybackInfo").status_code == 404
+    assert get(lyrics(HIDDEN), BOB_TOKEN).json() == {
+        "Metadata": {"IsSynced": True}, "Lyrics": [{"Start": 10_000_000, "Text": "Synthetic lyric"}],
+    }
+    assert get(lyrics(ALBUM)).status_code == 404
+    assert native.get(lyrics(ONE)).status_code == 401
 
 
 def test_finamp_original_file_obeys_audio_range_visibility_and_download_access(native, monkeypatch):  # noqa: ANN001

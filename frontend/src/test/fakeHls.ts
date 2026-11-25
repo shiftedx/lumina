@@ -8,6 +8,7 @@ export const hlsCalls = {
   handlers: [] as HlsErrorHandler[],
   levelLoaded: [] as Array<() => void>,
   manifestParsed: [] as Array<() => void>,
+  firstFragmentBuffered: [] as Array<() => void>,
   instances: [] as FakeHls[],
   listeners: {} as Record<string, Array<(event: string, data: never) => void>>,
   onManifestParsed: [] as Array<(event: string, data: { levels: unknown[] }) => void>,
@@ -20,7 +21,7 @@ export const hlsCalls = {
 
 export function resetHlsCalls() {
   Object.assign(hlsCalls, {
-    attached: [], configs: [], destroyed: 0, handlers: [], levelLoaded: [], manifestParsed: [], instances: [], listeners: {}, onManifestParsed: [],
+    attached: [], configs: [], destroyed: 0, firstFragmentBuffered: [], handlers: [], levelLoaded: [], manifestParsed: [], instances: [], listeners: {}, onManifestParsed: [],
     mediaRecoveries: 0, networkRecoveries: 0, sources: [], startLoads: [], stopped: 0,
   });
 }
@@ -29,6 +30,7 @@ export default class FakeHls {
   static Events = { ERROR: 'error', FRAG_BUFFERED: 'hlsFragBuffered', FRAG_LOADED: 'hlsFragLoaded', LEVEL_LOADED: 'hlsLevelLoaded', MANIFEST_PARSED: 'hlsManifestParsed' };
   static ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
   static isSupported() { return true; }
+  config = { maxBufferHole: 0.1 };
   latestLevelDetails = { edge: 12 };
   startLevel = -1;
   constructor(config?: unknown) { hlsCalls.configs.push(config); hlsCalls.instances.push(this); }
@@ -43,6 +45,7 @@ export default class FakeHls {
   once(event: string, callback: () => void) {
     if (event === FakeHls.Events.MANIFEST_PARSED) hlsCalls.manifestParsed.push(callback);
     if (event === FakeHls.Events.LEVEL_LOADED) hlsCalls.levelLoaded.push(callback);
+    if (event === FakeHls.Events.FRAG_BUFFERED) hlsCalls.firstFragmentBuffered.push(callback);
   }
   recoverMediaError() { hlsCalls.mediaRecoveries += 1; }
   startLoad(position?: number) { hlsCalls.networkRecoveries += 1; hlsCalls.startLoads.push(position); }

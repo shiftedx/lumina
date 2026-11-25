@@ -19,8 +19,10 @@ remain useful browser contracts through a UI rework.
 | Complete repository | Bootstrap, types, build, backend and Vitest, then one full browser run | Browser phase <2700 s | `mise exec -- make check` |
 
 Smoke selection is explicit in `frontend/e2e/smoke-cases.json`: every entry names
-its journey. Both tiers default to four workers. Qualification requires two
-passes with no failures, flaky retries, skips or missing cases. The driver
+its journey. Both tiers default to four workers. Use
+`E2E_TIER_WORKERS=1` to run the full tier with a single worker and a
+60-minute tier cap. Qualification requires two passes with no failures,
+flaky retries, skips or missing cases. The driver
 records a private selection manifest, JSON results and wall time for each run;
 empty/incomplete reports cannot qualify. Set `E2E_OUTPUT` to a fresh empty
 directory to choose the artifact destination. The driver prints each result.

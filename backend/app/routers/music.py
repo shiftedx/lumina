@@ -109,10 +109,8 @@ def undo(batch_id: str, user: User = Depends(get_detail_editor), db: Session = D
 
 def lyrics(item_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"), retry: bool = False) -> dict:
     item = music_library.visible_tracks(db, user, [item_id])[0]
-    override = db.get(MusicTrackOverride, item_id)
-    local = music_library.track_fields(item, override).get("lyrics")
-    if isinstance(local, str) and (local or (override and "lyrics" in (override.fields or {}))):
-        return {**music_providers.parse_lyrics(local, source="Your library").model_dump(), "refreshing": False}
+    if (local := music_library.local_lyrics(db, item)) is not None:
+        return {**local.model_dump(), "refreshing": False}
     track = music_library.manifests(db, user, [item])[0]
     key = music_providers.key_for("lyrics", track.artist, track.title, track.album, str(track.duration))
     row = db.get(MusicLookup, key)

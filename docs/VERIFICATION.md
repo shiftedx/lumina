@@ -17,22 +17,26 @@ runs full with four isolated workers. Qualify both twice before release; command
 budgets, retained prerequisite skips and audit evidence are in
 [backend readiness](BACKEND_READINESS.md).
 
-The full backend tier also requires the generated M2TS corpus. With FFmpeg/libx265
-and `dovi_tool` 2.3.4 available, generate it once outside Git, then configure its
-path for every full gate run:
+The full backend tier also requires the generated M2TS corpus. Generate it
+outside Git using FFmpeg 8.0.1 with x265 4.1 and `dovi_tool` 2.3.4. This
+combination passed the exact MEL packet-offset checks in the
+[Release 1 corpus preflight](https://github.com/shiftedx/lumina/actions/runs/44818190895/job/136571887799).
 
 ```bash
 mise exec -- python3 apple/scripts/generate_dv_m2ts_fixtures.py \
   --dovi-tool /path/to/dovi_tool --output /tmp/lumina-m2ts-fixtures \
   --positives-only --cold-seek-duration-seconds 96 \
   --cold-seek-variable-gop-pattern 288,24,72
-LUMINA_DV_M2TS_FIXTURES=/tmp/lumina-m2ts-fixtures mise exec -- make check
+export LUMINA_DV_M2TS_FIXTURES=/tmp/lumina-m2ts-fixtures
+mise exec -- make check
 ```
 
 The full tier rejects skips caused by an unconfigured corpus; do not add them
 to its allowed skips. Regenerate the corpus if its temporary directory is removed.
 
-Install all pinned engines once: `cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
+For Linux, use the [reference test environment](#linux-test-environment) below.
+On macOS, install all pinned engines once with
+`cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
 The tier runner allocates fresh loopback ports and private fixture/output roots;
 see its printed artifact path and pass/fail times. Legacy `make e2e-mocked` and
 `make e2e-realstack` remain available for focused work.
@@ -52,6 +56,84 @@ The accessibility checks run axe with the WCAG 2.0 to 2.2 A and AA rule tags and
 | Real-browser remux/transcode decode | `cd frontend && npx playwright install webkit` once, then `mise exec -- make e2e-browsers` | WebKit actually decodes the backend's H.264/AAC HLS output for a remux and a transcode session (`currentTime` advances), and that a seek past the converted range restarts the conversion and lands near the target (#137). Included in the full tier and `make check`; install WebKit before running. Required for changes to local remux/transcode playback (`backend/app/services/local_playback_sessions.py`, `frontend/src/localPlayer.tsx`). |
 
 New source files have a 1,500-line limit. Two existing composition roots have fixed ceilings of 3,681 lines in [the backend app](../backend/app/main.py) and 1,895 lines in [the web app](../frontend/src/LuminaApp.tsx).
+
+## Linux test environment
+
+Use [the test-gate Dockerfile](../docker/test-gate.Dockerfile) to reproduce the
+Linux parser, media and browser checks in one disposable environment. Build
+and run on the host's native architecture with Docker BuildKit. The container needs a Linux kernel
+with Landlock ABI 3 or later (Linux 6.2 or later with Landlock enabled). Run
+with Docker's default security profile and the image's unprivileged user.
+The repository's default parser sandbox is Landlock.
+
+The image combines the tools pinned in `.tool-versions` with the Noble
+Playwright 1.55.1 browsers, libseccomp 2.6.0, util-linux 2.41.2 `setpriv`,
+libarchive 3.8.10 and Jellyfin FFmpeg 8.1.3 for Noble.
+Python bundles SQLite 3.53.1. The base images and direct tool downloads are
+checksum-pinned, and OS dependencies come from Noble's APT repositories.
+Stock Ubuntu 24.04 libseccomp 2.5.5 cannot resolve both `setxattrat` and
+`removexattrat`. The parser fails closed before decoding PDF, CBR or photo
+input. The supplied `setpriv` supports both `--seccomp-filter` and
+`--landlock-rule`. The installed libarchive supplies RAR5 decoding, and
+Jellyfin FFmpeg provides the software encoders and metadata used in media
+assertions. Use the matching FFprobe bundled with it.
+[Original Linux run](https://github.com/shiftedx/lumina/issues/339).
+
+From the repository root, export the exact committed source to the container's
+Linux filesystem. This also works from a Git worktree and avoids using
+host-built dependencies or host-mount permission semantics. The container
+already supplies the pinned Python and Node, so run `make` directly there.
+Set `LUMINA_DV_M2TS_FIXTURES` to the absolute path of the corpus generated
+above and mount it read-only. Use Jellyfin FFmpeg 8.1.3 for the Linux tests.
+The same binary produces different legacy MEL packet offsets during corpus
+generation.
+
+```bash
+docker build -f docker/test-gate.Dockerfile -t lumina-test-gate .
+git archive HEAD | docker run --name lumina-linux-test-gate --init -i \
+  --shm-size=1g --tmpfs /tmp:rw,exec \
+  --mount "type=bind,src=${LUMINA_DV_M2TS_FIXTURES:?Set the generated corpus path},dst=/fixtures/m2ts,readonly" \
+  -e LUMINA_DV_M2TS_FIXTURES=/fixtures/m2ts lumina-test-gate bash -euc '
+    tar -xf -
+    git init -q
+    git add --force --all
+    make bootstrap
+    make -j1 check \
+      BACKEND_OUTPUT=/work/output/linux-backend E2E_OUTPUT=/work/output/linux-browser
+  '
+mkdir -p output
+reports=$(mktemp -d output/linux-test-gate.XXXXXX)
+docker cp lumina-linux-test-gate:/work/output/. "$reports" &&
+  docker rm lumina-linux-test-gate
+```
+
+For parser and archive diagnosis after bootstrap, run
+`(cd backend && .venv/bin/python -m pytest -q tests/test_parser_boundary.py tests/test_book_native.py tests/test_photos.py)`.
+For real browser playback, run `make e2e-browsers`. For the real-server Books
+and Photos browser journeys, build with `make frontend-build` and run
+`(cd frontend && npx playwright test -c playwright.realstack.config.ts --project=journeys e2e/realstack/books-browsers.spec.ts e2e/realstack/photos.spec.ts)`.
+To isolate Firefox and WebKit decoding of synthetic FFmpeg HLS segments, run
+`(cd frontend && npx playwright test e2e/v1_transcode.spec.ts --workers=1)`.
+The browser commands start their own local servers.
+
+### Linux ARM64 qualification
+
+At `1a482be`, Docker Desktop's Linux 7.0.14 ARM64 kernel exposed Landlock
+ABI 8. Bootstrap and browser-runner self-tests, repository hygiene and the
+frontend production build passed. The focused backend replay of the parser,
+book, photo, query-plan and original #339 test files passed 188 tests and 23
+subtests, with the namespace-only and x32-only parser tests skipped. The
+separately generated M2TS corpus passed all three packet-offset checks.
+Firefox and WebKit decoded the synthetic HLS transcode. The real-server
+Books and Photos journeys also passed.
+
+Real-server WebKit playback passed legacy-codec negotiation and remux. Both
+HEVC-source transcode cases stalled at video time 0 before the first-frame
+assertion, including the case that would then seek. This reproduces the
+[Release 1 Linux WebKit results](design/music-rework-release-1.md#repository-checks).
+[Issue #402](https://github.com/shiftedx/lumina/issues/402) records the
+captured stream replay and tracks the fix. The full Linux aggregate and the
+amd64 runtime still need qualification.
 
 ## Manual and provider-dependent gaps
 

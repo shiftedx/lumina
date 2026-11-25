@@ -81,11 +81,11 @@ async function logHasBindConflict(file) {
 
 async function main() {
   const { values } = parseArgs({ options: { tier: { type: 'string' }, repeat: { type: 'string', default: '2' }, workers: { type: 'string', default: '4' }, output: { type: 'string' } } });
-  const budget = budgets[values.tier];
   const repeat = Number(values.repeat);
   const workers = Number(values.workers);
-  if (!budget || !Number.isInteger(repeat) || repeat < 1 || !Number.isInteger(workers) || workers < 2 || !values.output) {
-    throw new Error('Required: --tier smoke|full --output <fresh directory>; --repeat defaults to 2, --workers to 4 (minimum 2).');
+  const budget = values.tier === 'full' && workers === 1 ? 3600 : budgets[values.tier];
+  if (!budget || !Number.isInteger(repeat) || repeat < 1 || !Number.isInteger(workers) || workers < 1 || !values.output) {
+    throw new Error('Required: --tier smoke|full --output <fresh directory>; --repeat defaults to 2, --workers to 4 (minimum 1).');
   }
   let output = path.resolve(values.output);
   await mkdir(output, { recursive: true, mode: 0o700 });

@@ -10,6 +10,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import select
 import shutil
 import sqlite3
 import subprocess
@@ -675,3 +676,74 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
     finally:
         for descriptor in retained_locks.values():
             os.close(descriptor)
+
+
+def test_offline_restore_retries_after_failed_startup_process_exits(admin, tmp_path) -> None:
+    name = backups.create_backup()["name"]
+    data_dir = settings.data_dir
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, "u1").display_name = "Changed since backup"
+    db_module.engine.dispose()
+
+    backend = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "LUMINA_DATA_DIR": str(data_dir)}
+    restore_cmd = [sys.executable, "-m", "app.restore", str(backups.backup_root() / f"{name}.db"), "--data-dir", str(data_dir)]
+    owner_script = """
+import asyncio
+import sys
+from unittest.mock import patch
+
+sys.path.insert(0, '../scripts')
+from test_safety import LoopbackOnlyGuard
+LoopbackOnlyGuard().apply(setattr)
+from app import main
+
+async def fail_startup():
+    fault = RuntimeError('injected startup failure')
+    timed_out = False
+
+    def stop_warming():
+        nonlocal timed_out
+        timed_out = True
+        return False
+
+    with (
+        patch.object(main.probe_warming, 'start'),
+        patch.object(main.probe_warming, 'stop', stop_warming),
+        patch.object(main.m2ts_irap_indexes, 'start', side_effect=fault),
+    ):
+        try:
+            async with main.lifespan(main.app):
+                raise AssertionError('failed startup entered the serve phase')
+        except RuntimeError as exc:
+            assert exc is fault
+        assert timed_out
+
+asyncio.run(fail_startup())
+print('startup failed', flush=True)
+sys.stdin.readline()
+"""
+    owner_log = tmp_path / "restore-owner.log"
+    with owner_log.open("w") as stderr, subprocess.Popen(
+        [sys.executable, "-c", owner_script], cwd=backend, env=env,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True,
+    ) as owner:
+        try:
+            assert select.select([owner.stdout], [], [], 15)[0], owner_log.read_text()
+            assert owner.stdout.readline().strip() == "startup failed", owner_log.read_text()
+            refused = subprocess.run(restore_cmd, cwd=backend, env=env, capture_output=True, text=True, timeout=10)
+            assert refused.returncode != 0 and "Stop it before restoring." in refused.stderr
+            owner.communicate("\n", timeout=10)
+            assert owner.returncode == 0, owner_log.read_text()
+        finally:
+            if owner.poll() is None:
+                owner.kill()
+                owner.wait(timeout=10)
+
+    restored = subprocess.run(restore_cmd, cwd=backend, env=env, capture_output=True, text=True, timeout=10)
+    assert restored.returncode == 0, restored.stderr
+    live = data_dir / settings.database_filename
+    kept, = data_dir.glob(f"{live.name}.pre-restore-*")
+    with closing(sqlite3.connect(kept)) as previous, closing(sqlite3.connect(live)) as current:
+        assert previous.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Changed since backup",)
+        assert current.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Owner",)

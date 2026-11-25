@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import start_writer
 from app.db import session_scope
 from app.models import LibraryItem, MediaTitle, Summary, Transcript, User
 from app.services import recaps, summaries
@@ -93,7 +94,7 @@ def _earlier_items(db: Session, user: User, series_id: str, season_no: int, epis
 
 def on_completed(user_id: str, item_id: str) -> None:
     """After-commit hook (PlaybackProgressService.update): run the chain off the request thread."""
-    threading.Thread(target=run, args=(user_id, item_id), daemon=True, name="just-ahead").start()
+    start_writer(threading.Thread(target=run, args=(user_id, item_id), daemon=True, name="just-ahead"))
 
 
 def run(user_id: str, item_id: str) -> None:

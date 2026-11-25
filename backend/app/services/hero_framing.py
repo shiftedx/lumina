@@ -289,14 +289,15 @@ class HeroFraming:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="hero-framing")
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self._stop.set()
         self._wake.set()
         if self._child is not None:
             with contextlib.suppress(OSError):
                 self._child.kill()
-        if self._thread is not None:
+        if self.running:
             self._thread.join(timeout=SHUTDOWN_JOIN_SECONDS)
+        return not self.running
 
     def request(self, key: str, loader: Loader) -> Result:
         with self._lock:

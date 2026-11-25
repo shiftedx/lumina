@@ -29,6 +29,7 @@ import numpy as np
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import start_writer
 from app.db import session_scope
 from app.models import AppSettings, LibraryItem, MediaTitle, RemoteMedia, SearchEmbedding, Summary, utcnow
 from app.persistence import write_transaction
@@ -305,7 +306,11 @@ def start_backfill(_run_id: str | None = None) -> None:
         if target(db) is None:
             return
     if _draining.acquire(blocking=False):
-        threading.Thread(target=_drain, daemon=True, name="embedding-backfill").start()
+        try:
+            start_writer(threading.Thread(target=_drain, daemon=True, name="embedding-backfill"))
+        except BaseException:
+            _draining.release()
+            raise
 
 
 def _drain() -> None:

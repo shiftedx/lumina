@@ -933,11 +933,11 @@ class FaceWorker:
     def wake(self) -> None:
         self._wake.set()
 
-    def close(self) -> None:
+    def close(self) -> bool:
         self._stop.set()
         self._wake.set()
         thread = self._thread
-        if thread is not None:
+        if thread is not None and thread.is_alive():
             thread.join(timeout=10)
         stopped = thread is None or not thread.is_alive()
         self._thread = None if stopped else thread
@@ -945,6 +945,7 @@ class FaceWorker:
         if stopped:
             # Lifespans and tests may start this process-wide worker again.
             self._stop.clear()
+        return stopped
 
     def _claim(self, db: Session) -> str | None:
         if not model_ready() or not _face_process.available(_model_generation()):

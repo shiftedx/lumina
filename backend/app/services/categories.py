@@ -15,6 +15,7 @@ from sqlalchemy import bindparam, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import TextClause
 
+from app.services.lifecycle import start_writer
 from app.db import CATEGORY_SCOPES, CATEGORY_SQL, session_scope
 from app.models import AppSettings, MediaTitle
 from app.persistence import write_transaction
@@ -115,7 +116,7 @@ def recategorise() -> None:
             return
         _running = True
         _thread = threading.Thread(target=_loop, name="recategorise", daemon=True)
-        _thread.start()
+        start_writer(_thread)
 
 
 def recategorising() -> bool:

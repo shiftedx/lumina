@@ -23,6 +23,7 @@ import httpx
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session, object_session
 
+from app.services.lifecycle import start_writer
 from app.config import settings
 from app.models import AppSettings
 from app.persistence import queue_after_commit, write_transaction
@@ -223,7 +224,7 @@ class JobRegistry:
                     self.running.add(job_id)
                     reserved = True
                 db.add(row)
-                queue_after_commit(db, lambda: threading.Thread(target=target, args=(job_id,), daemon=True).start())
+                queue_after_commit(db, lambda: start_writer(threading.Thread(target=target, args=(job_id,), daemon=True)))
         except BaseException:
             if reserved:
                 self.release(job_id)

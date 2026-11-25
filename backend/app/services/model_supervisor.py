@@ -27,6 +27,7 @@ from pathlib import Path
 
 import httpx
 
+from app.services.lifecycle import start_writer
 from app.config import settings
 from app.services import model_catalog
 from app.services.model_catalog import CatalogModel
@@ -248,7 +249,9 @@ class Supervisor:
                 if server is None:
                     server = _Server(model=model, secret=secrets.token_urlsafe(32), port=_free_port())
                     self._servers[model.id] = server
-                    threading.Thread(target=self._start, args=(server, threads), daemon=True, name=f"model-start-{model.id}").start()
+                    start_writer(threading.Thread(
+                        target=self._start, args=(server, threads), daemon=True, name=f"model-start-{model.id}",
+                    ))
                 if not server.ready and not wait:
                     return None
                 deadline = time.monotonic() + START_TIMEOUT_SECONDS + STOP_GRACE_SECONDS

@@ -30,6 +30,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import String, delete, func, or_, select, type_coerce, update
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import submit_writer
 from app.models import AppSession, LibraryItem, MediaTitle, PlaybackProgress, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, User, utcnow
 from app.persistence import write_transaction
 from app.schemas import UpNextRequest, YouTubeSearchResult
@@ -572,7 +573,7 @@ class RecoRefresher:
                 return False
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reco-refresh")
-            self._executor.submit(self._guarded, function, *args)
+            submit_writer(self._executor, self._guarded, function, *args)
         return True
 
     @staticmethod

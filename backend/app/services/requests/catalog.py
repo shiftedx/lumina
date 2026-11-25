@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import run_blocking
 from app.models import User
 from app.services import tmdb
 from app.services.requests import anilist
@@ -586,7 +587,7 @@ async def warm_loop() -> None:
     tick = 0
     while True:
         try:
-            await asyncio.to_thread(warm_once, tick)
+            await run_blocking(warm_once, tick)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Catalog warm-up failed: %s", type(exc).__name__)
         tick = (tick + 1) % (WARM_SEASON_TICKS * WARM_LIST_TICKS)

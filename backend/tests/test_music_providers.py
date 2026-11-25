@@ -1,4 +1,5 @@
 """Provider output stays bounded, exact enough to trust, and subordinate to manual edits."""
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,19 @@ from app.services.titles import title_image_bytes, title_image_source
 
 ARTIST = "12345678-1234-4678-9234-123456789012"
 RELEASE = "22345678-1234-4678-9234-123456789012"
+
+
+def capture_pool(tasks):
+    def submit(callback):
+        future = Future()
+
+        def run():
+            future.set_result(callback())
+
+        tasks.append(run)
+        return future
+
+    return SimpleNamespace(submit=submit)
 
 
 def entry(title, uploader="Artist A", **kwargs):  # noqa: ANN001, ANN201
@@ -110,7 +124,7 @@ def test_inflight_provider_result_cannot_overwrite_a_newly_selected_identity(db_
 def test_forced_identification_runs_after_inflight_work_and_replaces_its_cache(db_factory, monkeypatch):  # noqa: ANN001, ANN201
     monkeypatch.setattr(music, "session_scope", db_factory)
     tasks = []
-    monkeypatch.setattr(music, "_pool", SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, "_pool", capture_pool(tasks))
     key = music.key_for("metadata", RELEASE)
     assert music.enqueue(key, "metadata", lambda: {"id": "old"})
     assert music.enqueue(key, "metadata", lambda: {"id": "new"}, force=True)
@@ -301,7 +315,7 @@ def test_identified_artist_without_a_photo_is_revisited_weekly_without_repeated_
     monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Artist A'})
     monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
     tasks = []
-    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, '_pool', capture_pool(tasks))
     with db_factory() as db:
         db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST}))
         db.commit()
@@ -407,7 +421,7 @@ def test_unavailable_artist_image_queues_one_repair_despite_long_lived_metadata_
     from app.services.artwork import ArtworkNotFoundError
     monkeypatch.setattr(music, 'session_scope', db_factory)
     tasks = []
-    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, '_pool', capture_pool(tasks))
     monkeypatch.setattr(music, 'enrich_title', lambda *_args: {'identified': True, 'artwork_missing': True})
     key = music.key_for('metadata', ARTIST)
     with db_factory() as db:
@@ -461,7 +475,7 @@ def test_artwork_partial_failure_cache_expires_for_retry(db_factory, monkeypatch
     from app.models import MusicLookup, utcnow
     monkeypatch.setattr(music, 'session_scope', db_factory)
     tasks = []
-    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, '_pool', capture_pool(tasks))
     key = music.key_for('metadata', 'portrait-retry')
     assert music.enqueue(key, 'metadata', lambda: {'identified': True, 'artwork_error': 'Unavailable'}, ttl_days=30)
     tasks.pop()()
@@ -516,7 +530,7 @@ def test_changed_identity_result_is_immediately_retryable(db_factory, monkeypatc
     from app.models import MusicLookup, utcnow
     monkeypatch.setattr(music, 'session_scope', db_factory)
     tasks = []
-    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, '_pool', capture_pool(tasks))
     key = music.key_for('metadata', 'changed-identity')
     assert music.enqueue(key, 'metadata', lambda: {'changed': True}, ttl_days=30)
     tasks.pop()()
@@ -596,7 +610,7 @@ def test_lyrics_outage_cache_recovers_soon_without_discarding_saved_words(db_fac
     from app.models import MusicLookup, utcnow
     monkeypatch.setattr(music, 'session_scope', db_factory)
     tasks = []
-    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, '_pool', capture_pool(tasks))
     key = music.key_for('lyrics', 'outage-recovery')
     def outage():
         raise TimeoutError('provider timeout')

@@ -472,7 +472,7 @@ docker compose run --rm --no-deps lumina python -m app.restore /app/backend/.dat
 docker compose up -d
 ```
 
-The command refuses while a server holds the data directory, verifies the backup against its manifest, revokes every session, Connected app, Sonos/Chromecast playback link and unused invitation/reset link, and keeps the previous database as `app.db.pre-restore-<timestamp>` (rename it back to roll back). Start casting again after recovery to issue fresh playback links.
+The command refuses while a server holds the data directory. If a writer misses its shutdown deadline, the lock remains held until the server process exits. The command verifies the backup against its manifest, revokes every session, Connected app, Sonos/Chromecast playback link and unused invitation/reset link, and keeps the previous database as `app.db.pre-restore-<timestamp>` (rename it back to roll back). Start casting again after recovery to issue fresh playback links.
 
 ## Upgrades
 

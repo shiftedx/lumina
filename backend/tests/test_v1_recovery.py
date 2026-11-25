@@ -660,7 +660,6 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
         assert failure is fault
         assert not list(data_dir.glob(f"{settings.database_filename}.pre-restore-*"))
 
-        db_module.engine.dispose()
         restored = try_restore()
         if join_times_out:
             assert restored.returncode != 0 and "Stop it before restoring." in restored.stderr

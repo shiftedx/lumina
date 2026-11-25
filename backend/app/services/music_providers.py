@@ -19,6 +19,7 @@ from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased
 
+from app.services.lifecycle import submit_writer
 from app.db import session_scope
 from app.config import settings
 from app.models import LibraryItem, MediaTitle, MusicEditBatch, MusicLookup, utcnow
@@ -138,7 +139,7 @@ def enqueue(key: str, kind: str, load: Callable[[], dict], *, ttl_days: int = 7,
             if again:
                 enqueue(key, again[0], again[1], ttl_days=again[2], force=True)
 
-    _pool.submit(run)
+    submit_writer(_pool, run)
     return True
 
 

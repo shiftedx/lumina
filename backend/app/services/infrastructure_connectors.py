@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import run_blocking
 from app.models import ArrServer, MusicAcquisition, ServiceConnector, utcnow
 from app.persistence import write_transaction
 from app.services.local_ai import LocalAiError, bounded_json_request
@@ -410,5 +411,5 @@ async def observer_loop() -> None:
                         refresh(db, connector_id)
                     except ConnectorChanged:
                         pass
-            await asyncio.to_thread(poll)
+            await run_blocking(poll)
         await asyncio.sleep(60)

@@ -251,6 +251,7 @@ class LiveRecordingManager:
         self._running: set[str] = set()
         self._lock = threading.Lock()
         self._dispatch_lock = threading.Lock()
+        self._closing = False
         self._last_dispatched_user_id: str | None = None
         self._capacity_waker: Callable[[], None] | None = None
 
@@ -332,7 +333,7 @@ class LiveRecordingManager:
     def dispatch_queued(self) -> None:
         """Start every currently eligible queued recording in fair durable order."""
         with self._dispatch_lock:
-            while True:
+            while not self._closing:
                 with self.session_factory() as db:
                     recording = self._service(db).claim_next_capture(self._last_dispatched_user_id)
                     if recording is None:
@@ -364,6 +365,8 @@ class LiveRecordingManager:
 
     def recover(self) -> None:
         """Re-launch or finalize every recording left non-terminal by a restart."""
+        with self._dispatch_lock:
+            self._closing = False
 
         with self.session_factory() as db:
             non_terminal = list(
@@ -445,11 +448,11 @@ class LiveRecordingManager:
     def _spawn(self, recording_id: str, target: Callable[..., None], *args: Any) -> None:
         worker = threading.Thread(target=target, args=args, name=f"live-rec-{recording_id[:8]}", daemon=True)
         with self._lock:
-            self._workers[recording_id] = worker
             # ``wait_all`` snapshots workers under this lock.  Do not publish a
             # Thread that has not passed ``start()`` yet: joining that narrow
             # window raises ``RuntimeError`` instead of waiting for its work.
             worker.start()
+            self._workers[recording_id] = worker
 
     def _monitor(self, user_id: str, control: _Control) -> None:
         """Stop a capture at its runtime ceiling, or when its owner or disk gives out.
@@ -694,7 +697,7 @@ class LiveRecordingManager:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def wait_all(self, timeout: float = 30.0) -> None:
+    def wait_all(self, timeout: float = 30.0) -> bool:
         """Join every worker started so far (used by tests and shutdown)."""
         deadline = time.monotonic() + timeout
         while True:
@@ -704,17 +707,19 @@ class LiveRecordingManager:
                 worker.join(timeout=max(0.0, deadline - time.monotonic()))
             with self._lock:
                 if not any(worker.is_alive() for worker in self._workers.values()):
-                    return
+                    return True
             if time.monotonic() >= deadline:
-                return
+                return False
 
-    def close_all(self) -> None:
-        """Ask every in-flight recording to stop and wait briefly for finalization."""
+    def close_all(self) -> bool:
+        """Stop admission and wait briefly for in-flight recordings to finalize."""
+        with self._dispatch_lock:
+            self._closing = True
         with self._lock:
             controls = list(self._controls.values())
         for control in controls:
             control.request_stop("shutdown")
-        self.wait_all(timeout=30.0)
+        return self.wait_all(timeout=30.0)
 
 
 def _redact(category: str, exc: Exception) -> RedactedFailure:

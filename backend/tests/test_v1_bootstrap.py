@@ -354,12 +354,11 @@ def test_lifespan_finishes_shutdown_after_catalog_loop_fails(monkeypatch) -> Non
                 assert not main.import_stop_event.is_set()
         assert caught.value is fault
         assert not jobs._worker_tasks
-        # Failure keeps the lock handle in the retained lifespan traceback.
+        # The loop failed, but all writers stopped. Restore can acquire the lock
+        # even while the caller retains the original traceback.
+        assert fault.__traceback__ is not None
         with (settings.data_dir / backups.LOCK_FILENAME).open("a") as lock:
-            with pytest.raises(BlockingIOError):
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fault.__traceback__ = None
-        del caught
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     asyncio.run(exercise())
     assert shutdown_order == ["poller", "discovery", "catalog", "background_work", "captions", "updates"]

@@ -563,7 +563,7 @@ def test_restored_database_is_private_like_the_backup(admin, tmp_path) -> None: 
 
 @pytest.mark.parametrize("join_times_out", [False, True], ids=["drained", "join-timeout"])
 def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatch, join_times_out) -> None:
-    from app import main
+    from app import lifespan, main
     from app.services import library_import
     from app.services.probe_warming import ProbeWarming
 
@@ -577,7 +577,7 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
     warming = ProbeWarming()
     stop_warming = warming.stop
     retained_locks = {}
-    monkeypatch.setattr(main, "_server_locks", retained_locks, raising=False)
+    monkeypatch.setattr(lifespan, "_server_locks", retained_locks)
 
     def write_probe_result() -> bool:
         with db_module.SessionLocal() as db, write_transaction(db, name="test-startup-writer"):

@@ -317,6 +317,10 @@ class Supervisor:
         for model_id in model_ids:
             self.stop(model_id)
 
+    def start(self) -> None:
+        with self._cond:
+            self.closed = False
+
     def close(self) -> None:
         """Shutdown: refuse every later acquire, then stop every server."""
         with self._cond:

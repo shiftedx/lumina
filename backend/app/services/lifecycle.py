@@ -33,7 +33,6 @@ async def run_blocking(work: Callable[P, T], *args: P.args, **kwargs: P.kwargs) 
     return await finish_on_cancel(asyncio.to_thread(work, *args, **kwargs))
 
 
-
 # Detached work may create another writer before its own last callback returns.
 # Register at submission, then drain after the service producers have stopped.
 _writers_lock = threading.Lock()

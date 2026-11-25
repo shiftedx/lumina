@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from collections.abc import Awaitable
 import hashlib
 import logging
-import os
 import re
 import threading
 import time
@@ -62,6 +60,7 @@ from app.routers import arr_operations, music_listening_session, music_receiver,
 from app.services.listening_export import run as listening_export_loop
 from app.services.arr_operations import reconcile_pending as reconcile_arr_operations
 from app.db import SessionLocal, get_db, init_db, session_scope
+from app.lifespan import LifespanCleanup
 from app.persistence import write_transaction
 from app.events import EventBus, sse_stream
 from app.http_boundaries import (
@@ -72,7 +71,7 @@ from app.http_boundaries import (
     SecurityHeadersMiddleware,
 )
 from sqlalchemy import func, select
-from app import db as db_module, device_ring
+from app import device_ring
 from app.device_ring import append_token, apply_ring_cookie, drop_token, read_ring
 from app.models import (
     AcquisitionBatch,
@@ -896,122 +895,47 @@ async def metadata_loop() -> None:
         await asyncio.sleep(METADATA_BUSY_PAUSE_SECONDS if full else METADATA_IDLE_SECONDS)
 
 
-# Keep an unconfirmed stop locked until process exit, even after traceback or
-# interpreter cleanup. Close the descriptor only after every writer has stopped.
-_server_locks: dict[Path, int] = {}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.validate_runtime_security()
-    data_dir = settings.data_dir.resolve()
-    if data_dir in _server_locks:
-        raise RuntimeError("This process still holds the server data directory")
-    with backups.hold_server_lock() as handle:
-        _server_locks[data_dir] = os.dup(handle.fileno())
-
-    startup_stops: list[Callable[[], Awaitable[None]]] = []
-    tasks: list[asyncio.Task] = []
-    stop_failures: list[BaseException] = []
-    loop_failures: list[BaseException] = []
-
-    async def stop(action: Callable[[], Any]) -> None:
-        try:
-            if await asyncio.to_thread(action) is False:
-                raise RuntimeError(f"{action.__qualname__} did not finish shutting down")
-        except BaseException as exc:
-            stop_failures.append(exc)
-            logger.error("Lifespan cleanup failed at %s: %s", action.__qualname__, type(exc).__name__)
-
-    async def stop_jobs() -> None:
-        try:
-            if not await jobs.stop():
-                raise RuntimeError("Download jobs did not stop during shutdown")
-        except BaseException as exc:
-            stop_failures.append(exc)
-            logger.error("Lifespan cleanup failed at JobManager.stop: %s", type(exc).__name__)
-
-    async def settle(*loop_tasks: asyncio.Task) -> None:
-        if not loop_tasks:
-            return
-        done, pending = await asyncio.wait(loop_tasks, timeout=20)
-        if pending:
-            stop_failures.append(RuntimeError("Background service loops did not stop during shutdown"))
-            logger.error("Background service loops did not stop during shutdown")
-        for task in done:
-            if not task.cancelled() and (exc := task.exception()) is not None:
-                loop_failures.append(exc)
-
-    def clean_up_with(action: Callable[[], Any]) -> None:
-        startup_stops.append(lambda: stop(action))
-
-    async def release_lock() -> None:
-        if not stop_failures:
-            await stop(db_module.engine.dispose)
-        if not stop_failures:
-            os.close(_server_locks[data_dir])
-            del _server_locks[data_dir]
+    cleanup = LifespanCleanup()
 
     async def stop_imports() -> None:
-        await stop(library_automation.stop)
+        await cleanup.stop(library_automation.stop)
         import_stop_event.set()
-        await stop(library_automation.join_drivers)
-
-    async def rollback_startup() -> None:
-        for task in tasks:
-            task.cancel()
-        await settle(*tasks)
-        # Downloads and live recovery can already be active by the time a
-        # later starter fails. Stop only the services startup reached.
-        for cleanup in reversed(startup_stops):
-            await cleanup()
-        await release_lock()
+        await cleanup.stop(library_automation.join_drivers)
 
     async def shutdown() -> None:
-        reconcile_task, playback_buffer_task, *service_loops = tasks
+        reconcile_task, playback_buffer_task, *service_loops = cleanup.tasks
         reconcile_task.cancel()
         playback_buffer_task.cancel()
-        await settle(playback_buffer_task)
+        await cleanup.settle(playback_buffer_task)
         for task in service_loops:
             task.cancel()
-        await stop(library_automation.stop)
+        await cleanup.stop(library_automation.stop)
         import_stop_event.set()
-        await stop(remote_streams.close_all)
-        await stop(probe_warming.stop)
-        await stop(m2ts_irap_indexes.stop)
-        await stop(renditions.stop)
-        await stop(hero_framing.stop)
-        await stop(local_playback_sessions.close_all)
-        await stop(hls_relay.close_all)
-        await stop(live_hls_relay.close_all)
-        await stop(live_recording_manager.close_all)
-        await stop(popular_discovery.close)
-        await stop(live_discovery.close)
-        await stop(followed_live_checker.close)
-        await stop(channel_pages.close)
-        await stop(reco_refresher.close)
-        await stop(twitch_directory.close)
-        await settle(reconcile_task, *service_loops)
-        await stop(library_automation.join_drivers)
-        await stop(photo_imports.worker.close)
-        await stop(photo_faces.worker.close)
-        await stop(model_downloads.manager.shutdown)  # partial files stay for the next start
-        await stop(model_supervisor.supervisor.close)
-        await stop(background_work.close)
-        await stop(enrichment_jobs.join_background_captions)
-        await stop(client_metric_store.flush)  # keep the last minutes of client metrics
-        await stop_jobs()
-        await stop(join_detached_writers)
-        await stop(release_updates.coordinator.close)
-        await release_lock()
+        await cleanup.stop(remote_streams.close_all, probe_warming.stop, m2ts_irap_indexes.stop)
+        await cleanup.stop(renditions.stop, hero_framing.stop, local_playback_sessions.close_all)
+        await cleanup.stop(hls_relay.close_all, live_hls_relay.close_all, live_recording_manager.close_all)
+        await cleanup.stop(popular_discovery.close, live_discovery.close, followed_live_checker.close)
+        await cleanup.stop(channel_pages.close, reco_refresher.close, twitch_directory.close)
+        await cleanup.settle(reconcile_task, *service_loops)
+        await cleanup.stop(library_automation.join_drivers, photo_imports.worker.close, photo_faces.worker.close)
+        await cleanup.stop(model_downloads.manager.shutdown, model_supervisor.supervisor.close)
+        await cleanup.stop(background_work.close, enrichment_jobs.join_background_captions)
+        await cleanup.stop(client_metric_store.flush)  # keep the last minutes of client metrics
+        await cleanup.stop(jobs.stop, blocking=False)
+        await cleanup.stop(join_detached_writers)
+        await cleanup.stop(release_updates.coordinator.close)
+        await cleanup.release_lock()
 
     try:
-        clean_up_with(join_detached_writers)
-        clean_up_with(enrichment_jobs.join_background_captions)
-        clean_up_with(background_work.close)
+        cleanup.on_startup_failure(join_detached_writers)
+        cleanup.on_startup_failure(enrichment_jobs.join_background_captions)
+        cleanup.on_startup_failure(background_work.close)
         background_work.start()
         init_db()
-        clean_up_with(release_updates.coordinator.close)
+        cleanup.on_startup_failure(release_updates.coordinator.close)
         release_updates.coordinator.start()
         with session_scope() as db:
             two_factor.report_key_status(db)
@@ -1039,34 +963,35 @@ async def lifespan(app: FastAPI):
         remote_stream_cache.prune()
         local_playback_sessions.close_all()  # derivatives are disposable; drop any a crash left
         enrichment_jobs.recover_after_restart()  # before any worker starts: re-pend once, then fail
-        clean_up_with(probe_warming.stop)
+        cleanup.on_startup_failure(probe_warming.stop)
         probe_warming.start()  # background ffprobe + loudness, one file at a time; also woken after each import
-        clean_up_with(m2ts_irap_indexes.stop)
+        cleanup.on_startup_failure(m2ts_irap_indexes.stop)
         m2ts_irap_indexes.start()
-        startup_stops.append(stop_imports)
+        cleanup.on_startup_failure(stop_imports, blocking=False)
         library_automation.start(first_tick_delay_s=FIRST_TICK_DELAY_S)  # scheduled scans and folder watching
         # The artwork pass probes ffmpeg and sweeps staging. With the pass off,
         # on-demand renders still need the format.
         if settings.artwork_pass:
-            clean_up_with(renditions.stop)
+            cleanup.on_startup_failure(renditions.stop)
             await run_blocking(renditions.start)
-            clean_up_with(hero_framing.stop)
+            cleanup.on_startup_failure(hero_framing.stop)
             await run_blocking(hero_framing.start)
         else:
             await run_blocking(use_host_format)
         events.bind(asyncio.get_running_loop())
         admin_models.wire(events)
-        clean_up_with(model_supervisor.supervisor.close)
-        clean_up_with(model_downloads.manager.shutdown)
+        cleanup.on_startup_failure(model_supervisor.supervisor.close)
+        model_supervisor.supervisor.start()
+        cleanup.on_startup_failure(model_downloads.manager.shutdown)
         model_downloads.manager.resume_wanted()  # resume downloads from their .part files
         await run_blocking(photo_cache.recover)
-        clean_up_with(photo_imports.worker.close)
+        cleanup.on_startup_failure(photo_imports.worker.close)
         photo_imports.worker.start()
-        clean_up_with(photo_faces.worker.close)
+        cleanup.on_startup_failure(photo_faces.worker.close)
         photo_faces.worker.start()
         import_stop_event.clear()
-        startup_stops.append(stop_jobs)
-        clean_up_with(live_recording_manager.close_all)  # jobs can dispatch recordings as slots free up
+        cleanup.on_startup_failure(jobs.stop, blocking=False)
+        cleanup.on_startup_failure(live_recording_manager.close_all)  # jobs can dispatch recordings as slots free up
         await jobs.start(concurrency=configured_concurrency)
         # Re-launch or finalize recordings left non-terminal by a restart.
         await run_blocking(live_recording_manager.recover)
@@ -1082,27 +1007,20 @@ async def lifespan(app: FastAPI):
             listening_export_loop,
             catalog_warm_loop,  # idle when Requests are off
         ):
-            tasks.append(asyncio.create_task(run()))
-        clean_up_with(popular_discovery.close)
+            cleanup.tasks.append(asyncio.create_task(run()))
+        cleanup.on_startup_failure(popular_discovery.close)
         popular_discovery.start()
-        clean_up_with(live_discovery.close)
+        cleanup.on_startup_failure(live_discovery.close)
         live_discovery.start()
     except BaseException:
-        await finish_on_cancel(rollback_startup())
+        await finish_on_cancel(cleanup.rollback_startup())
         raise
 
     try:
         yield
-    except BaseException:
+    finally:
         await finish_on_cancel(shutdown())
-        raise
-    else:
-        await finish_on_cancel(shutdown())
-        failures = [*stop_failures, *loop_failures]
-        if len(failures) == 1:
-            raise failures[0]
-        if failures:
-            raise BaseExceptionGroup("Background services failed during shutdown", failures)
+    cleanup.raise_failures()
 
 
 app = FastAPI(

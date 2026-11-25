@@ -14,6 +14,16 @@
 | Desktop baseline → candidate | 934.8 → 919.3 | 343.3 → 327.4 | 153.3 → 116.0 |
 | Phone viewport baseline → candidate | 898.7 → 935.9 | 198.7 → 220.6 | 102.7 → 129.7 |
 
+## Release evidence as of November 24
+
+| Acceptance row | Evidence and remaining work |
+| --- | --- |
+| Real-server journey, web qualification and rollout rehearsal | Passed on `fcffcc6`. The November 20 rollout receipt records the live capability cycle, preserved queue snapshots, backup check and retained-image state. The populated loopback rehearsal covered archived playlist, layout and offline audio continuity across rollback. |
+| Repository gate and candidate identity | The full gate passed on `fcffcc6`. The staged archive source `79561d7` and the #357 squash merge `66f6b9a` differ from that source only in documentation. These receipts qualify Music Rework Release 1. Later changes to `main` have a separate verification history. |
+| TestFlight preparation | Both build 356 Organizer archives passed deep, strict code-signature verification. All 1,019 recorded package checksums matched and both executable UUIDs matched the retained dSYMs. App Store Connect build-number availability, upload, processing and owner tester assignment remain open. |
+| Native timing | Prior Debug simulator checkpoints used intermediate product revisions `f7ff414` on iPhone and `939ba44` on Apple TV. The staged revision includes later native changes. Repeat matched baseline and staged-source samples on a quiet host to measure the final candidate. Field beta timing requires tester access and device samples. |
+| iPhone, iPad and Apple TV qualification | Simulator workflows cover shelf layout, mix dismissal, paused restart, reconnect and tvOS focus. The physical matrix below remains open for VoiceOver speech, device lock, radio-off and retained-cache launches, AirPlay and Chromecast handoff, and Siri Remote navigation and playback controls. |
+
 ## Disposable fixture
 
 Build the production frontend and launch a new #343 proof server per mutating browser or simulator journey. Run the shared server verifier before using its resulting queue for a frontend smoke. Use freshly provisioned queues for the offline and mix journeys. Fixture manifests and response credentials stay local.
@@ -57,7 +67,7 @@ In a matched rerun with the same button controls, the #343 baseline measured **1
 3. Enable for dogfood. Verify Home, preview/append/replace, playlist save, album download, offline resume and reconnect conflict. Repeat disable and re-enable with the queue active and check the existing layout, queue, playlists and local downloads.
 4. Stage the matching iOS and tvOS TestFlight builds using [the distribution runbook](../../apple/docs/testflight.md). Record build numbers and tester availability separately. Complete the retained-image rollback verification and attach the evidence to #355.
 
-Local packaging preflight passed for iOS and tvOS Release device archives from `939ba44`, `f7ff414` and the combined native product source `f741b35`. Independent validation of the combined unsigned archives used build `0.1.0 (355)` and checked identity, device platform, artwork, privacy manifest, symbols, exclusion of test fixtures and bundles, and absence of signatures. Export signing and TestFlight staging remain open.
+Local packaging preflight passed for iOS and tvOS Release device archives from `939ba44`, `f7ff414` and the combined native product source `f741b35`. Independent validation of the combined unsigned archives used build `0.1.0 (355)` and checked identity, device platform, artwork, privacy manifest, symbols and fixture exclusion. Build 356 superseded that packaging checkpoint with signed exports. [Signing and provenance evidence](evidence/music-home/testflight-staging.json).
 
 ## Physical-device evidence
 
@@ -101,7 +111,7 @@ Repeated on the release candidate `939ba44`, Linux arm64 image `sha256:c966a60d3
 - After the shared restore change, `testHomeAndLegacyBrowsePlayback` passed again in 117.296 s at `f741b35` on a fresh #343 fixture. The Apple TV simulator retained paused restore, Remote Play/Pause, Back focus and legacy browse/playback.
 - On the same TV runtime, `testContinuationOptInSurvivesHomeAndNaturalEnd` passed in 130.403 s against a fresh #343 server. The simulated remote paused the seeded track before editing Listening Options, enabled continuation, resumed and returned from system Home. The server confirmed advancement to an appended contextual recommendation after natural completion. Regression coverage is in `93f250a`.
 - Chrome fixture journeys passed Home, contextual mix actions, a real two-browser continuation revision conflict, complete album download and offline cold restart with reconnect conflict resolution. The disabled Home deep link preserved browse and the existing queue.
-- Finamp 1.0.2 passed Track InstantMix, playback reporting, original download and offline cold playback on iOS simulator and Android 15 emulator. Album and artist InstantMix also passed on the Android emulator. Both clients showed a disabled Lyrics control against the standard route's 404. [Compatibility matrix](finamp-compatibility.md).
+- The #354 trial passed Finamp 1.0.2 Track InstantMix, playback reporting, original download and offline cold playback on iOS simulator and Android 15 emulator. Album and artist InstantMix also passed on the Android emulator. See the compatibility matrix for the subsequent #356 online timed-lyrics retest. [Compatibility matrix](finamp-compatibility.md).
 
 ## Repository checks
 

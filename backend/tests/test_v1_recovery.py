@@ -5,6 +5,7 @@ import asyncio
 from contextlib import ExitStack, closing
 from datetime import UTC, datetime, timedelta
 import fcntl
+import gc
 from hashlib import sha256
 import json
 import os
@@ -560,7 +561,8 @@ def test_restored_database_is_private_like_the_backup(admin, tmp_path) -> None: 
     assert (target / settings.database_filename).stat().st_mode & 0o077 == 0  # every password hash lives here
 
 
-def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatch) -> None:
+@pytest.mark.parametrize("join_times_out", [False, True], ids=["drained", "join-timeout"])
+def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatch, join_times_out) -> None:
     from app import main
     from app.services import library_import
     from app.services.probe_warming import ProbeWarming
@@ -574,13 +576,15 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
     allow_commit = threading.Event()
     warming = ProbeWarming()
     stop_warming = warming.stop
+    retained_locks = {}
+    monkeypatch.setattr(main, "_server_locks", retained_locks, raising=False)
 
     def write_probe_result() -> bool:
         with db_module.SessionLocal() as db, write_transaction(db, name="test-startup-writer"):
             db.get(User, "u1").display_name = "Committed during startup"
             db.flush()
             writing.set()
-            if not allow_commit.wait(timeout=20):
+            if not allow_commit.wait(timeout=30):
                 raise TimeoutError("test did not release the probe writer")
         return False
 
@@ -608,9 +612,14 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
         cleanup_or_failure = asyncio.Event()
         loop = asyncio.get_running_loop()
 
-        def stop() -> None:
+        def stop() -> bool | None:
             loop.call_soon_threadsafe(cleanup_or_failure.set)
-            stop_warming()
+            if join_times_out:
+                # Simulate expiration of the bounded join while the real writer is still running.
+                with monkeypatch.context() as patch:
+                    patch.setattr(warming._thread, "join", lambda timeout=None: None)
+                    return stop_warming()
+            return stop_warming()
 
         monkeypatch.setattr(warming, "stop", stop)
 
@@ -625,6 +634,18 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
         try:
             await asyncio.wait_for(cleanup_or_failure.wait(), timeout=8)
             refused = await asyncio.to_thread(try_restore)
+            assert refused.returncode != 0 and "Stop it before restoring." in refused.stderr
+
+            if join_times_out:
+                failure, writer_alive = await asyncio.wait_for(asyncio.shield(startup), timeout=8)
+                assert failure is fault and failure.__traceback__ is not None
+                assert writer_alive
+                # A lock left in an exception frame is insufficient. Refuse restore
+                # even if the caller drops the traceback while the worker can still write.
+                failure.__traceback__ = None
+                gc.collect()
+                refused = await asyncio.to_thread(try_restore)
+                assert refused.returncode != 0 and "Stop it before restoring." in refused.stderr
         finally:
             allow_commit.set()
             try:
@@ -632,19 +653,26 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
             finally:
                 # Also reap the fixture worker when the implementation leaks it.
                 stop_warming()
-        return failure, writer_alive_at_failure, refused
+        return failure, writer_alive_at_failure
 
-    failure, writer_alive_at_failure, refused = asyncio.run(exercise())
-    assert failure is fault and failure.__traceback__ is not None
-    assert refused.returncode != 0 and "Stop it before restoring." in refused.stderr
-    assert not list(data_dir.glob(f"{settings.database_filename}.pre-restore-*"))
+    try:
+        failure, writer_alive_at_failure = asyncio.run(exercise())
+        assert failure is fault
+        assert not list(data_dir.glob(f"{settings.database_filename}.pre-restore-*"))
 
-    db_module.engine.dispose()
-    restored = try_restore()
-    assert restored.returncode == 0, restored.stderr
-    assert not writer_alive_at_failure, "startup raised before the SQLite writer had exited"
+        db_module.engine.dispose()
+        restored = try_restore()
+        if join_times_out:
+            assert restored.returncode != 0 and "Stop it before restoring." in restored.stderr
+            return
 
-    kept, = data_dir.glob(f"{settings.database_filename}.pre-restore-*")
-    with closing(sqlite3.connect(kept)) as previous, closing(sqlite3.connect(live)) as current:
-        assert previous.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Committed during startup",)
-        assert current.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Owner",)
+        assert failure.__traceback__ is not None
+        assert restored.returncode == 0, restored.stderr
+        assert not writer_alive_at_failure, "startup raised before the SQLite writer had exited"
+        kept, = data_dir.glob(f"{settings.database_filename}.pre-restore-*")
+        with closing(sqlite3.connect(kept)) as previous, closing(sqlite3.connect(live)) as current:
+            assert previous.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Committed during startup",)
+            assert current.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Owner",)
+    finally:
+        for handle in retained_locks.values():
+            handle.close()

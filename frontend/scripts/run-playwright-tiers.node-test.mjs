@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { countCases, executedCases, qualifies, isExplicitBindConflict, stopOwnedChild } from './run-playwright-tiers.mjs';
 
@@ -24,6 +28,20 @@ test('startup retry evidence requires a literal bind conflict before any result 
   assert.equal(executedCases(reports), 1);
   assert.equal(isExplicitBindConflict('http://127.0.0.1:4174 is already used, make sure that nothing is running on the port/url'), true);
   assert.equal(isExplicitBindConflict('test assertion failed: URL is already used in this test'), false);
+});
+
+test('the full gate accepts one worker', () => {
+  const runner = fileURLToPath(new URL('./run-playwright-tiers.mjs', import.meta.url));
+  const output = mkdtempSync(path.join(tmpdir(), 'lumina-tier-test-'));
+  try {
+    writeFileSync(path.join(output, 'marker'), '');
+    const run = (workers) => spawnSync(process.execPath, [runner, '--tier', 'full', '--workers', workers, '--output', output], { encoding: 'utf8' });
+    // The populated output deliberately stops the CLI before it starts any work.
+    assert.match(run('1').stderr, /--output must be a fresh empty directory/);
+    assert.match(run('0').stderr, /minimum 1/);
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
 });
 
 test('cancellation reaps this runner child when it ignores SIGINT', { skip: process.platform === 'win32' }, async () => {

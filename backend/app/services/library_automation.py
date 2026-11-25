@@ -271,7 +271,7 @@ class LibraryAutomation:
         self._auto: dict[str, Any] = {}  # root id -> its automatic lane, so a scan hung on one share holds only that root
         self._manual = self._lane("library-manual")
         self._stopped_lanes: list[_Lane] = []
-        self._lane_lock = threading.Lock()
+        self._lane_lock = threading.RLock()
         self._roots: dict[str, RootState] = {}
         self._views: dict[str, RootView] = {}  # the last load, in label order: the read model's source (no DB per request)
         self._night = 3
@@ -508,11 +508,13 @@ class LibraryAutomation:
             logger.warning("Library history retention failed: %.300s", repr(exc))
 
     def _auto_lane(self, root_id: str) -> Any:
-        lane = self._auto.get(root_id)
-        if lane is None:
-            lane = self._auto[root_id] = self._lane(f"library-auto-{root_id}")
-            lane.start()
-        return lane
+        with self._lane_lock:
+            lane = self._auto.get(root_id)
+            if lane is None:
+                lane = self._lane(f"library-auto-{root_id}")
+                lane.start()
+                self._auto[root_id] = lane
+            return lane
 
     def _load(self) -> tuple[list[RootView], int, set[str]]:
         """One read-only session: every root with its newest, last full and active run; the night hour; every active run id."""

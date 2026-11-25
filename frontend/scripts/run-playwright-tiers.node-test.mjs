@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { countCases, executedCases, qualifies, isExplicitBindConflict, stopOwnedChild } from './run-playwright-tiers.mjs';
+import { countCases, executedCases, qualifies, isExplicitBindConflict } from './run-playwright-tiers.mjs';
+import { spawnOwnedCommand, stopOwnedChild } from './owned-test-command.mjs';
 
 const suites = [{ specs: [{ tests: [{}] }], suites: [{ specs: [{ tests: [{}] }] }] }];
 const clean = { suites, errors: [], stats: { expected: 2, unexpected: 0, flaky: 0, skipped: 0 } };
@@ -45,17 +48,53 @@ test('the full gate accepts one worker', () => {
 });
 
 test('cancellation reaps this runner child when it ignores SIGINT', { skip: process.platform === 'win32' }, async () => {
-  const child = spawn(process.execPath, ['-e', "process.on('SIGINT', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000);"], {
-    detached: true,
+  const { child, exited } = spawnOwnedCommand(['-e', "process.on('SIGINT', () => {}); process.stdout.write('ready'); setInterval(() => {}, 1000);"], {
     stdio: ['ignore', 'pipe', 'ignore'],
   });
-  const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
-  await new Promise((resolve, reject) => {
-    child.stdout.once('data', resolve);
-    child.once('error', reject);
-  });
+  await once(child.stdout, 'data');
   const started = performance.now();
   await stopOwnedChild(child, exited, 25);
   assert.ok(performance.now() - started < 1_000);
+  assert.equal(await exited, null);
   assert.equal(child.signalCode, 'SIGKILL');
+});
+
+const listeningChild = `
+  process.on('SIGINT', () => {});
+  const server = require('node:net').createServer();
+  server.listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port)));
+`;
+
+async function canConnect(port) {
+  const socket = createConnection({ host: '127.0.0.1', port });
+  try { await once(socket, 'connect'); return true; } catch { return false; } finally { socket.destroy(); }
+}
+
+test('normal exit and interruption clear the owned group while a separate group stays live', { skip: process.platform === 'win32' }, async () => {
+  const separate = spawn(process.execPath, ['-e', listeningChild], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const stopped = once(separate, 'exit');
+  try {
+    const [controlPort] = await once(separate.stdout, 'data');
+    for (const interrupted of [false, true]) {
+      const fakeRunner = `
+        process.on('SIGINT', () => process.exit(7));
+        const descendant = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(listeningChild)}], { stdio: ['ignore', 'pipe', 'ignore'] });
+        descendant.stdout.once('data', (port) => process.stdout.write(port, () => {
+          if (!${interrupted}) process.exit(0);
+        }));
+      `;
+      const { child, exited } = spawnOwnedCommand(['-e', fakeRunner], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const [port] = await once(child.stdout, 'data');
+      if (interrupted) {
+        assert.equal(await canConnect(Number(port)), true);
+        await stopOwnedChild(child, exited, 500);
+      }
+      assert.equal(await exited, interrupted ? 7 : 0);
+      assert.equal(await canConnect(Number(port)), false);
+      assert.equal(await canConnect(Number(controlPort)), true);
+    }
+  } finally {
+    separate.kill('SIGTERM');
+    await stopped;
+  }
 });

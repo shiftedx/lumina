@@ -136,8 +136,6 @@ class ProbeWarming:
         self._wake.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=10)
-        if self.after_import in library_import.after_import_hooks:
-            library_import.after_import_hooks.remove(self.after_import)
         return self._thread is None or not self._thread.is_alive()
 
     def wake(self) -> None:

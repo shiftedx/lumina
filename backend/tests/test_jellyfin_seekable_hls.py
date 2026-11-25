@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import threading
@@ -429,7 +430,10 @@ def test_indexed_copy_plan_selects_video_track_and_rejects_bad_metadata(tmp_path
     plan = jh.plan_for("copy", "ffprobe", path, {"duration": 60}, 1)
     assert plan.starts == (0, 7) and plan.durations == (7, 53)
     assert plan.run_for(1).single_segment and plan.run_for(1).seek == 7
+    original = path.stat()
     path.write_bytes(source(9000))
+    # The same-size rewrite needs a distinct mtime to invalidate the cue cache.
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns + 1_000_000_000))
     assert jh.plan_for("copy", "ffprobe", path, {"duration": 60}, 1).starts == (0, 9)
     for index, data in enumerate((source(7000, bad_position=True), source(7000)[:-4], b"\0" * 20)):
         broken = tmp_path / f"invalid-{index}.mkv"

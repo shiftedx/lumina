@@ -1,0 +1,24 @@
+{
+  "observedDate": "2026-11-25",
+  "productSource": "2c54e68c500b3162cfc2ee680cdd72bfadeaca25",
+  "destination": "iPhone 17 simulator, iOS 26.5",
+  "host": "Apple M4 Max, macOS 27.2.1",
+  "xcode": "27.1 (27A9269)",
+  "buildConfiguration": "Debug with LUMINA_UI_TESTING for isolated app state",
+  "test": "NativePhoneMusicHomeTests/testOfflineReconnectKeepsDeviceQueue",
+  "caseSeconds": 153.332,
+  "result": "passed",
+  "fixture": "Fresh #343 synthetic Music Home server",
+  "method": "A disposable TCP relay kept the app's chosen origin stable. The proof harness closed the listener and drained existing relay connections after download, then reopened the same port against the same fixture after the offline app terminated. Temporary test-harness edits controlled the relay and checked connection refusal and playback advancement. The simulator app took its normal connectivity path throughout.",
+  "observed": [
+    "Downloaded the fixture playlist and terminated the app.",
+    "An independent URLSession request received NSURLErrorCannotConnectToHost. The app cold-launched without the forced-offline argument and opened the offline library.",
+    "Music Home restored the checkpoint paused. Explicit Resume displayed Downloaded audio and the playhead advanced by at least two seconds.",
+    "The app paused, backgrounded and terminated. After restoration, another authenticated client replaced the server queue at 12 seconds.",
+    "The app cold-launched into the online shell and displayed the competing revision in Queue. Keep this device resolved the conflict. The server stored duplicate track occurrences, a pending acquisition and the Wait policy."
+  ],
+  "physicalChecksPending": [
+    "iPhone airplane-mode cold launch",
+    "Physical Apple TV network disconnect with retained downloads and cache-purge recovery"
+  ]
+}

@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { chmod, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { openSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawnOwnedCommand, stopOwnedChild } from './owned-test-command.mjs';
 
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const budgets = { smoke: 600, full: 2700 };
@@ -26,27 +26,6 @@ export function qualifies(report, expected) {
 
 export function isExplicitBindConflict(log) {
   return /\bEADDRINUSE\b|address already in use|https?:\/\/127\.0\.0\.1:\d+ is already used/i.test(log);
-}
-
-function signalOwnedGroup(child, signal) {
-  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
-  try {
-    if (process.platform === 'win32') child.kill(signal);
-    else process.kill(-child.pid, signal);
-  } catch (error) {
-    if (error?.code !== 'ESRCH') throw error;
-  }
-}
-
-// The process group belongs to this runner because execute() always creates it detached.
-export async function stopOwnedChild(child, exited, graceMs = 10_000) {
-  signalOwnedGroup(child, 'SIGINT');
-  const killer = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), graceMs);
-  try {
-    await exited.catch(() => undefined);
-  } finally {
-    clearTimeout(killer);
-  }
 }
 
 async function ports() {
@@ -110,8 +89,7 @@ async function main() {
     let timer;
     let target;
     try {
-      const child = spawn(process.execPath, args, { cwd: frontend, env: environment, detached: process.platform !== 'win32', stdio: ['ignore', descriptor, descriptor] });
-      const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+      const { child, exited } = spawnOwnedCommand(args, { cwd: frontend, env: environment, stdio: ['ignore', descriptor, descriptor] });
       target = { child, exited, stopping: undefined };
       active = target;
       timer = setTimeout(() => { timedOut = true; void stop(target); }, timeout);

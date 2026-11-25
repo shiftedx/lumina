@@ -201,6 +201,7 @@ class RootWatch:
         self._queue: deque[str] = deque() if known else deque([""])  # directories still to list
         self._queued: set[str] = set(self._queue)
         self._order: list[str] = []
+        self._changed_dirs: deque[tuple[str, int]] = deque()
         self._pass_started: float | None = self._mono() if not known else None
         self._pass_done = False
         self._pass_no = 0
@@ -327,30 +328,37 @@ class RootWatch:
             self._pass_started, self._changed, self._spent, self._errors = self._mono(), False, 0, 0
             self._listed_base = self._listed  # stats_last_pass counts this pass only
             self._pass_no += 1
+        # A slow stat batch can spend the whole deadline. List its known changes before
+        # fetching more mtimes so the next batch never has to stat the same prefix again.
+        self._list_changes(deadline)
+        if self.phase == "too_large":
+            return
         paths = self._order[self.cursor:]
         results = self._stat_many(paths, deadline)
         self._spent += len(results)
-        for i, (path, mtime) in enumerate(zip(paths, results, strict=False)):
+        self.cursor += len(results)
+        for path, mtime in zip(paths, results, strict=False):
             if isinstance(mtime, OSError):
                 self._errors += not isinstance(mtime, FileNotFoundError)  # missing: the parent's listing reports it
                 continue
             dirty = self.dirty.get(path)
-            if path not in self.dirs or mtime == (dirty.seen_mtime if dirty else self.dirs[path]):
+            if path in self.dirs and mtime != (dirty.seen_mtime if dirty else self.dirs[path]):
+                self._changed_dirs.append((path, mtime))
+        self._list_changes(deadline)
+        if self.phase == "watching" and self.cursor >= len(self._order) and not self._changed_dirs:
+            self._finish_pass()
+
+    def _list_changes(self, deadline: float) -> None:
+        while self._changed_dirs and self._mono() < deadline and self.phase == "watching":
+            path, mtime = self._changed_dirs.popleft()
+            if path not in self.dirs:
                 continue
-            if self._mono() >= deadline:
-                self.cursor += i  # re-stat it next batch
-                return
             try:
                 self._relist(path, mtime)
             except FileNotFoundError:
                 pass
             except OSError:
                 self._errors += 1
-            if self.phase == "too_large":
-                return
-        self.cursor += len(results)
-        if self.cursor >= len(self._order):
-            self._finish_pass()
 
     def _stat_many(self, paths: list[str], deadline: float) -> list[int | OSError]:
         """stat_dir over a prefix of paths on up to STAT_WORKERS daemon threads, stopping at the deadline.
@@ -442,6 +450,7 @@ class RootWatch:
             self.dirs, self.dirty, self._order = {}, {}, []
             self._child_dirs.clear()
             self._queue.clear()
+            self._changed_dirs.clear()
             self._queued.clear()
 
     def _check_file_cap(self) -> None:  # once per batch: summing per listed directory is quadratic

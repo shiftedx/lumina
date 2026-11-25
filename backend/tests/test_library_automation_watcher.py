@@ -394,6 +394,31 @@ def test_batch_stops_at_the_wall_deadline_between_syscalls() -> None:
     assert fs.stat_calls == 1 and watch.cursor == 1
 
 
+def test_slow_changed_directory_is_listed_in_the_next_batch() -> None:
+    clock = FakeClock()
+    fs = FakeFs(clock)
+    fs.mkdir("Show")
+    watch = watching(fs, clock)
+    fs.add("Show/new.mkv")
+    stat = fs.stat_dir
+
+    def slow_show(path: str) -> int:
+        if path == "Show":
+            clock.t += BATCH_WALL_S
+        return stat(path)
+
+    fs.stat_dir = slow_show
+    clock.t += watch.interval_s
+    watch.run_batch()
+    assert fs.list_calls == 0 and not watch.pass_complete()
+
+    stat_calls = fs.stat_calls
+    watch.run_batch()
+    assert fs.list_calls == 1 and watch.pass_complete()
+    assert fs.stat_calls == stat_calls
+    assert until_plan(watch, clock).scope == [e("Show", S)]
+
+
 # --- caps ----------------------------------------------------------------------------------------------------------
 
 def test_over_200_entries_collapse_to_top_level_then_a_full_scan() -> None:

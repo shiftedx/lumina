@@ -241,7 +241,7 @@ private struct NativeAudioPlayerPresentation: ViewModifier {
 
 #if !os(tvOS)
 #if LUMINA_UI_TESTING
-private let rebuildVideoPresentation = Notification.Name("Lumina.RebuildVideoPresentation")
+let rebuildVideoPresentation = Notification.Name("Lumina.RebuildVideoPresentation")
 #endif
 
 private struct NativePlaybackPresentation: ViewModifier {

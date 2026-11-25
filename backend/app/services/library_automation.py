@@ -307,13 +307,16 @@ class LibraryAutomation:
         self._stop.set()
         if self._poller is not None and self._poller.is_alive():
             self._poller.join(2)
+        # A timed-out tick can add another lane after the snapshot below,
+        # even if the poller exits before this stop returns.
+        poller_stopped = self._poller is None or not self._poller.is_alive()
         with self._lane_lock:
             lanes = [self._manual, *self._auto.values()]
             for lane in lanes:
                 lane.close()
             self._stopped_lanes.extend(lanes)
             self._auto.clear()
-        return self._poller is None or not self._poller.is_alive()
+        return poller_stopped
 
     def join_drivers(self) -> bool:
         """Check writer lanes after the import stop signal. Probes only read the filesystem."""

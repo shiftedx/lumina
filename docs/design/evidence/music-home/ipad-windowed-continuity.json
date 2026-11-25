@@ -81,8 +81,22 @@
     ],
     "accessibilityTreeExposedLabeledToggleAndReorderActionForEachShelf": true
   },
+  "lifecycle": {
+    "date": "2026-11-25",
+    "proofBuildRevision": "5ba2bcb",
+    "fixture": "Separate disposable #343 proof server",
+    "dynamicType": "Large (standard)",
+    "test": "NativePhoneMusicHomeTests/testMiniPlayerPreservesMusicAcrossBackground",
+    "result": "passed",
+    "durationSeconds": 92.459,
+    "luminaStateBeforeReactivation": "runningBackground",
+    "springBoardStateBeforeReactivation": "runningForeground",
+    "sameTrackReopenedFromMiniPlayer": true,
+    "positionAdvancedAfterReactivation": true,
+    "serverQueueOrderAndSelectedIndexPreserved": true
+  },
   "limits": [
-    "The Home-action captures did not establish a confirmed background transition.",
+    "Window resizing and the verified OS background transition used separate simulator runs.",
     "Shelf labels and order were read from the simulator accessibility tree. Spoken VoiceOver remains unverified."
   ]
 }

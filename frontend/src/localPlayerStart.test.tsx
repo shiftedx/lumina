@@ -51,6 +51,31 @@ describe('playback start', () => {
     expect(hlsCalls.configs[0]).toMatchObject({ startFragPrefetch: true, maxBufferLength: 12, timelineOffset: 754 });
   });
 
+  it.each([[0.106, 1], [0.083, 0]])('handles a zero-start buffer beginning at %s without changing position or sound', async (bufferStart, playCalls) => {
+    api.getLocalPlaybackOptions.mockResolvedValue(transcode);
+    api.startLocalPlaybackSession.mockResolvedValue(session('zero'));
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    render(<LocalLibraryPlayer itemId="t-zero" kind="video" poster={null} title="Film" />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const media = video();
+    const play = vi.spyOn(media, 'play').mockResolvedValue(undefined);
+    const seek = vi.fn();
+    Object.defineProperties(media, {
+      currentTime: { configurable: true, get: () => 0, set: seek },
+      buffered: { configurable: true, value: { length: 1, start: () => bufferStart, end: () => 4 } },
+    });
+    const muted = media.muted;
+    const volume = media.volume;
+
+    hlsCalls.firstFragmentBuffered[0]?.();
+
+    expect(api.startLocalPlaybackSession.mock.calls).toEqual([['t-zero', 0, undefined]]);
+    expect(play).toHaveBeenCalledTimes(playCalls);
+    expect(seek).not.toHaveBeenCalled();
+    expect(media.muted).toBe(muted);
+    expect(media.volume).toBe(volume);
+  });
+
   it('seeks when a new start time arrives for the open item', async () => {
     api.getLocalPlaybackOptions.mockResolvedValue(direct);
     const view = render(<LocalLibraryPlayer itemId="d-3" kind="video" poster={null} startAt={0} title="Film" />);

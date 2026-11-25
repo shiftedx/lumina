@@ -131,7 +131,8 @@ describe('LocalLibraryPlayer tracks and probe', () => {
     await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
     const convertedMedia = screen.getByLabelText('Film video') as HTMLVideoElement;
     expect(convertedMedia.autoplay).toBe(false);
-    expect(hlsCalls.manifestParsed).toEqual([]);
+    Object.defineProperty(convertedMedia, 'buffered', { configurable: true, value: { length: 1, start: () => 0.106, end: () => 4 } });
+    hlsCalls.firstFragmentBuffered[0]();
     expect(play).not.toHaveBeenCalled();
     play.mockRestore();
   });

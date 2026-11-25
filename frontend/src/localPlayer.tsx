@@ -307,6 +307,15 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
           media.currentTime = at;
           if (resumePlayingRef.current) void media.play().catch(() => undefined);
         });
+      } else {
+        player.once(Hls.Events.FRAG_BUFFERED, () => {
+          // At zero, WebKit can wait for an initial frame before autoplay while
+          // hls.js waits for play to cross a gap larger than its hole tolerance.
+          if (resumePlayingRef.current && media.paused && media.currentTime === 0
+            && media.buffered.length && media.buffered.start(0) > player.config.maxBufferHole) {
+            void media.play().catch(() => undefined);
+          }
+        });
       }
       player.on(Hls.Events.FRAG_LOADED, () => { arrivingRef.current = true; });
       player.on(Hls.Events.ERROR, (_event, data) => {

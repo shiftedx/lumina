@@ -70,6 +70,8 @@ Local packaging preflight passed for iOS and tvOS Release device archives from `
 
 Record the tested revision, app build, device and OS, output route, network state, observed queue and saved position. Keep receiver and server addresses, account identifiers and credentials out of issue evidence.
 
+On November 24, the physical iPhone was unavailable in Xcode. Xcode showed no physical iPad or available paired Apple TV. Apple TV receivers returned their hardware identity over AirPlay from a local network path. Their receiver endpoints were unreachable from the development Mac. The physical Siri Remote, spoken VoiceOver, airplane mode and audible receiver handoff checks remain open.
+
 ## Disposable container rehearsal
 
 On November 20, `ae3714a` built from the repository Dockerfile as Linux arm64, with source label `ae3714a86a3963a7d0c4f77f6aa5512d74df1dc3`, version `0.7.1` and local image ID `sha256:fd772ab101b2c8e3368c9f8e5274609b1436ca604de700db6527c4f20cac07aa`. The packaged model smoke downloaded and verified its pinned fixtures, returned 384-dimensional embeddings and transcribed the synthetic audio sample.

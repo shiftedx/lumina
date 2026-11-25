@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import run_blocking
 from app.db import SessionLocal
 from app.models import ListeningExportConnection, ListeningPlayEvent, MusicTrackOverride, User, utcnow
 from app.persistence import write_transaction
@@ -222,7 +223,7 @@ def recover_and_retry(*, recover: bool = False) -> None:
 
 
 async def run() -> None:
-    await asyncio.to_thread(recover_and_retry, recover=True)
+    await run_blocking(recover_and_retry, recover=True)
     while True:
         await asyncio.sleep(60)
-        await asyncio.to_thread(recover_and_retry)
+        await run_blocking(recover_and_retry)

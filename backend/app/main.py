@@ -60,6 +60,7 @@ from app.routers import arr_operations, music_listening_session, music_receiver,
 from app.services.listening_export import run as listening_export_loop
 from app.services.arr_operations import reconcile_pending as reconcile_arr_operations
 from app.db import SessionLocal, get_db, init_db, session_scope
+from app.lifespan import LifespanCleanup
 from app.persistence import write_transaction
 from app.events import EventBus, sse_stream
 from app.http_boundaries import (
@@ -235,6 +236,7 @@ from app.services import backups
 from app.services import model_downloads, model_supervisor, photo_cache, photo_faces, photo_imports
 from app.services import enrichment as enrichment_jobs
 from app.services.background_work import background_work
+from app.services.lifecycle import finish_on_cancel, join_detached_writers, run_blocking
 from app.services import music_cast_capabilities
 from app.services import autoplay_presence
 from app.services.redaction import install_log_redaction
@@ -805,7 +807,7 @@ async def playback_buffer_loop() -> None:
     while True:
         await asyncio.sleep(1)
         try:
-            await asyncio.to_thread(local_playback_sessions.maintain_buffers)
+            await run_blocking(local_playback_sessions.maintain_buffers)
         except Exception:
             logger.exception("Playback buffer maintenance failed; retrying next tick")
 
@@ -818,17 +820,17 @@ async def reconcile_loop() -> None:
         live_hls_relay.expire_idle()
         activity.sweep()
         try:
-            await asyncio.to_thread(enrichment_jobs.pump_pending)
+            await run_blocking(enrichment_jobs.pump_pending)
         except Exception as exc:
             logger.warning("Enrichment pump failed; retrying next interval: %.300s", repr(exc))
         try:
             # Only the due-state read and worker enqueue happen here; provider
             # I/O stays on the coordinator's one bounded thread.
-            await asyncio.to_thread(release_updates.coordinator.request_automatic)
+            await run_blocking(release_updates.coordinator.request_automatic)
         except Exception as exc:  # noqa: BLE001 - independent of the library sweep below
             logger.warning("Release update scheduling failed; retrying next interval: %s", type(exc).__name__)
         try:
-            await asyncio.to_thread(run_library_maintenance_cycle)
+            await run_blocking(run_library_maintenance_cycle)
         except Exception as exc:
             # Bounded, secret-free breadcrumb: recurring sweep failures must be
             # visible to operators instead of silently stalling maintenance.
@@ -837,7 +839,7 @@ async def reconcile_loop() -> None:
             continue
         maintenance_sweep_health.record_success()
         try:
-            await asyncio.to_thread(run_scheduled_backup)
+            await run_blocking(run_scheduled_backup)
         except Exception as exc:
             logger.warning("Scheduled backup failed; retrying next interval: %.300s", repr(exc))
 
@@ -864,7 +866,7 @@ async def source_automation_loop() -> None:
                 list(pool.map(refresh, due))
 
         try:
-            await asyncio.to_thread(run_due_checks)
+            await run_blocking(run_due_checks)
         except Exception:
             continue
 
@@ -880,12 +882,12 @@ async def metadata_loop() -> None:
     """
     while True:
         try:
-            tmdb_full = await asyncio.to_thread(title_metadata.run_due_batch)
+            tmdb_full = await run_blocking(title_metadata.run_due_batch)
         except Exception as exc:  # noqa: BLE001 - the type only; the next interval retries
             logger.warning("TMDB metadata batch failed; retrying next interval: %s", type(exc).__name__)
             tmdb_full = False
         try:
-            omdb_full = await asyncio.to_thread(omdb_ratings.run_due_batch)
+            omdb_full = await run_blocking(omdb_ratings.run_due_batch)
         except Exception as exc:  # noqa: BLE001 - the type only; the next interval retries
             logger.warning("OMDb ratings batch failed; retrying next interval: %s", type(exc).__name__)
             omdb_full = False
@@ -895,11 +897,45 @@ async def metadata_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    background_work.start()
     settings.validate_runtime_security()
-    server_lock = backups.hold_server_lock()  # the offline restore refuses while this is held
+    cleanup = LifespanCleanup()
+
+    async def stop_imports() -> None:
+        await cleanup.stop(library_automation.stop)
+        import_stop_event.set()
+        await cleanup.stop(library_automation.join_drivers)
+
+    async def shutdown() -> None:
+        reconcile_task, playback_buffer_task, *service_loops = cleanup.tasks
+        reconcile_task.cancel()
+        playback_buffer_task.cancel()
+        await cleanup.settle(playback_buffer_task)
+        for task in service_loops:
+            task.cancel()
+        await cleanup.stop(library_automation.stop)
+        import_stop_event.set()
+        await cleanup.stop(remote_streams.close_all, probe_warming.stop, m2ts_irap_indexes.stop)
+        await cleanup.stop(renditions.stop, hero_framing.stop, local_playback_sessions.close_all)
+        await cleanup.stop(hls_relay.close_all, live_hls_relay.close_all, live_recording_manager.close_all)
+        await cleanup.stop(popular_discovery.close, live_discovery.close, followed_live_checker.close)
+        await cleanup.stop(channel_pages.close, reco_refresher.close, twitch_directory.close)
+        await cleanup.settle(reconcile_task, *service_loops)
+        await cleanup.stop(library_automation.join_drivers, photo_imports.worker.close, photo_faces.worker.close)
+        await cleanup.stop(model_downloads.manager.shutdown, model_supervisor.supervisor.close)
+        await cleanup.stop(background_work.close, enrichment_jobs.join_background_captions)
+        await cleanup.stop(client_metric_store.flush)  # keep the last minutes of client metrics
+        await cleanup.stop(jobs.stop, blocking=False)
+        await cleanup.stop(join_detached_writers)
+        await cleanup.stop(release_updates.coordinator.close)
+        await cleanup.release_lock()
+
     try:
+        cleanup.on_startup_failure(join_detached_writers)
+        cleanup.on_startup_failure(enrichment_jobs.join_background_captions)
+        cleanup.on_startup_failure(background_work.close)
+        background_work.start()
         init_db()
+        cleanup.on_startup_failure(release_updates.coordinator.close)
         release_updates.coordinator.start()
         with session_scope() as db:
             two_factor.report_key_status(db)
@@ -927,35 +963,42 @@ async def lifespan(app: FastAPI):
         remote_stream_cache.prune()
         local_playback_sessions.close_all()  # derivatives are disposable; drop any a crash left
         enrichment_jobs.recover_after_restart()  # before any worker starts: re-pend once, then fail
-    except BaseException:
-        # No background writer has started, so restore can acquire the lock.
-        server_lock.close()
-        raise
-    probe_warming.start()  # background ffprobe + loudness, one file at a time; also woken after each import
-    m2ts_irap_indexes.start()
-    library_automation.start(first_tick_delay_s=FIRST_TICK_DELAY_S)  # scheduled scans and folder watching; polls off the event loop
-    # gallery: artwork renditions, one nice-19 ffmpeg at a time, paused during video transcodes. Off the loop:
-    # start() probes ffmpeg's encoders and sweeps staging. With the pass off, on-demand renders still need the format.
-    await asyncio.to_thread(renditions.start if settings.artwork_pass else use_host_format)
-    if settings.artwork_pass:
-        await asyncio.to_thread(hero_framing.start)
-    events.bind(asyncio.get_running_loop())
-    admin_models.wire(events)
-    model_downloads.manager.resume_wanted()  # model downloads a restart interrupted continue from their .part files
-    await asyncio.to_thread(photo_cache.recover)
-    photo_imports.worker.start()
-    photo_faces.worker.start()
-    import_stop_event.clear()
-    await jobs.start(concurrency=configured_concurrency)
-    # Re-launch or finalize every live recording left non-terminal by a restart,
-    # so a long-running recording survives a process crash deterministically.
-    await asyncio.to_thread(live_recording_manager.recover)
-    await asyncio.to_thread(reconcile_arr_operations)
-    reconcile_task = asyncio.create_task(reconcile_loop())
-    playback_buffer_task = asyncio.create_task(playback_buffer_loop())
-    service_loops = [
-        asyncio.create_task(run())
+        cleanup.on_startup_failure(probe_warming.stop)
+        probe_warming.start()  # background ffprobe + loudness, one file at a time; also woken after each import
+        cleanup.on_startup_failure(m2ts_irap_indexes.stop)
+        m2ts_irap_indexes.start()
+        cleanup.on_startup_failure(stop_imports, blocking=False)
+        library_automation.start(first_tick_delay_s=FIRST_TICK_DELAY_S)  # scheduled scans and folder watching
+        # The artwork pass probes ffmpeg and sweeps staging. With the pass off,
+        # on-demand renders still need the format.
+        if settings.artwork_pass:
+            cleanup.on_startup_failure(renditions.stop)
+            await run_blocking(renditions.start)
+            cleanup.on_startup_failure(hero_framing.stop)
+            await run_blocking(hero_framing.start)
+        else:
+            await run_blocking(use_host_format)
+        events.bind(asyncio.get_running_loop())
+        admin_models.wire(events)
+        cleanup.on_startup_failure(model_supervisor.supervisor.close)
+        model_supervisor.supervisor.start()
+        cleanup.on_startup_failure(model_downloads.manager.shutdown)
+        model_downloads.manager.resume_wanted()  # resume downloads from their .part files
+        await run_blocking(photo_cache.recover)
+        cleanup.on_startup_failure(photo_imports.worker.close)
+        photo_imports.worker.start()
+        cleanup.on_startup_failure(photo_faces.worker.close)
+        photo_faces.worker.start()
+        import_stop_event.clear()
+        cleanup.on_startup_failure(jobs.stop, blocking=False)
+        cleanup.on_startup_failure(live_recording_manager.close_all)  # jobs can dispatch recordings as slots free up
+        await jobs.start(concurrency=configured_concurrency)
+        # Re-launch or finalize recordings left non-terminal by a restart.
+        await run_blocking(live_recording_manager.recover)
+        await run_blocking(reconcile_arr_operations)
         for run in (
+            reconcile_loop,
+            playback_buffer_loop,
             source_automation_loop,
             metadata_loop,
             request_sync_loop,  # idle when Requests are off or no server is set
@@ -963,58 +1006,21 @@ async def lifespan(app: FastAPI):
             connector_observer_loop,
             listening_export_loop,
             catalog_warm_loop,  # idle when Requests are off
-        )
-    ]
-    popular_discovery.start()
-    live_discovery.start()
+        ):
+            cleanup.tasks.append(asyncio.create_task(run()))
+        cleanup.on_startup_failure(popular_discovery.close)
+        popular_discovery.start()
+        cleanup.on_startup_failure(live_discovery.close)
+        live_discovery.start()
+    except BaseException:
+        await finish_on_cancel(cleanup.rollback_startup())
+        raise
+
     try:
         yield
     finally:
-        # Cancel the asyncio loops. A tick already running in to_thread can
-        # outlive cancellation, so keep the service-specific stops below.
-        reconcile_task.cancel()
-        playback_buffer_task.cancel()
-        playback_result, = await asyncio.gather(playback_buffer_task, return_exceptions=True)
-        for task in service_loops:
-            task.cancel()
-        await asyncio.to_thread(library_automation.stop)
-        import_stop_event.set()
-        remote_streams.close_all()
-        await asyncio.to_thread(probe_warming.stop)
-        await asyncio.to_thread(m2ts_irap_indexes.stop)
-        await asyncio.to_thread(renditions.stop)
-        await asyncio.to_thread(hero_framing.stop)
-        await asyncio.to_thread(local_playback_sessions.close_all)
-        hls_relay.close_all()
-        live_hls_relay.close_all()
-        await asyncio.to_thread(live_recording_manager.close_all)
-        await asyncio.to_thread(popular_discovery.close)
-        await asyncio.to_thread(live_discovery.close)
-        await asyncio.to_thread(followed_live_checker.close)
-        await asyncio.to_thread(channel_pages.close)
-        await asyncio.to_thread(reco_refresher.close)
-        await asyncio.to_thread(twitch_directory.close)
-        loop_results = await asyncio.gather(reconcile_task, *service_loops, return_exceptions=True)
-        await asyncio.to_thread(photo_imports.worker.close)
-        await asyncio.to_thread(photo_faces.worker.close)
-        await asyncio.to_thread(model_downloads.manager.shutdown)  # partial files stay for the next start
-        await asyncio.to_thread(model_supervisor.supervisor.close)
-        try:
-            await asyncio.to_thread(background_work.close)
-        finally:
-            await asyncio.to_thread(enrichment_jobs.join_background_captions)
-        await asyncio.to_thread(client_metric_store.flush)  # keep the last minutes of client metrics
-        await jobs.stop()
-        await asyncio.to_thread(release_updates.coordinator.close)
-        loop_failures = [
-            result for result in (playback_result, *loop_results)
-            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError)
-        ]
-        if len(loop_failures) == 1:
-            raise loop_failures[0]
-        if loop_failures:
-            raise BaseExceptionGroup("Background service loops failed", loop_failures)
-        server_lock.close()
+        await finish_on_cancel(shutdown())
+    cleanup.raise_failures()
 
 
 app = FastAPI(
@@ -1854,7 +1860,7 @@ async def preview(
 
     started = time.monotonic()
     try:
-        response = await asyncio.to_thread(run_preview)
+        response = await run_blocking(run_preview)
     except yt_dlp.utils.DownloadError as exc:
         raise _download_error_http_exception(exc) from exc
     # Time to first frame, step by step: extraction (or a cache hit / joined prefetch) for this click.
@@ -3351,7 +3357,7 @@ async def load_chat_replay_asset(
             except OperationalError as exc:
                 raise HTTPException(status_code=503, detail="Chat replay is briefly busy. Please try again.") from exc
 
-    ticket = await asyncio.to_thread(claim_build)
+    ticket = await run_blocking(claim_build)
     if ticket.build_id is None:
         # Nothing to build: a fresh asset already exists or a build is in flight.
         return ticket.response
@@ -3376,7 +3382,7 @@ async def load_chat_replay_asset(
             except OperationalError as exc:
                 raise HTTPException(status_code=503, detail="Chat replay is briefly busy. Please try again.") from exc
 
-    return await asyncio.to_thread(run_and_store)
+    return await run_blocking(run_and_store)
 
 
 @app.get("/api/library/{item_id}/playback", response_model=PlaybackProgressResponse | None)

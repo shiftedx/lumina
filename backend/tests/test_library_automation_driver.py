@@ -13,7 +13,7 @@ import pytest
 from library_automation_support import Env, SyncLane, probe_threads, wait_for
 
 from app import db as db_module
-from app.services.library_automation import _Lane
+from app.services.library_automation import LibraryAutomation, _Lane
 from app.models import ImportRun
 from app.services.library_import import ImportRunError, LibraryImportService
 
@@ -261,6 +261,53 @@ def test_stop_returns_within_2s_even_with_a_hung_probe_and_hung_drive(tmp_path, 
         release.set()
         monkeypatch.undo()
         time.tzset()
+
+
+def test_shutdown_reports_a_poller_that_can_dispatch_after_the_lane_snapshot(monkeypatch):
+    automation = LibraryAutomation()
+    entered, snapshot, started, release = (threading.Event() for _ in range(4))
+
+    def late_driver():
+        started.set()
+        release.wait(5)
+
+    def dispatch():
+        entered.set()
+        assert snapshot.wait(5)
+        automation._auto_lane("late-root").submit("late-run", late_driver)
+
+    monkeypatch.setattr(automation, "tick", dispatch)
+    automation.start()
+    poller = automation._poller
+    real_close = automation._manual.close
+    real_join, real_is_alive = poller.join, poller.is_alive
+
+    def close_lane():
+        real_close()
+        snapshot.set()
+
+    def poller_alive():
+        if snapshot.is_set():
+            # If shutdown checks again after releasing the lane lock, let the
+            # poller finish dispatching first. Its new lane is still running.
+            real_join(5)
+        return real_is_alive()
+
+    try:
+        assert entered.wait(5)
+        with monkeypatch.context() as patch:
+            patch.setattr(poller, "join", lambda timeout=None: None)
+            patch.setattr(poller, "is_alive", poller_alive)
+            patch.setattr(automation._manual, "close", close_lane)
+            stopped = automation.stop()
+        assert started.wait(5)
+        assert not stopped
+    finally:
+        snapshot.set()
+        release.set()
+        real_join(5)
+        automation.stop()
+        assert automation.join_drivers()
 
 
 def test_a_lane_survives_a_failing_job(caplog):

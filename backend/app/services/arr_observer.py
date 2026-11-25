@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from app.services.lifecycle import run_blocking
 from app.db import session_scope
 from app.models import ArrObservationState, ArrObservedItem, ArrObservedRecord, ArrServer, ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, StorageRoot, User, utcnow
 from app.persistence import write_transaction
@@ -46,7 +47,7 @@ def stale(server: ArrServer, state: ArrObservationState | None, *, now: Any = No
 async def observer_loop() -> None:
     while True:
         try:
-            await asyncio.to_thread(sync_once)
+            await run_blocking(sync_once)
         except Exception as exc:  # noqa: BLE001 - a later poll reconciles the independent server snapshot
             logger.warning("Arr observation loop failed: %s", type(exc).__name__)
         await asyncio.sleep(OBSERVATION_INTERVAL_SECONDS)

@@ -102,14 +102,15 @@ class _PreparationPool:
             self._queue.put((future, (source_id, relative, entry), ready))
         return future
 
-    def close(self) -> None:
+    def close(self) -> bool:
         # A thread inside an uninterruptible NAS syscall cannot be killed safely.
         # Cancel queued work and join normal completions; daemon status is the
         # bounded-shutdown escape hatch. The retired lane generation can no
-        # longer publish any result from a task that eventually returns.
+        # longer publish catalog results. Preparation can still write the
+        # derivative registry, so report whether those threads actually stopped.
         with self._lock:
             if self._closed.is_set():
-                return
+                return not any(thread.is_alive() for thread in self._threads)
             self._closed.set()
             while True:
                 try:
@@ -123,6 +124,7 @@ class _PreparationPool:
                 self._queue.put_nowait(None)
         for thread in self._threads:
             thread.join(timeout=0.5)
+        return not any(thread.is_alive() for thread in self._threads)
 
     def _loop(self) -> None:
         while True:
@@ -474,17 +476,18 @@ class PhotoImportWorker:
     def wake(self) -> None:
         self._wake.set()
 
-    def close(self) -> None:
+    def close(self) -> bool:
         with self._lifecycle_lock:
             self._generation += 1
             self._stop.set(); self._wake.set()
         with self._preparation_lock:
             preparations, self._preparations = self._preparations, None
-        if preparations is not None:
-            preparations.close()
+        prepared = preparations is None or preparations.close()
         for thread in self._threads:
-            thread.join(timeout=2)
-        self._threads = []
+            if thread.is_alive():
+                thread.join(timeout=2)
+        self._threads = [thread for thread in self._threads if thread.is_alive()]
+        return prepared and not self._threads
 
     def _preparation_pool(self, generation: int | None = None) -> _PreparationPool | None:
         with self._preparation_lock:

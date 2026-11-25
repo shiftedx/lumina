@@ -174,7 +174,13 @@ class _Lane:
         return self._q.qsize()
 
     def close(self) -> None:
-        self._q.put(None)
+        if self._thread is not None and self._thread.is_alive():
+            self._q.put(None)
+
+    def join(self, timeout: float) -> bool:
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+        return self._thread is None or not self._thread.is_alive()
 
     def _work(self) -> None:
         while (item := self._q.get()) is not None:
@@ -264,6 +270,8 @@ class LibraryAutomation:
         self._lane = lane_factory or _Lane
         self._auto: dict[str, Any] = {}  # root id -> its automatic lane, so a scan hung on one share holds only that root
         self._manual = self._lane("library-manual")
+        self._stopped_lanes: list[_Lane] = []
+        self._lane_lock = threading.RLock()
         self._roots: dict[str, RootState] = {}
         self._views: dict[str, RootView] = {}  # the last load, in label order: the read model's source (no DB per request)
         self._night = 3
@@ -294,15 +302,29 @@ class LibraryAutomation:
         self._poller = threading.Thread(target=self._loop, args=(self._stop, first_tick_delay_s), name="library-automation", daemon=True)
         self._poller.start()
 
-    def stop(self) -> None:
-        """Stop the threads (lifespan, before import_stop_event.set()); never joins a stuck probe or drive."""
+    def stop(self) -> bool:
+        """Stop dispatching (lifespan, before import_stop_event.set())."""
         self._stop.set()
-        for lane in self._auto.values():
-            lane.close()
-        self._auto.clear()
-        self._manual.close()
-        if self._poller is not None:
+        if self._poller is not None and self._poller.is_alive():
             self._poller.join(2)
+        # A timed-out tick can add another lane after the snapshot below,
+        # even if the poller exits before this stop returns.
+        poller_stopped = self._poller is None or not self._poller.is_alive()
+        with self._lane_lock:
+            lanes = [self._manual, *self._auto.values()]
+            for lane in lanes:
+                lane.close()
+            self._stopped_lanes.extend(lanes)
+            self._auto.clear()
+        return poller_stopped
+
+    def join_drivers(self) -> bool:
+        """Check writer lanes after the import stop signal. Probes only read the filesystem."""
+        deadline = time.monotonic() + 2
+        self._stopped_lanes = [
+            lane for lane in self._stopped_lanes if not lane.join(max(0.0, deadline - time.monotonic()))
+        ]
+        return not self._stopped_lanes
 
     def _loop(self, stop: threading.Event, first_delay_s: float = 0) -> None:
         if first_delay_s and stop.wait(first_delay_s):
@@ -489,11 +511,13 @@ class LibraryAutomation:
             logger.warning("Library history retention failed: %.300s", repr(exc))
 
     def _auto_lane(self, root_id: str) -> Any:
-        lane = self._auto.get(root_id)
-        if lane is None:
-            lane = self._auto[root_id] = self._lane(f"library-auto-{root_id}")
-            lane.start()
-        return lane
+        with self._lane_lock:
+            lane = self._auto.get(root_id)
+            if lane is None:
+                lane = self._lane(f"library-auto-{root_id}")
+                lane.start()
+                self._auto[root_id] = lane
+            return lane
 
     def _load(self) -> tuple[list[RootView], int, set[str]]:
         """One read-only session: every root with its newest, last full and active run; the night hour; every active run id."""
@@ -875,15 +899,20 @@ class LibraryAutomation:
 
     def submit(self, run_id: str) -> None:
         """Queue a run on its trigger's lane (a resumed import or manager reconciliation)."""
+        if self._stop.is_set():
+            return
         with SessionLocal() as db:
             run = db.get(ImportRun, run_id)
             if run is None:
                 logger.warning("Library automation: cannot submit missing import run")
                 return
             root_id, trigger, counters = run.root_id, run.trigger, dict(run.counters or {})
-        self._track_activity_run(run_id, root_id, counters)
-        lane = self._auto_lane(root_id) if trigger in ("scheduled", "watch", "manager") else self._manual
-        lane.submit(run_id, lambda: self._drive_tracked(run_id))
+        with self._lane_lock:
+            if self._stop.is_set():
+                return
+            self._track_activity_run(run_id, root_id, counters)
+            lane = self._auto_lane(root_id) if trigger in ("scheduled", "watch", "manager") else self._manual
+            lane.submit(run_id, lambda: self._drive_tracked(run_id))
 
     def activity_started(self, run_id: str, counters: dict | None = None) -> None:
         """Register a run driven outside this facade so the memory-only public summary sees it immediately."""

@@ -36,6 +36,7 @@ from app.services.hls_relay import (
     _RelayResource,
 )
 from app.services.hls_relay_support import derive_lifecycle, extract_master_url, extract_request_headers
+from app.services.lifecycle import start_writer
 from app.services.remote_streaming import (
     PlaybackDescriptor,
     StreamNotFoundError,
@@ -75,7 +76,9 @@ class LiveHlsRelayService(HlsRelayService):
 
     def __init__(self, *, background: Callable[[Callable[[], None]], None] | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._background = background or (lambda job: threading.Thread(target=job, name="lumina-live-prewarm", daemon=True).start())
+        self._background = background or (lambda job: start_writer(
+            threading.Thread(target=job, name="lumina-live-prewarm", daemon=True)
+        ))
 
     def register(self, *, owner_user_id: str, source_url: str, info: Any, browser_capabilities: Any = None) -> PlaybackDescriptor:
         descriptor = super().register(owner_user_id=owner_user_id, source_url=source_url, info=info, browser_capabilities=browser_capabilities)

@@ -26,6 +26,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from app.services.lifecycle import start_writer
 from app.persistence import atomic_write
 from app.services import model_catalog
 from app.services.model_catalog import CatalogModel, ModelFile
@@ -173,7 +174,7 @@ class DownloadManager:
                     job = _Job(model, model.size_bytes - remaining)
                     job.thread = threading.Thread(target=self._run, args=(job,), daemon=True, name=f"model-download-{model.id}")
                     self._jobs[model.id] = job
-                    job.thread.start()
+                    start_writer(job.thread)
         self._emit(model.id)
         return self.status(model)
 
@@ -206,15 +207,16 @@ class DownloadManager:
                 resumed.append(model.id)
         return resumed
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Stop every download, keeping partial files and ``.wanted`` markers for the next start."""
         with self._lock:
             jobs = list(self._jobs.values())
         for job in jobs:
             job.stop.set()
         for job in jobs:
-            if job.thread is not None:
+            if job.thread is not None and job.thread.is_alive():
                 job.thread.join(timeout=5)
+        return not any(job.thread is not None and job.thread.is_alive() for job in jobs)
 
     def _emit(self, model_id: str) -> None:
         try:

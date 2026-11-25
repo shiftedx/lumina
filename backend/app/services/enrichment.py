@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import start_writer
 from app.db import session_scope
 from app.media_schemas import EnrichmentJob
 from app.models import AsrJob, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, Transcript, TranscriptCue, utcnow
@@ -178,9 +179,9 @@ def request_job(db: Session, item_id: str, kind: str, params: dict | None, user_
                         .update({"state": "queued", "requested_by": user_id}, synchronize_session=False)
                     )
                     if updated:
-                        queue_after_commit(db, lambda job_id=job_id: threading.Thread(
+                        queue_after_commit(db, lambda job_id=job_id: start_writer(threading.Thread(
                             target=run_job, args=(job_id,), daemon=True,
-                        ).start())
+                        )))
                 committed = updated
             finally:
                 if not committed:
@@ -351,9 +352,9 @@ def pump_pending() -> int:
                             caption_backfill = caption_background and job.requested_by is None
                             queue_after_commit(
                                 db,
-                                lambda job_id=job_id, background=caption_background, backfill=caption_backfill: threading.Thread(
+                                lambda job_id=job_id, background=caption_background, backfill=caption_backfill: start_writer(threading.Thread(
                                     target=run_job, args=(job_id,), kwargs={"background": background, "backfill": backfill}, daemon=True,
-                                ).start(),
+                                )),
                             )
                     admitted = updated  # only once the commit succeeded; a failed commit releases the slot below
                 finally:

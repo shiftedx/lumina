@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 from sqlalchemy import select
 
+from app.services.lifecycle import run_blocking
 from app.db import session_scope
 from app.models import AppMaintenanceState, ArrObservedItem, ArrServer, ImportRun, MediaRequest, StorageRoot, User, utcnow
 from app.persistence import write_transaction
@@ -59,7 +60,7 @@ def wake() -> None:
 async def request_sync_loop() -> None:
     while True:
         try:
-            await asyncio.to_thread(sync_once)
+            await run_blocking(sync_once)
         except Exception as exc:  # noqa: BLE001 - the type only; the next interval retries
             logger.warning("Request sync failed; retrying next interval: %s", type(exc).__name__)
         for _ in range(SYNC_INTERVAL_SECONDS):

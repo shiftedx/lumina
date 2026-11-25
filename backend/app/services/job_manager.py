@@ -25,6 +25,7 @@ from app.persistence import write_transaction
 from app.models import DownloadJob, LibraryItem, LiveRecording, MediaArtifact, StorageRoot, User, utcnow
 from app.schemas import FormatResolutionState, FormatSelection, JobCreateRequest, JobOutput, JobResponse, OutputProfile
 from app.services.hls_relay_support import derive_provider
+from app.services.lifecycle import run_blocking
 from app.services.library import (
     LibraryService,
     decode_library_cursor,
@@ -266,6 +267,7 @@ class JobManager:
         self._stopping = False
         # job id -> set when its blocking worker thread has fully exited.
         self._running: dict[str, Event] = {}
+        self._executing: set[asyncio.Future] = set()
         self.acquisition = JobManagerAcquisitionAdapter(self, lambda: SessionLocal())
 
     async def start(self, *, concurrency: int = 1) -> None:
@@ -275,9 +277,8 @@ class JobManager:
             self._reconcile_interrupted_jobs()
             self.acquisition.reconcile_startup()
             self._enqueue_queued_jobs()
-            self._worker_tasks = [
-                asyncio.create_task(self._worker_loop()) for _ in range(max(1, concurrency))
-            ]
+            for _ in range(max(1, concurrency)):
+                self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
             self._worker_task = self._worker_tasks[0]
 
     async def stop(self, *, grace_seconds: float = 20.0) -> bool:
@@ -295,7 +296,8 @@ class JobManager:
         self._worker_tasks = []
         self._worker_task = None
         # Cancelling the asyncio wrappers does not stop to_thread work: join it.
-        return await asyncio.to_thread(self._join_running, grace_seconds)
+        joined = await asyncio.to_thread(self._join_running, grace_seconds)
+        return joined and all(future.done() for future in self._executing)
 
     def _join_running(self, grace_seconds: float) -> bool:
         half = grace_seconds / 2
@@ -724,7 +726,7 @@ class JobManager:
                 # with a signal-only worker. Only the concrete downloader owns
                 # durable capacity reservation.
                 if getattr(self._run_job, "__func__", None) is JobManager._run_job:
-                    job_id = await asyncio.to_thread(self._claim_next_queued_job)
+                    job_id = await run_blocking(self._claim_next_queued_job)
                 else:
                     job_id = wake_job_id
                 # Several focused worker tests use the public-compatible queue
@@ -735,7 +737,10 @@ class JobManager:
                 if job_id is None:
                     continue
                 try:
-                    await asyncio.to_thread(self._run_job, job_id)
+                    attempt = asyncio.create_task(asyncio.to_thread(self._run_job, job_id))
+                    self._executing.add(attempt)
+                    attempt.add_done_callback(self._attempt_done)
+                    await asyncio.shield(attempt)
                 except Exception as exc:  # noqa: BLE001
                     with SessionLocal() as db:
                         job = db.get(DownloadJob, job_id)
@@ -754,6 +759,11 @@ class JobManager:
                                 )
             finally:
                 self._queue.task_done()
+
+    def _attempt_done(self, attempt: asyncio.Future) -> None:
+        self._executing.discard(attempt)
+        if not attempt.cancelled():
+            attempt.exception()
 
     def _run_job(self, job_id: str) -> None:
         # Register before checking _stopping: stop() sets the flag first and then

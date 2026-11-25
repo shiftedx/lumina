@@ -30,6 +30,7 @@ from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.services.lifecycle import submit_writer
 from app.config import settings
 from app.db import SessionLocal
 from app.media_schemas import ArtServing, ArtworkProgress
@@ -575,19 +576,20 @@ class ArtworkRenditions:
         self._thread = threading.Thread(target=self._loop, name="artwork-renditions", daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self._stop.set()
         self._wake.set()
         if (child := self._child) is not None:
             with contextlib.suppress(OSError):
                 child.kill()  # its render then fails, and _prepare saves nothing once stopping
-        if self._thread:
+        if self.running:
             self._thread.join(timeout=10)
         if self.after_import in library_import.after_import_hooks:
             library_import.after_import_hooks.remove(self.after_import)
         art_urls.on_enqueue = None
         if self._extension_before is not None:
             art_urls.set_extension(self._extension_before)  # the process is ending; keeps in-process test runs isolated
+        return not self.running
 
     def wake(self, priority_titles: Iterable[str] = ()) -> None:
         """Titles a scan created or whose art changed go next, behind on-demand requests."""
@@ -882,7 +884,7 @@ def _generation(title_id: str, image_type: str, key: str, ext: str, artwork: Art
         if job in _inflight:
             _slots.release()
             return _inflight[job]
-        future = _executor.submit(_generate, title_id, image_type, key, ext, artwork)
+        future = submit_writer(_executor, _generate, title_id, image_type, key, ext, artwork)
         _inflight[job] = future
     future.add_done_callback(lambda _: _finished(job))
     return future

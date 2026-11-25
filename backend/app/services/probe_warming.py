@@ -131,11 +131,12 @@ class ProbeWarming:
         self._thread = threading.Thread(target=self._loop, name="probe-warming", daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self._stop.set()
         self._wake.set()
-        if self._thread:
+        if self._thread and self._thread.is_alive():
             self._thread.join(timeout=10)
+        return self._thread is None or not self._thread.is_alive()
 
     def wake(self) -> None:
         self._wake.set()

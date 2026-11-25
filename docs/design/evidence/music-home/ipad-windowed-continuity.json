@@ -1,0 +1,88 @@
+{
+  "issue": 349,
+  "date": "2026-11-24",
+  "productRevision": "8ad792ddd6202babc2e56ed47707b0fbe208c597",
+  "proofBuildRevision": "c570195",
+  "fixture": "Disposable #343 proof server",
+  "device": {
+    "model": "iPad (A16) simulator",
+    "runtime": "iPadOS 26.5",
+    "sdk": "iOS Simulator 27.1"
+  },
+  "widthsPoints": [
+    820,
+    375,
+    820
+  ],
+  "windowWorkflow": {
+    "systemMode": "iPad Windowed Apps",
+    "miniPlayerReachedAtBothWidths": true,
+    "miniPlayerReopenedAtCompactWidth": true,
+    "sameApplicationProcess": true,
+    "fixtureTrack": "First Light in the Listening Room",
+    "fixtureAlbum": "Signals from a Quiet Observatory",
+    "queue": {
+      "playableRows": 2,
+      "persistedEntries": 4,
+      "selectedPlayableIndex": 0,
+      "selectedEntryIndex": 0,
+      "unavailablePolicy": "wait",
+      "contentsAndOrderPreserved": true
+    },
+    "positionSamples": [
+      {
+        "stage": "Seeded paused position",
+        "positionSeconds": 23.0,
+        "revision": 1
+      },
+      {
+        "stage": "Regular Music Home with mini-player",
+        "positionSeconds": 33.599,
+        "revision": 4
+      },
+      {
+        "stage": "Narrow Music Home with mini-player",
+        "positionSeconds": 38.904,
+        "revision": 5
+      },
+      {
+        "stage": "Player reopened in narrow window",
+        "positionSeconds": 70.304,
+        "revision": 11
+      },
+      {
+        "stage": "Paused player back at full width",
+        "positionSeconds": 83.879,
+        "revision": 14
+      },
+      {
+        "stage": "After resetting shelf layout",
+        "positionSeconds": 83.879,
+        "revision": 14
+      }
+    ],
+    "compactWindowCapture": "ipad-windowed-now-playing.jpg"
+  },
+  "shelfEditor": {
+    "dynamicType": "Accessibility Large",
+    "defaultAndResetOrder": [
+      "Resume",
+      "Recently played",
+      "Playlists",
+      "Downloads",
+      "Mixes"
+    ],
+    "afterMoveEarlier": [
+      "Resume",
+      "Recently played",
+      "Downloads",
+      "Playlists",
+      "Mixes"
+    ],
+    "accessibilityTreeExposedLabeledToggleAndReorderActionForEachShelf": true
+  },
+  "limits": [
+    "The Home-action captures did not establish a confirmed background transition.",
+    "Shelf labels and order were read from the simulator accessibility tree. Spoken VoiceOver remains unverified."
+  ]
+}

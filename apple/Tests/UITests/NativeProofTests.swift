@@ -18,6 +18,7 @@ import Vision
 @MainActor
 final class NativePhoneMusicHomeTests: NativeProofJourney {
     func testHomeLayoutAndBrowse() async throws { try await journeyPhoneMusicHome() }
+    func testMiniPlayerPreservesMusicAcrossBackground() async throws { try await journeyMusicHomeMiniPlayerAcrossBackground() }
     func testLegacyMusicBrowse() async throws { try await journeyPhoneMusicLegacy() }
     func testContextualMix() async throws { try await journeyPhoneContextualMix() }
     func testArtistInstantMixDismissalPreservesQueue() async throws { try await journeyPhoneArtistInstantMixDismissal() }

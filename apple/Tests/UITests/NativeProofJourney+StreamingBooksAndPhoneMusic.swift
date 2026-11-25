@@ -1086,6 +1086,41 @@ extension NativeProofJourney {
         try activate(element("musicHomeBrowseButton"))
         _ = try revealMusicAlbum(fixture, named: "album after Music Home")
     }
+
+    func journeyMusicHomeMiniPlayerAcrossBackground() async throws {
+        let fixture = try loadFixture()
+        let (api, identity) = try await proofMusicAPI(fixture)
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        try selectDestination("Audio", screen: "audioScreen")
+        try activateVisibleCenterWhenNeeded(element("musicHomeResumeButton"), named: "Music Home Resume")
+        try waitForExistence(element("audioPlayerStage"), timeout: 25, named: "resumed music player")
+        let time = element("playbackTime")
+        let beforePosition = try waitForPlaybackValue(time, timeout: 20) { $0 >= 24 }
+        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+        let beforeQueue = try await queueState(api: api, identity: identity, source: "Music Home before background")
+
+        let expandedClose = element("closePlayerButton")
+        if hasVisibleFrame(expandedClose) {
+            try activateVisibleCenterWhenNeeded(expandedClose, named: "expanded music player close")
+        } else {
+            try closePlayer()
+        }
+        let miniPlayer = element("nowPlayingBar")
+        try waitForExistence(miniPlayer, timeout: 15, named: "Music Home mini-player")
+        XCTAssertTrue(miniPlayer.label.contains(fixture.audioTrackTitle))
+        try backgroundApplication()
+        application!.activate()
+        try waitForExistence(element("audioScreen"), timeout: 15, named: "Music Home after foreground")
+        try activateVisibleCenterWhenNeeded(miniPlayer, named: "Music Home mini-player after foreground")
+        try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "reopened music player")
+
+        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 > beforePosition }
+        let afterQueue = try await queueState(api: api, identity: identity, source: "Music Home after foreground")
+        XCTAssertEqual(afterQueue.ids, beforeQueue.ids, "Returning to Music Home must preserve queue order.")
+        XCTAssertEqual(afterQueue.currentIndex, beforeQueue.currentIndex, "Returning to Music Home must preserve the selected track.")
+    }
     #endif
 
 }

@@ -44,7 +44,7 @@ from app.routers import jellyfin_books, jellyfin_home, jellyfin_integration, jel
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller, playback_body, playlist_listing, transcript_subtitle
 from app.routers.jellyfin_probes import Caller, Db, entity_or_404, split_csv
 from app.services import activity, cast_photos, screen_time
-from app.services import jellyfin as jf, music_audio
+from app.services import jellyfin as jf, music_audio, music_library
 from app.services import renditions
 from app.services import tmdb
 from app.services.playlists import has_playlists
@@ -61,7 +61,7 @@ from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
 from app.services.media_response import MediaFileResponse, media_content_type
 from app.services.m2ts_irap_index import m2ts_irap_indexes, pair_from_facts
-from app.services.media_titles import from_ticks, parse_item_id
+from app.services.media_titles import from_ticks, parse_item_id, to_ticks
 from app.services.playback_decision import caps_from_device_profile
 from app.services.playback_resources import playback_resources
 from app.services.playback import PlaybackProgressService
@@ -530,6 +530,15 @@ def playback_info(
     stream_grants.put(grant_address(request), [parse_item_id(item_id), *(version.id for version in versions)], caller.token)
     annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, wanted, play_session_id, request)
     for source, version in zip(sources, source_versions, strict=True):
+        if version.kind in ("track", "audio") and (lyric := music_library.local_lyrics(db, version)) and (lyric.cues or lyric.plain):
+            streams = source["MediaStreams"]
+            streams.append({
+                "Index": max((stream["Index"] for stream in streams), default=-1) + 1,
+                "Type": "Lyric", "Codec": "lrc" if lyric.cues else "txt", "DisplayTitle": "Lyrics",
+                "IsDefault": False, "IsForced": False, "IsExternal": True, "IsInterlaced": False,
+                "IsTextSubtitleStream": False, "SupportsExternalStream": False,
+                "AudioSpatialFormat": "None", "IsOriginal": False, "IsHearingImpaired": False,
+            })
         if source.get("LuminaClientPackaging") == "p7_m2ts_to_p81_drop_el":
             source["LuminaM2TSIRAPIndexUrl"] = (
                 f"/Videos/{jf.jid(version.id)}/lumina-m2ts-irap-index?MediaSourceId={jf.jid(version.id)}"
@@ -539,6 +548,20 @@ def playback_info(
             # Players fetch DeliveryUrl without auth headers; Jellyfin appends the caller's ApiKey the same way.
             stream["DeliveryUrl"] += f"?ApiKey={quote(caller.token, safe='')}"
     return {"MediaSources": sources, "PlaySessionId": play_session_id}
+
+
+@router.get("/audio/{item_id}/lyrics")
+def audio_lyrics(item_id: str, user: Caller, db: Db, response: Response) -> dict:
+    track = music_library.visible_tracks(db, user, [parse_item_id(item_id) or item_id])[0]
+    lyric = music_library.local_lyrics(db, track)
+    if lyric is None or not (lyric.cues or lyric.plain):
+        raise HTTPException(404, "Lyrics not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "Metadata": {"IsSynced": bool(lyric.cues)},
+        "Lyrics": [{"Text": cue.text, "Start": to_ticks(cue.start)} for cue in lyric.cues]
+        if lyric.cues else [{"Text": line} for line in lyric.plain.splitlines()],
+    }
 
 
 @stream_router.get("/videos/{item_id}/lumina-m2ts-irap-index")

@@ -1,6 +1,6 @@
 # Finamp compatibility trial
 
-[#354](https://github.com/shiftedx/lumina/issues/354) completed the Finamp compatibility trial. Track InstantMix and offline playback passed on both platforms. The timed lyrics gap is tracked in [#356](https://github.com/shiftedx/lumina/issues/356).
+[#354](https://github.com/shiftedx/lumina/issues/354) completed the Finamp compatibility trial. Track InstantMix and offline playback passed on both platforms. [#356](https://github.com/shiftedx/lumina/issues/356) adds online lyrics compatibility.
 
 ## Source and environment
 
@@ -10,12 +10,12 @@ The official macOS 1.0.2 binary launched on the test host, but automation of its
 
 A subsequent isolated simulator-build attempt used the release's pinned Flutter 3.47.7, locked package dependencies, CocoaPods 1.16.2 and Xcode 27.1. The first build failed because the `flutter_discord_rpc` build requires `rustup`, which was absent. A separate Rust installation under `/tmp` resolved that prerequisite; the retry reached Xcode compilation but was stopped when the combined SDK, package caches, source, Rust toolchain and Xcode DerivedData reached approximately 5.32 GiB, above the 5 GB attempt limit. After the scratch limit was raised to approximately 8 GiB, the incremental debug simulator build succeeded. AXe 1.8.0 was already installed and drove a dedicated iPhone 17 simulator running iOS 26.5. Neither Android `adb` nor an Android emulator was found on the host; no SDK licenses were accepted or system permissions changed.
 
-Finamp's [lyrics API declaration](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api.dart) uses `GET /Audio/{itemId}/Lyrics`. An authenticated protocol replay for the shared fixture's audio track returned HTTP 404 on November 19, 2026. This is a reproducible compatibility gap for the Jellyfin route; it does not establish how the Finamp UI presents the failure. Reproduce against the disposable fixture with a connected-app token and the manifest's `audioTrackID`, without recording the token or response headers.
+Finamp's [lyrics API declaration](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/jellyfin_api.dart) uses `GET /Audio/{itemId}/Lyrics`. Its [Now Playing metadata provider](https://github.com/finamp-app/finamp/blob/e27c7b328f7937a479a1a3ba041e41df378d6e2b/lib/services/metadata_provider.dart) first looks for a `Lyric` media stream in the track's `PlaybackInfo` response. Before #356, the fixture track returned HTTP 404 from the standard lyrics route and both clients disabled the Lyrics control.
 
 | Capability | iOS | Android | Evidence |
 | --- | --- | --- | --- |
 | Login and browse | Passed on simulator | Passed on emulator | Candidate Music view and fixture tracks visible |
-| Timed lyrics | Blocked | Blocked | Online Lyrics control disabled on both. Standard Jellyfin lyrics route returns 404 |
+| Timed lyrics | Passed on simulator | Passed on emulator | Now Playing opened Lyrics and advanced from the 0:00 line to the 0:08 line |
 | Offline download and playback | Passed on simulator | Passed on emulator | Original track, app cold restart with fixture stopped |
 | Playback and reporting | Passed on simulator | Passed on emulator | Player clock advanced and server Start, Progress and Stopped were observed on both |
 | Track InstantMix | Passed on simulator | Passed on emulator | Both clients constructed a two-track queue and played the first track |
@@ -33,7 +33,7 @@ Finamp's track **Instant Mix** action produced a two-track queue, identified the
 
 The client downloaded the first track using **Download original** and stored an AAC file in its application sandbox. With Finamp's Offline Mode enabled, the fixture server was stopped and its port verified closed. After terminating and relaunching Finamp, the downloaded track was selected and played, with its clock advancing beyond six seconds. [Sanitized offline playback screenshot](evidence/finamp/ios-offline-playback.png). This demonstrates a single simulator's cold app restart with the server unreachable, not a physical-device or Android result.
 
-The fixture's first track has timed lyrics on Lumina's native extension, but Finamp's Lyrics control was disabled. The standard Jellyfin lyrics request returned 404 in the separate protocol replay above, so timed lyric display remains blocked. The earlier **No Music Libraries** screenshot records the pre-fix baseline, not the result after `2059287`.
+This trial found the Lyrics control disabled even though the fixture's first track had timed lyrics on Lumina's native extension. The standard Jellyfin lyrics request returned 404 at the time. The **No Music Libraries** screenshot predates `2059287`.
 
 ## Android emulator result
 
@@ -42,6 +42,19 @@ The official Finamp 1.0.2 universal APK (`1.0.2+202`, SHA-256 `094f56265e159fc84
 Finamp signed in, listed the Music library and started Track InstantMix from the first fixture track. Android MediaSession reported a two-track queue and active playback. Finamp downloaded the original track and artwork. After enabling Offline Mode, the fixture was stopped and its port confirmed closed. Finamp was force-stopped, reopened and played the downloaded AAC track from local storage. MediaSession reported active playback at 18,876 ms and Finamp displayed “Locally Playing”. [Sanitized Android screenshot](evidence/finamp/android-offline-playback.png).
 
 On a fresh fixture, album and artist InstantMix each started a two-item queue and advanced the playback clock. Server records showed the initial progress row, an updated position at 59 seconds, and a completed playback history row after a normal track transition. While online and playing the first fixture track, the Lyrics control remained disabled and tapping it left the player unchanged.
+
+## Online lyrics retest
+
+The Jellyfin compatibility route serves the track's scanned or edited library lyrics. Timed lines use Jellyfin's 100 ns ticks after Lumina applies any LRC offset. Plain lines omit the start value. `PlaybackInfo` advertises a separate `Lyric` stream when the approved track has lyrics. Missing and inaccessible lyrics return the same empty HTTP 404. Provider fallback remains available on the Lumina-specific route.
+
+On November 24, 2026, Finamp 1.0.2 (202) signed in to the disposable #343 fixture, opened **Signals from a Quiet Observatory**, and played **First Light in the Listening Room** online using direct AAC. In Now Playing, both clients opened **Lyrics** and highlighted the second cue when playback advanced past 0:08 without seeking.
+
+| Client | Runtime | Playback positions | Evidence |
+| --- | --- | --- | --- |
+| iOS debug simulator build from the tagged source | iPhone 17, iOS 26.5 | 0:02 → 0:12 | [Player captures](evidence/finamp/ios-timed-lyrics.png) |
+| Official Android APK | ARM64 emulator, Android 15 / API 35 | 0:01 → 0:10 | [Player captures](evidence/finamp/android-timed-lyrics.png) |
+
+`backend/tests/test_jellyfin_music_native.py` exercises lyric discovery and retrieval, including timed and untimed wire formats, a library edit, missing lyrics, unauthenticated requests, and member visibility.
 
 ## Server contract and replay
 
@@ -55,4 +68,4 @@ mise exec -- backend/.venv/bin/python scripts/e2e/verify_finamp_instant_mix.py "
 
 On November 19, 2026 this passed against the loopback server: Finamp-shaped requests for track, album and artist seeds, Audio DTOs, seed ordering, limits, and private seed isolation between the owner and member. The private manifest and credentials stay local. Backend contract tests also cover unauthenticated and cross-member requests, missing and empty seeds, and the legacy user path. This replay does not test Finamp parsing or playback.
 
-Remaining claims require real-client proof for timed lyrics and additional mix seeds where the client exposes the action. Reproduce status and any parsing or playback failure against the shared fixture. Keep tokens, fixture credentials and private media out of evidence. Genre and collection InstantMix need separate contract and behavior work before support is claimed.
+Genre and collection InstantMix need separate contract and behavior work before support is claimed. Keep tokens, fixture credentials and private media out of evidence.

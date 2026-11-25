@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicEditBatch, MusicTrackOverride, PlaybackProgress, User, utcnow
 from app.media_schemas import TitleSummary
-from app.music_schemas import MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit
+from app.music_schemas import MusicLyrics, MusicQueueRequest, MusicReleaseCreate, MusicTrack, MusicTrackEdit
 from app.persistence import write_transaction
 from app.services import library_search
 from app.services.library import LibraryService
 from app.services.media_probe import loudness_gain_db
+from app.services.music_providers import parse_lyrics
 from app.services.titles import TitleService, image_url
 
 TRACK_FIELDS = frozenset({"title", "artist", "album_artist", "album_id", "track_number", "disc_number", "genres", "lyrics", "gain_db"})
@@ -79,6 +80,15 @@ def track_fields(item: LibraryItem, override: MusicTrackOverride | None) -> dict
     }
     fields["track_number"], fields["disc_number"] = _integer(fields["track_number"]), _integer(fields["disc_number"])
     return fields
+
+
+def local_lyrics(db: Session, item: LibraryItem) -> MusicLyrics | None:
+    """Return library lyrics or an explicit empty edit, before provider fallback."""
+    override = db.get(MusicTrackOverride, item.id)
+    text = track_fields(item, override)["lyrics"]
+    if isinstance(text, str) and (text or (override and "lyrics" in (override.fields or {}))):
+        return parse_lyrics(text, source="Your library")
+    return None
 
 
 def _integer(value: Any) -> int | None:

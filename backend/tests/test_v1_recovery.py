@@ -1,6 +1,7 @@
 """Verifiable online backups and an offline, verified, reversible restore."""
 from __future__ import annotations
 
+import asyncio
 from contextlib import ExitStack, closing
 from datetime import UTC, datetime, timedelta
 import fcntl
@@ -12,6 +13,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 from typing import Any
 from urllib.parse import quote
 
@@ -25,6 +27,7 @@ from app import db as db_module
 from app.config import settings
 from app.db import get_db, init_db
 from app.main import app
+from app.persistence import write_transaction
 from app.models import (
     ArrServer,
     DeviceToken,
@@ -555,3 +558,93 @@ def test_restored_database_is_private_like_the_backup(admin, tmp_path) -> None: 
     target = tmp_path / "restored"
     restore(backups.backup_root() / f"{name}.db", target)
     assert (target / settings.database_filename).stat().st_mode & 0o077 == 0  # every password hash lives here
+
+
+def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatch) -> None:
+    from app import main
+    from app.services import library_import
+    from app.services.probe_warming import ProbeWarming
+
+    name = backups.create_backup()["name"]
+    data_dir = settings.data_dir
+    backup = backups.backup_root() / f"{name}.db"
+    live = data_dir / settings.database_filename
+    fault = RuntimeError("injected failure after probe warming started")
+    writing = threading.Event()
+    allow_commit = threading.Event()
+    warming = ProbeWarming()
+    stop_warming = warming.stop
+
+    def write_probe_result() -> bool:
+        with db_module.SessionLocal() as db, write_transaction(db, name="test-startup-writer"):
+            db.get(User, "u1").display_name = "Committed during startup"
+            db.flush()
+            writing.set()
+            if not allow_commit.wait(timeout=20):
+                raise TimeoutError("test did not release the probe writer")
+        return False
+
+    def fail_start() -> None:
+        assert writing.wait(timeout=5), "probe warming never reached its SQLite write"
+        raise fault
+
+    def try_restore() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "app.restore", str(backup), "--data-dir", str(data_dir)],
+            cwd=Path(__file__).parents[1],
+            env={**os.environ, "LUMINA_DATA_DIR": str(data_dir)},
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+
+    monkeypatch.setattr(library_import, "after_import_hooks", list(library_import.after_import_hooks))
+    monkeypatch.setattr(main, "probe_warming", warming)
+    monkeypatch.setattr(warming, "run_once", write_probe_result)
+    monkeypatch.setattr(main.m2ts_irap_indexes, "start", fail_start)
+
+    async def exercise():
+        cleanup_or_failure = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def stop() -> None:
+            loop.call_soon_threadsafe(cleanup_or_failure.set)
+            stop_warming()
+
+        monkeypatch.setattr(warming, "stop", stop)
+
+        async def start():
+            with pytest.raises(RuntimeError) as caught:
+                async with main.lifespan(app):
+                    pytest.fail("failed startup entered the serve phase")
+            return caught.value, warming._thread.is_alive()
+
+        startup = asyncio.create_task(start())
+        startup.add_done_callback(lambda _: cleanup_or_failure.set())
+        try:
+            await asyncio.wait_for(cleanup_or_failure.wait(), timeout=8)
+            refused = await asyncio.to_thread(try_restore)
+        finally:
+            allow_commit.set()
+            try:
+                failure, writer_alive_at_failure = await asyncio.wait_for(startup, timeout=8)
+            finally:
+                # Also reap the fixture worker when the implementation leaks it.
+                stop_warming()
+        return failure, writer_alive_at_failure, refused
+
+    failure, writer_alive_at_failure, refused = asyncio.run(exercise())
+    assert failure is fault and failure.__traceback__ is not None
+    assert refused.returncode != 0 and "Stop it before restoring." in refused.stderr
+    assert not list(data_dir.glob(f"{settings.database_filename}.pre-restore-*"))
+
+    db_module.engine.dispose()
+    restored = try_restore()
+    assert restored.returncode == 0, restored.stderr
+    assert not writer_alive_at_failure, "startup raised before the SQLite writer had exited"
+
+    kept, = data_dir.glob(f"{settings.database_filename}.pre-restore-*")
+    with closing(sqlite3.connect(kept)) as previous, closing(sqlite3.connect(live)) as current:
+        assert previous.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Committed during startup",)
+        assert current.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Owner",)

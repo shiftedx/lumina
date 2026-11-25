@@ -674,5 +674,5 @@ def test_failed_startup_drains_a_writer_before_offline_restore(admin, monkeypatc
             assert previous.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Committed during startup",)
             assert current.execute("SELECT display_name FROM users WHERE id = 'u1'").fetchone() == ("Owner",)
     finally:
-        for handle in retained_locks.values():
-            handle.close()
+        for descriptor in retained_locks.values():
+            os.close(descriptor)

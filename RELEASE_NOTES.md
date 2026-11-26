@@ -1,5 +1,17 @@
 # Release notes
 
+## Lumina 0.7.2
+
+- **Music Home:** Customize shelves, resume a shared queue, preview instant mixes, append or replace the queue, and save mixes as playlists. Download albums for offline listening in the browser on HTTPS or loopback. To use the previous music browse experience, set `LUMINA_MUSIC_REWORK_ENABLED=false` with the 0.7.2 Compose file.
+- **Finamp:** Serve timed and plain lyrics from the Lumina library through the optional Jellyfin-compatible API.
+- **Video playback:** Start HLS playback when the first buffered range begins just after the requested position.
+- **Folder watching:** Carry pending directory listings into the next scan batch when slow storage uses up the current batch’s time budget.
+- **Watch:** Retire Idea Graph. Existing graph results stay in the database.
+- **Database restore:** Hold the restore lock until background writers have stopped, including when shutdown takes longer than expected.
+- **Native preview source:** Includes Music Home, mix controls, and improved offline queue continuity for preview builds. Native iOS and tvOS builds are distributed separately.
+
+**Upgrade:** Schema remains 44. Back up application data and retain the running image before updating from 0.7.1. If you use the retired `LUMINA_JELLYFIN_PEOPLE_DIR` setting for cast photos, rename it to `LUMINA_PEOPLE_DIR`. See the [operator guide](docker/README.md#upgrades).
+
 ## Lumina 0.7.1
 
 - **Lidarr libraries:** Observe albums by artist so larger collections can refresh without exceeding a single-response limit. Reads retain per-response and aggregate limits, validate identities, and share a cancellable five-minute deadline. Failed or incomplete observations preserve the last successful snapshot.

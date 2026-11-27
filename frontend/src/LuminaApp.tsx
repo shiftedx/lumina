@@ -5,7 +5,7 @@ import { StreamingProvidersProvider, type OptionalProvider } from './features/st
 import { SurfaceBoundary } from './app/SurfaceBoundary';
 import { type ComponentType, type ReactNode, lazy, Suspense, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { ApiRequestError, keepaliveWritesSettled, updateDisplayName, clearSearchHistory, deleteSearchHistoryEntry, getSearchHistory, recordSearchHistory, redeemInvitation, redeemPasswordReset, cancelJob, clearCompletedJobs, clearPlaybackProgress, completeOnboarding, createAutomation, createInitialAdmin, createLibraryTag, deleteAutomation, deleteLibraryTag, getChannelSuggestions, getHomeRecommendations, getLibraryItem, getLiveDiscovery, getMemberInterests, getPlaybackProgress, getPopularDiscovery, getSuppressions, hideContinueWatching, listAutomations, listLibraryTags, loginSession, logoutSession, pauseAutomation, restoreSuppression, resumeAutomation, retryAcquisitionEntry, retryJob, runAutomation, searchChannels, searchLibrary, setAutomationAutoDownload, sourceSearch, skipOnboarding, suppressRecommendation, unhideContinueWatching, updateLibraryItemVisibility, updateMemberInterests, updateMySettings, updatePlaybackProgress } from './api';
+import { ApiRequestError, keepaliveWritesSettled, updateDisplayName, clearSearchHistory, deleteSearchHistoryEntry, getSearchHistory, recordSearchHistory, redeemInvitation, redeemPasswordReset, cancelJob, clearCompletedJobs, clearPlaybackProgress, completeOnboarding, createAutomation, createLibraryTag, deleteAutomation, deleteLibraryTag, getChannelSuggestions, getHomeRecommendations, getLibraryItem, getLiveDiscovery, getMemberInterests, getPlaybackProgress, getPopularDiscovery, getSuppressions, hideContinueWatching, listAutomations, listLibraryTags, loginSession, logoutSession, pauseAutomation, restoreSuppression, resumeAutomation, retryAcquisitionEntry, retryJob, runAutomation, searchChannels, searchLibrary, setAutomationAutoDownload, sourceSearch, skipOnboarding, suppressRecommendation, unhideContinueWatching, updateLibraryItemVisibility, updateMemberInterests, updateMySettings, updatePlaybackProgress } from './api';
 import { type SearchHistoryEntry, type CategoryChannelSuggestions, type ChannelCandidate, type DownloadJob, type FollowChannelRequest, type LibraryItem, type LiveSnapshot, type SearchSourceError, type WatchQueueEntry, type MemberInterests, type MemberOnboardingState, type MemberRecommendationSnapshot, type OnboardingStatus, type PlaybackProgress, type PopularSnapshot, type RemotePlaybackCachePreferences, type SourceAutomation, type SuppressRecommendationInput, type SuppressionList, type TitleCategory, type TitleSummary, type TitleType, type UserProfile, type UserTag, type YouTubeSearchResult } from './types';
 import { flushRecoEvents, recordRecoOpen, resetRecoEvents } from './features/reco/recoEvents';
 import { RecoFeedbackProvider } from './features/reco/recoFeedback';
@@ -60,6 +60,7 @@ import { holdBackground } from './backgroundGate';
 import { markNavigation, notePlayIntent, takePlayIntent } from './perfMetrics';
 import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup, prefetchPlaybackOptions } from './playbackPrefetch';
 import { AuthScreen, OAUTH_ERROR_MESSAGE, readAccountLink, readOAuthCallback } from './features/auth/AuthScreen';
+import { setupFirstOwner } from './features/auth/setupFirstOwner';
 import { resetDeviceRing, ringCall } from './features/auth/deviceRing';
 import { MemberPickerHost } from './features/auth/memberPicker';
 import { completeAdminMediaSetup } from './api';
@@ -788,7 +789,6 @@ export default function LuminaApp() {
 
   async function finishTwoFactor() { setTwoFactorChallenge(null); authFocusRequestedRef.current = true; resetDeviceRing(); await workspace.loadAuthenticated(); }
   const twoFactor = twoFactorChallenge ? { challenge: twoFactorChallenge, onVerified: finishTwoFactor, onBack: (message?: string) => { setTwoFactorChallenge(null); setError(message ?? null); } } : null;
-
   async function handleLogin(username: string, password: string, rememberOnDevice = false) {
     setAuthBusy(true); setError(null);
     authFocusRequestedRef.current = true;
@@ -801,12 +801,15 @@ export default function LuminaApp() {
       setError(loginError instanceof ApiRequestError && loginError.status === 429 ? 'Too many attempts. Try again in a minute.' : loginError instanceof Error ? loginError.message : 'Unable to sign in');
     } finally { setAuthBusy(false); }
   }
-
   async function handleSetup(username: string, displayName: string, password: string) {
     setAuthBusy(true); setError(null);
     authFocusRequestedRef.current = true;
-    try { await createInitialAdmin({ username: username.trim(), display_name: displayName.trim() || username.trim(), password }); await loginSession({ username: username.trim(), password }); await workspace.loadAuthenticated(); }
-    catch (setupError) { authFocusRequestedRef.current = false; setError(setupError instanceof Error ? setupError.message : 'Unable to create the vault'); }
+    try {
+      if (await setupFirstOwner({ username: username.trim(), display_name: displayName.trim() || username.trim(), password }, workspace.loadAuthenticated) === 'sign-in') {
+        authFocusRequestedRef.current = false; setError('The owner account is ready. Sign in to continue setup.');
+        workspace.dispatch({ type: 'public/resolved', bootstrapStatus: { needs_setup: false } });
+      }
+    } catch (setupError) { authFocusRequestedRef.current = false; setError(setupError instanceof Error ? setupError.message : 'Unable to create the vault'); }
     finally { setAuthBusy(false); }
   }
 

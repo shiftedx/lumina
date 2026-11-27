@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -44,12 +48,61 @@ def test_fresh_database_matches_the_current_schema_snapshot_and_restarts(tmp_pat
         assert connection.scalar(text("SELECT value FROM app_maintenance_state WHERE key = 'restart-proof'")) == "kept"
 
 
+@pytest.mark.parametrize("header_only", [False, True])
+def test_startup_initializes_an_empty_database_file(header_only: bool) -> None:
+    database = settings.data_dir / settings.database_filename
+    database.touch()
+    if header_only:
+        with closing(sqlite3.connect(database)) as connection:
+            assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        assert database.stat().st_size > 0
+    with pytest.raises(db_module.SchemaVersionError, match="schema version 0"):
+        db_module.validate_database_file(database)
+
+    db_module.init_db()
+    db_module.validate_database_file(database)
+
+
+@pytest.mark.parametrize("interrupt_at", [1, 40])
+def test_interrupted_first_start_can_restart(interrupt_at: int) -> None:
+    interrupted = subprocess.run(
+        [sys.executable, "-c", """
+import os
+import sys
+from sqlalchemy import event
+from app.db import engine, init_db
+
+remaining = int(sys.argv[1])
+
+@event.listens_for(engine, "before_cursor_execute")
+def interrupt_schema_creation(_conn, _cursor, statement, *_args):
+    global remaining
+    if statement.lstrip().startswith("CREATE TABLE"):
+        remaining -= 1
+        if remaining == 0:
+            os._exit(23)
+
+init_db()
+""", str(interrupt_at)],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "LUMINA_DATA_DIR": str(settings.data_dir)},
+        timeout=30,
+    )
+    assert interrupted.returncode == 23
+    database = settings.data_dir / settings.database_filename
+    assert database.is_file()
+    db_module.init_db()
+    db_module.validate_database_file(database)
+
+
 @pytest.mark.parametrize(
     "script",
     [
         "PRAGMA user_version = 43; CREATE TABLE users (id TEXT PRIMARY KEY);",
         "PRAGMA user_version = 45; CREATE TABLE users (id TEXT PRIMARY KEY);",
         "CREATE TABLE users (id TEXT PRIMARY KEY);",
+        "CREATE VIEW legacy_view AS SELECT 1;",
+        "PRAGMA user_version = 43;",
     ],
 )
 def test_unsupported_or_unstamped_database_is_refused_before_mutation(tmp_path, monkeypatch, script) -> None:  # noqa: ANN001

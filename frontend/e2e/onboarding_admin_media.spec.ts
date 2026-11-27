@@ -123,6 +123,45 @@ test('first account resumes media setup before Home and persists the choice to f
   expect(completeAttempts).toBe(2);
 });
 
+for (const droppedResponse of ['account creation', 'sign-in']) {
+  test(`first owner can sign in after a dropped ${droppedResponse} response`, async ({ page }) => {
+    await mockApi(page, {});
+    let accountCreated = false;
+    let signedIn = false;
+    let creationAttempts = 0;
+    let signInAttempts = 0;
+    const owner = { ...user, onboarding_status: 'pending', vault_setup_pending: true };
+    await page.route('**/api/bootstrap/status', (route) => route.fulfill({ json: { needs_setup: !accountCreated } }));
+    await page.route('**/api/bootstrap/admin', (route) => {
+      creationAttempts++;
+      if (accountCreated) return route.fulfill({ status: 409, json: { detail: 'Initial admin has already been created' } });
+      accountCreated = true;
+      return droppedResponse === 'account creation' ? route.abort('connectionreset') : route.fulfill({ status: 201, json: owner });
+    });
+    await page.route('**/api/session/login', (route) => {
+      signInAttempts++;
+      if (droppedResponse === 'sign-in' && signInAttempts === 1) return route.abort('connectionreset');
+      signedIn = true;
+      return route.fulfill({ json: { user: owner } });
+    });
+    await page.route('**/api/session/me', (route) => route.fulfill(signedIn ? { json: { user: owner } } : { status: 401, json: { detail: 'not authenticated' } }));
+    await page.route('**/api/admin/onboarding/media', (route) => route.fulfill({ json: { mount_parents: ['/media'] } }));
+    await page.route('**/api/admin/storage/roots', (route) => route.fulfill({ json: [] }));
+    await page.route('**/api/admin/imports', (route) => route.fulfill({ json: [] }));
+
+    await page.goto('/');
+    await page.getByLabel('Username').fill('fixture-owner');
+    await page.getByLabel('Password', { exact: true }).fill('fixture-long-passphrase');
+    await page.getByRole('button', { name: 'Create household vault' }).click();
+    await expect(page.getByText('The owner account is ready. Sign in to continue setup.')).toBeVisible();
+    await page.getByLabel('Username').fill('fixture-owner');
+    await page.getByLabel('Password', { exact: true }).fill('fixture-long-passphrase');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
+    expect(creationAttempts).toBe(1);
+  });
+}
+
 for (const role of ['admin', 'viewer']) {
   test(`${role} member without the first-owner marker opens Home without Streaming setup`, async ({ page }) => {
     await mockApi(page, {});

@@ -460,6 +460,8 @@ Email artwork uses versioned public assets from the configured public address. K
 
 ## Backups and restore
 
+At startup, Lumina initializes an unstamped `app.db` with no schema objects. Schema creation and the version stamp commit together, so an interruption during first startup can be retried by restarting the server.
+
 **Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs. Backup creation validates the copied schema before publishing the backup. A daily automatic backup keeps the newest 7. **Verify** re-checks the checksum, integrity and schema-44 version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Manage Server → AI features after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
 
 Media is not in these backups. Neither are on-device models (`app-data/models/`); they re-download from Settings if lost. Back up `app-data/library/` and managed roots with your usual file tooling, and mount every root at the same container path before restoring.

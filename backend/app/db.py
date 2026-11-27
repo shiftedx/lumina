@@ -135,6 +135,16 @@ def validate_database_file(path: Path) -> None:
         validate_database_schema(copy)
 
 
+def _needs_schema_creation(path: Path) -> bool:
+    if not path.exists():
+        return True
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as copy:
+        if copy.execute("PRAGMA user_version").fetchone()[0] == 0 and copy.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone() is None:
+            return True
+        validate_database_schema(copy)
+        return False
+
+
 def init_db() -> None:
     """Create the current schema on an empty database and validate a stamped current database."""
     from app.services.library_search import ensure_search_index
@@ -145,10 +155,10 @@ def init_db() -> None:
 
     init_storage()
     database = settings.data_dir / settings.database_filename
-    if database.exists():
-        validate_database_file(database)
-    else:
+    if _needs_schema_creation(database):
         with engine.begin() as connection:
+            # sqlite3's legacy transaction mode does not begin a transaction for DDL.
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
             Base.metadata.create_all(bind=connection)
             connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
     ensure_search_index(engine)

@@ -1,5 +1,12 @@
 # Release notes
 
+## Lumina 0.7.3
+
+- **First startup** · Initialize empty `app.db` files. Commit schema creation and its version stamp together so a restart can retry interrupted first startup. [#411](https://github.com/shiftedx/lumina/issues/411)
+- **Owner setup** · Open sign-in if account creation succeeded but setup was interrupted. Sign in to resume onboarding without reloading. [#412](https://github.com/shiftedx/lumina/issues/412)
+- **Upgrade** · Schema 44. Back up application data and retain the running image before updating. [Operator guide](https://github.com/shiftedx/lumina/blob/main/docker/README.md#upgrades)
+- **Credit** · [@l0cs](https://github.com/l0cs) for both reports and proposed fixes.
+
 ## Lumina 0.7.2
 
 - **Music Home:** Customize shelves, resume a shared queue, preview instant mixes, append or replace the queue, and save mixes as playlists. Download albums for offline listening in the browser on HTTPS or loopback. To use the previous music browse experience, set `LUMINA_MUSIC_REWORK_ENABLED=false` with the 0.7.2 Compose file.
